@@ -1,0 +1,30 @@
+/**
+ * Renderer 全体の最小リセット。
+ *
+ * ブラウザ既定のスタイル（body の余白、ウィンドウ全体のスクロール）は、
+ * ウィンドウいっぱいにパネルを敷き詰めるアプリでは邪魔にしかならないため、ここで打ち消す。
+ *
+ * ここに置くのは「アプリ全体の土台」に相当するものだけに留める。
+ * パネルの配色やテーマ変数は Dockable UI を実装する段階で別途設計する。
+ */
+
+:root {
+  /* スクロールバーやフォーム部品を含め、OS 側の描画もダーク基調に揃える。 */
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  /* スクロールは各パネルが自分の内側で持つ。ウィンドウ全体はスクロールさせない。 */
+  overflow: hidden;
+  /* 描画前に見える色（BrowserWindow の backgroundColor）と揃えること。 */
+  background: #1e1e1e;
+  color: #d4d4d4;
+  font-family: 'Segoe UI', sans-serif;
+}

@@ -1,0 +1,23 @@
+# Prettier (endOfLine: lf) と .editorconfig (end_of_line = lf) に合わせ、
+# Windows の core.autocrlf=true による CRLF 変換を無効化する。
+# これがないと clone 直後に format:check が全ファイルで失敗する。
+* text=auto eol=lf
+
+# バイナリ扱い (改行変換・差分表示を行わない)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.icns binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.exe binary
+*.dll binary
+*.node binary
+*.asar binary
+
+# 生成物のため差分をレビュー対象から外す
+package-lock.json linguist-generated=true -diff
