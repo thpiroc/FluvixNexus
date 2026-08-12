@@ -11,7 +11,9 @@ import type { IpcChannel } from './contract'
  */
 export const IPC_CHANNELS = {
   SYSTEM_PING: 'system:ping',
-  SYSTEM_APP_INFO: 'system:app-info'
+  SYSTEM_APP_INFO: 'system:app-info',
+  WORKSPACE_LOAD_LAYOUT: 'workspace:load-layout',
+  WORKSPACE_SAVE_LAYOUT: 'workspace:save-layout'
 } as const satisfies Record<string, IpcChannel>
 
 /**

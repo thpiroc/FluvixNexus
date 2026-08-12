@@ -5,12 +5,24 @@
  * ウィンドウいっぱいにパネルを敷き詰めるアプリでは邪魔にしかならないため、ここで打ち消す。
  *
  * ここに置くのは「アプリ全体の土台」に相当するものだけに留める。
- * パネルの配色やテーマ変数は Dockable UI を実装する段階で別途設計する。
+ * 配色・間隔の値は styles/theme.css が持ち、ここでは変数を参照するだけにする。
+ * 画面の構造（領域の並び・パネルの枠）は workspace/workspace.css の責務。
  */
 
 :root {
   /* スクロールバーやフォーム部品を含め、OS 側の描画もダーク基調に揃える。 */
   color-scheme: dark;
+}
+
+/*
+ * パネルのサイズは「枠線を含めた外側の大きさ」で扱う。
+ * レイアウトが持つサイズ値と実際の占有幅がずれると、
+ * リサイズやレイアウトの保存・復元でその差が積み上がっていくため。
+ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }
 
 html,
@@ -24,7 +36,7 @@ body {
   /* スクロールは各パネルが自分の内側で持つ。ウィンドウ全体はスクロールさせない。 */
   overflow: hidden;
   /* 描画前に見える色（BrowserWindow の backgroundColor）と揃えること。 */
-  background: #1e1e1e;
-  color: #d4d4d4;
+  background: var(--fx-color-app-bg);
+  color: var(--fx-color-text);
   font-family: 'Segoe UI', sans-serif;
 }

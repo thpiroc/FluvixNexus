@@ -1,4 +1,5 @@
 import type { SystemIpcContract } from './contracts/system'
+import type { WorkspaceIpcContract } from './contracts/workspace'
 import type { IpcResult } from './result'
 
 /**
@@ -21,7 +22,7 @@ import type { IpcResult } from './result'
  * IpcEventContract として対の形で定義する（STEP 2 の Terminal 着手時に追加する）。
  * 要求と応答の型付けをここで完結させてあるため、同じ作り方をイベント側にも適用できる。
  */
-export interface IpcContract extends SystemIpcContract {}
+export interface IpcContract extends SystemIpcContract, WorkspaceIpcContract {}
 
 /** 有効な IPC チャンネル名。契約に定義されたものだけが存在しうる。 */
 export type IpcChannel = keyof IpcContract & string

@@ -1,4 +1,5 @@
 import { registerSystemHandlers } from './handlers/system'
+import { registerWorkspaceHandlers } from './handlers/workspace'
 
 /**
  * Main 側の IPC ハンドラ登録の入り口。
@@ -8,8 +9,9 @@ import { registerSystemHandlers } from './handlers/system'
  * Files / Terminal / GitHub を実装する際も、この構造を維持すること。
  */
 const handlerRegistrations: readonly (() => void)[] = [
-  registerSystemHandlers
-  // registerFilesHandlers,    ← STEP 2 以降で追加
+  registerSystemHandlers,
+  registerWorkspaceHandlers
+  // registerFilesHandlers,    ← STEP 3 で追加
   // registerTerminalHandlers,
   // registerGitHubHandlers,
 ]

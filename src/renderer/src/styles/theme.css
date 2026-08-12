@@ -1,0 +1,49 @@
+/**
+ * テーマ変数。
+ *
+ * 色・間隔・文字サイズの決定をここ1箇所に集める。
+ * パネルは自由に配置を変えられる以上、どこに置かれても同じ見た目になる必要があり、
+ * 個々のコンポーネントが自前の色を持つとその前提が崩れる。
+ *
+ * 命名は --fx-<種別>-<役割>。値の直接指定（#333 など）はこのファイルの中だけに留める。
+ * ライトテーマを足す場合も、このファイルに別の変数セットを置く形で対応する。
+ */
+
+:root {
+  /* 面。奥から手前へ sunken → base → raised の順で明るくする。 */
+  --fx-color-app-bg: #1e1e1e;
+  --fx-color-surface-sunken: #181818;
+  --fx-color-surface: #1e1e1e;
+  --fx-color-surface-raised: #252526;
+  --fx-color-surface-hover: #2d2d2d;
+
+  --fx-color-border: #333333;
+  --fx-color-border-strong: #3c3c3c;
+
+  --fx-color-text: #d4d4d4;
+  --fx-color-text-muted: #8a8a8a;
+  --fx-color-text-faint: #6a6a6a;
+  --fx-color-text-strong: #ffffff;
+  --fx-color-danger: #e08a8a;
+
+  /*
+   * パネルの識別色（DESIGN.md §3）。
+   * ダーク基調を壊さないよう彩度は低く保ち、面ではなく細い線としてだけ使う。
+   */
+  --fx-accent-neutral: #6e6e6e;
+  --fx-accent-blue: #4f7fa8;
+  --fx-accent-green: #4f8a5f;
+  --fx-accent-orange: #b0834f;
+
+  --fx-space-1: 4px;
+  --fx-space-2: 8px;
+  --fx-space-3: 12px;
+  --fx-space-4: 16px;
+
+  --fx-font-size-sm: 12px;
+  --fx-font-size-md: 13px;
+
+  /* パネルの枠に共通で使う高さ。タブとステータスバーで揃える。 */
+  --fx-tabbar-height: 30px;
+  --fx-bar-height: 26px;
+}

@@ -1,0 +1,584 @@
+/**
+ * Workspace Shell の見た目。
+ *
+ * 扱うのは「枠」だけ（領域の並び、パネルの器、タブ、上下のバー）。
+ * 各パネルの中身のスタイルはパネル側が持つ。
+ *
+ * 領域のサイズは JSX 側から inline style で入る（レイアウトデータが持つ値のため）。
+ * ここに書くのは、サイズに依存しない構造と配色に限る。
+ *
+ * 色・間隔は styles/theme.css の変数を使い、ここで生の値を書かないこと。
+ */
+
+.fx-workspace {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--fx-color-app-bg);
+  color: var(--fx-color-text);
+  font-size: var(--fx-font-size-md);
+}
+
+/*
+ * パネルをドラッグしている間。
+ * 文字の選択が始まるとドラッグの見た目が壊れるため、画面全体で選択を止める。
+ */
+.fx-workspace[data-dragging='true'] {
+  cursor: grabbing;
+  user-select: none;
+}
+
+/*
+ * 境界をドラッグしている間。
+ *
+ * カーソルの形を画面全体に掛けるのは、掴み手（数 px）から外れても
+ * 「今リサイズ中である」ことが見た目で切れないようにするため。
+ * Pointer Capture により、外れても操作自体は続いている。
+ */
+.fx-workspace[data-resizing='row'] {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.fx-workspace[data-resizing='column'] {
+  cursor: row-resize;
+  user-select: none;
+}
+
+/* 上部領域 */
+
+.fx-topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--fx-space-3);
+  flex: 0 0 auto;
+  height: var(--fx-bar-height);
+  padding: 0 var(--fx-space-3);
+  background: var(--fx-color-surface-raised);
+  border-bottom: 1px solid var(--fx-color-border);
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-topbar__title {
+  color: var(--fx-color-text);
+}
+
+.fx-topbar__slot {
+  color: var(--fx-color-text-faint);
+}
+
+.fx-topbar__spacer {
+  flex: 1;
+}
+
+.fx-topbar__button {
+  padding: 2px var(--fx-space-2);
+  color: var(--fx-color-text);
+  background: var(--fx-color-surface-raised);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  font: inherit;
+  font-size: var(--fx-font-size-sm);
+  cursor: pointer;
+}
+
+.fx-topbar__button:hover:enabled {
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-topbar__button:disabled {
+  color: var(--fx-color-text-faint);
+  border-color: var(--fx-color-border);
+  cursor: default;
+}
+
+.fx-topbar__button[data-open='true'] {
+  background: var(--fx-color-surface-hover);
+  border-color: var(--fx-color-border-strong);
+}
+
+/*
+ * ドロップダウンメニュー（View / Layout）。
+ *
+ * 上部バーの中で開くため、バーの高さに影響しないよう絶対配置で外へ出す。
+ * 領域のリサイズやドロップガイドより手前に出す必要があるので、z-index はそれらより上。
+ */
+
+.fx-menu {
+  position: relative;
+  display: flex;
+}
+
+.fx-menu__list {
+  position: absolute;
+  top: calc(100% + var(--fx-space-1));
+  left: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+  padding: var(--fx-space-1) 0;
+  background: var(--fx-color-surface-raised);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+}
+
+.fx-menu__item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--fx-space-2);
+  padding: var(--fx-space-1) var(--fx-space-3) var(--fx-space-1) var(--fx-space-2);
+  color: var(--fx-color-text);
+  background: transparent;
+  border: none;
+  font: inherit;
+  font-size: var(--fx-font-size-sm);
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.fx-menu__item:hover {
+  background: var(--fx-color-surface-hover);
+}
+
+/* 印の場所は常に取っておく（選択のたびに文字がずれないように）。 */
+.fx-menu__mark {
+  flex: 0 0 auto;
+  width: 12px;
+  color: var(--fx-color-text-strong);
+}
+
+.fx-menu__label {
+  flex: 1;
+}
+
+.fx-menu__hint {
+  color: var(--fx-color-text-faint);
+}
+
+/* メイン作業領域（レイアウトの木を敷く場所） */
+
+.fx-workspace__main {
+  display: flex;
+  /* 残りの高さをすべて使い、内側のスクロールを効かせるため min-height: 0 が要る。 */
+  flex: 1;
+  min-height: 0;
+}
+
+/*
+ * 分割（レイアウトの木の枝）。
+ *
+ * 並ぶ向きだけをここで決め、各領域の幅・高さは JSX 側から inline style で入る
+ * （レイアウトデータが持つ値のため）。
+ */
+.fx-dock-split {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
+
+.fx-dock-split[data-direction='row'] {
+  flex-direction: row;
+}
+
+.fx-dock-split[data-direction='column'] {
+  flex-direction: column;
+}
+
+/*
+ * 領域の境界（リサイズの掴み手）。
+ *
+ * 隣り合う領域の切れ目を示す線であり、同時にドラッグして掴む場所でもある。
+ * 見た目は 1px の線のまま、掴める幅だけを広く取りたいので、
+ * 要素自体は太さを持たせて透明にし、中央に 1px の線を描く。
+ *
+ * 太さは JS 側から --fx-dock-handle-thickness で入る。
+ * リサイズの可動範囲の計算にも同じ値が要るため、正本は
+ * layout/constraints.ts が持つ（WorkspaceShell.tsx が流す）。
+ */
+.fx-dock-resize-handle {
+  position: relative;
+  flex: 0 0 auto;
+  /* 隣の領域が overflow: hidden で切り取られても、線が隠れないようにする。 */
+  z-index: 1;
+}
+
+.fx-dock-split[data-direction='row'] > .fx-dock-resize-handle {
+  width: var(--fx-dock-handle-thickness);
+  cursor: col-resize;
+}
+
+.fx-dock-split[data-direction='column'] > .fx-dock-resize-handle {
+  height: var(--fx-dock-handle-thickness);
+  cursor: row-resize;
+}
+
+/* 実際に見える線。掴める範囲の中央に置く。 */
+.fx-dock-resize-handle::after {
+  content: '';
+  position: absolute;
+  background: var(--fx-color-border);
+}
+
+.fx-dock-split[data-direction='row'] > .fx-dock-resize-handle::after {
+  inset: 0 auto 0 50%;
+  width: 1px;
+}
+
+.fx-dock-split[data-direction='column'] > .fx-dock-resize-handle::after {
+  inset: 50% 0 auto 0;
+  height: 1px;
+}
+
+/* 掴めることを示す。触れている間と、掴んでいる間。 */
+.fx-dock-resize-handle:hover::after,
+.fx-dock-resize-handle[data-active='true']::after {
+  background: var(--fx-color-border-strong);
+}
+
+.fx-dock-split[data-direction='row'] > .fx-dock-resize-handle:hover::after,
+.fx-dock-split[data-direction='row'] > .fx-dock-resize-handle[data-active='true']::after {
+  inset: 0 25%;
+  width: auto;
+}
+
+.fx-dock-split[data-direction='column'] > .fx-dock-resize-handle:hover::after,
+.fx-dock-split[data-direction='column'] > .fx-dock-resize-handle[data-active='true']::after {
+  inset: 25% 0;
+  height: auto;
+}
+
+/*
+ * パネルをドラッグしている間は掴み手を無効にする。
+ * ドロップ先の判定はカーソル座標だけで決まるため、掴み手が hover の見た目を
+ * 出すと「ここに落ちる」と誤解させる（落ちる先は必ず領域の側）。
+ */
+.fx-workspace[data-dragging='true'] .fx-dock-resize-handle {
+  pointer-events: none;
+}
+
+/* Dock 領域（レイアウトの木の葉） */
+
+.fx-dock-area {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  background: var(--fx-color-surface);
+  /* ドロップ表示（fx-dock-guide）をこの領域の中だけに収めるための基準。 */
+  position: relative;
+  overflow: hidden;
+}
+
+/* すべてのパネルを閉じた状態。root だけがこの形になりうる。 */
+.fx-dock-area--empty {
+  align-items: center;
+  justify-content: center;
+  color: var(--fx-color-text-faint);
+  font-size: var(--fx-font-size-sm);
+}
+
+/*
+ * ドロップ先の表示。
+ *
+ * 出す位置と大きさは、この領域そのものを基準にした割合で決める
+ * （分割の結果は「この領域を半分に割る」ことなので、割合で表せる）。
+ * 目印であって当たり判定ではないため、ポインタイベントは一切受けない。
+ *
+ * 識別色は「運んでいるパネル」のもの（data-accent はドラッグ中のパネルから入る）。
+ * どのパネルを運んでいるかが、置こうとしている場所の側で分かるようにするため。
+ */
+
+.fx-dock-guide {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* ドロップを受け入れる領域であることを、枠の側でも示す。 */
+.fx-dock-guide[data-over='true'] {
+  outline: 1px solid var(--fx-panel-accent);
+  outline-offset: -1px;
+}
+
+/* 落とした結果パネルが占める範囲。 */
+.fx-dock-guide__preview {
+  position: absolute;
+  background: color-mix(in srgb, var(--fx-panel-accent) 22%, transparent);
+  border: 1px solid var(--fx-panel-accent);
+}
+
+.fx-dock-guide__preview[data-zone='center'] {
+  inset: 0;
+}
+
+.fx-dock-guide__preview[data-zone='left'] {
+  inset: 0 50% 0 0;
+}
+
+.fx-dock-guide__preview[data-zone='right'] {
+  inset: 0 0 0 50%;
+}
+
+.fx-dock-guide__preview[data-zone='top'] {
+  inset: 0 0 50% 0;
+}
+
+.fx-dock-guide__preview[data-zone='bottom'] {
+  inset: 50% 0 0 0;
+}
+
+/* 5方向の的。中央に十字で並べる。 */
+.fx-dock-guide__pad {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  grid-template-rows: repeat(3, auto);
+  gap: var(--fx-space-1);
+}
+
+.fx-dock-guide__slot {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  background: var(--fx-color-surface-raised);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+}
+
+.fx-dock-guide__slot[data-zone='top'] {
+  grid-area: 1 / 2;
+}
+
+.fx-dock-guide__slot[data-zone='left'] {
+  grid-area: 2 / 1;
+}
+
+.fx-dock-guide__slot[data-zone='center'] {
+  grid-area: 2 / 2;
+}
+
+.fx-dock-guide__slot[data-zone='right'] {
+  grid-area: 2 / 3;
+}
+
+.fx-dock-guide__slot[data-zone='bottom'] {
+  grid-area: 3 / 2;
+}
+
+/* 的の中の塗り。パネルが入る側を示す。 */
+.fx-dock-guide__fill {
+  position: absolute;
+  background: var(--fx-color-text-faint);
+}
+
+/* 中央は「タブとして加わる」ので、上辺のタブ列だけを示す。 */
+.fx-dock-guide__slot[data-zone='center'] > .fx-dock-guide__fill {
+  inset: 2px 2px auto 2px;
+  height: 5px;
+}
+
+.fx-dock-guide__slot[data-zone='left'] > .fx-dock-guide__fill {
+  inset: 2px 50% 2px 2px;
+}
+
+.fx-dock-guide__slot[data-zone='right'] > .fx-dock-guide__fill {
+  inset: 2px 2px 2px 50%;
+}
+
+.fx-dock-guide__slot[data-zone='top'] > .fx-dock-guide__fill {
+  inset: 2px 2px 50% 2px;
+}
+
+.fx-dock-guide__slot[data-zone='bottom'] > .fx-dock-guide__fill {
+  inset: 50% 2px 2px 2px;
+}
+
+/* 今狙っている方向。 */
+.fx-dock-guide__slot[data-active='true'] {
+  background: var(--fx-color-surface-hover);
+  border-color: var(--fx-panel-accent);
+}
+
+.fx-dock-guide__slot[data-active='true'] > .fx-dock-guide__fill {
+  background: var(--fx-panel-accent);
+}
+
+/* 狙ってはいるが、落としても何も起きない方向。 */
+.fx-dock-guide__slot[data-allowed='false'] {
+  border-color: var(--fx-color-danger);
+}
+
+.fx-dock-guide__slot[data-allowed='false'] > .fx-dock-guide__fill {
+  background: var(--fx-color-danger);
+}
+
+/* パネルの共通コンテナ */
+
+.fx-panel-group {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.fx-panel-group__tabs {
+  display: flex;
+  flex: 0 0 auto;
+  height: var(--fx-tabbar-height);
+  background: var(--fx-color-surface-sunken);
+  border-bottom: 1px solid var(--fx-color-border);
+  /* タブが増えても領域を押し広げない。 */
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.fx-panel-group__body {
+  flex: 1;
+  min-height: 0;
+  /* スクロールはパネルの内側で完結させる（ウィンドウ全体はスクロールさせない）。 */
+  overflow: auto;
+  background: var(--fx-color-surface);
+}
+
+/*
+ * タブ。
+ *
+ * タブ1枚は「切り替えのボタン」と「閉じるボタン」を並べた器。
+ * button を入れ子にできないため器自体は div で、role="tab" もそちらが持つ。
+ */
+
+.fx-panel-tab {
+  display: flex;
+  align-items: stretch;
+  flex: 0 0 auto;
+  color: var(--fx-color-text-muted);
+  /* 手前のタブだけ識別色の線を出す。パネルの見分けはこの線が担う（DESIGN.md §3）。 */
+  border-top: 2px solid transparent;
+  font-size: var(--fx-font-size-sm);
+  white-space: nowrap;
+}
+
+.fx-panel-tab:hover {
+  color: var(--fx-color-text);
+  background: var(--fx-color-surface-hover);
+}
+
+/* 運んでいる最中のタブ。掴んだものがどれか分かるように薄くする。 */
+.fx-panel-tab[data-dragging='true'] {
+  opacity: 0.5;
+}
+
+.fx-panel-tab[data-active='true'] {
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface);
+  border-top-color: var(--fx-panel-accent);
+}
+
+.fx-panel-tab__label {
+  padding: 0 var(--fx-space-1) 0 var(--fx-space-3);
+  color: inherit;
+  background: transparent;
+  border: none;
+  font: inherit;
+  font-size: inherit;
+  cursor: pointer;
+}
+
+/*
+ * 閉じる操作。
+ *
+ * 常に出しておく（hover のときだけ出す形にすると、タブが潰れている領域で
+ * 「閉じられることに気付けない」状態が生まれる）。普段は目立たない濃さにとどめる。
+ */
+.fx-panel-tab__close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  margin-right: var(--fx-space-1);
+  padding: 0;
+  color: var(--fx-color-text-faint);
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  font: inherit;
+  font-size: var(--fx-font-size-sm);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.fx-panel-tab__close:hover {
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface-hover);
+}
+
+/* パネル識別色。data-accent は Registry の定義から入る。 */
+[data-accent='neutral'] {
+  --fx-panel-accent: var(--fx-accent-neutral);
+}
+
+[data-accent='blue'] {
+  --fx-panel-accent: var(--fx-accent-blue);
+}
+
+[data-accent='green'] {
+  --fx-panel-accent: var(--fx-accent-green);
+}
+
+[data-accent='orange'] {
+  --fx-panel-accent: var(--fx-accent-orange);
+}
+
+/* 仮パネルの中身 */
+
+.fx-placeholder {
+  padding: var(--fx-space-3);
+  color: var(--fx-color-text-muted);
+  font-size: var(--fx-font-size-sm);
+  line-height: 1.6;
+}
+
+.fx-placeholder__summary {
+  margin: 0;
+  color: var(--fx-color-text);
+}
+
+.fx-placeholder__caption {
+  margin: var(--fx-space-3) 0 var(--fx-space-1);
+  color: var(--fx-color-text-faint);
+}
+
+.fx-placeholder__list {
+  margin: 0;
+  padding-left: var(--fx-space-4);
+  color: var(--fx-color-text-faint);
+}
+
+/* 下部領域（ステータスバー） */
+
+.fx-statusbar {
+  display: flex;
+  align-items: center;
+  gap: var(--fx-space-3);
+  flex: 0 0 auto;
+  height: var(--fx-bar-height);
+  padding: 0 var(--fx-space-3);
+  background: var(--fx-color-surface-raised);
+  border-top: 1px solid var(--fx-color-border);
+  color: var(--fx-color-text-muted);
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-statusbar__spacer {
+  flex: 1;
+}
+
+.fx-statusbar__item {
+  white-space: nowrap;
+}

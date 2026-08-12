@@ -3,6 +3,7 @@ import { registerIpcHandlers } from '../ipc'
 import { createLogger } from '../logger'
 import { isMacOS } from '../platform'
 import { applySessionSecurityPolicy, applyWebContentsSecurityPolicy } from '../security'
+import { flushWorkspaceLayoutDocument } from '../store/workspaceLayout'
 import { createMainWindow, focusMainWindow, getMainWindow } from '../windows/mainWindow'
 import { applyApplicationMenu } from './menu'
 
@@ -50,6 +51,13 @@ export function bootstrapApp(): void {
         createMainWindow()
       }
     })
+  })
+
+  // 間引き待ちのレイアウトを取りこぼさないための保険。
+  // ウィンドウが閉じた後に発生する will-quit で行うのは、閉じる直前に Renderer が
+  // 送った保存依頼まで受け取ってから書き込むため（before-quit ではまだ届いていない）。
+  app.on('will-quit', () => {
+    flushWorkspaceLayoutDocument()
   })
 
   app.on('window-all-closed', () => {

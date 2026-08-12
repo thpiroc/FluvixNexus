@@ -22,3 +22,8 @@ export type {
   PingResponse,
   SystemIpcContract
 } from './contracts/system'
+export type {
+  LoadWorkspaceLayoutResponse,
+  SaveWorkspaceLayoutRequest,
+  WorkspaceIpcContract
+} from './contracts/workspace'
