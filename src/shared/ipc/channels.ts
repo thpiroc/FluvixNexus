@@ -12,8 +12,27 @@ import type { IpcChannel } from './contract'
 export const IPC_CHANNELS = {
   SYSTEM_PING: 'system:ping',
   SYSTEM_APP_INFO: 'system:app-info',
+  WINDOW_RESPOND_CLOSE: 'window:respond-close',
   WORKSPACE_LOAD_LAYOUT: 'workspace:load-layout',
-  WORKSPACE_SAVE_LAYOUT: 'workspace:save-layout'
+  WORKSPACE_SAVE_LAYOUT: 'workspace:save-layout',
+  WORKSPACE_FOLDER_GET_CURRENT: 'workspace-folder:get-current',
+  WORKSPACE_FOLDER_OPEN: 'workspace-folder:open',
+  WORKSPACE_FOLDER_CLOSE: 'workspace-folder:close',
+  FILES_READ_DIRECTORY: 'files:read-directory',
+  FILES_READ_FILE: 'files:read-file',
+  FILES_WRITE_FILE: 'files:write-file',
+  FILES_CREATE: 'files:create',
+  FILES_RENAME: 'files:rename',
+  FILES_MOVE: 'files:move',
+  FILES_COPY: 'files:copy',
+  FILES_DELETE: 'files:delete',
+  FILES_SEARCH: 'files:search',
+  FILES_SEARCH_CONTENT: 'files:search-content',
+  FILES_CANCEL_SEARCH: 'files:cancel-search',
+  SETTINGS_LOAD_EDITOR: 'settings:load-editor',
+  SETTINGS_SAVE_EDITOR: 'settings:save-editor',
+  SETTINGS_LOAD_FILES: 'settings:load-files',
+  SETTINGS_SAVE_FILES: 'settings:save-files'
 } as const satisfies Record<string, IpcChannel>
 
 /**

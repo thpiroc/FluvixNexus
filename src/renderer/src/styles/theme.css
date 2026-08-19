@@ -35,6 +35,30 @@
   --fx-accent-green: #4f8a5f;
   --fx-accent-orange: #b0834f;
 
+  /*
+   * ファイル種類別アイコンの色（Session 3-6-6）。
+   *
+   * 目的は「一覧の中で種類を見分けやすくする」ことだけなので、識別色（上）と同じく
+   * 彩度は低く保つ。ダークな面の上で 12px の文字と並んでも**文字より目立たない**
+   * 明度に揃えてあり、色が付くのはアイコンの細い線だけ（面には使わない）。
+   *
+   * 色だけに意味を持たせていないのが前提。種類はまず絵の形が示していて、
+   * 色はその補助にあたる（`.tsx` と `.jsx` のように形が同じ組だけは色が主になる）。
+   */
+  --fx-file-icon-default: #8a8a8a;
+  --fx-file-icon-ts: #5d8fbf;
+  --fx-file-icon-js: #b0a14f;
+  --fx-file-icon-json: #a8894f;
+  --fx-file-icon-html: #b07a5a;
+  --fx-file-icon-css: #7f6fb0;
+  --fx-file-icon-markdown: #7f95a8;
+  --fx-file-icon-python: #7fa85f;
+  --fx-file-icon-csharp: #9a7fb0;
+  --fx-file-icon-image: #5f9a8a;
+  --fx-file-icon-package: #b06f5f;
+  --fx-file-icon-git: #b0755a;
+  --fx-file-icon-docker: #4f8fa8;
+
   --fx-space-1: 4px;
   --fx-space-2: 8px;
   --fx-space-3: 12px;

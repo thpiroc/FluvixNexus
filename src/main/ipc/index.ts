@@ -1,5 +1,9 @@
+import { registerFilesHandlers } from './handlers/files'
+import { registerSettingsHandlers } from './handlers/settings'
 import { registerSystemHandlers } from './handlers/system'
+import { registerWindowHandlers } from './handlers/window'
 import { registerWorkspaceHandlers } from './handlers/workspace'
+import { registerWorkspaceFolderHandlers } from './handlers/workspaceFolder'
 
 /**
  * Main 側の IPC ハンドラ登録の入り口。
@@ -10,9 +14,12 @@ import { registerWorkspaceHandlers } from './handlers/workspace'
  */
 const handlerRegistrations: readonly (() => void)[] = [
   registerSystemHandlers,
-  registerWorkspaceHandlers
-  // registerFilesHandlers,    ← STEP 3 で追加
-  // registerTerminalHandlers,
+  registerWindowHandlers,
+  registerWorkspaceHandlers,
+  registerWorkspaceFolderHandlers,
+  registerFilesHandlers,
+  registerSettingsHandlers
+  // registerTerminalHandlers, ← STEP 3 の後続セッションで追加
   // registerGitHubHandlers,
 ]
 
@@ -23,4 +30,5 @@ export function registerIpcHandlers(): void {
 }
 
 export { IpcError, invalidRequest } from './errors'
+export { emitIpcEvent } from './events'
 export { handleIpc, resetIpcHandlers, type IpcContext, type IpcHandler } from './registry'

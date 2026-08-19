@@ -3,8 +3,13 @@
  *
  * Main / Preload / Renderer はこのモジュール経由でのみ IPC の型と定数を参照する。
  * shared 層のルールどおり、ここに実装（ipcMain / ipcRenderer への依存）は置かない。
+ *
+ * 扱う経路は2つあり、契約も別々になっている。
+ *   - 要求と応答（Renderer → Main）… contract.ts / channels.ts
+ *   - イベント（Main → Renderer）  … event.ts / eventChannels.ts
  */
 export { IPC_CHANNELS } from './channels'
+export { IPC_EVENT_CHANNELS, isIpcEventChannel } from './eventChannels'
 export { ipcFailure, ipcSuccess } from './result'
 
 export type {
@@ -15,6 +20,13 @@ export type {
   IpcRequest,
   IpcResponse
 } from './contract'
+export type {
+  IpcEventChannel,
+  IpcEventContract,
+  IpcEventListener,
+  IpcEventPayload,
+  IpcEventUnsubscribe
+} from './event'
 export type { IpcErrorCode, IpcErrorPayload, IpcFailure, IpcResult, IpcSuccess } from './result'
 export type {
   AppInfoResponse,
@@ -27,3 +39,52 @@ export type {
   SaveWorkspaceLayoutRequest,
   WorkspaceIpcContract
 } from './contracts/workspace'
+export type {
+  GetCurrentWorkspaceFolderResponse,
+  OpenWorkspaceFolderResponse,
+  WorkspaceFolderIpcContract
+} from './contracts/workspaceFolder'
+export type {
+  CancelWorkspaceFileSearchRequest,
+  CancelWorkspaceFileSearchResponse,
+  CopyWorkspaceEntryRequest,
+  CopyWorkspaceEntryResponse,
+  CreateWorkspaceEntryRequest,
+  CreateWorkspaceEntryResponse,
+  DeleteWorkspaceEntryRequest,
+  DeleteWorkspaceEntryResponse,
+  FilesIpcContract,
+  MoveWorkspaceEntryRequest,
+  MoveWorkspaceEntryResponse,
+  ReadWorkspaceDirectoryRequest,
+  ReadWorkspaceDirectoryResponse,
+  ReadWorkspaceFileRequest,
+  ReadWorkspaceFileResponse,
+  RenameWorkspaceEntryRequest,
+  RenameWorkspaceEntryResponse,
+  SearchWorkspaceFileContentsRequest,
+  SearchWorkspaceFileContentsResponse,
+  SearchWorkspaceFilesRequest,
+  SearchWorkspaceFilesResponse,
+  WriteWorkspaceFileRequest,
+  WriteWorkspaceFileResponse,
+  WriteWorkspaceFileStatus
+} from './contracts/files'
+export type {
+  LoadEditorSettingsResponse,
+  LoadFilesSettingsResponse,
+  SaveEditorSettingsRequest,
+  SaveFilesSettingsRequest,
+  SettingsIpcContract
+} from './contracts/settings'
+export type {
+  RespondWindowCloseRequest,
+  WindowCloseDecision,
+  WindowIpcContract
+} from './contracts/window'
+export type {
+  FilesIpcEventContract,
+  WorkspaceFileChangeSource,
+  WorkspaceFilesChangedEvent
+} from './events/files'
+export type { WindowCloseRequestedEvent, WindowIpcEventContract } from './events/window'

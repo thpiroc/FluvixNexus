@@ -3,6 +3,7 @@ import { join } from 'path'
 import { devServerUrl } from '../app/runtime'
 import { MINIMUM_WINDOW_SIZE } from '../store/windowBounds'
 import { resolveInitialWindowState, trackWindowState } from '../store/windowState'
+import { guardWindowClose } from './closeGuard'
 
 /**
  * ウィンドウ管理の責務を持つモジュール。
@@ -84,6 +85,14 @@ export function createMainWindow(): BrowserWindow {
   window.on('closed', () => {
     mainWindow = null
   })
+
+  /*
+    閉じる前に未保存の確認を挟む（closeGuard.ts）。
+    ウィンドウの × も Alt+F4 も app.quit() による終了も、すべて 'close' を通るため
+    ここ1箇所で足りる。ウィンドウが増えても掛け忘れないよう、生成の直後に置く
+    （security/ が webContents 単位でガードを掛けているのと同じ考え方）。
+  */
+  guardWindowClose(window)
 
   if (initialState.isMaximized) {
     window.maximize()

@@ -17,3 +17,11 @@ export type {
   StoredWorkspaceLayout,
   WorkspaceLayoutDocument
 } from './layoutDocument'
+
+export {
+  WORKSPACE_FOLDER_DOCUMENT_MAX_BYTES,
+  WORKSPACE_FOLDER_SCHEMA_VERSION,
+  WORKSPACE_ROOT_PATH_MAX_LENGTH
+} from './folder'
+
+export type { StoredWorkspaceFolder, WorkspaceFolder, WorkspaceFolderDocument } from './folder'

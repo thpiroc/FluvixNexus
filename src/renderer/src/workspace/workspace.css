@@ -67,6 +67,24 @@
   color: var(--fx-color-text-faint);
 }
 
+/*
+ * 開いている Workspace の名前。
+ *
+ * 上部バーの幅を長いフォルダ名に持っていかれないよう、伸びる上限を決めて省略する
+ * （場所そのものはステータスバーに出る）。
+ */
+.fx-topbar__workspace {
+  max-width: 220px;
+  overflow: hidden;
+  color: var(--fx-color-text-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fx-topbar__workspace[data-workspace-state='none'] {
+  color: var(--fx-color-text-faint);
+}
+
 .fx-topbar__spacer {
   flex: 1;
 }
@@ -560,6 +578,67 @@
   color: var(--fx-color-text-faint);
 }
 
+/*
+ * Workspace 未選択時の表示（workspaceFolder/WorkspaceWelcome.tsx）。
+ *
+ * 置かれるのは Editor パネルの中だが、パネルの大きさは利用者が自由に変えられるため、
+ * 中央寄せにはせず上から流す。狭い領域に置かれても文章が切れないようにする。
+ */
+.fx-welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--fx-space-2);
+  padding: var(--fx-space-4);
+  color: var(--fx-color-text-muted);
+  font-size: var(--fx-font-size-sm);
+  line-height: 1.6;
+}
+
+.fx-welcome__title {
+  margin: 0;
+  color: var(--fx-color-text-strong);
+  font-size: var(--fx-font-size-md);
+}
+
+.fx-welcome__lead {
+  margin: 0;
+  color: var(--fx-color-text);
+}
+
+.fx-welcome__action {
+  margin-top: var(--fx-space-1);
+  padding: var(--fx-space-1) var(--fx-space-3);
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface-raised);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  font: inherit;
+  font-size: var(--fx-font-size-sm);
+  cursor: pointer;
+}
+
+.fx-welcome__action:hover:enabled {
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-welcome__action:disabled {
+  color: var(--fx-color-text-faint);
+  border-color: var(--fx-color-border);
+  cursor: default;
+}
+
+.fx-welcome__note {
+  margin: 0;
+  color: var(--fx-color-text-faint);
+  /* パスは長くなるため、単語の途中でも折り返して横スクロールを出さない。 */
+  overflow-wrap: anywhere;
+}
+
+.fx-welcome__note[data-kind='error'] {
+  color: var(--fx-color-danger);
+}
+
 /* 下部領域（ステータスバー） */
 
 .fx-statusbar {
@@ -581,4 +660,18 @@
 
 .fx-statusbar__item {
   white-space: nowrap;
+}
+
+/*
+ * 開いている Workspace の場所。
+ * 深い階層のパスでも他の表示を押し出さないよう、伸びる上限を決めて省略する。
+ */
+.fx-statusbar__workspace {
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fx-statusbar__workspace[data-workspace-state='none'] {
+  color: var(--fx-color-text-faint);
 }

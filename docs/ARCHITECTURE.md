@@ -1,7 +1,7 @@
 # アーキテクチャ
 
-> 対象: Session 2-7（STEP 2 統合テスト・品質整理）完了時点の実装
-> 最終更新: 2026-08-13
+> 対象: Session 3-6-8（Files の仕上げ ― 見え方の保存・カラムの幅・自動スクロール）完了時点の実装
+> 最終更新: 2026-08-19
 
 製品としての方向性は [DESIGN.md](../DESIGN.md) を参照。このドキュメントは「現在のコードがどう組まれているか」と「機能を足すときにどこへ書くか」を扱う。
 
@@ -45,37 +45,146 @@ src/
 │   ├── ipc/
 │   │   ├── index.ts          ハンドラ登録の入り口
 │   │   ├── registry.ts       ipcMain.handle の登録基盤（送信元検証・例外の正規化）
+│   │   ├── events.ts         Main → Renderer へイベントを送る唯一の経路（§3.3）
 │   │   ├── errors.ts         IpcError と、Renderer へ返す形への変換
 │   │   └── handlers/
-│   │       ├── system.ts     system ドメインの実装
-│   │       └── workspace.ts  レイアウトの読み書き（workspace ドメイン）
+│   │       ├── system.ts          system ドメインの実装
+│   │       ├── window.ts          閉じてよいかの返事（§12.7）
+│   │       ├── workspace.ts       レイアウトの読み書き（workspace ドメイン）
+│   │       ├── workspaceFolder.ts フォルダを開く / 閉じる（workspace-folder ドメイン・§8）
+│   │       ├── files.ts           Workspace 内の列挙・読み込み・作成 / 改名 / 削除（§9・§10）
+│   │       └── settings.ts        アプリの設定の永続化（Editor は §12.4・Files の見え方は §10.14）
+│   ├── workspaceFolder/      開いているプロジェクトフォルダ（§8）
+│   │   ├── currentWorkspaceFolder.ts  現在の Workspace の正本（開く・閉じる・復元・購読）
+│   │   └── folderPath.ts              パスの検証と表示名（Electron 非依存・テスト対象）
+│   ├── files/                Workspace の中を読む / 書き換える / 見張る（§9・§10・§11・§12）
+│   │   ├── workspacePath.ts           Workspace 境界の検証（Electron / fs 非依存・テスト対象）
+│   │   ├── watchPaths.ts              監視から来たパスの扱い（fs 非依存・テスト対象・§12.1）
+│   │   ├── ignoredDirectories.ts      走らない / 見張らないフォルダ（監視と検索で共有・§10.10）
+│   │   ├── entrySort.ts               並び順（Electron / fs 非依存・テスト対象）
+│   │   ├── fileEntry.ts               FileEntry の作り方（Electron / fs 非依存）
+│   │   ├── fileContent.ts             バイナリ判定・改行・文字コード（fs 非依存・テスト対象）
+│   │   ├── readWorkspaceDirectory.ts  フォルダ1つ分の列挙
+│   │   ├── readWorkspaceFile.ts       ファイル1件の読み込み
+│   │   ├── writeWorkspaceFile.ts      ファイル1件の保存（§11.6）
+│   │   ├── mutateWorkspaceEntry.ts    作成 / 改名 / 移動 / コピー / 削除（§10.2）
+│   │   ├── copyTree.ts                フォルダの再帰コピー（リンクを辿らない・§10.8）
+│   │   ├── linkEntryType.ts           リンクの種別（列挙と検索で共有）
+│   │   ├── searchWorkspaceFiles.ts    root から再帰的に探す（上限つき・§10.10）
+│   │   ├── searchWorkspaceFileContents.ts 中身で探す（1件ずつ読む・上限つき・§10.11）
+│   │   ├── contentMatches.ts          文字列 → 一致の位置と preview（fs 非依存・テスト対象・§10.11）
+│   │   ├── searchQuery.ts             検索語の規則（名前 / 全文で共有・fs 非依存・§10.11）
+│   │   ├── workspaceSearchSession.ts  今走っている検索1本の管理（名前 / 全文で共有・テスト対象・§10.10）
+│   │   └── workspaceWatcher.ts        外部変更の監視（§12.1）
 │   ├── store/
 │   │   ├── jsonStore.ts      userData 配下への JSON 永続化（共通部分）
 │   │   ├── windowBounds.ts   ウィンドウ状態の検証（Electron 非依存・テスト対象）
 │   │   ├── windowState.ts    ウィンドウ状態の保存と復元
 │   │   ├── workspaceLayoutDocument.ts  レイアウト文書の検証（Electron 非依存・テスト対象）
-│   │   └── workspaceLayout.ts          レイアウトの保存先（userData 配下）
+│   │   ├── workspaceLayout.ts          レイアウトの保存先（userData 配下）
+│   │   ├── workspaceFolderDocument.ts  Workspace 文書の検証（Electron 非依存・テスト対象）
+│   │   ├── workspaceFolder.ts          Workspace の保存先（userData 配下）
+│   │   ├── editorSettingsDocument.ts   Editor 設定の検証（Electron 非依存・テスト対象）
+│   │   ├── editorSettings.ts           Editor 設定の保存先（userData 配下・§12.4）
+│   │   ├── filesSettingsDocument.ts    Files の見え方の検証（Electron 非依存・テスト対象）
+│   │   └── filesSettings.ts            Files の見え方の保存先（userData 配下・§10.14）
 │   ├── logger/index.ts       Main 側のログ出力
 │   └── platform/index.ts     OS 依存判定の抽象化
 ├── preload/
 │   ├── index.ts              contextBridge での公開
 │   ├── ipc/invoke.ts         Main を呼ぶ唯一の経路
-│   └── api/                  ドメインごとの薄いラッパ（env / system / workspace）
+│   ├── ipc/subscribe.ts      Main からのイベントを受ける唯一の経路（§3.3）
+│   └── api/                  ドメインごとの薄いラッパ（env / system / workspace / workspaceFolder / files）
 ├── renderer/
 │   ├── index.html            CSP を含む唯一の HTML
 │   └── src/
-│       ├── main.tsx / App.tsx    エントリ。App は Workspace Shell を描画するだけ
+│       ├── main.tsx / App.tsx    エントリ。App は Provider と Workspace Shell を置くだけ
 │       ├── api/fluvix.ts        window.fluvix を参照する唯一の場所
 │       ├── api/result.ts        IpcResult の扱いと UI 文言の対応表
 │       ├── styles/
 │       │   ├── theme.css        色・間隔の変数（値を直接書いてよい唯一の場所）
 │       │   └── global.css       最小リセット
-│       └── workspace/           Workspace Shell（§7）
+│       ├── workspace/           Workspace Shell（§7）
+│       ├── workspaceFolder/     開いているフォルダの写しと Welcome（§8.6）
+│       ├── files/               ファイルツリー・カラム・操作・検索（§9・§10.4・§10.10・§10.13）
+│       │   ├── fileTreeModel.ts   状態 → 行の並び（React / DOM 非依存・テスト対象）
+│       │   ├── fileChanges.ts     変化 → 読み直す範囲（React / DOM 非依存・テスト対象）
+│       │   ├── useFileTree.ts     状態の保持と読み込み（列挙の IPC と変更通知の購読）
+│       │   ├── moveTarget.ts      移動先になれるか（React / DOM 非依存・テスト対象・§10.7）
+│       │   ├── clipboard.ts       コピーの控えと貼り付け先の判断（同上・§10.8）
+│       │   ├── dragDrop.ts        ドロップ先 → 移動 / コピーの行き先（同上・§10.9）
+│       │   ├── filesAutoScroll.ts ドラッグ中の自動スクロールの量（同上・テスト対象・§10.14）
+│       │   ├── useFileDrag.ts     ドラッグの追跡（files/ で唯一 DOM を読む場所・§10.9・§10.14）
+│       │   ├── useFileActions.ts  作成 / 改名 / 移動 / コピー / 削除の依頼
+│       │   ├── fileSearchModel.ts 名前の検索の状態と文言（React / DOM 非依存・テスト対象・§10.10）
+│       │   ├── useFileSearch.ts   名前の検索の状態の保持と取り消し（§10.10）
+│       │   ├── fileContentSearchModel.ts 全文検索の状態と行の並び（同上・テスト対象・§10.11）
+│       │   ├── useFileContentSearch.ts   全文検索の状態の保持と取り消し（§10.11）
+│       │   ├── fileIcon.ts       名前 / 種別 → アイコンの種類（同上・テスト対象・§10.12）
+│       │   ├── filesColumnsModel.ts カラムの列の並び（同上・テスト対象・§10.13）
+│       │   ├── filesLayoutMode.ts   表示方式の決め方と幅の上下限（同上・テスト対象・§10.13）
+│       │   ├── filesSettings.ts     見え方 ↔ 保存形式の変換（同上・テスト対象・§10.14）
+│       │   ├── useFilesLayout.ts    パネルの形の観測（ResizeObserver は1か所・§10.13）
+│       │   ├── useFilesController.ts 状態と操作（ツリーとカラムが共有する・§10.13）
+│       │   ├── FilesViewProvider.tsx 見え方の正本と永続化（パネルより長く生きる・§10.14）
+│       │   ├── FilesView.tsx      一覧 / 検索の切り替え（パネルは増やさない・§10.10）
+│       │   ├── FilesExplorer.tsx  器と表示方式の出し分け（§10.13）
+│       │   ├── FileTree.tsx       縦に並べる + キーボード操作
+│       │   ├── FileColumns.tsx    横に並べる + キーボード操作（§10.13）
+│       │   ├── FileRows.tsx       ツリーとカラムで同じ行（状況・名前の入力・§10.13）
+│       │   ├── FileSearch.tsx     検索モードの枠（ファイル名 / 全文の切り替え・§10.11）
+│       │   ├── FileNameSearch.tsx 名前の検索欄と結果（§10.10）
+│       │   ├── FileContentSearch.tsx 全文検索の検索欄と結果（§10.11）
+│       │   ├── FileNameInput.tsx  ツリー内での名前の入力（作成・改名で共通）
+│       │   ├── FileContextMenu.tsx 右クリックメニュー
+│       │   ├── DeleteConfirm.tsx  削除の確認
+│       │   ├── FileTreeIcons.tsx  その場で描く SVG（外部アセットを持たない・§10.12）
+│       │   ├── filesError.ts      失敗の分類と文言
+│       │   └── files.css          ツリー / カラム / 検索の見た目
+│       ├── editor/              開いているファイルのタブと中身（§10.3・§11・§12）
+│       │   ├── editorTabsModel.ts  タブの操作（React / DOM 非依存・テスト対象）
+│       │   ├── editorTabState.ts   タブの状態の導き方（純粋・テスト対象。§12.3）
+│       │   ├── editorReveal.ts     開いた後に見せる位置の依頼（純粋・§10.11）
+│       │   ├── useEditorTabs.ts    タブ状態の保持と中身の読み込み
+│       │   ├── useEditorSession.ts タブ・Model・保存・自動保存・競合の噛み合わせ（§11.5）
+│       │   ├── useTabCloseGuard.ts 未保存のタブを閉じる前の確認（§12.6）
+│       │   ├── autoSave.ts         Auto Save の設定モデル（純粋・テスト対象。§12.4）
+│       │   ├── context.ts          Context の定義（Files が開き、Editor が出す）
+│       │   ├── EditorProvider.tsx  Shell の外側でタブと Model を持ち、未保存を申告する
+│       │   ├── EditorWorkArea.tsx  タブ列・自動保存の切り替え・中身の組み立て
+│       │   ├── EditorTabs.tsx      タブ列（未保存 / Conflict / 削除済みの印）
+│       │   ├── EditorDocumentView.tsx 何を出す状態か（Monaco / binary / too-large / 失敗）
+│       │   ├── EditorConflictBar.tsx  Reload / Compare / 上書き（§12.3）
+│       │   ├── TabCloseConfirm.tsx    タブ1枚ぶんの確認
+│       │   ├── editor.css
+│       │   └── monaco/            Monaco Editor（§11）
+│       │       ├── language.ts        拡張子 → 言語 id（Monaco 非依存・テスト対象）
+│       │       ├── monacoSetup.ts     Monaco 本体・Worker・テーマ・言語サービス
+│       │       ├── documentStore.ts   Model / 未保存 / 食い違い / カーソル位置の持ち主
+│       │       ├── MonacoEditor.tsx   エディタの器（遅延読み込みの入口）
+│       │       └── MonacoDiffEditor.tsx Compare の差分（遅延読み込み）
+│       └── unsaved/            未保存を失う操作に挟む確認（§12.6）
+│           ├── types.ts             申告と確認の型（React / DOM 非依存）
+│           ├── context.ts           Context の定義
+│           ├── UnsavedChangesProvider.tsx 確認の器（App の一番外）
+│           ├── UnsavedChangesDialog.tsx   まとめて尋ねる確認
+│           ├── useWindowCloseRequest.ts   閉じてよいかの問い合わせに答える
+│           └── unsaved.css
 └── shared/
     ├── api.ts                window.fluvix の型
-    ├── ipc/                  IPC の契約（チャンネル名・要求・応答・結果型）
-    └── workspace/            レイアウトの保存形式と schemaVersion（§7.8）
+    ├── ipc/                  IPC の契約（要求 / 応答とイベント。§3）
+    ├── workspace/            レイアウトの保存形式（§7.8）と Workspace の型（§8.2）
+    ├── files/                ファイルの型・上限・名前の規則・コピー名の規則・相対位置・変化・文字コード・検索の規則・全文検索の上限と結果の型
+    └── settings/             アプリ設定の保存形式（Editor は §12.4・Files の見え方は §10.14）
 ```
+
+**「Workspace」という語は3つの意味に使われる**（DESIGN.md §3 の用語表）。実装での呼び分けは次のとおりで、ディレクトリ名・IPC ドメイン名もこれに従う。
+
+| 意味                           | 実装での名前     | 場所                                                          |
+| ------------------------------ | ---------------- | ------------------------------------------------------------- |
+| 画面全体の器（Dockable UI）    | Workspace Shell  | `renderer/src/workspace/`（§7）                               |
+| その配置の保存                 | Workspace Layout | `workspace:*` ドメイン / `workspace-layout.json`（§7.8）      |
+| 開いているプロジェクトフォルダ | Workspace Folder | `workspace-folder:*` ドメイン / `workspace-folder.json`（§8） |
 
 ---
 
@@ -109,20 +218,67 @@ Renderer            IpcResult<T>（{ ok: true, data } | { ok: false, error }）
 4. `main/ipc/handlers/<domain>.ts` を実装し、`main/ipc/index.ts` の登録リストへ足す
 5. `preload/api/<domain>.ts` を作り、`preload/api/index.ts` と `shared/api.ts` の `FluvixApi` へ足す
 
-### 3.3 Main → Renderer のイベント（未実装）
+### 3.3 Main → Renderer のイベント
 
-現在の契約は「要求と応答」のみを扱う。Terminal の出力、ファイル変更の検知、LSP / DAP の通知のように Main から一方的に流れるイベントは、`IpcContract` と対になる `IpcEventContract` として **STEP 3 で Terminal に着手する時点**で追加する。要求と応答の型付けが `shared/ipc/` で完結しているため、同じ作り方をイベント側にも適用できる。
+Session 3-3 で追加した、要求と応答の対になるもう1本の経路。Terminal の出力・ファイルの変更・Git の状態変化・LSP / DAP の通知のように、**Main の側から一方的に流れるもの**をここに載せる。
+
+```
+Main / handler      emitIpcEvent('files:changed', payload)
+   ↓
+main/ipc/events.ts  アプリのウィンドウすべてへ送る（送れなくても失敗にしない）
+   ↓
+Preload             subscribe.ts が Electron の event を剥がし、payload だけを渡す
+   ↓
+Renderer            window.fluvix.files.onChanged(listener) → 解除の関数
+```
+
+#### 要求 / 応答とは別の契約にする
+
+`IpcContract`（`contract.ts`）が扱うのは Renderer → Main の「要求と応答」だけで、対になる相手が必ず居る。イベントは片道で、**誰も要求していないのに届く / 誰も受け取っていないかもしれない / 1回の出来事が複数の受け手へ同時に届く**という性質を持つ。同じ契約に混ぜると `request` が意味を失い、「応答が来ない invoke」と「送りっぱなしの通知」が型の上で区別できなくなる。
+
+そのため `IpcEventContract`（`event.ts`）を別に置き、チャンネル名の定数も `eventChannels.ts` に分けた。追加の手順は要求 / 応答と揃えてある（契約 → `extends` → 定数 → 実装）。定数の足し忘れは同じ形の型アサーションが検出する。
+
+| 層       | ファイル               | 責務                                               |
+| -------- | ---------------------- | -------------------------------------------------- |
+| shared   | `ipc/event.ts`         | チャンネル名と payload の対応、購読の型            |
+| shared   | `ipc/eventChannels.ts` | 定数と、購読してよいチャンネルかの判定             |
+| Main     | `ipc/events.ts`        | 送る先の決定と、閉じかけのウィンドウの扱い         |
+| Preload  | `ipc/subscribe.ts`     | チャンネルの検査と、Electron の event を剥がすこと |
+| Renderer | `<domain>Api.on…`      | 購読と解除                                         |
+
+#### 守っていること
+
+- **Renderer へ `IpcRendererEvent` を渡さない。** これは `sender`（＝`ipcRenderer` 相当）と `ports` を持つ。そのまま listener へ流すと、contextBridge で切り離したはずの経路がイベントの引数として復活する。剥がすのは Preload の責務
+- **購読できるのは契約にあるチャンネルだけ。** Renderer から届いた文字列をそのまま `ipcRenderer.on` へ渡さない。契約外を購読できると、Main が内部で使う任意のチャンネルを盗み聞きできてしまう（invoke 側で契約外を呼べないのと同じ線）
+- **戻り値が解除の関数そのもの。** チャンネル名と関数を渡し直して解除する形にすると、無名関数で購読した箇所が解除できず、画面の一部を作り直すたびに listener が積み上がる
+- **送れなくても失敗にしない。** ウィンドウがまだ無い / もう閉じている場合は黙って戻る。片道の通知が Main 側の処理を止める理由にならない
+- **送るのはアプリのウィンドウすべて。** イベントは「Workspace で起きた出来事」であって特定のウィンドウ宛ての返事ではない。パネルを独立ウィンドウ化しても送る側は変わらない（`windows/mainWindow.ts` が `getAllWindows()` を避けているのは**同一性**の話で、ここは**集合**の話）
+- **受け手は `workspaceId` を突き合わせる。** イベントには「要求」という対応関係が無く、受け手側で世代を数える手段がない。切り替えの前後で行き違った通知は捨てる
+
+現在流れているのは2つ。Terminal の出力・Git の状態変化・LSP / DAP の通知も同じ経路に載せる。
+
+| チャンネル               | 内容                                                                    |
+| ------------------------ | ----------------------------------------------------------------------- |
+| `files:changed`          | Workspace の中のファイルの変化（アプリの操作 / 外部変更。§10.5・§12.1） |
+| `window:close-requested` | ウィンドウを閉じてよいかの問い合わせ（§12.7）                           |
+
+`window:close-requested` だけは**応答を期待する**イベントで、他とは性質が違う。片道の経路にそれを載せているのは、対になる応答が「同じウィンドウから、同じ `requestId` で戻ってくる別の要求」でしかないため（Renderer が利用者に尋ねている間、Main の invoke を待たせ続ける形にしない）。送り先も**そのウィンドウ1つ**で、`emitIpcEvent`（全ウィンドウ）は通らない ── 「閉じてよいか」はそのウィンドウ宛ての問いかけであって、Workspace で起きた出来事の通知ではない。
 
 ---
 
 ## 4. 状態の永続化
 
-保存されるものは2つあり、どちらも `app.getPath('userData')`（Windows では `%APPDATA%/Fluvix Nexus`）配下の小さな JSON になる。インストール先にもプロジェクトフォルダにも書かない。
+保存されるものはどれも `app.getPath('userData')`（Windows では `%APPDATA%/Fluvix Nexus`）配下の小さな JSON になる。インストール先にもプロジェクトフォルダにも書かない。
 
-| ファイル                | 内容                             | 検証（Electron 非依存）            | 保存を決める場所           |
-| ----------------------- | -------------------------------- | ---------------------------------- | -------------------------- |
-| `window-state.json`     | ウィンドウのサイズ・位置・最大化 | `store/windowBounds.ts`            | `store/windowState.ts`     |
-| `workspace-layout.json` | Workspace レイアウト（§7.8）     | `store/workspaceLayoutDocument.ts` | `store/workspaceLayout.ts` |
+| ファイル                | 内容                                   | 検証（Electron 非依存）            | 保存を決める場所           |
+| ----------------------- | -------------------------------------- | ---------------------------------- | -------------------------- |
+| `window-state.json`     | ウィンドウのサイズ・位置・最大化       | `store/windowBounds.ts`            | `store/windowState.ts`     |
+| `workspace-layout.json` | Workspace レイアウト（§7.8）           | `store/workspaceLayoutDocument.ts` | `store/workspaceLayout.ts` |
+| `workspace-folder.json` | 最後に開いていたフォルダ（§8.5）       | `store/workspaceFolderDocument.ts` | `store/workspaceFolder.ts` |
+| `editor-settings.json`  | Editor の設定（Auto Save。§12.4）      | `store/editorSettingsDocument.ts`  | `store/editorSettings.ts`  |
+| `files-settings.json`   | Files の見え方（表示方式・幅。§10.14） | `store/filesSettingsDocument.ts`   | `store/filesSettings.ts`   |
+
+**用途ごとに1ファイル・1チャンネルにする。** 設定が2つになった時点で `editor-settings.json` へ相乗りさせる選択肢はあったが、そうすると「Editor の設定」という限定が最初の相乗りで消え、片方の保存の失敗がもう片方を巻き込む（§5「永続化の API を用途ごとに切る」）。増やすのはファイルとチャンネルであって、既存の文書の項目ではない。
 
 共通の作法は `jsonStore.ts` が持つ。
 
@@ -130,7 +286,7 @@ Renderer            IpcResult<T>（{ ok: true, data } | { ok: false, error }）
 - **読み込み時は必ず検証する。** 保存ファイルは利用者が手で編集できる場所にあり、アプリのバージョン差で形も変わる。壊れていれば既定値へ戻す（ウィンドウなら標準サイズ、レイアウトなら Default プリセット）。
 - 保存に失敗してもアプリは止めない。次回起動が前回保存できた状態に戻るだけで済むため。
 
-ウィンドウ状態は画面外判定（モニタ構成の変化）も見る。レイアウト側の検証は Main と Renderer で分担しており、その線引きは §7.8。
+ウィンドウ状態は画面外判定（モニタ構成の変化）も見る。レイアウト側の検証は Main と Renderer で分担しており、その線引きは §7.8。Workspace は Main だけが検証する（§8.5）── レイアウトと違い、その値を使うのが Main 自身だから。
 
 利用者が自分の配置に名前を付けて保存する機能（DESIGN.md §3）は未実装。組み込みのプリセットはコード側（§7.7）にあるため保存の対象ではなく、追加するなら `workspace-layout.json` と同じ経路にもう1ファイル増やす形になる。
 
@@ -153,6 +309,16 @@ Renderer            IpcResult<T>（{ ok: true, data } | { ok: false, error }）
 | CSP                                  | `default-src 'self'` を基本に、`object-src` / `frame-src` / `base-uri` / `form-action` を `'none'` |
 | IPC の送信元                         | アプリのウィンドウ以外からの呼び出しを拒否                                                         |
 | ファイルへの書き込み                 | 用途を限定した API のみ（パスは Renderer から指定できない）                                        |
+| 開くフォルダの指定                   | Renderer から渡せない（選ぶのはネイティブのダイアログだけ。§8.4）                                  |
+| フォルダの中身を読む                 | 現在の Workspace の中だけ。root は Renderer から渡せない（§9.3）                                   |
+| ファイルの作成 / 改名 / 削除         | 現在の Workspace の中だけ。読む側と同じ検証を通す（§10.2）                                         |
+| ファイルの保存（上書き）             | 現在の Workspace の中だけ。**対象自身**の実体を確かめる（§11.6）                                   |
+| 削除の方式                           | OS のごみ箱へ送るのみ。完全削除の経路を公開しない（§10.2）                                         |
+| ファイルの監視                       | Main だけ。Renderer に filesystem の API を渡さず、届くのは相対位置だけ（§12.1）                   |
+| 設定の保存                           | 用途専用の API のみ。保存先のパスもファイル名も Renderer から指定できない（§12.4）                 |
+| ウィンドウを閉じる / アプリ終了      | Renderer から始められない。返事を返す口だけを公開する（§12.7）                                     |
+| Main → Renderer のイベント           | 契約にあるチャンネルだけ購読できる。Electron の event は Preload が剥がす（§3.3）                  |
+| Monaco の Worker                     | アプリにバンドルしたものだけ。blob: も外部 CDN も経由しない（§11.2。Diff Editor も同じ）           |
 
 ガードは webContents 単位（`app.on('web-contents-created')`）で掛けている。ウィンドウが増えても掛け忘れが起きない形にするため。
 
@@ -162,12 +328,17 @@ Renderer            IpcResult<T>（{ ok: true, data } | { ok: false, error }）
 
 そのため、**別のものを保存したくなったらその用途専用の API を足す**という方針を取る。受け取った内容は Main 側でも検証してから書く（`store/workspaceLayoutDocument.ts`）。Renderer から届く値も境界の外から来たものとして扱い、想定外の内容や桁違いの大きさをそのままディスクに残さないため。
 
+Session 3-1 の Workspace（開いているフォルダ）もこの方針に従い、レイアウトの API に相乗りさせず `workspace-folder:*` として別に足した（保存先も別ファイル）。こちらは Renderer が保存内容を組み立てることすらせず、Main が自分で作って書く（§8.4）。
+
+Session 3-6-8 の Files の見え方（表示方式・カラムの幅）も同じで、既にある `settings:load-editor` / `settings:save-editor` に項目を足すのではなく `settings:load-files` / `settings:save-files` を足した（§10.14）。**同じドメインの中でも用途は切る** ── 「settings」は保存先の種類ではなく、保存を扱う場所の名前にすぎない。
+
 ### CSP の運用
 
 - 実効的なポリシーは配布ビルド（`file://`）で全体に適用される。開発時は Vite が HMR 用の script タグを meta より前に差し込むため、その2つだけ適用外になる。**CSP の確認は必ずビルド後のアプリで行う。**
 - 外部 CDN・外部フォント・外部 API は使わない。通信が必要になっても Renderer から直接叩かず Main 経由にする。
-- Monaco Editor / xterm.js を入れる際は blob: Worker ではなくバンドル済みの Worker を使い、`worker-src 'self'` を維持する。
+- **Monaco Editor は `worker-src 'self'` のまま動いている**（Session 3-4）。Monaco の既定の経路は Worker の起動用スクリプトを blob として作るため、そこを `MonacoEnvironment.getWorker` で迂回している（§11.2）。xterm.js を入れる際も同じ判断をする。
 - `style-src` の `'unsafe-inline'` は、React / Monaco / xterm が実行時に style を注入するため必要。
+- Monaco が使うアイコンフォント（codicon）は npm パッケージに同梱されたものがバンドルされる。`font-src 'self'` の範囲に収まり、外部フォントは増えていない。
 
 ---
 
@@ -176,14 +347,16 @@ Renderer            IpcResult<T>（{ ok: true, data } | { ok: false, error }）
 | 予定している機能                   | 現状の受け口                                                                                                                                                    |
 | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Dockable UI / レイアウトプリセット | Workspace Shell（§7）。**STEP 2 として完成**（Dock / Split・ドラッグ&ドロップ・境界のリサイズ・表示管理・プリセットの器・レイアウトの保存 / 復元）。残りは §7.9 |
-| Monaco Editor / LSP                | LSP サーバのプロセス起動は Main（`platform/` に OS 依存部分）。Renderer とのやり取りは IPC のイベント側が必要                                                   |
-| Files                              | `main/ipc/handlers/files.ts` + `preload/api/files.ts`。ファイル変更の通知はイベント側が必要                                                                     |
-| Terminal                           | node-pty は Main に置き、`externalizeDepsPlugin` により external 扱い。Preload の `sandbox: true` は維持できる。出力のストリームはイベント側が必要              |
-| GitHub パネルの独立ウィンドウ化    | セキュリティガードは webContents 単位、IPC は送信元ウィンドウを `IpcContext` で受け取れる                                                                       |
-| DAP                                | Terminal / LSP と同じ経路（Main でプロセス、IPC でやり取り）                                                                                                    |
+| Monaco Editor                      | **§11 / §12 として実装済み**（Worker・Model 管理・言語判定・保存・外部変更・Conflict・Auto Save）                                                               |
+| LSP                                | 言語 id は `editor/monaco/language.ts` が決める（§11.4）。サーバのプロセス起動は Main（`platform/` に OS 依存部分）、通知は §3.3 の経路                         |
+| Files                              | **§9 / §10 として実装済み**（列挙・読み込み・作成 / 改名 / 移動 / 削除・保存・外部変更の追従）。コピーは同じ経路に足す                                          |
+| Settings（設定の永続化）           | **§12.4 として実装済み**（`settings:*` ドメイン）。設定を足すならチャンネルを増やす。画面は後続                                                                 |
+| Terminal                           | node-pty は Main に置き、`externalizeDepsPlugin` により external 扱い。作業ディレクトリは §8 から取る。出力のストリームは §3.3 の経路                           |
+| GitHub パネルの独立ウィンドウ化    | セキュリティガードは webContents 単位、IPC は送信元ウィンドウを `IpcContext` で受け取れる。イベントは全ウィンドウへ届く（§3.3）                                 |
+| DAP                                | Terminal / LSP と同じ経路（Main でプロセス、IPC でやり取り、通知は §3.3）                                                                                       |
 | Mac 対応                           | OS 依存判定は `platform/`。Renderer / shared に OS 依存は入っていない                                                                                           |
 
-不足しているのは **Main → Renderer のイベント経路**のみで、それ以外は現在の構造のまま追加できる。
+STEP 1 から持ち越していた **Main → Renderer のイベント経路**は Session 3-3 で用意した（§3.3）。残る機能はいずれも現在の構造のまま追加できる。
 
 ---
 
@@ -573,6 +746,1745 @@ reserveDockNodeIds     復元した id を発番器に予約する（restoreLayo
 | プリセットの追加               | `layout/presets.ts` の表へ                                                                                      |
 | 自作レイアウトの保存           | プリセットの表と保存形式の両方に載る。§7.8 の経路にもう1ファイル増やす形                                        |
 | パネルの独立ウィンドウ化       | Main 側で別ウィンドウを開き、Shell のルートを分岐                                                               |
-| Main → Renderer のイベント経路 | §3.3。Terminal の出力・ファイル変更の検知・LSP / DAP の通知に要る。STEP 3 で Terminal に着手する時点で追加する  |
+| Main → Renderer のイベント経路 | **Session 3-3 で追加済み**（§3.3）。Terminal の出力・LSP / DAP の通知も同じ経路に載せる                         |
 
 タブの並べ替えは、レイアウト操作（`movePanel` の `{ kind: 'tab', index }`）と単体テスト・統合テストは揃っているが、**タブを掴んで並べ替える UI の入口だけが無い**状態にしてある。今できるのは「別の領域へ出して戻す」経路での並べ替えで、これは実機確認でも通している。
+
+---
+
+## 8. Workspace（開いているプロジェクトフォルダ）
+
+Session 3-1 の成果物。Files / Editor / Terminal / Git が**共通の対象にするもの**であり、パネルの中身より先に用意する必要があった（DESIGN.md §3「Workspace」）。
+
+§7 の Workspace Shell が「画面をどう並べるか」を扱うのに対し、こちらは「何を対象に動くか」を扱う。互いに独立していて、Workspace を切り替えても配置は変わらず、配置を変えても Workspace は変わらない。
+
+### 8.1 正本は Main 側に置く
+
+```
+Main   … 今どのフォルダを開いているか（正本）        main/workspaceFolder/currentWorkspaceFolder.ts
+Renderer … 表示のための写し（Context）              renderer/src/workspaceFolder/
+```
+
+Workspace を必要とする処理は、これから足すものも含めてすべて Main に居る。
+
+| 機能     | Workspace の使いみち             |
+| -------- | -------------------------------- |
+| Files    | ファイルの列挙・読み書きの基点   |
+| Terminal | シェルを起動する作業ディレクトリ |
+| Git      | リポジトリの場所                 |
+| LSP／DAP | プロジェクトの root              |
+
+Renderer が正本を持ち、操作のたびにパスを渡す形にすると、これらが「Renderer から届いたパス」を信じて OS を触ることになる。Renderer を OS から切り離している意味がそこで無くなるため、**Main が自分で覚えている**形にした。Main 側の機能は `getCurrentWorkspaceFolder()` を呼ぶだけでよく、パスを引数で持ち回らない。
+
+### 8.2 データ構造
+
+```ts
+StoredWorkspaceFolder  { id, rootPath, displayName, openedAt }        ← ディスクに置く形
+WorkspaceFolder        { …Stored, exists }                            ← Renderer へ渡す形
+```
+
+保存形式と実行時の値を分ける理由は §7.8 と同じ（守るべき互換性の対象が違う）。`exists` を保存しないのは、それが保存した時点の事実でしかなく、次回起動時には確かめ直す必要があるため。
+
+| 項目          | 内容                                                                                                   |
+| ------------- | ------------------------------------------------------------------------------------------------------ |
+| `id`          | **開いた記録1件**の識別子（フォルダの識別子ではない）。同じフォルダを開き直せば別の id になる          |
+| `rootPath`    | 絶対パス。`resolve` で正規化して持つ（同じフォルダが別の文字列として保存されないように）               |
+| `displayName` | UI に出す名前。既定はフォルダ名。将来「名前を付ける」を足せるよう別項目にしてある                      |
+| `openedAt`    | 開いた時刻（epoch ミリ秒）。「最近開いた順」の並べ替えに使う                                           |
+| `exists`      | その値を作った時点で実在したか。**現在の Workspace では常に true**（§8.5）。false が要るのは将来の一覧 |
+
+「最近開いた一覧」は、保存文書に `recent: StoredWorkspaceFolder[]` を足す形になる（`schemaVersion` を上げ、無ければ空配列として読む）。
+
+### 8.3 経路
+
+```
+renderer/src/workspaceFolder/WorkspaceFolderProvider.tsx   ← Renderer で IPC を呼ぶ唯一の場所
+   ↓  window.fluvix.workspaceFolder
+preload/api/workspaceFolder.ts                             薄いラッパ
+   ↓  IPC（workspace-folder:get-current / :open / :close）
+main/ipc/handlers/workspaceFolder.ts                       ダイアログを出す・失敗の分類へ翻訳
+   ↓
+main/workspaceFolder/currentWorkspaceFolder.ts             正本。検証して切り替え、保存を依頼
+   ↓
+main/store/workspaceFolder.ts                              %APPDATA%/Fluvix Nexus/workspace-folder.json
+```
+
+チャンネルは3つだけ。
+
+| チャンネル                     | 応答                                                          |
+| ------------------------------ | ------------------------------------------------------------- |
+| `workspace-folder:get-current` | `{ workspace, unavailableRootPath }`                          |
+| `workspace-folder:open`        | `{ status: 'opened', workspace }` / `{ status: 'cancelled' }` |
+| `workspace-folder:close`       | なし                                                          |
+
+**取り消しを失敗にしていない。** 取り消しは通常の結末であり、`IpcResult` の失敗として返すと、Renderer 側のエラー文言（`api/result.ts`）を出さないための分岐が要る。応答の `status` で表す方が、扱いを間違えにくい。
+
+### 8.4 Renderer は開く場所を指定できない
+
+**3つのチャンネルはいずれも引数を取らない。** 開く対象を決めるのは Main が出すネイティブのフォルダ選択ダイアログだけで、Renderer が言えるのは「ダイアログを出して」までに留まる。
+
+任意のパスを受け取る形にすると、Files / Terminal / Git がそのフォルダを基点に動く以上、実質的に「Renderer から任意の場所を指定できる API」になる。§5 で汎用のファイル API を公開しない方針を取っているのに、Workspace の指定でそれが迂回できてしまう。
+
+「最近開いた一覧から開き直す」を足すときも、Renderer が渡すのは**一覧の項目の id** にする。パスは Main が自分の持っている一覧から引くため、この性質は変わらない。
+
+なお、パスの検証（`workspaceFolder/folderPath.ts`）は経路が1つでも省かない。保存ファイルから読んだパスも同じ関数を通す（利用者が手で編集できる場所にあるため）。
+
+### 8.5 復元と、フォルダが無い場合
+
+ディスクにあるのは「**次回起動時に復元する対象**」であって「今開いているもの」ではない。Workspace を閉じれば `lastWorkspace` は null になり、次回は未選択で起動する。
+
+起動後、最初に Workspace が必要になった時点で1度だけ復元する。
+
+```
+保存ファイルを読む → 文書として検証 → パスとして検証 → 実在するフォルダか
+                     ↓ 失敗            ↓ 失敗           ↓ 無い
+                   未選択            未選択           未選択（理由を Renderer へ返す）
+```
+
+**フォルダが無くても失敗にしない。** フォルダは削除も移動もされうるし、外付けドライブなら次に繋いだときには戻っている。起動できなくなる理由にはならないので、未選択の状態で開いて理由（`unavailableRootPath`）を Welcome に出す。黙って未選択にすると、利用者には「前回の状態が消えた」ようにしか見えない。
+
+**そのとき保存内容は消さない。** 消すと、一時的に繋がっていないだけのドライブでパスを失う。次に Workspace を開いた時点で上書きされるため、古い記録が残り続けることもない。
+
+この結果、`WorkspaceFolder.exists` は現在の Workspace としては常に true になる。存在しないフォルダを「現在の Workspace」にしてしまうと、以降のすべての機能が壊れた root を前提に動くことになるため。
+
+### 8.6 Renderer 側（写しの配り方）
+
+```
+App.tsx
+└── WorkspaceFolderProvider     状態の保持と IPC の呼び出し（唯一 IPC に触れる）
+      └── WorkspaceShell        …
+            ├── WorkspaceTopBar   名前の表示 / 開く / 閉じる
+            ├── WorkspaceStatusBar 場所（rootPath）の表示
+            └── panels/EditorPanel 未選択なら WorkspaceWelcome
+```
+
+**Context で配る。** パネルは自由に配置を変えられ、親子関係が固定されていないため（§7.3）、prop では配れない。Shell より外側に置くことで、どこに置かれたパネルからも `useWorkspaceFolder()` で同じ値が読める。これが「Workspace が変わったら各機能へ伝わる」経路の実体で、後続セッションで Files / Terminal / Git が同じ hook を使う。
+
+Main → Renderer の**イベント経路（§3.3）はここでは要らなかった。** Workspace が変わるきっかけは利用者の操作だけで、その応答として新しい状態が返るため。Main 側の都合で変わる要因（フォルダの消失を監視するなど）ができた時点で、Terminal と同じ経路に載せる。
+
+`status`（`loading` / `ready`）を持つのは、取得が済むまで「未選択」と区別が付かないため。先に未選択を描くと、復元された瞬間に Welcome から画面が入れ替わって見える。レイアウトの復元（§7.8「復元が終わるまで描かない」）と同じ考え方で、こちらは Workspace を出す箇所だけを空にしている（レイアウトと違い、画面全体を止める必要が無いため）。
+
+### 8.7 Session 3-1 の範囲外
+
+| 項目                         | 追加先                                                                  |
+| ---------------------------- | ----------------------------------------------------------------------- |
+| ファイルツリー・ファイル操作 | Files ドメイン（§9 で列挙まで実装済み。操作は後続セッション）           |
+| 最近開いた一覧               | 保存文書へ `recent` を足し、開き直しは id で指定する（§8.2 / §8.4）     |
+| Workspace の名前を変える     | `displayName` を別項目にしてあるため、保存形式は変えずに足せる          |
+| 複数フォルダの同時オープン   | `WorkspaceFolder` は1件で持っている。増やすなら正本を配列にする段階から |
+| フォルダの消失の検知         | Main → Renderer のイベント経路（§3.3）が要る                            |
+
+---
+
+## 9. Files（Workspace のファイルツリー）
+
+Session 3-2 の成果物。§8 の Workspace を基点に、その中のフォルダ・ファイルを Files パネルへ出す。
+
+パネルの中身としては最初の実装であり、**Renderer から OS のデータを読む経路**としても最初のもの。STEP 1 で分けた責務（Renderer は OS に触れない）を、実際にデータを読む機能でどう保つかがここに現れる。
+
+### 9.1 経路
+
+```
+renderer/src/files/useFileTree.ts      ← Renderer で列挙を呼ぶ唯一の場所
+   ↓  window.fluvix.files.readDirectory({ relativePath })
+preload/api/files.ts                   薄いラッパ
+   ↓  IPC（files:read-directory）
+main/ipc/handlers/files.ts             基点を現在の Workspace から取り、失敗を分類へ翻訳
+   ↓
+main/files/readWorkspaceDirectory.ts   境界を確かめて1階層だけ読む
+   ↓
+main/files/workspacePath.ts            パス文字列としての判断（テスト対象）
+```
+
+このセクションが扱うのは列挙だけ。ファイルの中身の読み込みと、作成 / 改名 / 削除は §10。
+
+| チャンネル             | 要求               | 応答                                                |
+| ---------------------- | ------------------ | --------------------------------------------------- |
+| `files:read-directory` | `{ relativePath }` | `{ workspaceId, relativePath, entries, truncated }` |
+
+### 9.2 データ構造
+
+```ts
+FileEntry { id, name, relativePath, type, extension }
+```
+
+`WorkspaceLayout` とは別のモデルにしてある。レイアウトは利用者が組んだ配置で、保存され復元され、過去のファイルとの互換性を守る対象になる。こちらは**今ディスクにあるものの写し**でしかなく、保存もしなければ守る互換性も無い（次に読めば作り直される）。混ぜると、ディスクの都合でレイアウトの保存形式を変えることになる。
+
+| 項目           | 内容                                                               |
+| -------------- | ------------------------------------------------------------------ |
+| `id`           | `d:src/main` / `f:src/main/index.ts`。**relativePath と種別の組**  |
+| `name`         | 表示名（フォルダ内での名前）                                       |
+| `relativePath` | Workspace root からの相対位置。区切りは常に `/`。root 自身は空文字 |
+| `type`         | `file` / `directory`。symlink は指し先の種別                       |
+| `extension`    | 小数点なし・小文字。フォルダと拡張子の無いファイルは null          |
+
+**Renderer は絶対パスを持たない。** 持たせた時点で Renderer が「OS 上の場所」を正本として持ち始める。言えるのは「今の Workspace の中の、この相対位置」までに留める。区切りを `/` に固定しているのも同じ線で、OS の区切り文字は Main の中だけの話にしてある（DESIGN.md §8 の Mac 対応）。
+
+`id` が種別を含むのは、同じ名前がファイルからフォルダへ置き換わったときに id が変わり、選択状態・展開状態がその場で無効になるため（別のものとして扱われる）。
+
+**`hasChildren` を持たない。** それを知るには子フォルダを1つずつ開く必要があり、Lazy Load の意味が無くなる。空のフォルダは「展開したら何も無かった」として表示側で扱う。
+
+### 9.3 Workspace の外へ出られないこと
+
+この機能の要点。Renderer に渡しているのは相対位置だけだが、その文字列は境界の外から来る。
+
+**root を要求に含めない。** 基点は Main が持つ現在の Workspace（§8.1）だけから決まる。Workspace の切り替え自体も Renderer からパスを渡せない（§8.4）ため、この2つが揃って「Renderer からは Workspace の外に手が届かない」が成立する。片方だけでは足りない ── 汎用のファイル API を公開しない方針（§5）は、root を指定できる API があればそこで迂回される。
+
+検証は2段階で、**どちらか一方では足りない**。
+
+| 段階                 | 見るもの                                                                 | 場所                              |
+| -------------------- | ------------------------------------------------------------------------ | --------------------------------- |
+| パス文字列としての形 | `..` / 絶対パス / ドライブ相対（`C:foo`）/ `:` / NUL / 長さ              | `files/workspacePath.ts`          |
+| 実体                 | realpath まで解決した結果が root の中にあるか（symlink・ジャンクション） | `files/readWorkspaceDirectory.ts` |
+
+symlink は**相対位置としては正しいまま外を指せる**ため、文字列の検査だけでは通ってしまう。逆に実体の検査だけでは、`..` を含む要求が「たまたま内側に収まる」形で通り、判断が入力ごとに変わる。
+
+決めていること:
+
+- **`..` は結果が内側に収まる形でも受け付けない。** `a/../b` は resolve すれば内側だが、受け付ける理由が無い。判断を単純に保つほど後から穴が空きにくい
+- **前方一致は区切り文字まで含めて比べる。** `D:\proj` と `D:\project` を通してしまわないため
+- **Windows では大文字小文字を区別しない。** realpath はディスク上の表記（ドライブレターの大小を含む）を返すため、区別すると同じ場所を別物と判定する
+- **読むのは realpath の側。** 確かめた対象と読む対象を同じにする（間に symlink が差し替えられても検証をすり抜けない）
+- **外を指すものは「見つからない」ではなく拒否（`PERMISSION_DENIED`）にする。** Workspace の外は、存在するかどうかを含めて Renderer に答えない
+
+外を指すフォルダ（junction など）もツリーには並ぶ。開けないだけで、あるものを隠すと「あるのに見えない」状態になるため。
+
+### 9.4 Lazy Load
+
+**再帰しない。** Workspace を開いた瞬間に全体を舐めると、`node_modules` を持つプロジェクトではそれだけで数万〜数十万件になる。読むのは常にフォルダ1階層で、展開されたときに初めてそのフォルダを読む。読む量は利用者が実際に開いた範囲で止まる。
+
+Renderer 側の状態は**木ではなく「フォルダ単位の表」**で持つ（`fileTreeModel.ts`）。
+
+```
+directories: relativePath → { loading | ready(entries, truncated) | error(reason) }
+expanded:    展開しているフォルダの relativePath の集合
+```
+
+木の形（どこにぶら下がるか・階層の深さ）は、この2つから `flattenFileTree()` が毎回導く。入れ子のオブジェクトで木を組み立てると、深い階層ほど更新のたびに親を作り直すことになるが、表なら届いた応答はその欄を差し替えるだけで済む。「畳んだら見えない」も状態ではなくこの導出で表す。
+
+**読むのは「展開されたのに、まだ中身を知らないフォルダ」だけ**（`useFileTree.ts`）。展開の操作と読み込みを直接つながず、`expanded` と `directories` の差から導いている。この形にすると、展開の入口が増えても読み込みの経路は1本のままで、再読み込みは「読み込み済みを捨てる」だけで済む。
+
+1回の応答は 5000 件で打ち切り、`truncated` で伝える。打ち切りを失敗にしないのは、`node_modules` のようなフォルダでも先頭だけは見えた方が行き止まりにならないため。並べ替えてから切るのは、先に切ると読むたびに見えるものが変わりうるため（`readdir` の順序はディスク側の都合で決まる）。
+
+### 9.5 並び順
+
+フォルダが先、それぞれ名前順（大文字小文字を区別せず、数値は数として見る）。表記だけが違う組（`README.md` と `readme.md`）は素の文字列比較で固定し、読むたびに並びが入れ替わらないようにする。
+
+**並べ替えは Main 側で済ませる。** Renderer が受け取った時点で表示順になっている方が、ツリーの描画が「配列の順に並べるだけ」で済む。利用者が順序を選べるようにする段階では、契約に順序の指定を足して `entrySort.ts` へ渡す形にする（Renderer 側で並べ替えると、フォルダの中身の正本を Renderer が持つ話に近づく）。
+
+### 9.6 Workspace が変わったとき
+
+**破棄は `key` で行う。** `FilesPanel` が Workspace の id を `key` にして `FileTree` を作り直すため、前の Workspace で読み込んだ内容も展開状態も React が破棄する。「切り替わったら消す」処理を書くより、消し忘れが構造的に起きない。id は開いた記録ごとに変わる（§8.2）ので、同じフォルダを開き直した場合も作り直しになる。
+
+それでも取りこぼす経路が1つある。**要求を出した後・応答が届く前に Workspace が切り替わる**場合で、応答の中身は新しい Workspace のものになっている。そのため応答に `workspaceId` を載せ、Renderer は自分が表示している Workspace の id と突き合わせて、違えば捨てる。読み込みの世代（再読み込みのたびに進む）も併せて見ており、「捨てた内容が後から戻ってくる」ことが起きない。
+
+### 9.7 失敗はツリーの中で扱う
+
+フォルダは読んでいる最中に消えるし、権限が無いこともある。**どれもアプリが落ちる理由にはしない。**
+
+```
+fs の失敗（ENOENT / EACCES / ENOTDIR / ELOOP …）
+   ↓  readWorkspaceDirectory.ts が結末の値へ翻訳（この層は IPC を知らない）
+   ↓  handlers/files.ts が IPC の失敗分類へ翻訳
+   ↓  filesError.ts が「消えた / 権限が無い / それ以外」の3つへ落とす
+Files パネル内の1行として表示 ＋ その場での再試行
+```
+
+失敗するのはそのフォルダだけで、ツリーの他の枝はそのまま残る。読み込み中・失敗を**状態として持つ**のはこのためで、ツリーの一部が読めていないというのは、この画面では例外ではなく通常の状態にあたる。
+
+アプリの中の操作による変化は Main からの通知で自動的に反映される（§10.5）。それでも Files パネルに再読み込みを置いてあるのは、**アプリの外**で変わった内容（別のエディタ・Git の操作）を取り込む手段がまだ他に無いため。展開状態は保ったまま、読み込み済みの内容だけを捨てて読み直す。
+
+### 9.8 Session 3-2 の範囲外
+
+| 項目                     | 状況                                                                                     |
+| ------------------------ | ---------------------------------------------------------------------------------------- |
+| ファイルを Editor で開く | **Session 3-3 で実装**（§10.3）                                                          |
+| 作成 / リネーム / 削除   | **Session 3-3 で実装**（§10.2）                                                          |
+| ファイル変更の通知       | **Session 3-3 で経路を用意**（§3.3・§10.5）。外部の変更の監視は後続                      |
+| 移動                     | **Session 3-6-1 で実装**（§10.7）。境界の検証は §9.3 / §10.2 の経路を通る                |
+| コピー                   | **Session 3-6-2 で実装**（§10.8）。境界の検証は移動と同じものを使い回す                  |
+| ドラッグ&ドロップ        | **Session 3-6-3 で実装**（§10.9）。移動 / コピーの判定をそのまま使い回す                 |
+| 検索（プロジェクト全体） | **Session 3-6-4 でファイル名検索**（§10.10）、**Session 3-6-5 で全文検索**（§10.11）     |
+| カラム表示（横長時）     | **Session 3-6-7 で実装**（§10.13）。ツリーと同じデータ・同じ操作の別の描き方             |
+| 種類別のファイルアイコン | **Session 3-6-6 で実装**（§10.12）。判定は `files/fileIcon.ts`、絵は `FileTreeIcons.tsx` |
+| 並び順の選択             | 契約に順序の指定を足し、`entrySort.ts` へ渡す（§9.5）                                    |
+| 仮想スクロール           | 5000 行は素の DOM で描けている。必要になるのは打ち切りを緩めるとき                       |
+
+---
+
+## 10. Files の操作と Editor 連携
+
+Session 3-3 の成果物。§9 が「見る」までを扱うのに対し、こちらは **Files パネルを開発作業の入口にする**ところ（DESIGN.md §3「Files パネル」）。
+
+```
+Workspace を開く → Files でファイルを選ぶ → Editor で開く
+                 → Files から作る / 名前を変える / 消す
+```
+
+### 10.1 何をどこで決めるか
+
+境界の検証（§9.3）を書き換える側にも同じだけ効かせるのが要点。読む側だけを守っても、書く側から Workspace の外へ手が届けば意味が無い。
+
+| 判断                             | 場所                           | 依存 |
+| -------------------------------- | ------------------------------ | ---- |
+| 相対位置の形（`..`・絶対パス）   | `main/files/workspacePath.ts`  | path |
+| 相対位置の構造（親・配下・改名） | `shared/files/relativePath.ts` | なし |
+| 名前として使える形               | `shared/files/fileName.ts`     | なし |
+| コピーの名前の付け方             | `shared/files/copyName.ts`     | なし |
+| 中身をテキストとして出せるか     | `main/files/fileContent.ts`    | なし |
+| 実体が Workspace の中か          | `main/files/*.ts`（realpath）  | fs   |
+
+**名前の規則・コピー名の規則・相対位置の扱いだけは shared に置いた。** ここまで「shared は型と定数」で通してきたが、この3つは Main と Renderer が**同じ答えを見る必要がある純粋な文字列の判断**で、2箇所に書くと片方だけ直された時点でずれる。
+
+- 名前 … Renderer は入力中にその場で理由を出す必要がある（1文字ごとに IPC を往復させない）
+- コピー名 … Main は実際にその名前で作り、Renderer は何ができるのかを説明する（§10.8）
+- 相対位置 … Main は操作対象の親を求め、Renderer は消えたものの配下を畳む
+
+`ipc/result.ts` の `ipcSuccess` / `ipcFailure` と同じ立ち位置。**Renderer が通した ＝ 許可された、ではない。** Main は受け取った名前を必ず同じ関数へ通してから fs を触る。ここにあるのは共有された規則であって、検査を Renderer へ委譲したわけではない。
+
+OS のパスに関わる判断（区切り文字・ドライブ・realpath）は shared に入れない。それを入れると Renderer に OS 依存が持ち込まれる。
+
+### 10.2 書き換える側の境界
+
+チャンネルは4つ増えた。どれも root を指定する引数を持たない。
+
+| チャンネル        | 要求                                     | 応答                                                                           |
+| ----------------- | ---------------------------------------- | ------------------------------------------------------------------------------ |
+| `files:read-file` | `{ relativePath }`                       | `{ workspaceId, relativePath, name, status, byteLength, content, lineEnding }` |
+| `files:create`    | `{ parentRelativePath, name, type }`     | `{ workspaceId, entry }`                                                       |
+| `files:rename`    | `{ relativePath, name }`                 | `{ workspaceId, entry, fromRelativePath }`                                     |
+| `files:copy`      | `{ relativePath, toParentRelativePath }` | `{ workspaceId, entry, skippedCount }`                                         |
+| `files:delete`    | `{ relativePath }`                       | `{ workspaceId, relativePath, entryType, method }`                             |
+
+#### 境界は「操作が起きるフォルダ」に対して確かめる
+
+作成・改名・削除はどれも**あるフォルダの中で起きる**操作で、対象そのものは操作した後にしか（あるいは操作した時点で）存在しない。そのため確かめるのは**親フォルダ**で、操作するのはその realpath の直下に限る（`mutateWorkspaceEntry.ts` の `resolveTarget` に1箇所だけ置く）。
+
+```
+1. 相対位置を文字列として検証        `..` / 絶対パス / `:` / NUL / 長さ
+2. 名前を検証                        1階層ぶんの名前か（用途で2種類。下記）
+3. 親フォルダを realpath まで解決     symlink / ジャンクションの指し先を見る
+4. その realpath が Workspace の中か  外なら拒否（PERMISSION_DENIED）
+5. join(親の realpath, 名前) を操作   確かめた場所の直下だけを触る
+```
+
+2 で**区切り文字を含む名前を弾いている**ことが、「作成先は `parentRelativePath` だけで決まる」の担保になっている。ここが緩むと、境界を確かめた場所と実際に触る場所がずれる。
+
+#### 名前の検証は、問いが2つある（Session 3-5.1）
+
+同じ検証を全部の操作に通すと、**新規作成のための規則が既存のものにも掛かる。** `aux.ts` は「これから作る名前」としては受け付けないが、他の OS で作られたものが実際に置かれていることはある（Mac で作られたリポジトリを clone すれば起きる）。そこへ作成向けの規則を当てると、**ツリーに並んでいるのに削除できないファイル**ができる ── 守るものが何も無いのに、である。
+
+| 問い                       | 関数                      | 使う場所                | 見るもの                                               |
+| -------------------------- | ------------------------- | ----------------------- | ------------------------------------------------------ |
+| これから付ける名前か       | `findFileNameProblem`     | 作成 / 改名の新しい名前 | 下段に加えて、予約デバイス名・末尾のドット / 空白      |
+| 既に在るものを指せる名前か | `findExistingNameProblem` | 削除 / 改名の元         | 空でない・長さ・区切り文字 / 記号 / 制御文字・`.` `..` |
+
+**緩めたのは名前の規則だけで、境界の検証（1・3・4・5）はどちらも同じものを通る。** 実在するかどうかは、その先の `lstat` が答える。
+
+#### 相対位置そのものを trim しない（Session 3-5.1）
+
+前後に空白を含む名前（`notes.txt `）はディスク上に実在しうる。相対位置を丸ごと trim すると、**利用者が指した `notes.txt ` が別のファイル `notes.txt` に化ける** ── 削除のような戻せない操作でそれが起きると、結末は「操作が失敗する」では済まない。
+
+trim は**判定のためだけ**に使う（空白だけの入力は root と読む / 空白で囲んだ絶対パスも弾く）。判定は trim した写しに対して行い、**戻り値は必ず生の文字列から組み立てる。** こうすると弾く範囲は広いまま、fs へ渡す名前だけが手つかずで残る。
+
+末尾のドット / 空白を落とすと `.` `..` になる要素（`.. ` など）は、Windows が本来その落とし方をするため位置の指定として弾く。**名前は入力欄から来たものだけ trim する**（`normalizeFileName`）── そちらは「利用者が今そこに打った文字列」で、打ち間違いの空白で弾く理由が無い。
+
+#### シェルに宛先を伝えられない名前は、消さずに断る（Session 3-5.1）
+
+`shell.trashItem` だけは fs と経路が違う。node は拡張表記（`\\?\`）でファイルシステムを叩くため `notes.txt ` を字義どおり扱えるが、**シェル側は Win32 のパス正規化を通し、末尾の空白とドットを落とす。** その結果 `notes.txt ` を渡すと隣の **`notes.txt` の方がごみ箱へ入る**（実機で確認済み。拡張表記を渡すと `Failed to parse path` で受け付けられない）。
+
+指したものと違うものが消えるのは、削除できないことより悪い。宛先を正しく伝えられない名前は `shell.trashItem` へ渡さず、失敗として返す。`fs.rm` に切り替えないのは、完全削除の経路を持たない方針を曲げないため。掛かるのは削除だけで、作成はこの形の名前を受け付けず、改名は `fs.rename` を使うので字義どおり動く ── つまり**この名前のものは、改名してから消せる。**
+
+4 で親を見るため、`linkToOutside/new.txt` は作成の時点で拒否される。一方 `linkToOutside` 自身の削除・改名は通る ── **リンクを消すのであって、指し先を消すのではない**ため。Workspace の中にある「外を指す入口」を片付けられないと、ツリーに並んでいるのに手が出せないものが残る。
+
+**読み込みだけは対象そのものの realpath を見る**（`readWorkspaceFile.ts`）。目的が違うため。
+
+| 操作 | 見る対象 | 理由                                         |
+| ---- | -------- | -------------------------------------------- |
+| 読む | 対象自身 | 外の実体の**中身を渡さない**ことが目的       |
+| 書く | 親       | 外の実体には触れず、中のリンクを外すのが目的 |
+
+結果として「Workspace の外を指す symlink は、開けないが消せる」になる。
+
+#### 上書きしない
+
+- **作成** … `writeFile` の `wx` と `mkdir`（recursive なし）はどちらも既存で EEXIST になる。先に存在を確かめてから作ると、その隙間に同名のものが現れた場合に**中身を消して上書きする**
+- **改名** … `fs.rename` は行き先があれば黙って上書きするため、ここだけ事前に `lstat` で確かめる。大文字小文字だけを変える改名（`readme.md` → `README.md`）は Windows で「既にある」と判定されるので、その組み合わせだけ確認を飛ばす
+- **コピー** … 同名でも断らず、衝突しない名前を作る（§10.8）。**上書きしない点は同じ**で、`COPYFILE_EXCL` と recursive なしの `mkdir` で作ってみて EEXIST なら次の候補へ進む
+
+#### 削除は OS のごみ箱へ送るだけ
+
+`fs.rm` を公開していない。Renderer から来た要求で戻せない削除が起きる状態を作らないため（誤操作の確認は UI にも入れているが、UI は迂回されうる）。`shell.trashItem` は Windows の IFileOperation を呼ぶもので、フォルダは中身ごとごみ箱へ入り、元の場所へ戻せる。
+
+ごみ箱へ送れない場合（ネットワークドライブ・容量超過）は**失敗として返し、完全削除に切り替えない。**「ごみ箱に入ったつもりが消えていた」が起きる方が、削除できないより悪い。応答の `method` を真偽値ではなく `'recycle-bin'` という名前にしてあるのは、完全削除の経路を持たないことを型として残すため。
+
+#### 失敗の分類
+
+`CONFLICT` を `IpcErrorCode` に足した。同名衝突は**利用者が直せる**失敗で、`INVALID_REQUEST`（入力そのものが不正）とは次の一手が違う（前者は名前を変えれば通る）。Git の非早送りマージなど、後続ドメインでも同じ性質の失敗が出てくる。
+
+名前の問題は `INVALID_REQUEST` の `detail` に `FileNameProblem` を入れて返す。UI 側の事前チェックをすり抜けた入力に対しても、Main が同じ規則で出した理由を表示できるようにするため。
+
+##### ごみ箱へ送れなかった理由は、例外ではなく fs に訊く（Session 3-5.2）
+
+`shell.trashItem` が投げるのは `message` と `stack` しか持たない素の Error で、`code` も `errno` も無い。残る手掛かりの message は**原因と対応していない**（Electron 43.3.0 / Windows 11 で観測）。
+
+| message                              | 実際の原因                                                       |
+| ------------------------------------ | ---------------------------------------------------------------- |
+| `Failed to parse path`               | 対象が無い / 名前の末尾が空白・ドット / `/` 区切り / `\\?\` 表記 |
+| `Operation was aborted`              | 対象または中のファイルが他プロセスに排他で開かれている           |
+| `Failed to perform delete operation` | 権限が無く、シェルの昇格ダイアログを利用者が閉じた               |
+
+1つの文言が無関係な原因を束ね、1つの原因が複数の文言に散る。**文字列で分類すると Electron の版が変わったときに静かに壊れる**ため、message は診断用の `detail` に残すだけにして、分類は**失敗した後にファイルシステムへ訊き直して**行う（`main/files/deleteObstacle.ts`）。`EBUSY` / `EACCES` / `EPERM` / `ENOENT` は OS ではなく libuv が決めるので、判定が OS ごとに割れない。
+
+- **事前には調べない。** 読み取り専用属性のファイルは `open(path, 'r+')` が `EPERM` で失敗するが、ごみ箱へは問題なく入る。事前検査にすると今まで消せていたものを消せなくする
+- **フォルダは中を歩く。** 削除を止めているのはたいてい中の1ファイル。件数と深さに上限を置き、見つからなければ `unknown`
+- **リンクは開かない・辿らない。** `open` すると指し先を触ることになる（「消すのはリンクそのもの」と同じ理由）
+- **`EBUSY` を `EPERM` より優先する。** 読み取り専用のファイル1つで「使用中」が隠れないように、上限まで探してから答える
+
+`BUSY` を `IpcErrorCode` に足した。`CONFLICT`（要求を変えれば通る）とも `PERMISSION_DENIED`（待っても直らない）とも次の一手が違い、**使っている側を閉じて同じ要求をやり直す**のが答えになる。分からなかったものは `INTERNAL` のまま返す ── 以前は一律 `PERMISSION_DENIED` にしていたが、分からないものを「権限が無い」と言い切ると、閉じれば消せる場合にも利用者を諦めさせる。
+
+### 10.3 Editor のタブ
+
+```
+持つ    tabs（開いた順） / activeTabId / 次の id
+導く    active（activeTabId との一致） / 同じファイルが既に開いているか（relativePath の一致）
+```
+
+**`active` をタブごとの真偽値として持たない。** 持つと「2枚が active」「1枚も active でない」が表現できてしまう。Workspace Shell がパネルの可視状態をレイアウトから導出している（§7.7）のと同じ考え方。
+
+**id は relativePath ではない。** 重複を防ぐ鍵は relativePath だが、タブの同一性は発番した id で持つ。relativePath を id にすると、リネームのたびに React から見て別のタブになり、スクロール位置や将来の編集状態が失われる。
+
+未保存かどうかは、Session 3-3 の時点では常に false の `dirty` として項目だけ持たせてあった。「閉じてよいか」「印を出すか」の判断の入口をここに置くためで、Session 3-4 で実際に編集が入り、Session 3-5 で Conflict / 削除済みまで含む `state` に置き換わった（§12.3）。後から足していたら、判断が UI 側に散った状態から集め直すことになっていた。
+
+中身は `EditorDocument` として状態で持つ（`loading` / `ready` / `binary` / `too-large` / `error`）。バイナリと大きすぎるを IPC の失敗にしていないのは、どちらも「読めたが、テキストとしては出せない」という**通常の結末**だから（`workspace-folder:open` の `'cancelled'` と同じ扱い）。
+
+#### 配り方
+
+Files が開き、Editor が出す。2つは自由に配置を変えられて親子関係が固定されていない（§7.3）ため、Context で配る（`editor/context.ts`）。Provider は **Workspace Shell の外側**（`App.tsx`）に置く。中に置くと、レイアウトの都合でパネルが作り直されたときにタブが消える。
+
+```
+App.tsx
+└── WorkspaceFolderProvider     どの Workspace か
+      └── EditorProvider        開いているタブ
+            └── WorkspaceShell  …
+```
+
+Workspace が変わったときの破棄は、Files のように `key` では行えない（`key` を付け替えると Shell ごと作り直され、レイアウトの状態まで消える）。描画中に「前回見た Workspace」と食い違っていたら state を初期化する形にしてある（`useEditorTabs.ts`）。effect で消すと、1フレームだけ前の Workspace のタブが見える。
+
+#### Monaco が入る範囲
+
+差し替わったのは `EditorDocumentView.tsx` の中だけで、タブの状態（`editorTabsModel.ts`）と読み込みの経路（`useEditorTabs.ts`）は Session 3-4 でも変わっていない（足したのは印を差し替える操作と、応答に増えた `revision` の受け取りだけ）。Monaco 本体の話は §11。
+
+Session 3-5 でも同じで、増えたのは印が真偽値から状態になったこと（§12.3）と、応答の `encoding` の受け取り（§12.5）だけ。読み込みの経路も、同じファイルを2枚開かないことも、リネームでタブが同じであり続けることも変わっていない。
+
+### 10.4 Files の操作 UI
+
+| 入口               | 置き場所                                                                          |
+| ------------------ | --------------------------------------------------------------------------------- |
+| 右クリックメニュー | `FileContextMenu.tsx`（対象によって項目を変える）                                 |
+| ツールバー         | `FilesExplorer.tsx`（新規ファイル / 新規フォルダ / 表示方式 / 検索 / 再読み込み） |
+| root 行の ×        | `FileTree.tsx`（カラム表示では左端のカラムの見出し。Workspace を閉じる。下記）    |
+| キーボード         | F2 で改名、Delete で削除                                                          |
+
+**できない操作を並べて無効にするのではなく、出さない。** root に「削除」が灰色で並んでいると、条件次第で消せるように見える。root に改名・削除が無いのは、それが Workspace そのものであり Files パネルの操作範囲（Workspace の中）の外側にあたるため。
+
+#### root 行の「Workspace を閉じる」
+
+Files パネルは Workspace の中身を出す唯一の場所で、「もうこのフォルダで作業していない」と気づくのもここになる。そのため閉じる入口を上部バーの Workspace メニューだけに置かず、root 行にも出す。
+
+**閉じるのは Workspace であって、フォルダではない。** 同じ行の右端に「削除」があると取り違えるため、root 行のコンテキストメニューには削除を出していない（上の表）。
+
+処理は Session 3-1 の Workspace Close（`useWorkspaceFolder().closeWorkspace`）をそのまま呼ぶ。**ここに後片付けを書かない**のが要点で、
+
+- Files のツリー … Workspace が未選択になれば `FilesPanel` が `FileTree` を描かなくなる（§9.6）
+- Editor のタブ … `useEditorTabs` が Workspace の id の変化を見て捨てる（§10.3）
+- 保存内容（`lastWorkspace`）… Main 側の Close 処理が解除する（§8.5）
+
+はいずれも「Workspace が未選択になった結果」として起きる。閉じる入口が増えても、破棄の処理は増えない。
+
+見た目とイベントで決めていること:
+
+- ボタンは `flex: 0 0 auto`、名前の側は `flex: 1 1 auto; min-width: 0`。**Workspace 名がどれだけ長くても × が行の外へ押し出されない**（名前が省略される）
+- クリックは `stopPropagation` する。しないと、閉じる操作が同時に root の開閉としても走る
+- キーボードの `keydown` も止める。Enter で押したとき、行の ARIA tree 操作（Enter = 決定）へ抜けてしまうため
+
+**名前は別のダイアログではなくツリーの中で打つ。** どのフォルダに対する操作なのかが画面から消えると、深い階層ほど分かりにくくなる。作成もリネームも同じ入力欄（`FileNameInput.tsx`）で、Enter が確定・Escape と focus 外れが取り消し。押し間違いで確定すると意図しないファイルが増える一方、取り消しは打ち直せば済むため、blur は取り消しにしてある。
+
+#### 「確定した」と「送信している」を分ける（Session 3-5.1）
+
+Enter を押しても、その名前が通るとは限らない。同名衝突・権限・直前に外から消された ── どれも**入力欄を閉じずに打ち直してもらう**べき失敗で、IPC の往復が終わるまで結果は分からない。
+
+ここを1つの印（「もう確定した」）で済ませると、送信したまま失敗した入力欄が**確定済みとして固まる**（Enter も Escape も blur も、二重送信の抑止に飲まれる）。打ち直すことも取り消すこともできない行がツリーに残り、逃げ道はパネルを閉じるくらいしかなくなる。
+
+```
+editing ──Enter──▶ submitting ──失敗──▶ editing      打ち直して再試行できる
+   │                    │
+   │                    └───成功──▶ settled           入力欄はこの後消える
+   └──Escape / blur────────────────▶ settled
+```
+
+**抑えるのは submitting のあいだだけ。** 二重送信を防ぎたいのは応答を待っている区間であって、失敗した後ではない。判断は `files/nameEditState.ts` に切り出してあり（`fileTreeModel.ts` が行の並びを決めているのと同じ立ち位置）、`FileNameInput.tsx` はそれに従って描くだけ。確定できたかは `onCommit` の戻り値（`boolean | Promise<boolean>`）で伝わる。
+
+応答を待つあいだも入力欄を `disabled` にしない ── focus が外れ、失敗して戻ってきたときにカーソルが入力欄の外にある。受け付けないことは状態の側で判断する。失敗の理由は Files パネル上部のエラー行に出る（入力欄の下に出るのは、IPC を往復させずに分かる名前の問題だけ）。
+
+「入力中のもの」は `FileTreeDraft` として1つだけ持ち、行の並びは `flattenFileTree` が導く（§9.4 と同じで、表示の形をデータとして決める）。作成は行が1つ増え、リネームは既存の行が入力欄に差し替わる。
+
+削除の確認はアプリ内のモーダル（`DeleteConfirm.tsx`）。ファイルとフォルダで文を分け、そのフォルダを既に展開していれば中身の数も出す。**数を出すために削除の直前に読みに行かない**（大きなフォルダで確認が出るまで待たされる）。初期 focus は「キャンセル」に置く ── 確認の目的は誤操作を止めることなので、Enter を押した勢いで削除されない側を既定にする。
+
+### 10.5 変化の伝わり方（Lazy Load を崩さない）
+
+作成 / 改名 / 削除の結果は、応答ではなく**イベント**（§3.3）で配る。
+
+```
+handlers/files.ts     emitIpcEvent('files:changed', { workspaceId, changes })
+   ↓
+files/useFileTree.ts    変わったフォルダの欄を捨てる → 既存の読み込み経路が読み直す
+editor/useEditorTabs.ts タブの位置を追従させる / 消えたタブを閉じる
+```
+
+**変化を知る必要がある側と、操作した側が違う。** 応答で配ると、操作した箇所（Files のコンテキストメニュー）が Editor の都合まで知ることになる。イベントにしておけば受け取る側が増えても送る側は変わらず、**アプリの外での変更（Session 3-5 のファイル監視）もまったく同じ形で流せている**（`changes` を配列にしてあるのはそのため。監視では複数の変化がまとめて届く）。どちらから来たかは payload の `source` が持つ（§12.2）。
+
+**ツリー全体を読み直さない。** 1件の変化で読み直すのは**その親フォルダ**だけ（`fileChanges.ts` の `directoriesToReload`）。`node_modules` を展開した状態でファイルを1つ作っただけで数千件を読み直すことにならないようにするため。§9.4 の Lazy Load はそのまま保たれる。改名は元と先が同じフォルダなので1つに畳まれ、移動（§10.7）は別のフォルダなので2つになる ── **受け手はその区別を持たない。**「位置が変わった」から読み直す相手を導けば、同じ規則のまま両方に落ちる。
+
+読み直しは**「忘れる」ことで起こす。** 読み込み済みの表からその欄を消すだけで、「展開されているのに中身を知らないフォルダを読む」という既存の経路が拾う。変更のための読み込み経路を別に作らないので、要求の重複や取り消しの扱いも従来の1本のまま。
+
+消えた / 移った位置の配下は、読み込み済みの表からも展開状態からも外す。展開状態を残すと、**同じ名前のフォルダが後から作られたときに勝手に開いた状態で現れる**。
+
+### 10.6 Session 3-3 の範囲外
+
+| 項目                       | 状況                                                                         |
+| -------------------------- | ---------------------------------------------------------------------------- |
+| Monaco Editor 本実装       | **Session 3-4 で実装**（§11）                                                |
+| 編集・保存・Auto Save      | **Session 3-4 / 3-5 で実装**（§11.5〜§11.7・§12.4）                          |
+| UTF-8 以外の文字コード     | **境界を §12.5 に整理**（BOM の保持まで対応。それ以外は今もバイナリ扱い）    |
+| 移動                       | **Session 3-6-1 で実装**（§10.7）。移動元と移動先の両方の親を境界に通す      |
+| コピー / ペースト          | **Session 3-6-2 で実装**（§10.8）。単一のファイル / フォルダのみ             |
+| ドラッグ&ドロップ          | **Session 3-6-3 で実装**（§10.9）。移動 / コピーへの2つめの入口              |
+| ファイル変更監視の完成版   | **Session 3-5 で実装**（§12.1）。通知は `files:changed` をそのまま使っている |
+| タブの並べ替え / 分割      | `editorTabsModel.ts` に操作を足す                                            |
+| 右クリックメニューの共通化 | Terminal / Git でも要るようになったら `renderer/src/ui/` へ引き上げる        |
+
+### 10.7 移動（Session 3-6-1）
+
+`files:move` は「別のフォルダへ動かす（名前は変えない）」だけを持つ。改名（`files:rename`）と別のチャンネルにしてあるのは、**確かめる相手の数が違う**ため。
+
+| 操作 | 触る場所 | 境界の検証                                              |
+| ---- | -------- | ------------------------------------------------------- |
+| 改名 | 1つ      | `resolveExisting`（元の親）だけ                         |
+| 移動 | 2つ      | `resolveExisting`（元の親）＋ `resolveParent`（移動先） |
+
+改名は新しい名前に区切り文字を含められない（`findFileNameProblem`）ので、行き先の親は必ず元の親と同じになる。そこへ移動を混ぜると**1つの要求が2つの場所を指す**ことになり、片方だけ通した経路から Workspace の外へ出られる。分けておけば、§10.2 の手順（相対位置の検証 → 親の realpath → 境界 → その直下だけを触る）を**両方に**そのまま通せる。
+
+名前は動かす前のものをそのまま使うため、行き先で名前を検査し直さない。元の側は削除・改名と同じく `findExistingNameProblem`（既に在るものを指せるか）だけを当てる ── 他の OS で作られた `aux.ts` が「並んでいるのに動かせない」ものにならないようにするため（§10.2 の後半と同じ理由）。
+
+**移動にしか無い失敗が1つある。** 移動先が、動かすもの自身か、その中（`src` を `src/lib` へ）。パスの形も名前も正しく、権限にも実在にも関係しないため、fs に任せると OS の `EINVAL` になり「引数が変」以上のことを伝えられない。判断できる側で判断し（`invalid-destination`）、理由は `INVALID_REQUEST` の `detail` に載せる。この文字列は送る側と読む側の両方が見るので shared に置く（`shared/files/move.ts` の `MOVE_INTO_SELF_DETAIL`。`FileNameProblem` を detail に載せているのと同じ扱い）。比べるのは **realpath どうし** ── 相対位置の文字列で比べると、途中にジャンクションを挟んだ行き先（`link/sub` が実は `src/sub`）をすり抜けさせてしまう。
+
+**同じフォルダへの移動は、何もせずに成功として返す。** 行き先の存在確認が自分自身を見つけて `already-exists` になるのを避けるため（動かないという結果は同じでも、「同名のものがある」という理由は嘘になり、利用者は別の名前を探し始める）。行き先に既にあるものは、改名と同じく事前に `lstat` で確かめて断る ── `fs.rename` は黙って上書きするうえ、移動では行き先が別のフォルダにあり利用者から見えていないことが多い。
+
+ボリュームをまたぐ移動（`EXDEV`）は失敗として返し、**「コピーしてから消す」へ切り替えない。** 移動のつもりで始めた操作が、途中で失敗したときに元と先の両方へ中途半端な状態を残す形になるため。
+
+変化は改名と同じ `renamed` として配る（§10.5）。受け手から見れば「位置が変わった」だけで、Files は変わったフォルダを読み直し、Editor はタブの位置を付け替える ── **どちらも Session 3-3 から1行も変えていない。**
+
+UI は2手に分ける（`FileContextMenu.tsx`）。
+
+```
+右クリック →「移動…」        動かすものを決める（この時点では何も起きない）
+   ↓  Files パネル上部に案内が出る／その行が薄くなる
+行き先を右クリック →「ここへ移動」
+```
+
+**行き先を選ぶダイアログを別に作らない。** 行き先を選ぶのに一番向いた道具が目の前のツリーそのもの（畳んだフォルダは開いてから選べる）であり、別の器を作ると「どこへ動かすのか」を2箇所で表すことになる。移動先になれないフォルダには**項目自体を出さない**（`moveTarget.ts`。§10.4 の「できない操作を並べて無効にするのではなく、出さない」をここでも通す）。ただし `moveTarget.ts` は Main の検証の代わりではない ── Renderer は realpath を持たないので、ジャンクションを挟んだ行き先が実は自分自身の中だった、という形はここでは見抜けない。それを見るのは Main で、断られたときは上の文言が出る。
+
+失敗しても移動の状態を解かない（行き先を選び直せば通る失敗が大半のため）。やめる手段は右クリックメニューと Escape の両方に置く。
+
+**Session 3-6-3 でドラッグ&ドロップが2つめの入口になった**（§10.9）。この2手は残す ── ドラッグでは行き先が画面に出ていないと選べないため、遠い場所へ動かす場合や畳んだフォルダの中を選びたい場合の道として要る。動かす処理も判定（`moveTarget.ts`）も共通で、増えたのは入口だけ。
+
+### 10.8 コピー / ペースト（Session 3-6-2）
+
+`files:copy` は「別のフォルダへ複製する（元は残る）」だけを持つ。対象は**単一のファイル / フォルダ**で、複数選択はまだ無い。
+
+境界の確かめ方は移動（§10.7）とまったく同じ ── `resolveExisting`（元の親）と `resolveParent`（コピー先）の**両方**に §10.2 の手順を通し、行き先が複製するもの自身かその中なら断る。要求の形も相対位置2つで揃えてある。移動で通した経路をそのまま使えているので、コピーのために境界の検証は1行も増えていない。
+
+違うのは4点で、どれも**コピーが「中身を持ってくる操作」である**ことから出てくる。
+
+|                         | 移動                       | コピー                             |
+| ----------------------- | -------------------------- | ---------------------------------- |
+| 同じフォルダが行き先    | 何もせず成功               | **成立する**（複製が1つ増える）    |
+| 同名のものがある        | 断る（`CONFLICT`）         | **名前を変えて作る**（下記）       |
+| 元がリンク              | 通る（リンクを動かすだけ） | **断る**（`link-source`）          |
+| 1回の fs 操作で終わるか | 終わる（`rename`）         | **終わらない**（途中で失敗しうる） |
+
+#### 名前は「作ってみて、既にあったら次の候補へ」で決める
+
+`example.txt` → `example copy.txt` → `example copy 2.txt`。この規則は `shared/files/copyName.ts` に置いた（`fileName.ts` と同じく、shared に実装を置く例外）。Main は実際に作る側、Renderer は何ができるのかを説明する側で、**2箇所に書くと「案内された名前」と「実際にできた名前」がずれる。**
+
+上書きしない点は作成・改名・移動と同じで、コピーだけが**利用者に名前を訊き直さずに済ませている。** 複製は「同じものをもう1つ」であって名前そのものに意味が無いため、この省略が成立する。
+
+**先に一覧を読んで空き番号を探さない。** 読んでから作るまでの隙間に同名のものが現れると、そこで上書きが起きる。`COPYFILE_EXCL` と recursive なしの `mkdir` はどちらも既存で EEXIST になるので、作ってみて EEXIST なら次の候補へ進めば、その隙間が無い（§10.2「上書きしない」と同じ考え方）。
+
+拡張子はファイルだけ切り分ける（`my.folder` は `my copy.folder` ではなく `my.folder copy`）。上限（255）を超える場合は**元の名前の方を削る** ── 連番を削ると衝突を避けられず、拡張子を削ると別の種類のファイルになる。既に付いている " copy" は数え直さない（利用者が最初からその名前を付けた場合と区別が付かない）。
+
+#### リンクは辿らない・作り直さない
+
+再帰コピーは `main/files/copyTree.ts`。**symlink / ジャンクションに当たったらとばして数える。**
+
+- 辿ると、**Workspace の外にある実体の中身を中へ持ち込める** ── §9.3 の抜け道そのもの
+- 中を指すリンクでも、祖先を指していれば再帰が終わらない
+- 作り直す形にすると、Windows では権限が要るうえ、**外を指す入口をアプリが新しく増やす**
+
+**元そのものがリンクの場合は断る**（`link-source`）。削除・改名・移動がリンクに対して通る（リンクそのものを動かすだけで指し先には触れない。§10.2）のと矛盾しない ── 違うのは、コピーだけが中身を持ってくる操作である点。
+
+**とばしたことは黙らせない。** 件数を応答の `skippedCount` に載せ、0 でなければ成功していても伝える。複製したつもりで中身が欠けている方が、断られるより悪い。リンク1つで全体を断らないのは、それをすると `node_modules` を含むフォルダが複製できなくなるため。
+
+種別の判断は `readdir` の `withFileTypes` ではなく **lstat を1件ずつ**通す。Dirent の種別は再解析ポイントの扱いがプラットフォームの実装に委ねられており、ここでの種別の判断は「リンクを辿らない」という境界そのものにあたるため、答えを1つの API に寄せる。
+
+リンクを辿らない以上、実体のフォルダの木に循環は無い（Windows にフォルダのハードリンクは無い）。**だから深さの上限を置いていない** ── 置くと、攻撃者のいない場所に「深いと失敗する」という失敗だけが増える。
+
+#### 途中で失敗しても片付けない
+
+フォルダの再帰コピーは1回の fs 操作では終わらない。途中で権限や使用中に当たったらそこで止め、**作りかけはそのまま残す**（`partial`）。消しに行くと `fs.rm` が要り、Renderer から届いた要求で戻せない削除が起きる経路を1つ増やすことになる（§10.2）。
+
+残ったものは `files:changed` の `created` として配るのでツリーに現れ、利用者が見て消せる。**作られたものを配ってから失敗を返す**のが要点で、配らないと「失敗したのに、次に開いたら何か増えている」になる。失敗の分類（権限 / 使用中 / それ以外）はそのまま持ち上げつつ、`detail` に `COPY_PARTIAL_DETAIL` を載せて「作りかけが残っている」ことを伝える ── 原因が何であれ**次の一手が同じ**（残ったものを消して、もう一度試す）ため、文言は1つにまとめられる。
+
+移動が `EXDEV` で「コピーしてから消す」へ切り替えないのと向きは違うが、拠りどころは同じ ── **アプリが黙って中途半端な状態を作らない / 消さない。**
+
+#### 変化は `created` 1件だけ
+
+再帰コピーでも配るのは**コピー先に1つ現れた**という `created` 1件で、中身までは配らない。中は展開されていなければ読まれておらず、展開されていれば「読み直す ＝ 忘れる」だけで既存の読み込み経路が拾う（§10.5）。**コピー専用の更新経路を1つも作っていない**のはこのため。
+
+元は動いていないので `renamed` にはならない。受け手（Files のツリー・Editor のタブ）はここでも1行も変えていない。
+
+#### Renderer 側のクリップボード
+
+`renderer/src/files/clipboard.ts` に `{ mode: 'copy' | 'cut', entry }` として持つ。持つのは relativePath だけで、**OS のクリップボードには載せない** ── 載せるには絶対パスか実体が要り、Renderer が絶対パスを持たない前提（§9.2）を崩す。
+
+`cut` は器としては最初から持たせてあるが、**UI からは載せていない。** 貼り付け先が成立するかの問い（`findPasteRejection`）が mode で変わる（copy は同じフォルダへの貼り付けが成立し、cut は成立しない）ため、mode を持たない形にするとその分岐が呼び出し側へ漏れる。
+
+**Session 3-6-3 で「cut は UI へ出さない」と決めた**（§10.9）。移動の主な入口はドラッグ&ドロップになり、右クリックの「移動…」は行き先が画面に出ていない場合の道として残る。ここへ cut を足すと**同じ操作への入口が3つ**になり、しかも 3 つめは「切り取り → 貼り付け」という2手で、既にある「移動… → ここへ移動」と手数も結果も同じものになる。器（`mode`）はそのまま残す ── OS のクリップボードとの受け渡し（エクスプローラから切り取って貼る）を入れるときに要る形であり、そのときは Main 側の別の経路を通す話になる。
+
+UI は移動と同じ2手（`FileContextMenu.tsx`）。
+
+```
+右クリック →「コピー」          複製するものを控える（この時点では何も起きない）
+   ↓  Files パネル上部に案内が出る／その行に点線の下線が付く
+貼り付け先を右クリック →「ここに貼り付け」
+```
+
+移動との違いは3つ。**貼り付けても控えを捨てない**（元が残るので、続けて別のフォルダへ貼るのは素直な操作）。**行を薄くしない**（薄さは「ここから無くなる」の印として使っており、コピー元は残る）。**同じフォルダも貼り付け先になる**（その場で複製が1つ増える）。
+
+「次に何かする」状態は**一度に1つだけ持つ** ── コピーを始めれば移動の途中は解け、その逆も同じ。2つ同時に持てると、フォルダを右クリックしたときに「ここへ移動」と「ここに貼り付け」が並び、案内も2行になる。Escape はどちらもやめる。
+
+Ctrl+C / Ctrl+V は割り当てていない。**その2つが OS のクリップボードを指す約束**として広く通っており、ここで扱っているのは Files パネルの中だけの控えになるため。
+
+### 10.9 ドラッグ&ドロップ（Session 3-6-3）
+
+**新しいファイル操作を1つも足していない。** ここで実装したのは、Session 3-6-1 の移動と Session 3-6-2 のコピーに対する**2つめの入口**だけ。素のドラッグが移動、Ctrl を押しながらがコピーで、Windows のエクスプローラの約束（同じボリュームの中では既定が移動）に合わせてある。対象は単一のファイル / フォルダで、複数選択はまだ無い。
+
+```
+掴む                    落とす                    起きること
+──────────────────────────────────────────────────────────
+行（root 以外）      フォルダ行                 その中へ移動
+                    ツリーの余白 / root 行      Workspace 直下へ移動
+Ctrl + 同じ操作      同じ場所                   移動ではなく複製
+```
+
+#### 判定は作り直さず、そのまま呼ぶ
+
+```
+useFileDrag.ts   マウスの追跡。カーソル下の行を探す（files/ で DOM を読む唯一の場所）
+   ↓ FilesDropZone
+dragDrop.ts      落とせるか / どこへ落ちるか
+   ↓ canMoveInto（moveTarget.ts・§10.7） / canPasteInto（clipboard.ts・§10.8）
+useFilesController.ts  performMove / performCopy ── 右クリックの2手と同じ出口
+```
+
+Workspace Shell のドラッグ&ドロップ（§7.5）を「座標の解釈」「操作への翻訳」「マウスの追跡」に分けたのと同じ分け方で、**翻訳の中身は既存の関数を呼ぶだけ**にしてある。ここに規則を書き直すと、右クリックからは断られる操作がドラッグからは通る（あるいはその逆の）ずれが生まれる。mode で呼び分けているのは、**成立する範囲が移動とコピーで違う**ため（同じフォルダへのコピーは複製が1つ増えるので成立する）── その差は `findPasteRejection` が既に mode で持っている。
+
+**Main 側の契約が最終的な正本**であることも変わらない。Renderer は realpath を持たないため、ジャンクションを挟んだ行き先が実は Workspace の外だった、という形はドロップ先の判定では見抜けない。見えている位置（relativePath）だけで決まるものをここで断り、それ以外は Main が断る（`files:move` / `files:copy` が §10.2 の手順を両方の親に通す）。実際に、ツリー上ではフォルダに見えるジャンクション（指し先は Workspace の外）へのドロップは、ハイライトが出たうえで Main に拒否される ── **Renderer が通した ＝ 許可された、ではない**ことが動作として確かめられる形になっている。
+
+#### 落とせる場所は「フォルダ行」と「ツリーの余白」だけ
+
+**ファイル行をその親フォルダへ読み替えない。** 読み替えると、画面で指している行と実際の行き先が違うことになり、深い階層ほど取り違えが起きる。ファイル行・状況を伝える行（「（空のフォルダ）」など）・名前を打っている行の上では、**ドロップできるように見える表示を出さない**（ハイライトは出ず、カーソルに付く小さな表示だけが薄くなる）。
+
+ツリーの余白を Workspace root への行き先にしているのは、root 行がスクロールで見えていないときにも Workspace 直下へ戻す道を残すため。root 行そのものもフォルダ行として同じ行き先になる（root は掴めないが、行き先にはなれる ── §10.4 で「移動…」「コピー」を root に出していないのと同じ切り分け）。
+
+**閉じたフォルダを、落とすために自動で開くことはしない。** 畳んだフォルダへ落とせば中へ入る（行き先はフォルダそのもの）。開いてから中の場所を選びたい場合は、右クリックの2手の方が確実で、そのために2手を残してある。
+
+#### 案内は既存の要素の上に描く（要素を重ねない）
+
+| 場所                 | 出るもの                                                     |
+| -------------------- | ------------------------------------------------------------ |
+| 落とせるフォルダ行   | 帯 + 枠（選択の帯より強く）                                  |
+| 落とせる余白（root） | ツリーの内側に破線の枠                                       |
+| 掴んでいる行         | 移動なら薄く、コピーなら点線の下線（§10.7 / §10.8 と同じ印） |
+| カーソルの右下       | 「移動 / コピー」+ 名前（移動中は「Ctrl でコピー」）         |
+| ツリー全体のカーソル | `grabbing` / `copy`                                          |
+
+ガイドのために**要素を1つも重ねていない**のが要点。重ねるとそれがカーソルの下に入り、当たり判定（`elementFromPoint`）が行を見つけられなくなる。カーソルに付く小さな表示だけは重なるので、`pointer-events: none` にしてある ── これは見た目の都合ではなく、**判定が成立するための条件**にあたる。
+
+掴んでいる行の印を §10.7 / §10.8 と同じもの（移動は薄く、コピーは下線）にしてあるのは、起きることが同じであるため。入口が違うだけで結果が同じものに、覚える印を2組作らない。
+
+#### 座標だけは React の状態に入れない
+
+ドラッグ中の状態（掴んでいるもの・移動 / コピー・行き先）は state に持つが、**カーソルの座標は持たない。** pointermove ごとに state を書き換えると数百行のツリーごと再描画になるため、小さな表示の位置は `useFileDrag.ts` が DOM へ直接書き込む。state が変わるのは行き先か mode が変わったときだけ（§7.5 の `isSameCandidate` と同じ考え方）。
+
+#### ドロップの後は既存の経路に載る
+
+移動なら `renamed`、コピーなら `created` が `files:changed` で届き、Files のツリーは変わったフォルダだけを読み直し、Editor はタブの位置を付け替える（§10.5）。**ドラッグのための更新経路は1つも作っていない** ── ビルド版の確認では、1回のドラッグ移動で読み直されたのが「元の親」と「行き先」の2つだけであることを Main 側の `readdir` の呼び出しで確かめてある（docs/DEVELOPMENT.md §4）。
+
+#### ポインタイベントで実装する
+
+理由は §7.5 と重なる（ドラッグ中の表示を自前で描く・キャンセルの扱いを実装差に依存させない・運ぶのが1件で `DataTransfer` が要らない）。加えて **HTML5 の Drag and Drop API は自動確認のドライバから動かせない**ため、ポインタイベントであることが「実際のマウス操作として確かめられる」ことの条件にもなっている。
+
+- しきい値（4px）を超えるまではドラッグにしない。行のクリック（開く / 開閉）と取り違えないため
+- **ドラッグの後の `click` を無視する。** 離すと click が続くため、見なければドロップと同時にファイルが開く / フォルダが開閉する
+- 掴んだ時点で `setPointerCapture`。掴んだ行がドロップの結果で消えても、リスナーは window 側にあるので取りこぼさない
+- Escape / `pointercancel` / ウィンドウのフォーカス喪失で、何もせず終わる。**このとき控え（コピー）や移動の途中は解かない** ── ドラッグの Escape はそのドラッグをやめるためのもので、掴み直そうとしたら控えが消えていた、にならないようにする
+- Ctrl の押し下げ / 離しでも案内を作り直す（マウスを動かさずに切り替えても表示が追いつく）。実際に使われるのは**離した瞬間の位置と Ctrl の状態**で、表示のために持っていた値ではない
+
+**画面の外への運搬は Session 3-6-8 で埋めた**（§10.14）。この節の時点では、行き先が画面の外にある場合はいったん離して掴み直すしかなかった。足したのは縁で止めたときに中身が流れることだけで、**掴む・判定する・落とす経路は1つも変えていない。**
+
+---
+
+### 10.10 プロジェクト全体検索 ― ファイル名（Session 3-6-4）
+
+Files パネルから、Workspace の中を**名前で**探す。ファイルの中身に対する検索（全文検索）は Session 3-6-5 で、この節の走査・上限・取り消し・UI の上に足した（§10.11）── **この節の経路はそのまま**で、要求も応答も変えていない。
+
+```
+renderer/src/files/useFileSearch.ts     ← Renderer で検索を呼ぶ唯一の場所
+   ↓  window.fluvix.files.search({ searchId, query })
+preload/api/files.ts                    薄いラッパ
+   ↓  IPC（files:search / files:cancel-search）
+main/ipc/handlers/files.ts              基点を現在の Workspace から取り、結末を分類へ翻訳
+   ↓
+main/files/workspaceSearchSession.ts    今走っている検索1本の管理（取り消しの理由を集める）
+   ↓
+main/files/searchWorkspaceFiles.ts      root から再帰的に潜る（上限つき・取り消し可能）
+   ↓
+main/files/ignoredDirectories.ts        監視と共有している除外の規則
+shared/files/search.ts                  上限の値と、名前の照合の規則（Main / Renderer 共通）
+```
+
+| チャンネル            | 要求                  | 応答                                                                                |
+| --------------------- | --------------------- | ----------------------------------------------------------------------------------- |
+| `files:search`        | `{ searchId, query }` | `{ workspaceId, searchId, query, status, matches, truncated, limit, scannedCount }` |
+| `files:cancel-search` | `{ searchId }`        | `{ cancelled }`                                                                     |
+
+#### 走査は Main、Renderer は歩かない
+
+列挙（`files:read-directory`）を Renderer から繰り返して自前で再帰する形にしていない。そうすると、**Lazy Load のために1階層ずつにした経路が、検索という別の目的で全階層を舐める経路に化ける**（読む量が利用者の操作した範囲で止まる、という §9.4 の前提がそこで消える）。上限も取り消しも Renderer 側の都合になり、境界の検証を通る回数だけが増える。
+
+Renderer が言えるのは検索語までで、返るのも相対位置を持つ `FileEntry`（§9.2）だけになる。**結果の型を検索専用にしていない**のは、押したときに開く経路がツリーの行とまったく同じ（`openFile({ relativePath, name })`）だからにほかならない。
+
+#### 境界は「潜り方」で守る
+
+起点は realpath まで解決した root ひとつだけで、そこから先は **readdir が返した名前を継ぎ足して降りるだけ**。名前に区切り文字も `..` も混ざらない以上、組み上がる位置は必ず root の下に収まる ── 相対位置を外から受け取らないため、`workspacePath.ts` の検証を通す相手そのものが無い（検証すべき入力が存在しない形にしてある）。
+
+**リンク（symlink / ジャンクション）の中へは潜らない。** 潜れば Workspace の外にある実体を舐めることになり、結果に「中にあるはずのない位置」が混ざる。コピー（§10.8）が辿らないのと同じ線で、リンクそのものは**1件として結果に出す**（そこに在るものだから）。副産物として、リンクの輪で無限に潜る経路もここで消える。
+
+#### 無制限に列挙しない
+
+上限は4つ。値は `shared/files/search.ts` にあり、**Main と Renderer が同じものを見る**（画面に数を出すのは Renderer のため）。
+
+| 上限   | 値      | 何のためか                                       |
+| ------ | ------- | ------------------------------------------------ |
+| 件数   | 500     | 目で追えない数を出しても、絞り込む方が早い       |
+| 深さ   | 12      | 生成物・キャッシュの入れ子で実質無制限になりうる |
+| 走査数 | 50,000  | `.git` / `node_modules` を外しても数万件に届く   |
+| 時間   | 4,000ms | 遅いディスクでは、少ない件数でも終わらなくなる   |
+
+件数だけでは足りない ── **一致が0件でも数十万件を舐めうる**ため、走査数と時間は「見つからないときのため」の上限にあたる。どれも失敗ではなく「ここまでしか見ていない」という事実として返し（`truncated` / `limit`）、Renderer が理由ごとに違う文言で伝える。
+
+除外するフォルダ（`.git` / `node_modules`）は**監視（§12.1）と同じ規則を共有している**。規則そのものを `ignoredDirectories.ts` へ移し、監視側はそれを呼ぶだけにした ── 2箇所に書くと、`.git` の中の変更は届かないのに検索結果には出る、という食い違いが生まれる。除外しているのは再帰的に舐める処理だけで、ツリーで展開すれば中身は普通に見えるし、開いて編集もできる。
+
+#### 走るのは常に1本（取り消しの構造）
+
+同時に走らせない。検索は Workspace 全体を舐める操作で、利用者が見ている検索欄は1つ、古い結果はもう要らない。並行して走れる形にすると、上限が実質的に本数ぶん緩む。
+
+止める理由は3つあり、集めているのは `workspaceSearchSession.ts`。
+
+| 理由                   | 経路                                                    |
+| ---------------------- | ------------------------------------------------------- |
+| 新しい検索が来た       | `beginWorkspaceSearch` が古い方を必ず止める（置き換え） |
+| 利用者が止めた         | `files:cancel-search`（識別子を突き合わせる）           |
+| Workspace 切替 / Close | `onWorkspaceFolderChange` で進行中のものを捨てる        |
+
+走査（`searchWorkspaceFiles.ts`）が見るのは `cancellation.cancelled` だけで、**誰が止めたかを知らない。** 見るのは readdir の直後（＝ await から戻った直後）── JavaScript は途中で割り込まれないため、取り消しの要求が届くのもその隙間しかない。
+
+**識別子は Renderer が作る。** Main が振って応答で返す形にすると、応答が届く前 ── つまり取り消したい間 ── 呼び出し側が対象を指せない。識別子を突き合わせているので、「止めるボタンを押した瞬間に次の文字を打った」場合でも、始まったばかりの検索は止まらない。
+
+取り消しは**失敗ではない**。`status: 'cancelled'` として、そこまでに見つけたものと一緒に返る（保存の `'stale'` と同じ扱い。§11.6）。利用者が自分で止めた場合、その時点の結果はそのまま使える。
+
+**新しい検索は Main と Renderer の両方で古い方を無効にする。** Main だけだと古い応答が新しい結果を上書きしうるし、Renderer だけだと捨てる結果のためにディスクを舐め続ける。
+
+#### パネルを増やさず、モードで切り替える
+
+検索は Files パネルの中の**もう1つの見せ方**として実装した（`renderer/src/files/FilesView.tsx`）。パネルを足すと置き場所と大きさを利用者が決めることになり、「探す → 開く → ツリーで場所を確かめる」という一続きの操作が画面上の2箇所に分かれる。
+
+**どちらも作り直さない。** `hidden` で隠すだけにしてあるため、切り替えでツリーの展開状態も検索結果も失われない ── Lazy Load で読む量を利用者の操作した範囲に留めているのに、表示の切り替えだけで全部忘れるのは筋が通らない。隠れている側は何もしない（検索は語が入るまで要求を出さず、ツリーは変化の通知を受けるだけ）。
+
+ツリー自身は検索を知らない。持っているのは**入口**（ツールバーのボタン）と**出口**（`revealTarget` ＝ 検索結果から指された場所を見せる）の2つだけ。見せ方（祖先を開いて選ぶ）を決めるのはツリー側で、`revealEntry` は**読み込みを直接始めない** ── 祖先を開けば、Session 3-2 の「展開されたのに中身を知らないフォルダを読む」経路がそのまま拾う。
+
+結果を押したときの分岐は1つだけ。ファイルは Editor で開き（検索モードのまま。続けて別の結果を開ける）、フォルダは Editor で開けないのでツリーへ戻って場所を見せる。
+
+#### 状態を言い分ける
+
+検索中・0 件・取り消し・打ち切り・失敗は、**利用者の次の一手がそれぞれ違う**。1つの「結果がありません」にまとめると、待てば出るのか、探し方が悪いのか、壊れているのかが画面から決まらなくなる。判断は `fileSearchModel.ts`（純粋・テスト対象）が持ち、文言もそこで決まる（失敗の文言だけは `filesError.ts` にある他の失敗と並べてある）。
+
+一致した部分に印を付ける範囲は `shared/files/search.ts` の `findFileNameMatch` から出ている ── Main が「一致した」と判断した根拠と、Renderer が色を付ける範囲が同じ1つの規則になる。小文字へ畳むと長さが変わる文字（`İ`）を含む名前では、位置が保証できないので**印を付けない**（一致していること自体は変わらない）。
+
+#### この節の範囲外
+
+| 項目                       | 現状                                                                      |
+| -------------------------- | ------------------------------------------------------------------------- |
+| ファイル本文の全文検索     | **Session 3-6-5 で実装**（§10.11）。別のチャンネル・別の上限として足した  |
+| 検索範囲の指定（フォルダ） | 起点は常に root。足すと境界の検証の対象が1つ増える                        |
+| 除外の設定                 | `.git` / `node_modules` 固定。Settings から読む形にできる（§12.8 と同じ） |
+| 結果の追従                 | 結果はその時点の写し。返した後にディスクが変われば古くなる（探し直す）    |
+| あいまい一致・正規表現     | 大文字 / 小文字を区別しない部分一致だけ。語は字義どおりに扱う             |
+
+### 10.11 プロジェクト全体検索 ― 全文（Session 3-6-5）
+
+Files パネルから、Workspace の中のファイルの**中身**を探す。§10.10 の走査・上限・取り消し・UI の上に載せてあり、**名前の検索は1行も変えていない**（値と純粋な関数だけを共有している）。
+
+```
+renderer/src/files/useFileContentSearch.ts   ← Renderer で全文検索を呼ぶ唯一の場所
+   ↓  window.fluvix.files.searchContent({ searchId, query })
+preload/api/files.ts                         薄いラッパ
+   ↓  IPC（files:search-content / files:cancel-search）
+main/ipc/handlers/files.ts                   基点を現在の Workspace から取り、結末を分類へ翻訳
+   ↓
+main/files/workspaceSearchSession.ts         名前の検索と**同じ**管理（走るのは常に1本）
+   ↓
+main/files/searchWorkspaceFileContents.ts    root から潜り、1件ずつ開いて読む
+   ↓
+main/files/contentMatches.ts                 文字列 → 一致の位置と preview（純粋・テスト対象）
+main/files/fileContent.ts                    バイナリ判定・BOM（Editor と同じ判断）
+main/files/searchQuery.ts                    検索語の規則（名前の検索と共有）
+shared/files/contentSearch.ts                上限の値と結果の型（Main / Renderer 共通）
+```
+
+| チャンネル             | 要求                  | 応答                                                                                                             |
+| ---------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `files:search-content` | `{ searchId, query }` | `{ workspaceId, searchId, query, status, files, matchCount, searchedFileCount, scannedCount, truncated, limit }` |
+| `files:cancel-search`  | `{ searchId }`        | `{ cancelled }`（**名前の検索と共有**）                                                                          |
+
+#### なぜ別のチャンネルか
+
+`files:search` に「中身も見る」という切り替えを足していない。理由は検索を `files:read-directory` に足さなかったのと同じで、**1回の要求の重さが別物**だから ── 名前の検索が readdir だけで済むのに対し、こちらは対象を1件ずつ開いて読む。上限も応答の形（ファイル単位のまとまり・行・桁）も共有できない。
+
+分けたことで、Session 3-6-4 の経路は**要求も応答も型も1文字も変わっていない**。
+
+#### 走査は分け、規則は共有する
+
+潜り方（root だけを realpath で解き、readdir が返した名前を継ぎ足して降りる）は §10.10 と同じ考え方で、**除外の規則**（`ignoredDirectories.ts`）・**深さと走査数の上限**（`shared/files/search.ts`）・**検索語の規則**（`searchQuery.ts`。3-6-5 で `searchWorkspaceFiles.ts` から切り出して共有した）はそのまま共有している。
+
+一方で**ループは分けた**。2つの走査は「何を集め、何で止まるか」が別物で ──
+
+|                | 名前（§10.10）             | 中身（ここ）                     |
+| -------------- | -------------------------- | -------------------------------- |
+| 結果になるもの | ファイルとフォルダ         | ファイルの中の行だけ             |
+| 止まる条件     | 見つけた件数               | 読んだファイル数・一致の総数     |
+| リンク         | **1件として結果に出す**    | **中身を読まない**（下記）       |
+| 読めないもの   | 関係ない（名前しか見ない） | バイナリ・大きすぎるものをとばす |
+
+共通の走査へ寄せると、これらを呼び出し側から差し込む形になり、ループの外に散った条件を読んで初めて挙動が分かる状態になる。**値と純粋な関数として共有できているものは共有し、制御の流れは分ける**という切り方にした。
+
+#### リンクは読まない
+
+名前の検索はリンク（symlink / ジャンクション）を1件として結果に出す（そこに在るものだから）。全文検索は逆で、**リンクは中身を読まない。** 読めば Workspace の外にある実体の中身が preview に載り、Renderer へ渡ってしまう ── `readWorkspaceFile.ts` が「読むときは対象そのものの realpath を見る」と決めているのと同じ線を、こちらは「そもそも読まない」側で引いている。中へ潜らないのは名前の検索と同じ。
+
+#### 読まないもの
+
+| 対象                     | 理由                                                      |
+| ------------------------ | --------------------------------------------------------- |
+| `.git` / `node_modules`  | 監視・名前の検索と同じ除外（`ignoredDirectories.ts`）     |
+| symlink / ジャンクション | 外の実体の中身を持ち込まない（上記）                      |
+| 大きすぎるファイル       | **Editor で開ける上限と同じ値**（下記）                   |
+| バイナリ                 | 判定は Editor と同じ（`fileContent.ts` の `looksBinary`） |
+
+どれも失敗にせず、黙ってとばす。**探せなかったものを1件ずつ数えて見せる意味が無い**（利用者が知りたいのは、見つかったものと、全部を見たかどうかだけ）。
+
+1ファイルの上限を `FILES_FILE_MAX_BYTES`（2 MB）と**同じ値にしてある**のが要点で、別にすると「見つかったのに開けない」か「開いて Ctrl+F では見つかるのに全体検索に出てこない」のどちらかが必ず起きる。**Editor で開けるものを探す**と決めておけば、その食い違いが構造的に生まれない。
+
+#### 上限は6つ
+
+深さ・走査数は名前の検索と共有し、残りは全文検索のもの（`shared/files/contentSearch.ts`）。
+
+| 上限              | 値          | 何のためか                                                          |
+| ----------------- | ----------- | ------------------------------------------------------------------- |
+| 一致の総数        | 1,000       | 名前（500）より多い。1行が1件になるため、500 では数ファイルで尽きる |
+| 1ファイルの件数   | 50          | 巨大な1ファイルが総数を使い切ると、他のファイルの一致が出ない       |
+| 読むファイル数    | 2,000       | 「名前を見た数」と「開いて読んだ数」は費用が2桁違う                 |
+| 1ファイルの大きさ | 2 MB        | Editor で開ける上限と同じ（上記）                                   |
+| 時間              | 6,000ms     | 名前（4,000ms）より長い。1件ごとに読み込みが挟まるため              |
+| 深さ / 走査数     | 12 / 50,000 | §10.10 と同じ値（潜り方が同じなら別の数を持つ理由が無い）           |
+
+打ち切りはすべて失敗ではなく「ここまでしか見ていない」という事実として `truncated` / `limit` で返す。理由は6つ（`matches` / `files` / `scanned` / `time` / `depth` / `file-matches`）あり、**利用者の次の一手が違うので言い分ける**。走査を止めた理由が無いときだけ、弱い理由（`depth` → `file-matches`）を出す ── 「そこに在るのに探していない」の方が「見つけたものの一部を出していない」より効くため、深さを先に見る。
+
+1ファイル内で打ち切ったことは、そのファイルの `truncated` としても返る（画面では `50 件以上`）。
+
+#### 一致の位置と preview
+
+照合は**1行ずつ**（`contentMatches.ts`）。全体を探してから行番号を数える形にすると、行の数え方（`\r\n`）が2箇所に現れる。行・桁はどちらも**1始まり**で、Monaco と同じ数え方 ── 受け渡しのたびに ±1 する箇所を作らない。
+
+大文字 / 小文字は区別しない。ただし位置まで返すため、畳み方に注意が要る。`toLowerCase()` は文字数が変わることがある（`İ`）ので、
+
+- 畳んでも長さが変わらない行 … 畳んだ行の上で `indexOf`（ほぼすべての行がこちら）
+- 変わる行 … 生の行の上を1文字ずつ切り出して畳んで比べる（位置は正確）
+
+と分けている。**ずれた位置を返すよりは見つけない**（`findFileNameMatch` が印を付けないのと同じ判断）。
+
+`preview` は一致の周辺を切り出したもの（前 24 文字・全体 200 文字まで、切った側に `…`）。圧縮された JavaScript のように1行が数十万文字のファイルがあり、行をそのまま返すと IPC で運ぶ量も描く量もその1行で決まる。制御文字は**1文字を1文字へ**空白に置き換えるため、`previewColumn`（preview の中での位置）はそのまま使える ── Renderer は印を付ける位置を**探し直さない**。
+
+#### 取り消しと「走るのは1本」
+
+`workspaceSearchSession.ts` を名前の検索と**共有している**。走ってよい検索は名前・全文を通じて常に1本で、新しい検索を始めた時点で古い方は必ず止まる ── **モードを切り替えて検索し直した瞬間に、前のモードの検索が止まる**のもこの1本化から来ている。分けると、2つの検索が同時にディスクを舐め、上限が実質2本ぶんに緩む。
+
+取り消しのチャンネルも共有（識別子の作り方が同じで、走っているのが1本なら区別する必要が無い）。Renderer 側の識別子だけは頭文字で分けてある（`c<workspaceId>#<n>`）── 同じ番号が2つの hook から出ると、止めるつもりのない検索を止めうるため。
+
+#### UI（モードで切り替える）
+
+パネルも、検索の入口も増やしていない。Files パネルの検索モードの中が**ファイル名 / 全文**の2つになった。
+
+```
+[<]  [ ファイル名 | 全文 ]      FileSearch.tsx（枠。戻る手段とモードの切り替え）
+     [検索欄]                   FileNameSearch.tsx / FileContentSearch.tsx
+     状態の1行
+     結果
+```
+
+**どちらのモードも作り直さない**（`hidden` で隠すだけ）。ツリーと検索を切り替えても状態を捨てないのと同じ形で、名前で探して見つからず全文へ切り替え、また戻る、という行き来で結果が消えない。
+
+「名前も中身も同時に探す」形にしていないのは、結果の並べ方が2種類混ざる（名前は1行、中身はファイル単位の入れ子）うえ、上限が2つの検索ぶん緩むため。
+
+結果は **フォルダ → ファイル → 一致** の3段で並べる。
+
+```
+src                          ← 見出し（押せない）
+  App.tsx            3 件    ← 押すと最初の一致へ
+    3:7  const example = 1   ← 押すとその行・桁へ
+```
+
+まとめるのは Main（走査した側）で、行に展開するのは `fileContentSearchModel.ts`（純粋・テスト対象）。**入れ子の DOM にしない**のは、上下キーの移動を「配列の隣」で決めるため（ツリーと同じ考え方）。
+
+状態は名前の検索と同じ5分類（検索中 / 0 件 / 取り消し / 打ち切り / 失敗）で言い分ける。0 件の文言だけは変えてある（「一致するファイルはありません」ではなく「一致するテキストはありません」）── 探した対象が違うため。
+
+#### Editor へのジャンプ
+
+結果を押すと、**ツリー・名前検索と同じ `openTab`** を通ってファイルが開く（`openFileAt`）。既に開いているファイルなら2枚目のタブは作られず、そのタブが手前に出て位置だけが動く。
+
+位置は「開く操作」に混ぜず、**依頼として持つ**（`editor/editorReveal.ts`）。
+
+```
+FilesView.openMatch → openFileAt → openTab（既存のタブなら activate）
+                                 → pendingReveal { relativePath, line, column, length, token }
+                                        ↓ 中身が届いて Monaco に Model が載った時点で
+MonacoEditor         → setSelection + revealPositionInCenterIfOutsideViewport → consumeReveal
+```
+
+- **タブの状態にしない**：タブが持つのは開いている間ずっと正しいことで、位置の依頼は1回きり。タブに載せると、切り替えて戻るたびに同じ場所へ引き戻される
+- **開いた直後には飛べない**：新しいタブは `loading` から始まる。依頼として置いておけば、「新しく開いた」「既に開いていた」を区別せずに同じ1つの経路で飛べる
+- 適用する effect は Model を載せる effect の**後**に宣言してある（React は宣言順に走るため、`Model を載せる → 飛ぶ` の順が保たれる）
+- 行・桁は Renderer から見れば境界の外の値なので `validatePosition` で Model の範囲に収める（アプリの外でファイルが短くなっていても壊れない）
+- テキストとして出せないファイル（binary / too-large / 失敗）は Monaco に載らないため、依頼は `useEditorTabs` 側で捨てる
+- 一致した範囲はそのまま**選択状態**にする（preview に付けた印と同じ範囲になり、飛んだ先で探し直さずに済む）。既に見えている位置ならスクロールしない
+
+#### この節の範囲外
+
+| 項目                       | 現状                                                                        |
+| -------------------------- | --------------------------------------------------------------------------- |
+| 置換 / 一括置換            | 検索は読むだけ。書く側は `files:write-file` の経路（§11.6）に載せる形になる |
+| 正規表現 / あいまい一致    | 大文字 / 小文字を区別しない部分一致だけ。語は字義どおりに扱う               |
+| 検索フィルター（拡張子等） | 要求は検索語だけ。足すなら契約と走査の両方に条件が増える                    |
+| 検索範囲の指定（フォルダ） | 起点は常に root（§10.10 と同じ理由）                                        |
+| Git 連携検索 / AI 検索     | DESIGN.md の将来項目。走査の入口が別のもの（index・履歴）になる             |
+| 複数行にまたがる語         | 照合は1行ずつ。改行を含む語は `INVALID_REQUEST` として断る                  |
+| UTF-8 以外の文字コード     | UTF-8 として読む（§12.5）。Shift_JIS のファイルは一致しない                 |
+| 結果の追従                 | その時点の写し。返した後にディスクが変われば古くなる（探し直す）            |
+
+### 10.12 ファイル種類別のアイコン（Session 3-6-6）
+
+一覧の視認性のための表示層の変更。**IPC も契約もデータ構造も1つも変えていない** ── 増えたのは Renderer の中の判定1つ（`files/fileIcon.ts`）と、その答えを描く SVG（`FileTreeIcons.tsx`）だけになる。
+
+#### データを変えずに、名前から決める
+
+`FileEntry`（§9.2）にアイコンの欄を足していない。種類は名前から Renderer 側でその場で分かるもので、Main が運ぶ理由が無い ── 運べば「今ディスクにあるものの写し」だったはずの型が表示の都合を持ち始め、アイコンを1つ増やすたびに IPC の応答が変わる。
+
+**入口は名前1つ**にしてある（`FileEntry.extension` から引く形にしていない）。全文検索の結果は `FileEntry` を持たずファイル名しか無い（§10.11）ため、extension を要求すると、そこだけが自前で拡張子を切り出すことになる。
+
+#### 判定と描画を分ける
+
+| 場所                | 責務                                                | 依存                      |
+| ------------------- | --------------------------------------------------- | ------------------------- |
+| `files/fileIcon.ts` | 名前 / 種別 → `FileIconId`（2つの対応表と優先順位） | なし（テスト対象）        |
+| `FileTreeIcons.tsx` | `FileIconId` → SVG（`FILE_ICON_SHAPES`）            | React（JSX を返すだけ）   |
+| `files.css`         | `FileIconId` → 色                                   | `styles/theme.css` の変数 |
+
+`fileTreeModel.ts`（並び）と `FileTree.tsx`（描画）を分けてあるのと同じ分担で、判定だけが React にも DOM にも依存しない形で残る（`editor/monaco/language.ts` が Monaco を import しないのと同じ理由）。`FILE_ICON_SHAPES` は `Record<FileIconId, …>` なので、種類を足して絵を足し忘れると型エラーになる。
+
+#### 表は2つに分け、名前が先に効く
+
+```
+1. 名前そのもの（小文字で完全一致）   package.json / .gitignore / Dockerfile / README.md …
+2. 拡張子（小数点なし・小文字）       ts / tsx / js / jsx / json / html / css / md / py / cs / 画像 / txt …
+3. どちらにも無ければ無地のアイコン
+```
+
+- **混ぜない。** 1つの表にすると `README.md` を「md の例外」として拡張子の表に書くことになり、`md` の行を読んでも何が起きるか分からなくなる
+- **名前が先。** `package.json` は JSON でもあるが、そのプロジェクトでの意味は「パッケージの定義」の側にある。逆順にすると名前の表は一度も効かない
+- **完全一致だけ。** `Dockerfile.dev` のような派生形を拾おうとすると「前方一致か / 区切りはどこか」という規則が増え、それは拾えなかった名前が出るたびに揺れる
+- **先頭のドットは拡張子ではない。** `.gitignore` の拡張子は `gitignore` ではない（`language.ts` と同じ規則）。複数のドットを含む名前（`app.test.ts`）は最後のドットから後ろだけを見る
+- **フォルダに種類の表を当てない。** フォルダは開いているかどうかだけで決まる（`Dockerfile` という名前のフォルダにクジラが付かない）。フォルダ名ごとの専用アイコン（`src`・`node_modules`）は持たない ── 足すなら3つめの表になる
+
+#### ツリーと検索で同じ判定を通る
+
+呼ぶのは `FileTree.tsx` / `FileNameSearch.tsx` / `FileContentSearch.tsx` の3箇所で、**どれも `fileIcon.ts` の関数を呼ぶだけ**。判定を描く側に書くと、同じファイルがツリーでは TypeScript なのに検索結果では無地、という食い違いが入口ごとに生まれる（開く経路を1つに保っているのと同じ考え方。§10.11）。
+
+検索結果のフォルダには展開状態が無いため、`expanded` は省略できる（＝閉じたフォルダとして描かれる）。
+
+#### 見た目で決めていること
+
+- **大きさは種類によらず 14px。** 行の高さ（22px）もインデントも展開の三角の位置も変わらない。**種類が分からないファイルでも必ず何かを描く**ので、名前の左が空いて行ごとに文字の位置がずれることも起きない
+- **外部アセットを持たない。** その場で描く SVG のままで、CSP（`default-src 'self'`）は1文字も緩めていない。アイコンフォントも画像も増えない
+- **色は補助であって、唯一の手掛かりにしない。** 種類はまず絵の形が示す。色が主になるのは形が同じ組（`.tsx` / `.jsx`）だけで、そこは TypeScript / JavaScript の系統色に揃えてある
+- **全部には色を付けない。** テキストと種類不明のファイルは無彩色のまま。全部に色が付くと色そのものが情報を持たなくなる（一覧が色の並びになり、種類のある行が沈む）
+- 値は `styles/theme.css` の `--fx-file-icon-*` に置く。彩度は識別色（DESIGN.md §3）と同じく低く保ち、面ではなく細い線にだけ乗せる
+- 名前を打っている最中の行（作成 / 改名）は種類別にしない。1文字ごとに絵が変わると、打っている名前ではなくアイコンに目が行く
+
+#### この節の範囲外
+
+| 項目                             | 現状                                                              |
+| -------------------------------- | ----------------------------------------------------------------- |
+| フォルダ名ごとのアイコン         | `src` / `node_modules` / `.git` などは持たない（3つめの表になる） |
+| 名前の派生形（`Dockerfile.dev`） | 完全一致だけを見る（上記）                                        |
+| アイコンテーマの切り替え         | 表と色は固定。差し替えるなら `FILE_ICON_SHAPES` ごと切り替える形  |
+| Editor のタブのアイコン          | 同じ関数を呼べば足せる。今回は Files パネルの中だけ               |
+
+---
+
+### 10.13 横長時のカラム表示（Session 3-6-7）
+
+Files パネルは Dock / Split / Resize で形が変わる（DESIGN.md §3）。左右に置けば縦長、画面下部に置けば横長になり、**同じツリーがどちらでも最適とは限らない**。横長のときにフォルダ階層を左から右へ展開する見せ方を足した。
+
+```
+Project | src | renderer | files
+```
+
+**表示方式が増えただけで、Files は1つのまま。** 新しい Main 側の API も、2つめのデータモデルも作っていない。
+
+#### 何を共有し、何が違うのか
+
+| もの                                            | ツリー | カラム | 実体                                           |
+| ----------------------------------------------- | ------ | ------ | ---------------------------------------------- |
+| `FileEntry` / `relativePath`                    | 同じ   | 同じ   | `shared/files`（§9.2）                         |
+| 読み込み済みの中身（`directories`）・展開状態   | 同じ   | 同じ   | `useFileTree.ts`（§9.4）                       |
+| Lazy Load の経路                                | 同じ   | 同じ   | 「展開されたのに中身を知らないフォルダを読む」 |
+| 作成 / 改名 / 削除 / 移動 / コピー / D&D / 開く | 同じ   | 同じ   | `useFilesController.ts`                        |
+| 状況を伝える行・名前の入力欄                    | 同じ   | 同じ   | `FileRows.tsx`                                 |
+| フォルダ1つの中身を行にする関数                 | 同じ   | 同じ   | `fileTreeModel.ts` の `directoryRows()`        |
+| 並べ方                                          | 縦     | 横     | `FileTree.tsx` / `FileColumns.tsx`             |
+| フォルダを押したとき                            | 開閉   | 右の列 | 上記2つの唯一の違い                            |
+
+#### 層の分け方
+
+Session 3-6-6 までは `FileTree.tsx` が状態も操作も描画も持っていた。表示方式が2つになったので、**同じものを2箇所に書かない**ために3つへ割った。
+
+```
+useFilesController.ts   状態と操作（何が起きるか）      ← ツリーとカラムが共有する
+FilesExplorer.tsx       器（ツールバー・帯・メニュー・確認・ドラッグの表示）
+FileTree.tsx            縦に並べる + キーボード
+FileColumns.tsx         横に並べる + キーボード
+```
+
+`fileTreeModel.ts`（行の並び）と `FileTree.tsx`（描画）の分担をもう一段進めた形で、`layout/` と `shell/` の関係（§7）と同じ考え方になる。**器を表示方式で変えていない**のも要点で、作成の入口も移動の途中を伝える帯も失敗の帯も、どちらでも同じ場所に出る。
+
+#### カラムの状態は「一番右のフォルダ」1つだけ
+
+列の配列を持たない。持つのは `activeDirectory` で、そこから root までの祖先をたどれば列が決まる（`filesColumnsModel.ts` の `columnDirectories()`）。
+
+```
+activeDirectory = 'src/renderer/files'
+  → ['', 'src', 'src/renderer', 'src/renderer/files']
+```
+
+この形にすると、**「別のフォルダを選んだら、それより右の古い列は捨てる」が処理ではなく導出になる。** 列を配列で持つと選び直すたびに右側を切り詰める処理が要り、切り詰め忘れると画面に古い階層が残る。
+
+- カラムを開くことは**そのフォルダを展開すること**として表す（`openDirectory`）。読み込みは既存の1本の経路が拾うため、カラム表示のための読み込みを1つも足していない
+- ツリーへ切り替えると、同じ場所が開いた状態で見える（展開を共有しているため）
+- 逆向き（ツリー → カラム）は**選んでいるものを起点にする** ── ツリーの展開は枝分かれした集合で、そこから1本の道は決まらない
+- 途中のフォルダが消えたら、読み直した結果（`not-found`）から**開ける場所まで戻す**（`clampActiveDirectory()`）。削除の操作から直接畳まないので、アプリの外での削除も同じ経路で畳まれる
+
+#### 表示方式の決め方（提案と選択を分ける）
+
+パネルの形は利用者がいつでも変えられるため、**形から決まる方**と**利用者が選んだ方**を1つの値に混ぜない（`filesLayoutMode.ts`）。
+
+```
+auto     … パネルの形に任せる（起動直後。まだ何も選んでいない）
+explicit … 利用者が選んだ。以降、形が変わってもこちらが勝つ
+```
+
+混ぜると、カラムで見たいから選んだのにパネルを細くした拍子にツリーへ戻り、戻すとまた次のリサイズで変わる ── 選んだことが残らない。
+
+しきい値には**遊び**を持たせてある（入る条件を厳しく、出る条件を緩く）。同じ値にすると、パネルの境界を掴んで動かしている間に 1px ごとに表示方式が入れ替わる。
+
+| 判断           | 条件                                           |
+| -------------- | ---------------------------------------------- |
+| カラムを勧める | 幅 520px 以上 **かつ** 横 / 縦が 1.6 倍以上    |
+| ツリーへ戻す   | 幅 440px 未満 **または** 横 / 縦が 1.2 倍未満  |
+| 据え置く       | 上記の間、および幅か高さが 0（描かれていない） |
+
+#### ResizeObserver は Files パネルの器1つだけ
+
+観測するのは `FilesPanel` の `.fx-files-panel` 1箇所（`useFilesLayout.ts`）。行にもカラムにも張らない ── 中身に張ると開いた行の数だけ観測対象が増える。
+
+**リサイズで state を書き換えない。** 観測した px は ref に置き、state として持つのは `'tree' | 'columns'` の**提案1つ**だけ。しきい値の遊びがあるため、この値が変わるのはドラッグ1回につき多くて数回になる。**ファイルツリーのデータはこれに一切触られない**（`directories` も `expanded` も作り直されない）。
+
+#### 選んだことはパネルより長く生きる
+
+パネルを Dock / Split で動かすとレイアウトの木の中で位置が変わり、`FilesPanel` は React に作り直される。選択をパネルの中に持つと**運んだだけで消える**ため、選択だけを Shell の外側（`FilesViewProvider`）に置いた。
+
+| 状態                         | 置き場所                                          | 寿命                             |
+| ---------------------------- | ------------------------------------------------- | -------------------------------- |
+| 選んだ表示方式               | `FilesViewProvider`（App 直下）                   | アプリが動いている間             |
+| パネルの形の観測と提案       | `useFilesLayout`（パネルの中）                    | パネルと同じ（動かせば測り直す） |
+| 開いているカラム・選択・展開 | `useFilesController`（Workspace の `key` の内側） | Workspace が変わるまで           |
+
+Workspace が切り替わると、古い Workspace の選択も開いていたカラムも React が破棄する（§9.6）。表示方式だけは残る ── それは**パネルの見え方**であって Workspace の持ち物ではない。
+
+#### ドラッグ&ドロップは面ごとに行き先を持つ
+
+判定（`dragDrop.ts`）も追跡（`useFileDrag.ts`）も Session 3-6-3 のものをそのまま使う。行の探し方（`.fx-file-row` と `data-relative-path`）は表示方式で変わらないため、器を1つ預けるだけで動く。
+
+変えたのは**余白の行き先**で、`'tree-root'` を `'surface'`（受け持つフォルダを持つ）に一般化した。`data-drop-surface` を持つ一番内側の要素が答えるため、表示方式ごとの分岐が判定側に入らない。
+
+| 面                         | 余白の行き先                               |
+| -------------------------- | ------------------------------------------ |
+| ツリーの器                 | Workspace root                             |
+| カラムの中身               | そのカラムのフォルダ                       |
+| カラムの外側（右端の余白） | 行き先にしない（どのフォルダでもないため） |
+
+**移動 / コピーの後は行き先を見せる。** ツリーでは行き先を展開していたが、カラムでは「行き先の列が出ていない」が同じ状態にあたるので、`activeDirectory` を行き先にする ── どちらも「どこへ行ったのかが画面から分かる」ための同じ判断になる。
+
+#### スクロール
+
+- 全体は**横**（`.fx-files__columns`）、カラムの中は**縦**（`.fx-file-column__body`）。縦を器に持たせると、右のカラムを下まで見るために左のカラムまで一緒に流れる
+- 右端のカラムまで送るのは **`activeDirectory` が変わったときだけ**。行が届くたび・選択が動くたびに送ると、左のカラムを見ている間に画面が横へ動く
+- カラムの幅は固定（208px）。中身に合わせて伸ばすと、深い階層へ入るたびに左のカラムの幅が変わり、さっき押した行の位置が動く
+
+#### キーボード
+
+ツリーと語彙を揃える。変わるのは上下左右の意味だけで、決定 / 改名 / 削除は同じ。
+
+| キー          | ツリー        | カラム                       |
+| ------------- | ------------- | ---------------------------- |
+| ↑ / ↓         | 前後の行      | 同じカラムの中の前後の行     |
+| →             | 開く / 中へ   | 開く / 右のカラムへ          |
+| ←             | 閉じる / 親へ | 左のカラムの、このフォルダへ |
+| Enter / Space | 決定          | 決定                         |
+| F2 / Delete   | 改名 / 削除   | 改名 / 削除                  |
+
+ARIA は両方とも `tree`。カラムでは列の位置が階層なので `aria-level` に列の番号を入れ、右のカラムを開いているフォルダに `aria-expanded` を立てる（ツリーの「展開中」と同じ旗を、`directoryRows()` の `isOpen` で切り替えている）。
+
+#### この節の範囲外
+
+| 項目                      | 現状                                                             |
+| ------------------------- | ---------------------------------------------------------------- |
+| カラムの幅の変更          | **Session 3-6-8 で実装**（§10.14）。列ごとではなく1つの幅        |
+| 表示方式の保存            | **Session 3-6-8 で実装**（§10.14）。`files-settings.json`        |
+| プレビュー列（Finder 風） | 一番右にファイルの中身を出す列は持たない（それは Editor の仕事） |
+| カラムでの複数選択        | ツリーと同じく単一のまま                                         |
+
+---
+
+### 10.14 Files の仕上げ（Session 3-6-8）
+
+Session 3-6-1 〜 3-6-7 で足した機能そのものは変えず、**使い続けたときに引っかかる3つ**を埋めた回。新しい操作も、新しい見せ方も増えていない。
+
+| 埋めたもの                 | Session 3-6-7 までの状態                       | どこに書いたか                              |
+| -------------------------- | ---------------------------------------------- | ------------------------------------------- |
+| 見え方が次の起動に残らない | 選んだ表示方式はアプリを閉じると忘れる         | `files-settings.json` と `settings:*-files` |
+| カラムの幅が変えられない   | 208px 固定                                     | 同じ文書の `columnWidth`                    |
+| 画面の外へ運べない         | 行き先が見えていないと、離して掴み直すしかない | `filesAutoScroll.ts` と `useFileDrag.ts`    |
+
+#### 見え方は「パネルの見え方」であって Workspace の持ち物ではない
+
+保存するのは**表示方式（auto / tree / columns）とカラムの幅**の2つだけで、Workspace ごとには持たない。開いているフォルダを切り替えても、選んだ見え方は変わらないのが正しい ── 選択も展開も Workspace と一緒に捨てられるが（§9.6）、見え方はそれらと別のものにあたる（§10.13「選んだことはパネルより長く生きる」の延長で、今回それが**アプリの起動より長く**なった）。
+
+```
+FilesViewProvider.tsx           選んだ表示方式と幅の正本。ここだけが読み書きする
+files/filesSettings.ts          保存形式との変換・幅の上下限（React も IPC も知らない）
+shared/settings/filesSettings.ts  ディスクに置く形
+main/store/filesSettingsDocument.ts  形として読めるかの検証
+main/store/filesSettings.ts     保存先（files-settings.json）
+```
+
+読み書きを Provider に置いたのは、**そこが見え方の正本だから**にほかならない。使う側（`useFilesLayout` / `FileColumns`）に置くと、パネルの数だけ保存の口ができる。読むのは起動時に1度だけで、**読み終わるまで保存を許さない**（先に許すと既定値で上書きした後に読み込みが届き、起動のたびに選択が消える。§12.4 の Auto Save と同じ形）。
+
+#### 「選んでいない」も保存する
+
+`auto`（パネルの形に任せる）を、保存しないことでは表さない。保存が無いことを auto とみなすと、**カラムを選んでから auto へ戻したことが次回に伝わらない**（前回の explicit がそのまま残る）。3つの値のうちの1つとして書く。
+
+知らない mode（アプリのダウングレード）と桁外れの幅は、読む側が既定と上下限へ落とす。Main が見るのは「後で解釈できる形か」まで ── §12.4 と同じ分担で、二重に解釈すると「どちらが正しいか」が生まれる。
+
+#### カラムの幅は列ごとに持たない
+
+掴んで変えられるのは1つの値で、全部の列が同じ幅になる。列ごとに持たない理由は表示の好みではなく、**列が導出だから**にある（§10.13）── 列は `activeDirectory` からその都度導かれ、選び直すたびに顔ぶれが変わる。列ごとの幅を持たせると、その幅が「どの列のものだったか」を保てる場所がどこにも無い。
+
+- 掴み手は列の縁に重ねた数 px の帯（`.fx-file-column__resize`）。Dock の掴み手（§7.6）と同じ作りで、**見た目は 1px の線のまま掴める幅だけを広く取る**
+- 動かし方も同じで、**開始時の幅 + 累計移動量**で計算する（前回の結果へ足し込まない）。丸めと上下限での頭打ちが積み重ならず、下限まで詰めた後にカーソルを戻せばそのまま追従する
+- 上下限（160px 〜 480px）は `filesSettings.ts` の `clampColumnWidth` が持ち、**ドラッグと保存の読み書きの両方が同じ関数を通る**。片方だけに掛けると、掴んでは止まるのに保存ファイルを直接書けば通る、という食い違いが生まれる
+- 幅は CSS 変数（`--fx-file-column-width`）1つを器へ載せて効かせる。列ごとに style を書くと、掴んで動かしている間に列の数だけインラインスタイルが書き換わる
+- 中身に合わせて自動で伸ばすことは**相変わらずしない**。変えるのは利用者だけで、深い階層へ入っても左の列の幅は動かない
+
+掴み手にも `data-drop-surface` を持たせてある。ドラッグ中のファイルが境目に重なった数 px だけ落とせなくなると、**落とせたり落とせなかったりする帯**が列と列の間にできるため。
+
+#### 自動スクロールは「どれだけ動かすか」と「どこへ当てるか」を分ける
+
+```
+filesAutoScroll.ts   縁からの距離 → 1フレームで動かす量（純粋関数・テスト対象）
+useFileDrag.ts       いつ回すか・どの要素に当てるか
+```
+
+dragDrop.ts（落とせるか）と useFileDrag.ts（追跡）の分け方をそのまま踏襲している。
+
+- **フレームで回す**（pointermove では回さない）。カーソルを縁で止めたまま流れ続ける必要があり、動きの通知に紐づけると止めた瞬間に流れが止まる
+- ドラッグが成立してから回し始める（掴んだだけでは回さない）。クリックのつもりの操作で中身が流れないため
+- **器の中にいる間だけ動かす。** 外はそもそも落とせない場所で（`findZone`）、そこで中身が流れると、隣のパネルへカーソルを運んだだけでツリーが動く
+- **縁に近いほど速い**（帯に入った時点で最低 1px）。一定の速さにすると、行き過ぎるか遅すぎるかのどちらかになる
+- 動かす要素は**軸ごとに別々に探す。** カーソルの下から器まで遡り、その向きへスクロールできる最初の要素に当てる ── ツリーでは縦が器そのもの、カラム表示では縦がカラムの中・横が器になる。**器の名前で分岐しない**ので、表示方式の分岐がここに入らない
+- 動かした後は**行き先を求め直す。** カーソルが止まったまま下の行が変わるため、求め直さないと案内が流れる前の行を指したまま残る
+
+#### この節の範囲外
+
+| 項目                           | 現状                                                         |
+| ------------------------------ | ------------------------------------------------------------ |
+| 幅をキーボードで変える         | 掴み手はポインタだけ（Dock の掴み手 §7.6 と同じ扱い）        |
+| 列ごとの幅                     | 上記のとおり持たない。持つなら列に安定した識別が要る         |
+| ツリーの横方向の自動スクロール | ツリーは横に流れない（行は幅に収めて省略する。§9.5）         |
+| 複数選択とその Drag            | 対象は今も単一のファイル / フォルダ1つ                       |
+| ツリー外との Drag & Drop       | エクスプローラから落とす、は Workspace の境界を通す別の話    |
+| 見え方以外の Files の設定      | 除外フォルダ・並び順などは持たない（設定画面と一緒に考える） |
+
+---
+
+## 11. Monaco Editor
+
+Session 3-4 の成果物。§10.3 で用意したタブの上に、実際のコード編集を載せる（DESIGN.md §4）。
+
+**既存の経路は変えていない。** Files でファイルを選ぶ → `files:read-file` で中身を読む → タブが持つ → Editor が出す、という §10 の流れはそのままで、最後の「出す」だけが `pre` から Monaco になった。保存（`files:write-file`）はその経路に**同じ作法で1本足したもの**で、Files 側にも Workspace 側にも変更は無い。
+
+### 11.1 何をどこで決めるか
+
+Monaco は大きく、DOM もワーカーも要求する。**どこまでが Monaco の話か**を先に切っておかないと、言語判定やタブの管理まで Monaco 抜きでは触れなくなる。
+
+| 判断                          | 場所                             | Monaco への依存    |
+| ----------------------------- | -------------------------------- | ------------------ |
+| 拡張子 → 言語 id              | `editor/monaco/language.ts`      | **無し**（文字列） |
+| Auto Save の設定              | `editor/autoSave.ts`             | **無し**           |
+| どのファイルを開いているか    | `editor/editorTabsModel.ts`      | **無し**           |
+| Model / 未保存 / 見ていた位置 | `editor/monaco/documentStore.ts` | **型だけ**         |
+| Worker・テーマ・言語サービス  | `editor/monaco/monacoSetup.ts`   | 有り               |
+| Model の作り方・エディタの器  | `editor/monaco/MonacoEditor.tsx` | 有り               |
+| いつ保存するか                | `editor/useEditorSession.ts`     | 無し               |
+
+Monaco の**実体**を import しているのは下2つだけで、そこは `MonacoEditor.tsx` から遅延して読み込まれる（§11.3）。上4つは Vitest（node 環境）から読める。
+
+### 11.2 Worker と CSP
+
+このセッションで一番慎重に決めた箇所。STEP 1 の CSP（`worker-src 'self'`）を**緩めずに**Monaco の Worker を動かす。
+
+Monaco が Worker を作る経路は2つあり、**片方だけが CSP に触れる**。
+
+| 経路                              | Monaco の既定                               | CSP          |
+| --------------------------------- | ------------------------------------------- | ------------ |
+| 言語ごとの Worker（ts / json 等） | `new Worker(new URL('…', import.meta.url))` | 問題なし     |
+| Editor 本体の Worker              | **`URL.createObjectURL(new Blob([…]))`**    | blob: が要る |
+
+後者は NLS（翻訳文言）をグローバルへ埋め込むための起動用スクリプトを blob として作るもので、そのまま使うと `worker-src 'self'` では起動できない。
+
+**`MonacoEnvironment.getWorker` を定義すると、この経路は丸ごと迂回される。** Monaco 側（`standalone/browser/services/standaloneWebWorkerService.js`）が blob を作る前にこちらを呼び、返した Worker をそのまま使うため、blob を作るコードには到達しない。
+
+```
+editor/monaco/monacoSetup.ts
+  self.MonacoEnvironment = { getWorker: (_, label) => … }
+         ↓ label で振り分ける
+  Vite が ?worker としてバンドルした Worker（out/renderer/assets/*.worker-*.js）
+```
+
+決めていること:
+
+- **`undefined` を返さない。** 返すと Monaco は「用意が無かった」とみなして blob の経路へ落ちる。知らない label（Monaco の更新で増えるもの）は Editor 本体の Worker として扱う
+- **Worker はアプリにバンドルしたものだけ。** 外部 CDN を指す `getWorkerUrl` は使わない。配布ビルドでは `file://`、開発時は dev server（同一オリジン）から読まれる
+- **`worker.format: 'es'`**（`electron.vite.config.ts`）。Monaco の Worker は ES Module で、既定の iife では TypeScript サービスのような分割を含むものを出力できない
+
+結果として、`index.html` の CSP は STEP 1 のまま1文字も変えていない。実機でも `blob:` の Worker は1つも作られず、CSP 違反は出ていない（docs/DEVELOPMENT.md §4）。
+
+### 11.3 Monaco をいつ読み込むか
+
+`EditorDocumentView.tsx` が `React.lazy` で `MonacoEditor.tsx` を読む。理由は2つあり、どちらもこの1行で満たされる。
+
+- **起動を Monaco の大きさに引きずられない。** 起動時のチャンクは 261KB、Monaco は 3.9MB。Workspace を開いてテキストファイルを選ぶまで要らない
+- **Panel Registry を辿るだけで Monaco が読み込まれない。** レイアウトの純粋なロジックを試すテスト（node 環境）は Registry → `EditorPanel` → `EditorWorkArea` → `EditorDocumentView` と辿り着く。Monaco は読み込まれた時点で `window` を触るため、静的に import すると DOM を使っていないテストが環境の都合で落ちる（`api/fluvix.ts` が読み込み時に `window` を見ない理由と同じ）
+
+そのため `documentStore.ts` も **`import type` だけ**で Monaco を参照し、Model の作り方は関数として受け取る（`EditorModelFactory`）。ストアの持ち主は EditorProvider で、アプリの起動と同時に作られるため、ここで実体を import すると遅延の意味が無くなる。分担としても素直で、**ストアは持ち物の管理、Monaco の作法は器の側**になる。
+
+言語ごとの構文定義（Monarch）は Monaco 自身が動的 import で読む。C# を開くまで C# のトークナイザは読まれない。
+
+### 11.4 言語判定
+
+`editor/monaco/language.ts`。拡張子（小数点なし・小文字）から Monaco の言語 id を引くだけの純粋な関数で、**Monaco を import しない**（§11.1）。
+
+| 言語       | 拡張子                                |
+| ---------- | ------------------------------------- |
+| typescript | `ts` `tsx` `mts` `cts`                |
+| javascript | `js` `jsx` `mjs` `cjs`                |
+| json       | `json` `jsonc`                        |
+| html       | `html` `htm`                          |
+| css        | `css`                                 |
+| markdown   | `md` `markdown`                       |
+| python     | `py` `pyw` `pyi`                      |
+| csharp     | `cs` `csx`                            |
+| plaintext  | `txt`、および**知らない拡張子すべて** |
+
+- **TSX / JSX に別の id は無い。** Monaco の作りで `.tsx` は `typescript`、`.jsx` は `javascript`。JSX 構文を読むかどうかは TypeScript サービスの設定（`monacoSetup.ts` の `jsx: Preserve`）が決める
+- **知らない拡張子は Plain Text へ落とす。** 開けないにはしない。色が付かないだけで、編集も検索も保存もできる方がよい
+- **先頭のドットは拡張子ではない**（`.gitignore`）。ファイル名そのものを見る規則を足すときに、判断が2箇所に分かれないようにする
+
+DESIGN.md §4 が v1 の対応言語としているのは JavaScript / TypeScript・Python・C# の3つ。ここに並ぶそれ以外（JSON / HTML / CSS / Markdown）は、設定ファイルや README として**必ず同じプロジェクトの中にある**もの。
+
+**言語サービスは Monaco 標準の範囲に留めている。** TypeScript の意味解析（semantic）は切ってある ── Monaco が内蔵する TypeScript は tsconfig も node_modules も見ないため、実際のプロジェクトでは `Cannot find module './foo'` のような**本当ではない赤線**でファイル全体が埋まる。構文解析（syntax）は1ファイルの中で完結し指摘が常に正しいので残す。型に基づく指摘・定義へ移動・Rename は LSP の担当。
+
+JSON の `enableSchemaRequest` は明示的に false。true だと `$schema` の URL を Renderer から直接取りに行く。CSP が止めるとはいえ、**止められる前提の実装を残さない**。
+
+### 11.5 Model の管理（Editor Tab との分担）
+
+**タブと Model は別の層で、同一性の基準が違う。**
+
+| 層                        | 持つもの                                            | 同一性       |
+| ------------------------- | --------------------------------------------------- | ------------ |
+| `editorTabsModel.ts`      | どのファイルを開いていて、どれが手前か、印を出すか  | タブ id      |
+| `monaco/documentStore.ts` | 中身・Undo 履歴・カーソル・スクロール・保存済みの版 | relativePath |
+
+タブの同一性を id で持つのは、リネームされても同じタブであり続けるため（§10.3）。中身の同一性を**位置**で持つのは、同じファイルを2通りの経路から開いても編集内容が2つに分かれてはいけないため。`useEditorSession.ts` がこの2つを噛み合わせる唯一の場所で、やっていることは3つしかない（dirty の伝達 / タブを閉じたら Model も捨てる / Workspace が変わったら全部捨てる）。
+
+**エディタは1つ、Model は開いた数だけ。** タブを切り替えたら `setModel` で差し替える（VS Code と同じ形）。
+
+```
+MonacoEditor（1つ）
+   └── setModel(…)  ← タブを切り替えるたびに差し替わる
+         documentStore が持つ Model（ファイルの数だけ）
+```
+
+この形にすると、編集内容と **Undo / Redo 履歴が Model 側に付く**ので切り替えても消えず、タブが増えてもエディタのインスタンスは増えない。カーソル・選択・スクロール位置だけは Model ではなくエディタ側の状態なので、離れる前に `saveViewState` で控えて戻ったときに復元する。
+
+**Model の持ち主は EditorProvider（Workspace Shell の外側）。** エディタ本体が持つと、View メニューで Editor パネルを閉じただけで未保存の編集が消える。
+
+```
+EditorProvider          ← Model の持ち主（Workspace が変わるまで生きる）
+  └── WorkspaceShell
+        └── Editor パネル
+              └── MonacoEditor  ← 器。閉じても Model は残る
+```
+
+決めていること:
+
+- **同じ位置に Model を2つ作らない。** `acquire` は既にあればそれを返し、**中身を入れ直さない**（入れ直すと、タブを切り替えて戻っただけで編集が捨てられる）。読み直しは `release` してから `acquire`
+- **Model の URI には通し番号を挟む**（`fluvix://workspace/<n>/<relativePath>`）。改名では鍵だけを付け替えて Model を使い続けるため古い名前の URI が残ることがあり、位置だけから URI を作ると「改名の後に同じ名前のファイルが作られた」場合に衝突する（Monaco は同じ URI の Model を2つ作れず例外になる）。鍵が relativePath であることは変わらない
+- **タブを閉じたら Model も捨てる。** 残すと、閉じたはずのファイルの未保存の編集が開き直したときに戻ってくる
+- **改行は開いたときの形に固定する**（`setEOL`）。保存で書き戻すのは `model.getValue()` ＝ その改行で連結した文字列なので、ここが「CRLF のファイルが CRLF のまま保存される」の実体になる
+
+`files:changed`（§3.3）はタブ側と Model 側が**それぞれ独立に**購読する。改名なら鍵を付け替え、削除なら（未保存でなければ）捨てる。互いを知らないため、送る側（Files の操作・ファイル監視）は受け手が増えても変わらない。中身の変更（`modified`）だけは、取り込むのにディスクを読み直す必要があるため `useEditorSession.ts` が受ける（§12.3）。
+
+### 11.6 保存
+
+チャンネルが1つ増えた。root を指定する引数を持たないのは他と同じ。
+
+| チャンネル         | 要求                                      | 応答                                              |
+| ------------------ | ----------------------------------------- | ------------------------------------------------- |
+| `files:write-file` | `{ relativePath, content, baseRevision }` | `{ workspaceId, relativePath, status, revision }` |
+
+```
+Ctrl+S / Auto Save
+   ↓  relativePath
+documentStore.readForSave        中身 + 版番号 + 前回ディスクで見た版
+   ↓
+window.fluvix.files.writeFile    Preload の薄いラッパ
+   ↓  IPC（files:write-file）
+main/ipc/handlers/files.ts       基点を現在の Workspace から取る
+   ↓
+main/files/writeWorkspaceFile.ts 境界を確かめて書く
+```
+
+#### 見るのは対象自身（親ではない）
+
+境界の確かめ方が、作成 / 改名 / 削除（§10.2）と**違う**。
+
+| 操作 | 見る対象 | 理由                                         |
+| ---- | -------- | -------------------------------------------- |
+| 読む | 対象自身 | 外の実体の**中身を渡さない**                 |
+| 保存 | 対象自身 | 外の実体の**中身を書き換えない**             |
+| 作る | 親       | 外の実体には触れず、中のリンクを外すのが目的 |
+
+保存は「指し先の中身を書き換える」操作なので、親だけを見ていると Workspace の中に置かれた**外を指す symlink を通して外のファイルを書き換えられる**。読む側と同じく対象自身を realpath まで解決してから境界に通す。
+
+#### 新しいファイルは作らない
+
+対象が無ければ `NOT_FOUND`。保存は「今開いているファイルへ書き戻す」操作で、開けた時点でそのファイルは Workspace の中にあったことが確かめられている。無い場合に作る形にすると、確かめる対象が「対象自身」と「親」の2通りに分かれ、上の表が崩れる。外から消された場合は保存が失敗し、Editor 側は未保存のまま残る（内容は失われない）。
+
+#### 無条件には上書きしない
+
+読み込みの応答に `revision`（`{ mtimeMs, size }`）が増えた。保存はそれを `baseRevision` として添え、Main は今ディスクにある版と食い違っていれば**書かずに** `'stale'` を返す。
+
+- `'stale'` を IPC の失敗にしていないのは、これが**利用者に選択肢を出すべき状態**であって、要求そのものが成立していないわけではないため（binary / too-large と同じ扱い）
+- mtime と size の組にしているのは、どちらか一方では取りこぼすため（同じ時刻に書き換わる / 1文字を別の1文字へ書き換える）。ハッシュにしないのは、保存のたびにファイル全体を読み直すことになるため
+- **Reload / Compare / 上書き を並べた Conflict UI は Session 3-5 で実装した**（§12.3）。ここで用意した `'stale'` の受け口がそのまま入口になっている。黙って上書きする実装にしていたら、後から選択肢を差し込む場所が無かった
+
+#### 一時ファイル経由にしない
+
+`store/jsonStore.ts` は一時ファイルへ書いてから rename するが、こちらは利用者のプロジェクトの中身で、差し替えると元のファイルの属性（ACL・ハードリンク・監視ハンドル）を失う。「書き込み中に落ちても壊れない」より「**そのファイルであり続ける**」を採る。
+
+#### 保存で `files:changed` を送らない
+
+保存はツリーの形を変えない。Files パネルが持っているのは「どこに何があるか」であって中身ではない（§9.2）ため、通知すると保存のたびに親フォルダを読み直すことになり Lazy Load の意味が薄れる。
+
+Session 3-5 でアプリの外での変更を拾う監視が入り、`WorkspaceFileChange` に `'modified'` が加わって同じ経路に載っている（§12.1）。**自分の保存はそこにも流していない** ── 監視は自分の書き込みと外部の書き込みを区別できないため、書けた位置を申告して短い間だけ黙らせる（§12.1）。
+
+### 11.7 dirty と Auto Save
+
+**dirty は「保存済みの版番号と今の版番号が違うか」で導く**（`model.getAlternativeVersionId()`）。中身の文字列を毎回比べる形にしないのは、比較の費用が中身の大きさに比例するため。副産物として、**打った文字を Undo で戻すと未保存が解ける**（ディスクと一致した状態へ戻ったことが版番号で表せる）。
+
+保存の完了時に渡すのは「**取り出した時点**」の版番号。書き込んでいる間に打たれた文字は保存済みに含めない。
+
+- 保存に成功 … `markSaved` → dirty が解け、`revision` が次の起点になる
+- 保存に失敗 / `'stale'` … `markSaved` を呼ばない ＝ **dirty はそのまま**、編集内容も Model の中に残る
+
+Auto Save（`editor/autoSave.ts`）は設定モデルだけを持ち、いつ保存するかは `useEditorSession.ts`。
+
+| mode             | 内容                                     | Session 3-4 | Session 3-5  |
+| ---------------- | ---------------------------------------- | ----------- | ------------ |
+| `off`            | 自動保存しない（Ctrl+S だけ）            | 実装済み    | 実装済み     |
+| `afterDelay`     | 入力が止まってから `delayMs` 後に保存    | 実装済み    | 実装済み     |
+| `onFocusChange`  | タブから離れたときに保存                 | 後続        | **実装済み** |
+| `onWindowChange` | ウィンドウがフォーカスを失ったときに保存 | 後続        | **実装済み** |
+
+- **既定は必ず OFF。** 自動保存は利用者が明示的に選ぶものにする。既定で入れると「開いて眺めていたつもり」の操作がディスクに残る
+- **4つの mode を最初から型に持った**（Session 3-4）ことで、Session 3-5 で残り2つを足しても保存形式は変わらなかった。真偽値で始めていたら、この段階で移行の手順が要っていた
+- **afterDelay は debounce する。** 状態の通知は文字を打つたびに届くので、そのたびにタイマーを張り直す。実機でも10文字の連続入力に対して書き込みは1回だった
+- 設定 UI の置き場所は Editor パネルの中（タブ列の右端）。上部バーは**レイアウトそのものを操作するもの**の場所で、パネル固有の設定を置くと §7.2 の分担が崩れる。Settings（DESIGN.md §9）が入った時点でそちらへ移す（設定の**値**は既にアプリの設定として保存されている。§12.4）
+
+### 11.8 キーボード
+
+Monaco が標準で持つものは**独自実装しない**。Undo（Ctrl+Z）/ Redo（Ctrl+Y・Ctrl+Shift+Z）/ 検索（Ctrl+F）/ 置換（Ctrl+H）/ 行移動（Ctrl+G）/ 全選択（Ctrl+A）/ コメント切替（Ctrl+/）/ インデント（Tab・Shift+Tab）はすべて Monaco の標準機能。
+
+**Ctrl+S だけは Monaco ではなくウィンドウに掛けている。** Monaco は Ctrl+S に何も割り当てていないため、エディタに focus があっても keydown はウィンドウまで上がってくる。1本にしておくと、
+
+- Files パネルに focus があるときも保存できる
+- エディタ側とウィンドウ側で二重に発火する経路を作らない
+
+ネイティブメニュー（`main/app/menu.ts`）とは競合しない。開発時のメニューは Reload / DevTools / Zoom / Quit だけで、配布ビルドではメニューを持たない。
+
+### 11.9 Session 3-4 の範囲外
+
+| 項目                            | 状況                                                                                          |
+| ------------------------------- | --------------------------------------------------------------------------------------------- |
+| LSP                             | 言語 id は §11.4。プロセス起動は Main、通知は §3.3。意味解析を Monaco 内蔵から LSP へ移す     |
+| Conflict UI（Reload / Compare） | **Session 3-5 で実装**（§12.3）                                                               |
+| 外部変更の監視                  | **Session 3-5 で実装**（§12.1）                                                               |
+| Auto Save の残り2つの mode      | **Session 3-5 で実装**（§12.4）                                                               |
+| Settings（設定の永続化）        | **Session 3-5 で実装**（§12.4）                                                               |
+| 閉じる前の未保存の確認          | **Session 3-5 で実装**（§12.6・§12.7）                                                        |
+| UTF-8 以外の文字コード          | **境界を §12.5 に整理**（BOM の保持まで対応済み。Shift_JIS / UTF-16 は後続）                  |
+| Split Editor / タブの並べ替え   | `editorTabsModel.ts` に操作を足す。Model は位置で持っているため、同じ Model を2つの器に出せる |
+| Minimap 等の表示設定            | `monacoSetup.ts` の `EDITOR_OPTIONS`。Settings と同時に入れる                                 |
+| Formatter / ESLint 統合         | Monaco の `formatOnSave` ではなく、Main 側で実行する形（Terminal / LSP と同じ経路）           |
+
+---
+
+## 12. 外部変更と、失われないための仕組み
+
+Session 3-5 の成果物。§11 で「編集して保存できる」ようになったエディタを、**実際の開発で1日使える**ところまで進める（DESIGN.md §4）。
+
+扱っているのは、Editor が単独では成立しない3つ。
+
+```
+アプリの外でファイルが変わる   → 気づいて、追従するか選ばせる（§12.1〜§12.3）
+自動で保存する                 → いつ書くかを利用者が選べる（§12.4）
+未保存のまま終わろうとする     → 失う前に止める（§12.6・§12.7）
+```
+
+**Session 3-4 の構造はそのまま。** タブ（`editorTabsModel.ts`）・Model（`documentStore.ts`）・保存の経路（`files:write-file`）はどれも作り直しておらず、増えたのは「ディスク側の事実」と「その事実にどう反応するか」の2つだけ。
+
+### 12.1 外部変更の監視
+
+```
+fs.watch（root 1つ・再帰）
+   ↓  絶対パス
+main/files/watchPaths.ts        相対位置へ落とし、境界の外と除外対象を捨てる
+   ↓  相対位置
+main/files/workspaceWatcher.ts  lstat で「今どうなっているか」を見て変化の種類を決める
+   ↓  WorkspaceFileChange[]
+emitIpcEvent('files:changed', { source: 'watcher', … })   ← §3.3 の既存の経路
+   ↓
+Files のツリー / Editor のタブ / Monaco の Model が、それぞれ独立に受け取る
+```
+
+**Renderer に filesystem の監視 API を渡していない。** 監視するのは Main で、Renderer が受け取るのは Session 3-3 から使っている `files:changed` だけ。変化1件の形（`WorkspaceFileChange`）も同じなので、**受け手は3つとも変わっていない**（増えたのは `modified` の扱いだけ）。
+
+#### 監視は root に1つだけ
+
+フォルダごとに watcher を張らない。展開されたフォルダの数だけハンドルが増え、深いツリーでは OS の上限に当たる。Windows の再帰監視は ReadDirectoryChangesW 1本で済むため、**開いている範囲に依存しない**。この形にしてあるので、Files Tree 全体の追従（created / deleted / renamed も同じ束で届いている）へそのまま広げられる。
+
+#### 決めていること
+
+- **束ねてから配る。** 1回の保存でも OS からは複数の通知が来る（rename → change、属性の更新）。120ms 束ね、位置ごとに1つの結末へ畳んでから配る
+- **何が起きたかはディスクを見て決める。** OS のイベント種別だけでは「作られた」と「別のファイルが rename で被せられた」の区別が付かない。束ねた位置を `lstat` して、無ければ `deleted`、フォルダなら現れたときだけ `created`、ファイルなら `modified`（現れたなら `created` も）にする
+- **`.git` と `node_modules` は見張らない**（規則は `ignoredDirectories.ts`。Session 3-6-4 で**検索と共有**した。§10.10）。外さないと `npm install` や `git` の操作1回で数万件が流れる。VS Code の既定の除外と同じ考え方で、**見えなくなるわけではない**（再読み込みで取れるし、開いて編集も保存もできる）
+- **自分の操作は配らない。** アプリ自身の作成 / 改名 / 削除 / 保存でも監視は発火する。そのまま配ると1回の操作で `files:changed` が2回流れ、Files パネルが同じフォルダを2度読み直す（§10.5 の「読み直すのは親1つだけ」が崩れる）。操作した側が `noteAppFileChange` で位置を申告し、監視側が短い間だけ黙る
+- **1束の上限は 500 件。** 大量コピーや checkout で Renderer を埋めない
+- **落とさない。** 再帰監視が使えない OS（Linux）や root が消えた場合は、監視をやめるだけ。外部変更に自動で気づけなくなるが、Files の再読み込みと保存時の版の確認（§11.6）は従来どおり効く
+
+#### アプリの外での改名は「消えた」「現れた」として届く
+
+`WorkspaceFileChange` には `renamed` があるが、**監視からは出さない。** OS が伝えてくるのは片方ずつで、対応付けを推測すると別々に起きた削除と作成を1つの改名として扱う誤りが起きる。種別として持たせてあるのは、アプリの中の改名（`files:rename`）がその形で届くのと、受け手が扱いを分けられるようにするため。
+
+#### `deleted` の種別は分からないことがある
+
+消えた後では、それがファイルだったかフォルダだったかを確かめられない。`entryType` を `FileEntryType | null` にして、**知らないことを `'file'` と偽らない**形にしてある。種別を使う判断はどこにも無い（配下を畳むのは位置で決まる）。
+
+### 12.2 `files:changed` の広がり方
+
+| 項目       | Session 3-3                 | Session 3-5                                  |
+| ---------- | --------------------------- | -------------------------------------------- |
+| 変化の種類 | created / deleted / renamed | **+ modified**（`revision` 付き）            |
+| 出どころ   | アプリの操作だけ            | **+ `source`**（`'app'` / `'watcher'`）      |
+| 位置       | 相対位置                    | 相対位置（変わらず。**絶対パスは載せない**） |
+
+`modified` に `revision`（§11.6 の `{ mtimeMs, size }`）を載せてあるのが要点。受け手はこれを「自分が最後にディスクで見た版」と突き合わせ、**同じなら何もしない。** 自分の保存でも監視は発火しうるため、これが無いと保存のたびに「外部で変更された」と誤って判断することになる（申告による抑止と合わせて二重に守っている）。
+
+**Files パネルは `modified` で読み直さない**（`fileChanges.ts`）。ツリーが持っているのは「どこに何があるか」であって中身ではない（§9.2）ため、読み直すとビルドツールが書き込むたびに親フォルダを読むことになり Lazy Load の意味が薄れる。中身を持っているのは Editor だけなので、受け取るのもそこだけになる。
+
+### 12.3 Conflict（食い違い）の扱い
+
+#### 事実は Model 側、状態はタブ側
+
+```
+monaco/documentStore.ts が持つ事実          editorTabState.ts が導く状態
+────────────────────────────────────────    ──────────────────────────
+savedVersionId ↔ alternativeVersionId  …  dirty
+externalRevision（外で書き換わった後の版） …  externalChange
+missing（ディスクから消えた）            …  missing
+                                              ↓
+                            clean / dirty / conflict / deleted
+```
+
+**旗を並べず1つの状態にまとめてある。** `dirty` / `conflict` / `deleted` を真偽値で並べると「conflict だが dirty ではない」というあり得ない組み合わせが表現でき、印を出す側が優先順位を自分で決めることになる（場所ごとにずれる）。Workspace Shell がパネルの可視状態をレイアウトから導いている（§7.7）のと同じ考え方。
+
+**二重管理にならないのは、タブが導かれた結果だけを持ち自分では決めないため。** Session 3-4 の `dirty: boolean` は `state: EditorTabState` に置き換わり、伝え方（`documentStore` → `relativePath` で通知 → タブが写す）はそのまま。
+
+| 状態       | 意味                                   | 閉じるとき |
+| ---------- | -------------------------------------- | ---------- |
+| `clean`    | ディスクの内容と一致                   | そのまま   |
+| `dirty`    | 未保存の変更がある                     | 確認する   |
+| `conflict` | 未保存で、**ディスク側も変わっている** | 確認する   |
+| `deleted`  | 未保存で、**ディスクから消えている**   | 確認する   |
+
+**未保存でなければ `conflict` にも `deleted` にもしない。** 失うものが無い状態で選択肢を出しても、できることが「読み直す」しかない。
+
+#### 未保存でなければ、黙って取り込む
+
+`modified` を受けたとき、`useEditorSession.ts` が未保存かどうかで分ける。
+
+| 状態       | 扱い                                                              |
+| ---------- | ----------------------------------------------------------------- |
+| 未保存なし | ディスクを読み直して**中身だけ差し替える**                        |
+| 未保存あり | 食い違いとして控える。Reload / Compare / Overwrite は利用者が選ぶ |
+
+取り込みは `documentStore.replaceContent` で、**タブも Model も作り直さない。** 作り直すと、タブが React から見て別物になり（開き直しと同じ見え方）、Undo 履歴が消え、言語サービスがファイルを開き直す。差し替えなら、どれも起きない。
+
+見ていた場所を保つため、全体を1回の編集として置き換え、その前後でカーソル・選択・スクロール位置を控えて戻す。編集として適用しているので **Undo で戻せる**（意図せず消えた編集をその場で取り返せる）。エディタ本体の参照は `MonacoEditor.tsx` がストアへ預ける（持ち主は器の側のまま）。
+
+#### 3つの選択肢
+
+未保存があるときは**アプリが片方を選ばない。** どちらが要るかを知っているのは利用者だけで、しかも間違えると取り返せない。
+
+| 選択    | 何が起きるか                        | 失うもの       |
+| ------- | ----------------------------------- | -------------- |
+| Reload  | ディスクの内容を取り込む            | Editor の変更  |
+| Compare | 2つを並べて見る（何も変えない）     | なし           |
+| 上書き  | Editor の内容でディスクを書き換える | ディスクの変更 |
+
+- **押す前に何を失うかが分かる**（ボタンの説明文）。「押してから気づく」形にすると、Compare を挟む意味が薄れる
+- **エディタは差し替えず、上に足す。** 選択肢のためにエディタを隠すと、利用者が自分の変更を見られないまま選ぶことになる
+- **上書きは `baseRevision: null`** で送る（§11.6 の確認を明示的に飛ばす）。Workspace 境界の検証はそのまま通る
+- **気づいた経路で見え方を変えない。** 監視で気づいても、保存しようとして `'stale'` で気づいても、同じ1つの欄（`externalRevision`）に入り、同じ場所に同じ選択肢が出る
+
+#### Compare は Monaco の Diff Editor
+
+`MonacoDiffEditor.tsx`。**Monaco の実体を import するので遅延して読み込む**（Conflict になるまで要らない）。差分の計算は Editor 本体の Worker が行うため、CSP まわりの前提は §11.2 のまま変わらない（追加の Worker も外部通信も増えない）。
+
+- **読み取り専用。** 直すのは元のエディタで行う。編集可能にすると保存の入口が2つになる
+- **Model は借りない。** 比べるためだけの Model を作り、この器と一緒に捨てる。借りると、閉じたときに開いているファイルの Model まで捨てうる
+- **開くたびに読み直す。** 控えておくと、閉じて開き直したときに「もう古くなっている中身」を今ディスクにあるものとして見せることになる
+
+### 12.4 Auto Save と設定の永続化
+
+4つの mode がすべて動く（Session 3-4 は `off` / `afterDelay` の2つ）。
+
+| mode             | いつ保存するか                                 | 実装場所                   |
+| ---------------- | ---------------------------------------------- | -------------------------- |
+| `off`            | 自動保存しない（Ctrl+S だけ）                  | —                          |
+| `afterDelay`     | 入力が止まってから `delayMs` 後                | 状態の通知で debounce      |
+| `onFocusChange`  | 別のタブへ移ったとき（**離れたタブ**を保存）   | `activeTab` の前後を比べる |
+| `onWindowChange` | ウィンドウがフォーカスを失ったとき（全部保存） | `window` の `blur`         |
+
+- **設定モデルと動作を分ける。** `autoSave.ts` が持つのは「どんな設定がありうるか」「境界から来た値をどう読むか」「保存形式とどう行き来するか」だけで、いつ保存するかは `useEditorSession.ts`。前者は React も Monaco も IPC も知らない（Vitest でそのまま試せる）
+- **既定は必ず OFF。** 保存された設定が読めなかった場合も OFF へ落ちる
+- **`onFocusChange` は「エディタから focus が外れたとき」ではない。** それだと Files パネルをクリックしただけで書き込まれる。ツリーを辿るのは編集の一部で、「編集をやめた」ことを意味しない
+- **Conflict と削除済みは自動で保存しない。** 自動保存が外部の変更を黙って上書きするのが、この機能で一番避けたいこと。自動で書くのは `dirty`（＝ただの未保存）のときだけ
+- **`delayMs` は mode を切り替えても持ち回す。** 戻ったときに待ち時間まで既定へ戻らないようにするため
+
+#### 保存先
+
+```
+useEditorSession（設定の持ち主）
+   ↓  変わった / 起動した
+window.fluvix.settings          Preload の薄いラッパ
+   ↓  IPC（settings:load-editor / settings:save-editor）
+main/ipc/handlers/settings.ts   文書として妥当かを検証
+   ↓
+main/store/editorSettings.ts    %APPDATA%/Fluvix Nexus/editor-settings.json
+```
+
+用途ごとに API を切る方針（§5）に従い、レイアウト・Workspace とは別ファイル・別チャンネルにしてある。**Renderer は保存先を知らない**（パスもファイル名も引数に無い）。検証の分担もレイアウト（§7.8）と同じで、Main は「後で解釈できる形か」まで、意味（mode として成立するか）は Renderer が決める。
+
+**読み込みが終わるまで保存を許さない。** 先に許すと、既定値で上書きした後に読み込みが届き、起動のたびに設定が OFF へ戻る。
+
+Session 3-6-8 で足した Files の見え方（`settings:load-files` / `settings:save-files`）も、この形をそのまま写している ── **同じチャンネルへ項目を足していない**のが要点で、理由は §10.14。
+
+### 12.5 文字コード
+
+**読み書きはどちらも UTF-8 前提。** それ以外のテキストは「開けるが化ける」ではなく**開かない**（UTF-16 は NUL が並ぶため binary として落ちる。§9 の判定）。化けた内容を編集して保存できる状態を作らないため。
+
+**BOM だけは形として保つ。** Windows のツール（メモ帳・PowerShell の一部）は UTF-8 に BOM を付ける。読むときに落とすだけだと、保存した瞬間に BOM が消えて**開いて保存しただけで差分が出る**。そこで「BOM が付いていたか」を `FileEncoding`（`'utf8'` / `'utf8-bom'`）として1件の属性で持ち回り、保存で同じ形に書き戻す。中身の文字列そのものには BOM を含めない（Monaco の1行目の先頭に見えない文字が入る）。
+
+```
+readWorkspaceFile   バイト列 → encoding + 中身（BOM を落とす）
+   ↓  応答に encoding
+EditorDocument / documentStore   そのまま持ち回すだけ
+   ↓  保存の要求に encoding
+writeWorkspaceFile  中身 + encoding → バイト列（BOM を足す）
+```
+
+**広げるときに増えるのは2箇所だけ。** `fileContent.ts`（バイト列 → 文字列）と `writeWorkspaceFile.ts`（文字列 → バイト列）で、`FileEncoding` に `shift_jis` / `utf16le` を足す形になる。Renderer 側は「読んだときの encoding を保存にそのまま返す」以上のことをしないため、文字コードを選べるようにする段階でも Editor の経路は変わらない。変換表を持つ大きなライブラリは、実際に必要になるまで入れない。
+
+改行（`FileLineEnding`）とまったく同じ持ち回し方にしてあるのは、どちらも「開いたときの形を保つ」という同じ目的のため。
+
+### 12.6 未保存を失う操作に、確認を1本で挟む
+
+未保存の内容が失われる操作は4つある。
+
+- Editor のタブを閉じる
+- Workspace を閉じる（上部バー / Files の root 行の ×）
+- 別の Workspace へ切り替える
+- ウィンドウを閉じる / アプリを終了する
+
+**確認をそれぞれの入口に書かない。** 書くと入口が増えるたびに保護が抜ける。§10.4 で「閉じる入口が増えても後片付けは増えない」形にしたのと同じ考え方で、確認も分ける。
+
+```
+失われるものを持つ側（EditorProvider）
+   ↓  registerSource：今何が未保存か / 全部保存できるか
+UnsavedChangesProvider   確認の器（App の一番外）
+   ↑  confirmDiscard：この操作を続けてよいか
+失わせる側（WorkspaceFolderProvider / ウィンドウを閉じる）
+```
+
+Provider を**両方より外側**に置くことで、未保存を持つ側と失わせる側が互いを知らないまま同じ確認を通せる。後で Terminal に「実行中のプロセスがある」確認が要るようになっても、`registerSource` するだけで増える。
+
+```
+App.tsx
+└── UnsavedChangesProvider     確認の器
+      └── WorkspaceFolderProvider   どの Workspace か
+            └── EditorProvider      開いているタブ（未保存を申告する）
+                  └── FilesViewProvider   Files の表示方式として選んだ方（§10.13）
+                        └── WorkspaceShell
+```
+
+#### 答える単位が違うので、器は2つ
+
+| 場面             | 器                         | 尋ね方                             |
+| ---------------- | -------------------------- | ---------------------------------- |
+| タブ1枚を閉じる  | `TabCloseConfirm.tsx`      | このファイルを保存するか           |
+| Workspace / 終了 | `UnsavedChangesDialog.tsx` | 複数のファイルをまとめてどうするか |
+
+1枚のときに一覧を出すと大げさで、複数のときに1枚ずつ尋ねると押し続けることになる。選択肢の意味（Save / Don't Save / Cancel）と見た目は揃えてある（`unsaved.css` を共有）。
+
+#### 決めていること
+
+- **保存できたときだけ続ける。** Save を選んでも Conflict や書き込みの失敗で保存されなければ**閉じない**。閉じてしまうと「保存を選んだのに失われた」になる
+- **走っている書き込みの結果を流用しない。** 同じファイルへの書き込みは重ねられないが、待っている側へ走っているものの結果を返すと、**その書き込みの最中に打った文字が保存されていないのに「保存済み」と判断される**。ファイルごとに順番待ちにして、前が終わってから中身を取り直す（`saveFile`）
+- **失うものが無ければ尋ねない。** 確認を出すこと自体が目的ではない
+- **既定は「キャンセル」**（初期 focus）。Enter を押した勢いで内容が失われない側を既定にする（`DeleteConfirm.tsx` と同じ）
+- **必ず失敗する選択肢を出さない。** ディスクから消えたファイルには「保存」を並べない
+- **一度に1つだけ。** 確認が出ている間は次の確認を受け付けず、その場で「続けない」を返す
+- **確認は Renderer の中で出す。** ネイティブの `dialog.showMessageBox` を使うと、Main が Renderer の事情（何が未保存か）を知ることになる
+
+#### 削除されたファイルのタブは残る
+
+外部から削除されたとき、**未保存のタブは閉じない**（`deleted` として残す）。保存されていない内容はそのタブの中にしか無く、閉じると利用者が一度も選んでいないのに失われるため。未保存でないタブは従来どおり閉じる（残しても中身はディスクにあったものと同じ）。
+
+タブ側（`editorTabsModel.ts`）と Model 側（`documentStore.ts`）は互いを知らないまま同じ判断をする ── どちらも「未保存か」だけを見ているため、結果が揃う。
+
+Editor の内容を別の場所へ書き戻す道（Save As）は Session 3-6 以降。今は「ここにだけ残っている」ことが分かる状態までで、内容は失われない。
+
+### 12.7 ウィンドウを閉じる / アプリを終了する
+
+「閉じるか」を決めるのは Main、「未保存があるか」を知っているのは Renderer（§1 の責務表）。どちらかに寄せずに済ませるため、**閉じる操作を Main が握ったまま、判断だけを尋ねる**。
+
+```
+× / Alt+F4 / app.quit()
+   ↓  'close'
+main/windows/closeGuard.ts   preventDefault して window:close-requested を送る
+   ↓
+Renderer                     'deciding' を返してから利用者に尋ねる
+   ↓  window:respond-close
+closeGuard.ts                'allow' なら「もう尋ねない」印を付けて改めて close()
+```
+
+**終了も各ウィンドウの 'close' を通る**ため、同じ1本の経路でウィンドウの × とアプリ終了の両方を捕まえられる。close を止めれば終了そのものも取り消される（Electron の作法）ので、「終了処理と保存確認が別々に走って競合する」状態にならない。
+
+#### 閉じられなくならないこと
+
+Renderer が応答できない状態（読み込み前・スクリプトが止まっている・クラッシュした）はありうる。**返事が来ないまま閉じられなくなる方が、未保存を1回取りこぼすより悪い**ため、出口を3つ用意してある。
+
+1. 受け取ったという返事（`'deciding'`）が来るまでの時間に上限を置く（4秒）
+2. Renderer が死んでいる / 死んだら、確認を挟まずに閉じる（`render-process-gone`）
+3. 尋ねている最中にもう一度閉じようとされたら、**同じ確認を送り直す**（イベントを取りこぼした Renderer が追いつけるように）
+
+上限が「利用者が選ぶ時間」ではないのが要点。選んでいる最中に閉じてしまうと、確認を出した意味が無い。`'deciding'` を受け取った時点で上限は外し、そこから先は待ち続ける。
+
+`requestId` を突き合わせるのは、前回の確認への遅れた返事で今のウィンドウが閉じてしまわないようにするため。どのウィンドウからの返事かは Renderer に言わせない（registry が送信元のウィンドウを検証して渡す）。
+
+#### 保証できない場合
+
+次のケースでは、この経路が走らない（走っても OS が待たない）ことがある。**完全な保証は原理的にできない。**
+
+- OS のシャットダウン / サインアウト / 再起動
+- タスクマネージャなどからの強制終了（`taskkill /F`）
+- Main プロセスのクラッシュ、電源断
+- Renderer プロセスのクラッシュ（この場合は確認を挟まずに閉じる ── 上の 2）
+
+そのため Auto Save（§12.4）を利用者が選べるようにしてある。既定を OFF にしている以上、「未保存のまま強制終了すれば失われる」ことは避けられない。
+
+### 12.8 Session 3-5 の範囲外
+
+| 項目                                | 状況                                                                                        |
+| ----------------------------------- | ------------------------------------------------------------------------------------------- |
+| Save As（削除されたファイルの救出） | タブは `deleted` として残る（§12.6）。保存先を選ぶ UI と、`files:create` を通す経路が要る   |
+| アプリの外での改名の対応付け        | 監視からは delete + create で届く（§12.1）。対応付けるならサイズ・内容の突き合わせが要る    |
+| 監視の除外設定                      | `ignoredDirectories.ts` の表を Settings（§12.4）から読む形にする（検索と共通・§10.10）      |
+| Shift_JIS / UTF-16                  | `FileEncoding` に足し、`fileContent.ts` と `writeWorkspaceFile.ts` の2箇所を増やす（§12.5） |
+| 文字コードを選び直す UI             | 上と同時。読み込みの応答に候補を載せるか、開き直しの要求に encoding を足す                  |
+| Settings 画面                       | 設定の**値**は既にアプリの設定として保存されている。並べる場所を作るだけ（DESIGN.md §9）    |
+| Files Tree の完全な追従             | created / deleted は既に届いている。ツリー側で「追加された行を選択状態にする」等は後続      |
+| Conflict の3方向マージ              | Compare は読み取り専用（§12.3）。編集できる差分は Git の解決 UI と同時に考える              |

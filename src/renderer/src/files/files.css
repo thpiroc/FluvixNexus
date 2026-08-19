@@ -1,0 +1,1433 @@
+/**
+ * ファイルツリーの見た目（Files パネルの中身）。
+ *
+ * Workspace Shell の workspace.css が「枠」を持つのに対し、こちらはパネルの中身。
+ * 分けてあるのは、パネルの中身のスタイルはパネル側の責務という分担のため。
+ *
+ * 色・間隔は styles/theme.css の変数を使い、ここで生の値を書かないこと
+ * （例外はツリー固有の寸法で、テーマの語彙に無いものだけ下で定義する）。
+ */
+
+.fx-files {
+  /* 1階層あたりのインデント。行の高さと合わせてツリーの密度を決める。 */
+  --fx-file-indent-step: 12px;
+  --fx-file-row-height: 22px;
+  /*
+   * インデントがどれだけ深くなっても、名前のために残す幅。
+   * これが無いと、深い階層でパネルを細くしたときに名前が完全に押し出される。
+   */
+  --fx-file-name-min-width: 88px;
+  /*
+   * カラム1枚の幅（Session 3-6-7 / 掴んで変えられるのは Session 3-6-8）。
+   *
+   * 中身に合わせて伸ばさない ── 深い階層へ入るたびに左のカラムの幅が変わると、
+   * さっき押した行の位置が動く。名前が入り切らない場合は行の側で省略する。
+   *
+   * ここにあるのは**既定値**で、利用者が幅を変えると `.fx-files__columns` の側に
+   * 同じ変数がインラインで載る（FileColumns.tsx）。列ごとに style を書かないのは、
+   * 掴んで動かしている間に列の数だけインラインスタイルが書き換わらないようにするため。
+   */
+  --fx-file-column-width: 208px;
+
+  /* カラムの幅を掴む帯（Session 3-6-8）。見える線は 1px、掴めるのはこの幅。 */
+  --fx-file-column-handle-width: 7px;
+
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  color: var(--fx-color-text);
+  font-size: var(--fx-font-size-sm);
+  /* 名前は省略して収める。パネル自身は横スクロールを作らない。 */
+  overflow: hidden;
+}
+
+/* Workspace 未選択のとき */
+
+.fx-files--empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--fx-space-2);
+  padding: var(--fx-space-3);
+}
+
+.fx-files__message {
+  margin: 0;
+  color: var(--fx-color-text-muted);
+  line-height: 1.6;
+}
+
+.fx-files__action {
+  padding: var(--fx-space-1) var(--fx-space-3);
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface-raised);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  font: inherit;
+  font-size: var(--fx-font-size-sm);
+  cursor: pointer;
+}
+
+.fx-files__action:hover:enabled {
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-files__action:disabled {
+  color: var(--fx-color-text-faint);
+  border-color: var(--fx-color-border);
+  cursor: default;
+}
+
+/* 操作の入口（新規ファイル / 新規フォルダ / 再読み込み） */
+
+.fx-files__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--fx-space-1);
+  flex: 0 0 auto;
+  padding: var(--fx-space-1) var(--fx-space-2);
+  border-bottom: 1px solid var(--fx-color-border);
+}
+
+.fx-files__tool {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 20px;
+  padding: 0;
+  color: var(--fx-color-text-muted);
+  background: none;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.fx-files__tool:hover {
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface-hover);
+}
+
+/*
+ * 直前の操作の失敗。
+ *
+ * ツリーの中の1行にしないのは、どのフォルダの話かに紐づかない失敗（同名衝突など）で、
+ * 場所を持たないため。ツリーの上に置いて、次の操作で消える。
+ */
+/*
+ * 移動の途中であることを伝える帯。
+ *
+ * 置き場所と作りはエラー行（下）に揃えてある。パネルの上部に出る「今の状態を伝えるもの」
+ * という役どころが同じで、見た目まで別にすると出る場所ごとに読み方を覚えることになる。
+ * 色だけ変え、失敗ではないことを示す。
+ *
+ * **省略せずに折り返す。** ここだけはエラー行と違う ── 中身が結果の報告ではなく
+ * 次にどうするかの案内で、パネルを細くしていると省略が案内そのものを飲み込む
+ * （「「main.ts」の移動先フ…」では、右クリックすればよいことが読み取れない）。
+ * ファイル名を省略しないのは行の側の約束で、こちらは1件しか出ない帯なので、
+ * 縦に伸ばして読ませる方を採る。
+ */
+
+.fx-files__pending {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--fx-space-2);
+  flex: 0 0 auto;
+  padding: var(--fx-space-1) var(--fx-space-2);
+  border-bottom: 1px solid var(--fx-color-border);
+  color: var(--fx-color-text-muted);
+}
+
+.fx-files__pending-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  line-height: 1.5;
+  /* 長いファイル名で横に溢れさせない（折り返せない1語になりうる）。 */
+  overflow-wrap: anywhere;
+}
+
+.fx-files__pending-cancel {
+  flex: 0 0 auto;
+  padding: 0 var(--fx-space-2);
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface-raised);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  font: inherit;
+  font-size: var(--fx-font-size-sm);
+  line-height: 1.6;
+  cursor: pointer;
+}
+
+.fx-files__pending-cancel:hover:enabled {
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-files__pending-cancel:disabled {
+  color: var(--fx-color-text-faint);
+  border-color: var(--fx-color-border);
+  cursor: default;
+}
+
+.fx-files__error {
+  display: flex;
+  align-items: center;
+  gap: var(--fx-space-2);
+  flex: 0 0 auto;
+  padding: var(--fx-space-1) var(--fx-space-2);
+  border-bottom: 1px solid var(--fx-color-border);
+  color: var(--fx-color-danger);
+}
+
+.fx-files__error-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.fx-files__error-dismiss {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  color: inherit;
+  background: none;
+  border: none;
+  border-radius: 3px;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.fx-files__error-dismiss:hover {
+  background: var(--fx-color-surface-hover);
+}
+
+/* ツリー */
+
+.fx-files__tree {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: var(--fx-space-1) 0;
+  /* 縦だけスクロールさせる。行は幅に収まるように省略される。 */
+  overflow: hidden auto;
+}
+
+/*
+ * ドラッグ中のカーソル。
+ *
+ * 移動とコピーの違いを OS と同じ語彙（`grabbing` / `copy`）で出す。
+ * 小さな表示（下の .fx-file-drag）と合わせて2箇所で示すのは、
+ * カーソルの形だけでは押した Ctrl が効いているか確信が持てないため。
+ */
+.fx-files__tree[data-drag-mode='move'] {
+  cursor: grabbing;
+}
+
+.fx-files__tree[data-drag-mode='copy'] {
+  cursor: copy;
+}
+
+/*
+ * 面の余白へ落とせる、という案内。
+ *
+ * ツリーの余白なら Workspace root、カラムの余白ならそのカラムのフォルダが行き先になる
+ * （Session 3-6-7。dragDrop.ts の 'surface'）。**同じ意味なので同じ印**にしてある。
+ *
+ * **要素を1つも重ねない。** 枠の内側に outline を描くだけにしてあるのは、
+ * 案内のために要素を重ねると、それがカーソルの下に入って
+ * 「どの行を指しているか」を探せなくなるため（useFileDrag.ts の当たり判定）。
+ * outline を内側に描くのは、行の focus と同じ理由（パネルの縁で切れないように）。
+ */
+.fx-files__tree[data-drop-here],
+.fx-file-column__body[data-drop-here] {
+  outline: 1px dashed var(--fx-accent-blue);
+  outline-offset: -2px;
+  background: color-mix(in srgb, var(--fx-accent-blue) 6%, transparent);
+}
+
+/*
+ * 1行。
+ *
+ * インデントは padding で入れる（margin にすると、選択の帯が行の左端まで届かない）。
+ * 深くなりすぎたときは clamp の上限側が効き、名前のための幅が必ず残る。
+ */
+.fx-file-row {
+  display: flex;
+  align-items: center;
+  gap: var(--fx-space-1);
+  height: var(--fx-file-row-height);
+  padding-right: var(--fx-space-2);
+  padding-left: calc(
+    var(--fx-space-1) +
+      clamp(
+        0px,
+        var(--fx-file-depth, 0) * var(--fx-file-indent-step),
+        100% - var(--fx-file-name-min-width)
+      )
+  );
+  /* 行そのものが focus を受ける（ARIA の tree パターン）。 */
+  cursor: pointer;
+  user-select: none;
+  /* インデントが幅を超えても、行の外へはみ出させない。 */
+  overflow: hidden;
+}
+
+.fx-file-row:hover {
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-file-row[data-selected='true'] {
+  background: var(--fx-color-surface-raised);
+  color: var(--fx-color-text-strong);
+}
+
+/*
+ * 移動しようとしている行。
+ *
+ * 薄くするだけに留める（枠も帯も付けない）。行き先を選んでいる間、選択の帯・
+ * hover・focus の枠はそのまま使われ続けるため、そこへもう1つ強い印を足すと
+ * 「今どれを選んでいるか」が読み取れなくなる。
+ */
+.fx-file-row[data-moving='true'] .fx-file-row__name,
+.fx-file-row[data-moving='true'] .fx-file-row__icon {
+  opacity: 0.55;
+}
+
+/*
+ * コピーしようとしている行。
+ *
+ * **移動と同じ薄い表示にしない。** 薄さは「ここから無くなる」ことの印として
+ * 使っており、コピー元はそこに残る。名前に下線だけを引いて「これを指している」
+ * ことを示す（帯や枠を足さないのは、上と同じく選択の表示と競合させないため）。
+ */
+.fx-file-row[data-copying='true'] .fx-file-row__name {
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+}
+
+/*
+ * 今掴んでいる行。
+ *
+ * **移動 / コピーの印は上の2つを使い回す**（移動は薄く、コピーは点線の下線）。
+ * ドラッグのために別の見た目を作らないのは、起きることが同じであるため
+ * ── 入口が違うだけで結果が同じものに、違う印を2組覚えさせない。
+ */
+.fx-file-row[data-dragging='move'] .fx-file-row__name,
+.fx-file-row[data-dragging='move'] .fx-file-row__icon {
+  opacity: 0.55;
+}
+
+.fx-file-row[data-dragging='copy'] .fx-file-row__name {
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+}
+
+/*
+ * ここへ落とせる、というフォルダ行の案内。
+ *
+ * **選択の帯より強く出す。** 落とせる場所は同時に1つしか無く、その1つが
+ * どれなのかがドラッグ中の唯一の関心になる（選択はドラッグの前から続いている表示）。
+ * 帯と枠の両方を使うのは、細いパネルでも1行として見分けが付くようにするため。
+ *
+ * 移動とコピーで色を分けない ── 何が起きるかは小さな表示（.fx-file-drag）と
+ * カーソルの形が持っており、こちらが答えるのは「どこへ」だけ。
+ */
+.fx-file-row[data-drop] {
+  background: color-mix(in srgb, var(--fx-accent-blue) 28%, transparent);
+  outline: 1px solid var(--fx-accent-blue);
+  outline-offset: -1px;
+}
+
+.fx-file-row[data-drop] .fx-file-row__name {
+  color: var(--fx-color-text-strong);
+}
+
+/*
+ * focus の枠は内側に描く。行は幅いっぱいまで伸びるため、
+ * 外側に描くとパネルの縁で切れて見えなくなる。
+ */
+.fx-file-row:focus-visible {
+  outline: 1px solid var(--fx-accent-blue);
+  outline-offset: -1px;
+}
+
+.fx-file-row__twisty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 12px;
+  color: var(--fx-color-text-faint);
+  /* 折りたたみ時は右向き、展開時は下向き。 */
+  transition: transform 80ms ease-out;
+}
+
+.fx-file-row[data-expanded='true'] .fx-file-row__twisty {
+  transform: rotate(90deg);
+}
+
+/*
+ * アイコンの置き場所。色は中の SVG（.fx-file-icon）が持つ。
+ *
+ * ここに書いてあるのは**受け皿としての色**で、種類別のアイコンが入れば
+ * そちらの指定が勝つ（要素自身の指定は、親から継いだ値より必ず強い）。
+ */
+.fx-file-row__icon {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  color: var(--fx-color-text-muted);
+}
+
+.fx-file-row__name {
+  flex: 1 1 auto;
+  /* 長いファイル名でパネルの幅を押し広げない。全体は title 属性で読める。 */
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/*
+ * 行に付く操作（今は root 行の「Workspace を閉じる」だけ）。
+ *
+ * `flex: 0 0 auto` にしてあるのが要点。名前の側（`__name`）が
+ * `flex: 1 1 auto; min-width: 0` で省略されるため、**Workspace 名がどれだけ長くても
+ * このボタンが行の外へ押し出されない**。
+ */
+
+.fx-file-row__action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  color: var(--fx-color-text-faint);
+  background: none;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+/* 押せることが分かる最低限の反応。 */
+.fx-file-row__action:hover:enabled {
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-file-row__action:focus-visible {
+  outline: 1px solid var(--fx-accent-blue);
+  outline-offset: -1px;
+}
+
+.fx-file-row__action:disabled {
+  color: var(--fx-color-border-strong);
+  cursor: default;
+}
+
+/* 状況を伝える行（読み込み中・空・打ち切り・失敗）。 */
+
+.fx-file-note {
+  display: flex;
+  align-items: center;
+  gap: var(--fx-space-2);
+  min-height: var(--fx-file-row-height);
+  padding-right: var(--fx-space-2);
+  padding-left: calc(
+    var(--fx-space-1) + 12px +
+      clamp(
+        0px,
+        var(--fx-file-depth, 0) * var(--fx-file-indent-step),
+        100% - var(--fx-file-name-min-width)
+      )
+  );
+  color: var(--fx-color-text-faint);
+  overflow: hidden;
+}
+
+.fx-file-note__text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.fx-file-note[data-variant='error'] {
+  color: var(--fx-color-danger);
+}
+
+.fx-file-note__retry {
+  flex: 0 0 auto;
+  padding: 0 var(--fx-space-2);
+  color: var(--fx-color-text);
+  background: var(--fx-color-surface-raised);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  font: inherit;
+  font-size: var(--fx-font-size-sm);
+  cursor: pointer;
+}
+
+.fx-file-note__retry:hover {
+  background: var(--fx-color-surface-hover);
+}
+
+/*
+ * 名前の入力（作成・リネーム共通）。
+ *
+ * 行の中に収まる形にしてある。行の高さを変えずに入力欄へ差し替わるため、
+ * 入力を始めてもツリー全体の並びが動かない。
+ */
+
+.fx-file-name {
+  display: flex;
+  align-items: center;
+  gap: var(--fx-space-2);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.fx-file-name__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 18px;
+  padding: 0 var(--fx-space-1);
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface-sunken);
+  border: 1px solid var(--fx-accent-blue);
+  border-radius: 2px;
+  font: inherit;
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-file-name__input:focus {
+  outline: none;
+}
+
+.fx-file-name__input[data-invalid='true'] {
+  border-color: var(--fx-color-danger);
+}
+
+/*
+ * 使えない名前の理由。
+ *
+ * 行の中に収める（別の場所に出すと、どの入力に対する話か分からない）。
+ * パネルが細いときは省略され、入力欄の幅を奪わない。
+ */
+.fx-file-name__problem {
+  flex: 0 1 auto;
+  min-width: 0;
+  color: var(--fx-color-danger);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 入力中の行はホバーの反応を出さない（押す対象ではない）。 */
+.fx-file-row--draft,
+.fx-file-row[data-draft='rename'] {
+  cursor: default;
+}
+
+.fx-file-row--draft:hover,
+.fx-file-row[data-draft='rename']:hover {
+  background: none;
+}
+
+/*
+ * ドラッグ中の小さな表示（何を、どうしようとしているか）。
+ *
+ * 位置は useFileDrag.ts が left / top に直接書き込む（ずらす分は下の transform）。
+ * **`pointer-events: none` は必須。** これがカーソルの下に入ると、
+ * その下の行を探せなくなり、ドロップ先の判定そのものが壊れる。
+ *
+ * 掴んだものの姿を描き写すような大きなプレビューにはしない ── 行の見た目は
+ * 名前とアイコンだけで、それを運んでいる間だけ複製しても分かることが増えない。
+ * ここで足しているのは「移動かコピーか」という、行の側では分からない情報だけ。
+ */
+
+.fx-file-drag {
+  position: fixed;
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  gap: var(--fx-space-2);
+  max-width: 260px;
+  padding: 1px var(--fx-space-2);
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface-raised);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 45%);
+  font-size: var(--fx-font-size-sm);
+  line-height: 1.6;
+  white-space: nowrap;
+  /* 当たり判定を奪わない（上記）。 */
+  pointer-events: none;
+  /* カーソルの右下へずらす。真下に置くと、指しているものを自分で隠す。 */
+  transform: translate(12px, 16px);
+}
+
+/* 画面の右端では左側へ回す（はみ出すと運んでいるものが読めない）。 */
+.fx-file-drag[data-flip='true'] {
+  transform: translate(calc(-100% - 12px), 16px);
+}
+
+/*
+ * 落とせない場所を指している間。
+ *
+ * **ここでも「落とせるように見える表示」を出さない**（行や余白のハイライトは
+ * そもそも出ない）。掴んだものが分からなくなると困るので消しはせず、薄くする。
+ */
+.fx-file-drag[data-droppable='false'] {
+  color: var(--fx-color-text-faint);
+  border-style: dashed;
+}
+
+.fx-file-drag__mode {
+  flex: 0 0 auto;
+  color: var(--fx-accent-blue);
+}
+
+.fx-file-drag[data-droppable='false'] .fx-file-drag__mode {
+  color: inherit;
+}
+
+.fx-file-drag__name {
+  /* 長い名前で表示そのものを画面幅まで伸ばさない。 */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/*
+ * Ctrl でコピーになること。案内なので、運んでいるものより弱く出す。
+ *
+ * 文字の大きさは変えない（テーマにこれより小さい語彙が無い）。弱さは色で出す。
+ */
+.fx-file-drag__hint {
+  flex: 0 0 auto;
+  color: var(--fx-color-text-faint);
+}
+
+/* 右クリックメニュー */
+
+.fx-file-menu {
+  position: fixed;
+  z-index: 40;
+  min-width: 160px;
+  padding: var(--fx-space-1) 0;
+  background: var(--fx-color-surface-raised);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 4px;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 45%);
+}
+
+.fx-file-menu__item {
+  display: block;
+  width: 100%;
+  padding: var(--fx-space-1) var(--fx-space-4);
+  color: var(--fx-color-text);
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: var(--fx-font-size-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.fx-file-menu__item:hover {
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-file-menu__item[data-action='delete'] {
+  color: var(--fx-color-danger);
+}
+
+/*
+ * 削除の確認。
+ *
+ * パネルの中ではなくウィンドウ全体に対して出す。Files パネルは細くできるため、
+ * パネルの中に収めると確認文が読めない幅になりうる。
+ */
+
+.fx-file-confirm {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--fx-space-4);
+  background: rgb(0 0 0 / 45%);
+}
+
+.fx-file-confirm__panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-2);
+  width: min(420px, 100%);
+  padding: var(--fx-space-4);
+  background: var(--fx-color-surface-raised);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 6px;
+  box-shadow: 0 10px 30px rgb(0 0 0 / 50%);
+}
+
+.fx-file-confirm__message {
+  margin: 0;
+  color: var(--fx-color-text-strong);
+  line-height: 1.6;
+  /* 長いファイル名でパネルを押し広げない。 */
+  overflow-wrap: anywhere;
+}
+
+.fx-file-confirm__note {
+  margin: 0;
+  color: var(--fx-color-text-muted);
+}
+
+.fx-file-confirm__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--fx-space-2);
+  margin-top: var(--fx-space-2);
+}
+
+.fx-file-confirm__button {
+  padding: var(--fx-space-1) var(--fx-space-3);
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  font: inherit;
+  font-size: var(--fx-font-size-sm);
+  cursor: pointer;
+}
+
+.fx-file-confirm__button:hover:enabled {
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-file-confirm__button[data-variant='danger'] {
+  color: var(--fx-color-danger);
+  border-color: var(--fx-color-danger);
+}
+
+.fx-file-confirm__button:disabled {
+  color: var(--fx-color-text-faint);
+  border-color: var(--fx-color-border);
+  cursor: default;
+}
+
+/* ==================================================================
+   Files パネルの中身の切り替え（ツリー / 検索。Session 3-6-4）
+   ================================================================== */
+
+/*
+ * 2つの表示を重ねて持ち、片方を隠す（FilesView.tsx）。
+ * 隠す側を作り直さないため、ツリーの展開状態も検索結果も切り替えで失われない。
+ */
+/*
+ * Files パネルの器（Session 3-6-7）。
+ *
+ * 形を観測する対象がこの1つ（useFilesLayout.ts）。中身が何であっても
+ * （取得中・未選択・一覧）同じ器の中に入るため、観測が途切れない。
+ */
+.fx-files-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.fx-files-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.fx-files-view__pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/*
+ * display の既定（flex）が hidden より強いため、明示的に消す。
+ * 隠れている側は当たり判定も焦点の対象も持たない状態にしておく。
+ */
+.fx-files-view__pane[hidden] {
+  display: none;
+}
+
+/* 検索モード（探し方の切り替え。Session 3-6-5） */
+
+/*
+ * 戻る手段と探し方の切り替えを載せる行。
+ * 検索欄（fx-search__bar）はモードごとに持つため、ここには置かない。
+ */
+.fx-search__modes {
+  display: flex;
+  align-items: center;
+  gap: var(--fx-space-2);
+  flex: 0 0 auto;
+  padding: var(--fx-space-1) var(--fx-space-2);
+  border-bottom: 1px solid var(--fx-color-border);
+}
+
+.fx-search__mode-group {
+  display: flex;
+  align-items: center;
+  /* 2つで1つの切り替えに見えるよう、間を空けずに枠で囲う。 */
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.fx-search__mode-button {
+  padding: 0 var(--fx-space-2);
+  color: var(--fx-color-text-muted);
+  background: var(--fx-color-surface);
+  border: none;
+  font: inherit;
+  font-size: var(--fx-font-size-sm);
+  line-height: 1.8;
+  cursor: pointer;
+}
+
+.fx-search__mode-button:hover {
+  background: var(--fx-color-surface-hover);
+}
+
+/* 今見ている方。色だけでなく面の明るさでも区別する。 */
+.fx-search__mode-button[data-active='true'] {
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface-raised);
+}
+
+.fx-search__mode-button:focus-visible {
+  outline: 1px solid var(--fx-accent-blue);
+  outline-offset: -1px;
+}
+
+/*
+ * 2つのモードを重ねて持ち、片方を隠す（FilesView.tsx のツリー / 検索と同じ形）。
+ * 隠す側を作り直さないため、行き来しても両方の結果が残る。
+ */
+.fx-search__pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.fx-search__pane[hidden] {
+  display: none;
+}
+
+.fx-search__mode {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.fx-search__bar {
+  display: flex;
+  align-items: center;
+  gap: var(--fx-space-1);
+  flex: 0 0 auto;
+  padding: var(--fx-space-1) var(--fx-space-2);
+  border-bottom: 1px solid var(--fx-color-border);
+}
+
+.fx-search__icon {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  color: var(--fx-color-text-faint);
+}
+
+.fx-search__input {
+  flex: 1 1 auto;
+  /* 入力欄が伸びきってボタンを押し出さないための下限。 */
+  min-width: 0;
+  padding: var(--fx-space-1) var(--fx-space-2);
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface-sunken);
+  border: 1px solid var(--fx-color-border);
+  border-radius: 3px;
+  font: inherit;
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-search__input:focus {
+  outline: none;
+  border-color: var(--fx-accent-blue);
+}
+
+.fx-search__input::placeholder {
+  color: var(--fx-color-text-faint);
+}
+
+/* 状態の案内（検索中 / 0 件 / 取り消し / 打ち切り / 失敗）。 */
+
+.fx-search__status {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--fx-space-2);
+  flex: 0 0 auto;
+  padding: var(--fx-space-1) var(--fx-space-2);
+  color: var(--fx-color-text-muted);
+  border-bottom: 1px solid var(--fx-color-border);
+}
+
+/* 失敗だけは色でも区別する（次の一手が「もう一度」になる状態）。 */
+.fx-search__status[data-status='error'] {
+  color: var(--fx-color-danger);
+}
+
+.fx-search__status-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.fx-search__status-action {
+  flex: 0 0 auto;
+  padding: 0 var(--fx-space-2);
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface-raised);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  font: inherit;
+  font-size: var(--fx-font-size-sm);
+  line-height: 1.6;
+  cursor: pointer;
+}
+
+.fx-search__status-action:hover {
+  background: var(--fx-color-surface-hover);
+}
+
+/* 結果の一覧 */
+
+.fx-search__results {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  /* ツリーと同じく、横スクロールは作らない（名前と位置を省略して収める）。 */
+  overflow-x: hidden;
+  padding: var(--fx-space-1) 0;
+}
+
+.fx-search-row {
+  display: flex;
+  align-items: center;
+  gap: var(--fx-space-1);
+  width: 100%;
+  height: var(--fx-file-row-height);
+  padding: 0 var(--fx-space-2);
+  color: inherit;
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: var(--fx-font-size-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.fx-search-row:hover {
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-search-row:focus-visible {
+  outline: 1px solid var(--fx-accent-blue);
+  outline-offset: -1px;
+}
+
+.fx-search-row__icon {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  color: var(--fx-color-text-muted);
+}
+
+/*
+ * 名前は縮めきらない。位置（右側）に押し潰されると、
+ * どのファイルの行なのかが分からなくなる。
+ */
+.fx-search-row__name {
+  flex: 0 1 auto;
+  min-width: var(--fx-file-name-min-width);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 一致した部分。地の色を変えず、下線と文字色だけで示す。 */
+.fx-search-row__hit {
+  color: var(--fx-color-text-strong);
+  background: none;
+  text-decoration: underline;
+}
+
+/*
+ * どこにあるか。名前より弱く見せ、幅が足りなければここから削る
+ * （全体は行の title で読める）。
+ */
+.fx-search-row__path {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--fx-color-text-faint);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* ==================================================================
+   全文検索の結果（フォルダ → ファイル → 一致。Session 3-6-5）
+   ==================================================================
+
+   3段の入れ子を、字下げの違う3種類の行として並べる
+   （FileContentSearch.tsx。上下キーの移動を配列の隣で決めるため）。
+ */
+
+/* フォルダの見出し。押せない行なので、当たり判定も焦点も持たせない。 */
+.fx-content-folder {
+  display: flex;
+  align-items: center;
+  gap: var(--fx-space-1);
+  height: var(--fx-file-row-height);
+  padding: 0 var(--fx-space-2);
+  color: var(--fx-color-text-faint);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.fx-content-folder__icon {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.fx-content-folder__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ファイルの見出し（押すと最初の一致へ飛ぶ）。 */
+.fx-content-file {
+  display: flex;
+  align-items: center;
+  gap: var(--fx-space-1);
+  width: 100%;
+  height: var(--fx-file-row-height);
+  /* フォルダの見出しより1段深く見せる。 */
+  padding: 0 var(--fx-space-2) 0 var(--fx-space-3);
+  color: inherit;
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: var(--fx-font-size-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.fx-content-file:hover,
+.fx-content-match:hover {
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-content-file:focus-visible,
+.fx-content-match:focus-visible {
+  outline: 1px solid var(--fx-accent-blue);
+  outline-offset: -1px;
+}
+
+.fx-content-file__icon {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  color: var(--fx-color-text-muted);
+}
+
+.fx-content-file__name {
+  flex: 0 1 auto;
+  min-width: var(--fx-file-name-min-width);
+  color: var(--fx-color-text-strong);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 件数。名前より弱く、幅が足りなければ先に削れる側に置く。 */
+.fx-content-file__count {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--fx-color-text-faint);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 一致1件。 */
+.fx-content-match {
+  display: flex;
+  align-items: center;
+  gap: var(--fx-space-2);
+  width: 100%;
+  height: var(--fx-file-row-height);
+  /* ファイルの見出しより、さらに1段深く。 */
+  padding: 0 var(--fx-space-2) 0 var(--fx-space-4);
+  color: var(--fx-color-text-muted);
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: var(--fx-font-size-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+/*
+ * 行:桁。等幅にして桁の位置を揃える（数字の幅が揃わないと、
+ * 縦に並んだときに位置が読み取りにくい）。
+ */
+.fx-content-match__position {
+  flex: 0 0 auto;
+  color: var(--fx-color-text-faint);
+  font-family: ui-monospace, Consolas, monospace;
+}
+
+/*
+ * 一致の周辺。コードなので等幅で出す。
+ * 横スクロールは作らず、幅に合わせて省略する（全体は行の title で読める）。
+ */
+.fx-content-match__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: pre;
+  text-overflow: ellipsis;
+  font-family: ui-monospace, Consolas, monospace;
+}
+
+/* 一致した部分。名前の検索の印（fx-search-row__hit）と同じ見せ方に揃える。 */
+.fx-content-match__hit {
+  color: var(--fx-color-text-strong);
+  background: none;
+  text-decoration: underline;
+}
+
+/* ==================================================================
+   ファイル種類別アイコン（Session 3-6-6）
+
+   ツリー・ファイル名検索・全文検索が同じ1つのアイコン（FileTypeIcon）を
+   出すため、色の指定もここ1箇所にまとめる。置かれる場所ごとに
+   （.fx-file-row__icon / .fx-search-row__icon / .fx-content-file__icon）
+   色を書くと、同じファイルがツリーと検索結果で違う色になる。
+
+   **色は判別の補助であって、唯一の手掛かりにはしない。** 種類はまず絵の形が
+   示していて、色が主になるのは形が同じ組（.tsx / .jsx）だけになる。
+   ================================================================== */
+
+.fx-file-icon {
+  /* 行の高さ（22px）を変えないため、大きさは種類によらず固定。 */
+  flex: 0 0 auto;
+  color: var(--fx-file-icon-default);
+}
+
+/* フォルダは開いていても閉じていても、パネルの識別色（薄い青）のまま。 */
+.fx-file-icon[data-file-icon='folder'],
+.fx-file-icon[data-file-icon='folder-open'] {
+  color: var(--fx-accent-blue);
+}
+
+/* TypeScript の系統。.tsx は形（React の輪）が違い、色で系統を示す。 */
+.fx-file-icon[data-file-icon='typescript'],
+.fx-file-icon[data-file-icon='typescript-react'] {
+  color: var(--fx-file-icon-ts);
+}
+
+/* JavaScript の系統。.jsx は .tsx と同じ形なので、ここでの色が両者を分ける。 */
+.fx-file-icon[data-file-icon='javascript'],
+.fx-file-icon[data-file-icon='javascript-react'] {
+  color: var(--fx-file-icon-js);
+}
+
+.fx-file-icon[data-file-icon='json'] {
+  color: var(--fx-file-icon-json);
+}
+
+.fx-file-icon[data-file-icon='html'] {
+  color: var(--fx-file-icon-html);
+}
+
+.fx-file-icon[data-file-icon='css'] {
+  color: var(--fx-file-icon-css);
+}
+
+/* Markdown と README は同じ系統として揃える（README は形だけが本になる）。 */
+.fx-file-icon[data-file-icon='markdown'],
+.fx-file-icon[data-file-icon='readme'] {
+  color: var(--fx-file-icon-markdown);
+}
+
+.fx-file-icon[data-file-icon='python'] {
+  color: var(--fx-file-icon-python);
+}
+
+.fx-file-icon[data-file-icon='csharp'] {
+  color: var(--fx-file-icon-csharp);
+}
+
+.fx-file-icon[data-file-icon='image'] {
+  color: var(--fx-file-icon-image);
+}
+
+.fx-file-icon[data-file-icon='package'] {
+  color: var(--fx-file-icon-package);
+}
+
+.fx-file-icon[data-file-icon='git'] {
+  color: var(--fx-file-icon-git);
+}
+
+.fx-file-icon[data-file-icon='docker'] {
+  color: var(--fx-file-icon-docker);
+}
+
+/*
+ * テキストと、種類が分からないファイル。
+ *
+ * **色を付けない**のが決め事にあたる。全部に色が付くと、色そのものが
+ * 情報を持たなくなる（一覧が色の並びになり、種類のある行が沈む）。
+ */
+.fx-file-icon[data-file-icon='text'],
+.fx-file-icon[data-file-icon='file'] {
+  color: var(--fx-file-icon-default);
+}
+
+/* ==================================================================
+   横長時のカラム表示（Session 3-6-7）
+   ================================================================== */
+
+/*
+ * 表示方式の切り替え（ツリー / カラム）。
+ *
+ * ツールバーの他のボタン（.fx-files__tool）と同じ大きさに揃えたうえで、
+ * 2つで1組であることを枠で示す。検索の探し方の切り替え
+ * （.fx-search__mode-group）と作りを合わせてあるのは、同じ性質の操作
+ * ＝「同じものの別の見せ方を選ぶ」だから。
+ */
+.fx-files__view-group {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  /* 左右のボタン（作成 / 検索）と密着させない。 */
+  margin: 0 var(--fx-space-1);
+  border: 1px solid var(--fx-color-border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.fx-files__view-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 18px;
+  padding: 0;
+  color: var(--fx-color-text-faint);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.fx-files__view-button:hover {
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface-hover);
+}
+
+/* 今出ている方。色だけでなく面の明るさでも区別する（検索の切り替えと同じ）。 */
+.fx-files__view-button[data-active='true'] {
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface-raised);
+}
+
+/*
+ * 利用者が選んだ状態であることを、細い下線で示す。
+ *
+ * 自動（パネルの形に合わせる）との違いが画面から分かるようにするためで、
+ * 文字を足さないのはツールバーに説明を並べないため（理由は title に出る）。
+ */
+.fx-files__view-group[data-preference='explicit'] .fx-files__view-button[data-active='true'] {
+  box-shadow: inset 0 -2px 0 var(--fx-accent-blue);
+}
+
+/*
+ * カラムを横に並べる器。
+ *
+ * **横スクロールはここ、縦スクロールは各カラムの中**（.fx-file-column__body）。
+ * 縦を器に持たせると、右のカラムを下まで見るために左のカラムまで一緒に流れる。
+ */
+.fx-files__columns {
+  display: flex;
+  align-items: stretch;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto hidden;
+}
+
+/* ドラッグ中のカーソル（ツリーと同じ語彙）。 */
+.fx-files__columns[data-drag-mode='move'] {
+  cursor: grabbing;
+}
+
+.fx-files__columns[data-drag-mode='copy'] {
+  cursor: copy;
+}
+
+/*
+ * カラム1枚。
+ *
+ * 幅を固定しているのが要点。中身に合わせて伸ばすと、深い階層へ入るたびに
+ * 左のカラムの幅が変わり、さっき押した行の位置が動く。名前が入り切らない場合は
+ * 行の側で省略する（ツリーと同じ約束）。
+ */
+.fx-file-column {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  width: var(--fx-file-column-width);
+  min-height: 0;
+  border-right: 1px solid var(--fx-color-border);
+}
+
+/*
+ * カラムの幅を変える掴み手（Session 3-6-8）。
+ *
+ * 列の縁（border-right）に重ねて置く。Dock の掴み手（workspace.css の
+ * .fx-dock-resize-handle）と同じ作りで、**見た目は線のまま掴める幅だけを広く取る**。
+ *
+ * 中身の上に重ねるため、行のクリックを奪わないよう幅は数 px に留める。
+ * ドラッグ中のファイルはここへ落とせる（そのカラムの余白と同じ扱い。FileColumns.tsx）。
+ */
+.fx-file-column__resize {
+  position: absolute;
+  inset: 0 calc(var(--fx-file-column-handle-width) / -2 - 1px) 0 auto;
+  width: var(--fx-file-column-handle-width);
+  cursor: col-resize;
+  /* 隣のカラムの中身に隠れないようにする（列は overflow を持つ）。 */
+  z-index: 1;
+}
+
+/* 掴めることを示す。触れている間と、掴んでいる間。 */
+.fx-file-column__resize::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 50%;
+  width: 1px;
+  background: transparent;
+}
+
+.fx-file-column__resize:hover::after,
+.fx-file-column__resize[data-active='true']::after {
+  inset: 0 25%;
+  width: auto;
+  background: var(--fx-color-border-strong);
+}
+
+/*
+ * 掴んでいる間は、カーソルの下に何があってもカーソルの形を変えない。
+ * 選択も止める ── 幅を変えている最中に行の名前が選択されると、離した瞬間に
+ * 選択された状態が残る。
+ */
+.fx-files__columns[data-resizing='true'] {
+  cursor: col-resize;
+  user-select: none;
+}
+
+/*
+ * カラムの見出し（そのカラムが見せているフォルダ）。
+ *
+ * どの階層を見ているかは列の位置だけでは分からない ── 横スクロールで
+ * 左端が画面の外へ出るため、カラムごとに名前を持たせる。
+ * 右クリックの対象でもある（そのフォルダへの新規作成・貼り付け・移動）。
+ */
+.fx-file-column__header {
+  display: flex;
+  align-items: center;
+  gap: var(--fx-space-1);
+  flex: 0 0 auto;
+  height: var(--fx-file-row-height);
+  padding: 0 var(--fx-space-2);
+  color: var(--fx-color-text-muted);
+  background: var(--fx-color-surface-sunken);
+  border-bottom: 1px solid var(--fx-color-border);
+  user-select: none;
+}
+
+.fx-file-column__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* カラムの中身。縦スクロールはここで完結する。 */
+.fx-file-column__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: var(--fx-space-1) 0;
+  overflow: hidden auto;
+}
+
+/*
+ * 右のカラムを開いているフォルダ（＝今たどっている道）。
+ *
+ * **選択の帯（data-selected）とは別の印にする。** 道と選択は同時に別の行を指しうる
+ * （左のカラムでファイルを選んだまま、右のカラムを開いたままにできる）ため、
+ * 同じ帯で示すと2つの意味が1つの見た目に潰れる。道は文字の明るさで示す。
+ */
+.fx-file-column__body .fx-file-row[data-expanded='true'] {
+  color: var(--fx-color-text-strong);
+}
+
+/*
+ * 「この先がある」印。
+ *
+ * ツリーの展開の三角と同じ絵を、行の右端に置く（回転させない）── 開く先が
+ * 下ではなく右にあることを、位置だけで示す。
+ */
+.fx-file-row__into {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 12px;
+  color: var(--fx-color-text-faint);
+}
+
+.fx-file-column__body .fx-file-row[data-expanded='true'] .fx-file-row__into {
+  color: var(--fx-color-text);
+}

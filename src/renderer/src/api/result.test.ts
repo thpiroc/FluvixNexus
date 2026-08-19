@@ -7,6 +7,8 @@ import { IpcCallError, describeIpcError, unwrapIpcResult } from './result'
 const ALL_ERROR_CODES: readonly IpcErrorCode[] = [
   'INVALID_REQUEST',
   'NOT_FOUND',
+  'CONFLICT',
+  'BUSY',
   'PERMISSION_DENIED',
   'UNSUPPORTED',
   'CANCELLED',

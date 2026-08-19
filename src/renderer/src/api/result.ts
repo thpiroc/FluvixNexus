@@ -43,6 +43,8 @@ export function unwrapIpcResult<T>(result: IpcResult<T>): T {
 const MESSAGE_BY_CODE: Record<IpcErrorCode, string> = {
   INVALID_REQUEST: '入力内容が正しくありません。',
   NOT_FOUND: '対象が見つかりませんでした。',
+  CONFLICT: '対象の現在の状態と競合しています。',
+  BUSY: '対象が他のアプリで使用されている可能性があります。閉じてからもう一度お試しください。',
   PERMISSION_DENIED: 'この操作は許可されていません。',
   UNSUPPORTED: 'この環境では実行できません。',
   CANCELLED: '操作は中断されました。',

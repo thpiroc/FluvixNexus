@@ -9,9 +9,10 @@ import { useCallback, useEffect, useId, useRef, useState, type JSX } from 'react
  * ネイティブのアプリケーションメニュー（main/app/menu.ts）ではなくアプリ内 UI にしている理由:
  *   - 操作面はアプリ内 UI に置く方針（ARCHITECTURE.md §2 のメニューの扱い）であり、
  *     配布ビルドではネイティブメニューを持たない
- *   - 表示状態（どのパネルが今出ているか）は Renderer のレイアウトが持つ。
- *     ネイティブメニューに出すには Main → Renderer のイベント経路が要るが、これは未実装
- *     （ARCHITECTURE.md §3.3）。レイアウトの正本を Renderer 側に置いたまま扱えるのはこちら
+ *   - 表示状態（どのパネルが今出ているか）は Renderer のレイアウトが持つ。ネイティブメニューに
+ *     出すには Renderer → Main → メニュー という往復が要る（イベント経路そのものは
+ *     ARCHITECTURE.md §3.3 にあるが、向きが逆）。レイアウトの正本を Renderer 側に
+ *     置いたまま扱えるのはこちら
  *
  * 閉じ方は3つ（項目の選択 / 外側のクリック / Escape）。どれも「メニューを閉じる」だけで、
  * レイアウトには触れない。

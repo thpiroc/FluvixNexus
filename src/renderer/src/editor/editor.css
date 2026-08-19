@@ -1,0 +1,355 @@
+/**
+ * Editor パネルの中身（タブ列と、開いているファイルの表示）。
+ *
+ * Workspace Shell の workspace.css が「枠」を持つのに対し、こちらはパネルの中身。
+ * files.css と同じ分担で、色・間隔は styles/theme.css の変数を使う。
+ *
+ * Monaco Editor が入るのは `.fx-editor__monaco` の中だけ。Monaco 自身のスタイルは
+ * Monaco が実行時に注入する（index.html の `style-src 'unsafe-inline'` はこのため）ので、
+ * ここが持つのはその**置き場所の大きさ**だけにする。
+ * エディタの色は theme.css ではなく monaco/monacoSetup.ts のテーマが決める
+ * （Monaco は CSS 変数を読まないため。同じ値を書き写している）。
+ */
+
+.fx-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  color: var(--fx-color-text);
+  font-size: var(--fx-font-size-sm);
+}
+
+/* タブ列と、その右端の設定 */
+
+.fx-editor__toolbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: stretch;
+  min-width: 0;
+  border-bottom: 1px solid var(--fx-color-border);
+  background: var(--fx-color-surface-sunken);
+}
+
+.fx-editor__tabs {
+  display: flex;
+  /* タブ列だけが伸縮する。右端の設定は押し出されない。 */
+  flex: 1 1 auto;
+  align-items: stretch;
+  min-width: 0;
+  min-height: var(--fx-tabbar-height);
+  /* タブが増えたら横に流す。パネル自体は横スクロールを作らない。 */
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/*
+ * 自動保存の切り替え。
+ *
+ * 設定画面（DESIGN.md §9）が入るまでの置き場所。パネルが狭くても
+ * タブ列の側が縮むだけで、ここは幅を保つ。
+ */
+.fx-editor__autosave {
+  flex: 0 0 auto;
+  align-self: center;
+  max-width: 180px;
+  margin: 0 var(--fx-space-2);
+  padding: 1px var(--fx-space-1);
+  color: var(--fx-color-text-muted);
+  background: var(--fx-color-surface-raised);
+  border: 1px solid var(--fx-color-border);
+  border-radius: 3px;
+  font: inherit;
+  font-size: var(--fx-font-size-sm);
+  cursor: pointer;
+}
+
+.fx-editor-tab {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  max-width: 200px;
+  border-right: 1px solid var(--fx-color-border);
+  color: var(--fx-color-text-muted);
+  background: transparent;
+}
+
+.fx-editor-tab[data-active='true'] {
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface);
+  /* 手前のタブは Editor の識別色（ほぼ無彩色）で示す。 */
+  box-shadow: inset 0 -2px 0 var(--fx-accent-neutral);
+}
+
+.fx-editor-tab:hover {
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-editor-tab__label {
+  min-width: 0;
+  padding: 0 var(--fx-space-1) 0 var(--fx-space-3);
+  color: inherit;
+  background: none;
+  border: none;
+  font: inherit;
+  line-height: var(--fx-tabbar-height);
+  cursor: pointer;
+  /* 長いファイル名でタブ列を押し広げない。全体は title 属性で読める。 */
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/*
+ * 未保存の印。
+ *
+ * 名前の側（省略されうる）ではなく独立した要素にしてある。
+ * 長いファイル名でタブが詰まっても、印だけは必ず見えるようにするため。
+ *
+ * 状態（editorTabState.ts）で色を変える。色だけに頼らないよう、
+ * 理由の文言は title 属性にも入っている（EditorTabs.tsx）。
+ * 最終的な見せ方は未定で、ここで満たしているのは
+ * 「Conflict になったことがタブから分かる」という最低限。
+ */
+.fx-editor-tab__dirty {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  margin-left: var(--fx-space-1);
+  border-radius: 50%;
+  background: transparent;
+}
+
+.fx-editor-tab[data-state='dirty'] .fx-editor-tab__dirty {
+  background: var(--fx-color-text-strong);
+}
+
+.fx-editor-tab[data-state='conflict'] .fx-editor-tab__dirty,
+.fx-editor-tab[data-state='deleted'] .fx-editor-tab__dirty {
+  background: var(--fx-color-danger);
+}
+
+/* 削除済みは、印だけでなく名前にも出す（もう戻せない状態のため）。 */
+.fx-editor-tab[data-state='deleted'] .fx-editor-tab__label {
+  text-decoration: line-through;
+  text-decoration-color: var(--fx-color-danger);
+}
+
+.fx-editor-tab__close {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin-right: var(--fx-space-1);
+  padding: 0;
+  color: var(--fx-color-text-faint);
+  background: none;
+  border: none;
+  border-radius: 3px;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.fx-editor-tab__close:hover {
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface-hover);
+}
+
+/* 中身 */
+
+.fx-editor__document {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.fx-editor__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--fx-space-2);
+  padding: var(--fx-space-1) var(--fx-space-3);
+  border-bottom: 1px solid var(--fx-color-border);
+  color: var(--fx-color-text-faint);
+}
+
+.fx-editor__path {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.fx-editor__hint {
+  display: flex;
+  align-items: center;
+  gap: var(--fx-space-2);
+  flex: 0 0 auto;
+}
+
+.fx-editor__hint[data-variant='error'] {
+  color: var(--fx-color-danger);
+}
+
+/*
+ * Monaco の置き場所。
+ *
+ * ここが持つのは大きさだけ。中の見た目（色・行番号・スクロールバー）は
+ * Monaco が実行時に注入する style が決める。
+ *
+ * min-height / min-width を 0 にしてあるのは、flex の子が既定では
+ * 中身より小さくならないため。Editor パネルは境界のドラッグで自由に狭められる
+ * （ARCHITECTURE.md §7.6）ので、これが無いとパネルを狭めたときに
+ * エディタが縮まず、パネルの外へはみ出す。
+ */
+.fx-editor__monaco {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/*
+ * Conflict の選択肢（Reload / Compare / 上書き）。
+ *
+ * エディタを差し替えるのではなく**上に足す**（EditorDocumentView.tsx）。
+ * 自分の変更を見たまま選べるようにするため、ここは flex の中で
+ * 必要なぶんだけ場所を取り、残りはエディタが使う。
+ */
+.fx-editor__conflict {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: var(--fx-space-2);
+  padding: var(--fx-space-2) var(--fx-space-3);
+  border-bottom: 1px solid var(--fx-color-border);
+  background: var(--fx-color-surface-sunken);
+}
+
+.fx-editor__conflict-title {
+  margin: 0;
+  color: var(--fx-color-danger);
+  line-height: 1.6;
+}
+
+.fx-editor__conflict-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fx-space-2);
+}
+
+/*
+ * 選択肢は「何をするか」と「何を失うか」を縦に並べる。
+ * 押す前に読める場所に置かないと、Compare を挟む意味が薄れる。
+ */
+.fx-editor__conflict-button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: var(--fx-space-1) var(--fx-space-3);
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface-raised);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  font: inherit;
+  font-size: var(--fx-font-size-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.fx-editor__conflict-button:hover:not(:disabled) {
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-editor__conflict-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.fx-editor__conflict-button[aria-pressed='true'] {
+  border-color: var(--fx-accent-blue);
+}
+
+.fx-editor__conflict-note {
+  color: var(--fx-color-text-faint);
+}
+
+/*
+ * Compare（差分）。
+ *
+ * 高さを固定しているのは、Conflict の帯が伸び続けると
+ * エディタ本体が押し出されて見えなくなるため。
+ */
+.fx-editor__diff-frame {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--fx-color-border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.fx-editor__diff-legend {
+  display: flex;
+  gap: var(--fx-space-4);
+  padding: var(--fx-space-1) var(--fx-space-2);
+  border-bottom: 1px solid var(--fx-color-border);
+  background: var(--fx-color-surface);
+  color: var(--fx-color-text-faint);
+}
+
+.fx-editor__diff {
+  height: 240px;
+  min-width: 0;
+}
+
+.fx-editor__note {
+  display: flex;
+  align-items: center;
+  gap: var(--fx-space-2);
+  margin: 0;
+  padding: var(--fx-space-3);
+  color: var(--fx-color-text-muted);
+}
+
+.fx-editor__note[data-variant='error'] {
+  color: var(--fx-color-danger);
+}
+
+.fx-editor__retry {
+  padding: 0 var(--fx-space-2);
+  color: var(--fx-color-text);
+  background: var(--fx-color-surface-raised);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  font: inherit;
+  font-size: var(--fx-font-size-sm);
+  cursor: pointer;
+}
+
+.fx-editor__retry:hover {
+  background: var(--fx-color-surface-hover);
+}
+
+/* 1枚も開いていないとき */
+
+.fx-editor--empty {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-2);
+  padding: var(--fx-space-4);
+  color: var(--fx-color-text-muted);
+  line-height: 1.7;
+}
+
+.fx-editor__empty-title {
+  margin: 0;
+  color: var(--fx-color-text-strong);
+  font-size: var(--fx-font-size-md);
+}
+
+.fx-editor__empty-body {
+  margin: 0;
+}

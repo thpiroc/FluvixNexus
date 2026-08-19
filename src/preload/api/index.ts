@@ -1,7 +1,11 @@
 import type { FluvixApi } from '@shared/api'
 import { envApi } from './env'
+import { filesApi } from './files'
+import { settingsApi } from './settings'
 import { systemApi } from './system'
+import { windowApi } from './window'
 import { workspaceApi } from './workspace'
+import { workspaceFolderApi } from './workspaceFolder'
 
 /**
  * Renderer へ公開する API の実体。
@@ -20,5 +24,9 @@ import { workspaceApi } from './workspace'
 export const api: FluvixApi = {
   env: envApi,
   system: systemApi,
-  workspace: workspaceApi
+  window: windowApi,
+  workspace: workspaceApi,
+  workspaceFolder: workspaceFolderApi,
+  files: filesApi,
+  settings: settingsApi
 }

@@ -1,0 +1,133 @@
+/*
+ * 未保存の確認モーダル。
+ *
+ * files/files.css の DeleteConfirm と同じ作りにしてある（アプリ内モーダル・
+ * 色は styles/theme.css の変数）。分けてあるのは、これが Files パネルの持ち物では
+ * なく**アプリ全体の確認**だから（Workspace を閉じる / アプリを終了する でも出る）。
+ */
+
+.fx-unsaved__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--fx-space-4);
+  background: rgb(0 0 0 / 45%);
+}
+
+.fx-unsaved {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-3);
+  width: min(520px, 100%);
+  max-height: 100%;
+  padding: var(--fx-space-4);
+  color: var(--fx-color-text);
+  background: var(--fx-color-surface-raised);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 6px;
+  box-shadow: 0 12px 32px rgb(0 0 0 / 45%);
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-unsaved__title {
+  margin: 0;
+  color: var(--fx-color-text-strong);
+  font-size: var(--fx-font-size-md);
+}
+
+.fx-unsaved__body {
+  margin: 0;
+  color: var(--fx-color-text-muted);
+  line-height: 1.7;
+}
+
+/*
+ * 未保存のファイルの一覧。
+ *
+ * 数が多いときはここだけがスクロールする。モーダル全体が伸びると
+ * ボタンが画面の外へ出て、選べなくなる。
+ */
+.fx-unsaved__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-1);
+  margin: 0;
+  padding: var(--fx-space-2);
+  overflow-y: auto;
+  max-height: 40vh;
+  list-style: none;
+  background: var(--fx-color-surface-sunken);
+  border: 1px solid var(--fx-color-border);
+  border-radius: 4px;
+}
+
+.fx-unsaved__item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--fx-space-2);
+  min-width: 0;
+}
+
+.fx-unsaved__item-name {
+  flex: 0 0 auto;
+  color: var(--fx-color-text-strong);
+}
+
+/* 場所は長くなりうるので、はみ出さずに省略する。 */
+.fx-unsaved__item-detail {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--fx-color-text-faint);
+}
+
+.fx-unsaved__item-note {
+  flex: 0 0 auto;
+  color: var(--fx-color-danger);
+}
+
+.fx-unsaved__error {
+  margin: 0;
+  color: var(--fx-color-danger);
+  line-height: 1.7;
+}
+
+.fx-unsaved__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--fx-space-2);
+}
+
+.fx-unsaved__button {
+  padding: var(--fx-space-1) var(--fx-space-3);
+  color: var(--fx-color-text);
+  background: var(--fx-color-surface);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  font: inherit;
+  font-size: var(--fx-font-size-sm);
+  cursor: pointer;
+}
+
+.fx-unsaved__button:hover:not(:disabled) {
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-unsaved__button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.fx-unsaved__button[data-variant='primary'] {
+  color: var(--fx-color-text-strong);
+  border-color: var(--fx-accent-blue);
+}
+
+.fx-unsaved__button[data-variant='danger'] {
+  color: var(--fx-color-danger);
+}

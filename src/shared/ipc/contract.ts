@@ -1,5 +1,9 @@
+import type { FilesIpcContract } from './contracts/files'
+import type { SettingsIpcContract } from './contracts/settings'
 import type { SystemIpcContract } from './contracts/system'
+import type { WindowIpcContract } from './contracts/window'
 import type { WorkspaceIpcContract } from './contracts/workspace'
+import type { WorkspaceFolderIpcContract } from './contracts/workspaceFolder'
 import type { IpcResult } from './result'
 
 /**
@@ -17,12 +21,18 @@ import type { IpcResult } from './result'
  *  4. main/ipc/handlers/<domain>.ts で実装し、preload/api/<domain>.ts で公開する
  *
  * この契約が扱うのは Renderer → Main の「要求と応答」だけである。
- * Terminal の出力・ファイル変更の検知・LSP / DAP の通知のように
- * Main → Renderer へ一方的に流れるイベントは、この IpcContract とは別に
- * IpcEventContract として対の形で定義する（STEP 2 の Terminal 着手時に追加する）。
- * 要求と応答の型付けをここで完結させてあるため、同じ作り方をイベント側にも適用できる。
+ * Terminal の出力・ファイル変更の通知・LSP / DAP の通知のように
+ * Main → Renderer へ一方的に流れるイベントは、対になる IpcEventContract（event.ts）が扱う。
+ * 分けてある理由はそちらの冒頭。
  */
-export interface IpcContract extends SystemIpcContract, WorkspaceIpcContract {}
+export interface IpcContract
+  extends
+    SystemIpcContract,
+    WindowIpcContract,
+    WorkspaceIpcContract,
+    WorkspaceFolderIpcContract,
+    FilesIpcContract,
+    SettingsIpcContract {}
 
 /** 有効な IPC チャンネル名。契約に定義されたものだけが存在しうる。 */
 export type IpcChannel = keyof IpcContract & string

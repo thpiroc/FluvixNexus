@@ -1,4 +1,5 @@
 import { useMemo, type CSSProperties, type JSX } from 'react'
+import { useWorkspaceFolder } from '../workspaceFolder/context'
 import { usePanelDrag } from './dnd/usePanelDrag'
 import { DOCK_SIZE_CONSTRAINTS } from './layout/constraints'
 import { listVisiblePanelIds } from './layout/panelVisibility'
@@ -53,6 +54,11 @@ import './workspace.css'
  * WorkspaceLayout そのものであり、Dock / ドラッグ&ドロップ / リサイズ / 表示管理 /
  * プリセットのどれも、保存のための特別な処理を持たない（persistence/）。
  *
+ * 開いている Workspace（プロジェクトフォルダ）は Shell の持ち物ではない。
+ * Shell の外側（App.tsx の WorkspaceFolderProvider）が持ち、必要なパネルが
+ * useWorkspaceFolder() で読む。レイアウトは「どこに何を置くか」だけを扱い、
+ * パネルが何を対象に動いているかには関わらない、という分担を保つため。
+ *
  * STEP 2 の範囲外（STEP 3 以降）:
  *   - 各パネルの本機能（Files / Monaco Editor / Terminal / Git）
  *   - パネルの独立ウィンドウ化
@@ -77,6 +83,11 @@ export function WorkspaceShell(): JSX.Element {
   const drag = usePanelDrag({ layout, movePanel })
   const resize = useSplitResize({ layout, resizeSplit, replaceLayout })
 
+  // 開いている Workspace の取得状況。Shell 自身は Workspace を使わないが、
+  // 「画面の準備がどこまで進んだか」を1箇所で見えるようにしておく
+  // （レイアウトの復元と同じく、確認スクリプトが待てる目印になる）。
+  const { status: workspaceStatus } = useWorkspaceFolder()
+
   // View メニューのチェック状態。レイアウトから導出するため、閉じ忘れ・出し忘れが起きない。
   const visiblePanelIds = useMemo(() => new Set(listVisiblePanelIds(layout)), [layout])
 
@@ -84,13 +95,21 @@ export function WorkspaceShell(): JSX.Element {
   // Default を描いてから差し替えると、起動のたびに配置が飛んで見えるうえ、
   // その間に操作されると復元で上書きすることになる。
   if (!restored) {
-    return <div className="fx-workspace" style={SIZE_VARIABLES} data-restoring="true" />
+    return (
+      <div
+        className="fx-workspace"
+        style={SIZE_VARIABLES}
+        data-restoring="true"
+        data-workspace-status={workspaceStatus}
+      />
+    )
   }
 
   return (
     <div
       className="fx-workspace"
       style={SIZE_VARIABLES}
+      data-workspace-status={workspaceStatus}
       data-dragging={drag.state !== null}
       // リサイズ中は、カーソルが掴み手から外れても形を保つ（画面全体に掛ける）。
       data-resizing={resize.state?.boundary.direction ?? 'none'}

@@ -1,8 +1,12 @@
 import { app } from 'electron'
+import { startWorkspaceWatching, stopWorkspaceWatching } from '../files/workspaceWatcher'
 import { registerIpcHandlers } from '../ipc'
 import { createLogger } from '../logger'
 import { isMacOS } from '../platform'
 import { applySessionSecurityPolicy, applyWebContentsSecurityPolicy } from '../security'
+import { flushEditorSettingsDocument } from '../store/editorSettings'
+import { flushFilesSettingsDocument } from '../store/filesSettings'
+import { flushWorkspaceFolderDocument } from '../store/workspaceFolder'
 import { flushWorkspaceLayoutDocument } from '../store/workspaceLayout'
 import { createMainWindow, focusMainWindow, getMainWindow } from '../windows/mainWindow'
 import { applyApplicationMenu } from './menu'
@@ -44,6 +48,9 @@ export function bootstrapApp(): void {
     // Renderer が接続してくる前に、Main 側の受け口を先に用意しておく。
     registerIpcHandlers()
 
+    // 開いている Workspace の外部変更を見張る（開く / 閉じるに追従する）。
+    startWorkspaceWatching()
+
     createMainWindow()
 
     app.on('activate', () => {
@@ -53,11 +60,17 @@ export function bootstrapApp(): void {
     })
   })
 
-  // 間引き待ちのレイアウトを取りこぼさないための保険。
+  // 間引き待ちの保存内容を取りこぼさないための保険。
   // ウィンドウが閉じた後に発生する will-quit で行うのは、閉じる直前に Renderer が
   // 送った保存依頼まで受け取ってから書き込むため（before-quit ではまだ届いていない）。
   app.on('will-quit', () => {
+    // 監視のハンドルを閉じてから落とす（この時点でウィンドウはもう無い）。
+    stopWorkspaceWatching()
+
     flushWorkspaceLayoutDocument()
+    flushWorkspaceFolderDocument()
+    flushEditorSettingsDocument()
+    flushFilesSettingsDocument()
   })
 
   app.on('window-all-closed', () => {

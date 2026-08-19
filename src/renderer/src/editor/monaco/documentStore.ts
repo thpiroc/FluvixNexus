@@ -1,0 +1,573 @@
+import {
+  isAtOrUnder,
+  rebaseRelativePath,
+  type FileEncoding,
+  type FileLineEnding,
+  type FileRevision,
+  type WorkspaceFileChange
+} from '@shared/files'
+// 型だけ。実体を import すると、このモジュールを読むだけで Monaco が読み込まれる（下記）。
+import type * as monaco from 'monaco-editor'
+import { resolveEditorTabState, type EditorTabState } from '../editorTabState'
+
+/**
+ * 開いているファイルの Monaco Model を持つ層。
+ *
+ * ## Editor Tab とは責務が違う
+ *
+ * | 層                  | 持つもの                                           | 単位          |
+ * | ------------------- | -------------------------------------------------- | ------------- |
+ * | editorTabsModel.ts  | どのファイルを開いていて、どれが手前か、印を出すか | タブ（id）    |
+ * | ここ                | その中身・編集履歴・カーソル・保存済みの版         | ファイル（位置） |
+ *
+ * 2つを分けているのは**同一性の基準が違う**ため。タブの同一性は発番した id で、
+ * リネームされても同じタブであり続ける（ARCHITECTURE.md §10.3）。
+ * 一方、中身の同一性は**Workspace 内の位置**で決まる ── 同じファイルを
+ * 2通りの経路から開いても、編集内容が2つに分かれてはいけない。
+ *
+ * したがってここの鍵は `relativePath` で、タブ id は出てこない。
+ *
+ * ## React の外に置く
+ *
+ * このストアの持ち主は EditorProvider（Workspace Shell の**外側**）で、
+ * Monaco のエディタ本体（MonacoEditor.tsx）ではない。
+ *
+ * Editor パネルは View メニューから閉じられる（§7.7）し、Dock で動かせば
+ * React から見て作り直される。エディタ本体が Model を持っていると、
+ * **パネルを閉じただけで未保存の編集が消える。**
+ * Model がここに居れば、消えるのはエディタの器だけになる。
+ *
+ * ```
+ * EditorProvider          ← Model の持ち主（Workspace が変わるまで生きる）
+ *   └── WorkspaceShell
+ *         └── Editor パネル
+ *               └── MonacoEditor  ← 器。閉じても Model は残る
+ * ```
+ *
+ * ## Model を2つ作らない
+ *
+ * `acquire` は同じ位置に対して常に同じ Model を返す。既にあれば**中身を入れ直さない**
+ * （入れ直すと、タブを切り替えて戻っただけで編集が捨てられる）。
+ * 読み直しは呼び出し側が `release` してから `acquire` する。
+ *
+ * ## ディスク側の事実もここが持つ
+ *
+ * 「未保存か」に加えて「読み込んだ後にディスク側が変わったか」「消えたか」も
+ * ここが持つ。中身の同一性を持っている層が**中身の食い違い**も持つのが素直で、
+ * タブ側（editorTabsModel.ts）はその結果を状態として写すだけになる
+ * （editorTabState.ts が導き方を持つ）。
+ *
+ * ```
+ * savedVersionId  ←→ model.getAlternativeVersionId()   未保存か
+ * revision                                             最後にディスクで確かめた版
+ * externalRevision                                     外で書き換えられた後の版（無ければ null）
+ * missing                                              ディスクから消えたか
+ * ```
+ *
+ * ## Monaco を「型としてしか」使わない
+ *
+ * このファイルは `import type` だけで Monaco を参照し、**Model の作り方は
+ * 呼び出し側から関数として受け取る**（`EditorModelFactory`）。
+ *
+ * ストアの持ち主は EditorProvider で、アプリの起動と同時に作られる。実体を
+ * import すると、その時点で Monaco（React 本体より一桁大きい）が読み込まれ、
+ * MonacoEditor.tsx を遅延させている意味が無くなる。
+ *
+ * 分担としても素直になる ── ここが持つのは**持ち物の管理**（何を開いていて、
+ * 未保存か、どこを見ていたか）で、Monaco の作法を知っているのは器の側だけになる。
+ */
+
+/**
+ * Model の作り方。
+ *
+ * 言語の決定・URI の発番・改行の設定は Monaco に触れるため、
+ * これを渡す側（monaco/MonacoEditor.tsx）が持つ。
+ */
+export type EditorModelFactory = (
+  relativePath: string,
+  source: EditorDocumentSource
+) => monaco.editor.ITextModel
+
+/** 開いたときにディスクから読めたもの。Model を作る材料。 */
+export interface EditorDocumentSource {
+  readonly content: string
+  readonly lineEnding: FileLineEnding
+  /** 読み込んだ時点の文字コード。保存でそのまま書き戻す。 */
+  readonly encoding: FileEncoding
+  /** 読み込んだ時点の版。保存の起点になる。 */
+  readonly revision: FileRevision | null
+}
+
+/** 保存のために取り出す一式。 */
+export interface EditorSaveSnapshot {
+  readonly content: string
+  /**
+   * この中身に対応する版番号（Monaco の alternativeVersionId）。
+   *
+   * 保存が終わった時点ではなく**取り出した時点**の番号を後で渡し直す。
+   * 書き込んでいる間に打たれた文字が「保存済み」に含まれないようにするため。
+   */
+  readonly versionId: number
+  /** 前回ディスクで確かめた版。Main 側が外部変更の検出に使う。 */
+  readonly baseRevision: FileRevision | null
+  /** 読み込んだときの文字コード。保存でそのまま書き戻す。 */
+  readonly encoding: FileEncoding
+}
+
+interface DocumentEntry {
+  readonly model: monaco.editor.ITextModel
+  /** 中身の変化を見る購読。Model と一緒に捨てる。 */
+  readonly subscription: monaco.IDisposable
+  /**
+   * 最後にディスクと一致していた版番号。
+   *
+   * `model.getAlternativeVersionId()` と比べて dirty を導く。**この方式にすると
+   * 「打った文字を Undo で戻した」場合に未保存が解けた状態へ戻る**
+   * （中身の文字列を毎回比べる形では、比較の費用が中身の大きさに比例する）。
+   */
+  savedVersionId: number
+  /** 最後にディスクで確かめた版。 */
+  revision: FileRevision | null
+  /** 読み込んだときの文字コード。 */
+  encoding: FileEncoding
+  /**
+   * アプリの外で書き換えられた後の版。食い違いが無ければ null。
+   *
+   * 入るのは2つの経路から。どちらも「ディスク側が読み込み後に変わった」という
+   * 同じ事実で、**同じ1つの欄で表す**（気づいた経路ごとに状態を分けると、
+   * どちらを見て判断するかが場所ごとにずれる）。
+   *
+   *   ファイル監視    … `files:changed` の 'modified'（useEditorSession.ts）
+   *   保存しようとして … `files:write-file` の 'stale'
+   */
+  externalRevision: FileRevision | null
+  /** ディスクから消えたか。 */
+  missing: boolean
+  /** カーソル・選択・スクロール位置。タブを切り替えたときに戻す。 */
+  viewState: monaco.editor.ICodeEditorViewState | null
+}
+
+/** タブの状態が変わったことの通知。 */
+export type DocumentStateListener = (relativePath: string, state: EditorTabState) => void
+
+/**
+ * 同じ版か。
+ *
+ * mtime と size の組で見るのは shared/files/content.ts の判断そのままで、
+ * Main 側（writeWorkspaceFile.ts）と同じ比べ方をする。ここが食い違うと、
+ * 「Main は同じと判断して書いたのに Renderer は食い違いだと思っている」が起きる。
+ */
+function isSameRevision(a: FileRevision, b: FileRevision): boolean {
+  return a.mtimeMs === b.mtimeMs && a.size === b.size
+}
+
+export class EditorDocumentStore {
+  private readonly entries = new Map<string, DocumentEntry>()
+  private readonly stateListeners = new Set<DocumentStateListener>()
+
+  /**
+   * 今エディタに載っているエディタ本体。
+   *
+   * 中身を差し替える（Reload・外部変更の取り込み）ときに、
+   * カーソルとスクロール位置を控えて戻すために要る。**持ち主ではない**
+   * （器は MonacoEditor.tsx が作って捨てる）ので、参照だけを預かる。
+   */
+  private editor: monaco.editor.ICodeEditor | null = null
+
+  /* ------------------------------------------------------------ 取得 */
+
+  /**
+   * その位置の Model を得る。無ければ `createModel` で作る。
+   *
+   * **既にあれば中身を入れ直さない。** タブを切り替えて戻ったときに
+   * 編集内容・Undo 履歴・カーソル位置が失われないようにするため
+   * （`createModel` も呼ばれない）。
+   */
+  acquire(
+    relativePath: string,
+    source: EditorDocumentSource,
+    createModel: EditorModelFactory
+  ): monaco.editor.ITextModel {
+    const existing = this.entries.get(relativePath)
+
+    if (existing !== undefined) {
+      return existing.model
+    }
+
+    const model = createModel(relativePath, source)
+
+    const entry: DocumentEntry = {
+      model,
+      subscription: model.onDidChangeContent(() => this.notifyState(relativePath)),
+      // 作られた直後の状態を「ディスクと同じ」の基準にする。
+      savedVersionId: model.getAlternativeVersionId(),
+      revision: source.revision,
+      encoding: source.encoding,
+      externalRevision: null,
+      missing: false,
+      viewState: null
+    }
+
+    this.entries.set(relativePath, entry)
+
+    return model
+  }
+
+  /** その位置の Model。開いていなければ null。 */
+  getModel(relativePath: string): monaco.editor.ITextModel | null {
+    return this.entries.get(relativePath)?.model ?? null
+  }
+
+  /**
+   * 今のエディタ本体を預かる / 返す。
+   *
+   * 呼ぶのは MonacoEditor.tsx（作った直後と、捨てる前）。
+   * 中身を差し替えるときに見ていた位置を保つのに使う。
+   */
+  attachEditor(editor: monaco.editor.ICodeEditor | null): void {
+    this.editor = editor
+  }
+
+  /* ------------------------------------------------------------ 状態 */
+
+  /** ディスクの内容と食い違っているか。 */
+  isDirty(relativePath: string): boolean {
+    const entry = this.entries.get(relativePath)
+
+    if (entry === undefined) {
+      return false
+    }
+
+    return entry.model.getAlternativeVersionId() !== entry.savedVersionId
+  }
+
+  /**
+   * その位置の今の状態（editorTabState.ts）。
+   *
+   * 開いていなければ `clean`（Model が無い ＝ 失うものが無い）。
+   */
+  getState(relativePath: string): EditorTabState {
+    const entry = this.entries.get(relativePath)
+
+    if (entry === undefined) {
+      return 'clean'
+    }
+
+    return resolveEditorTabState({
+      dirty: entry.model.getAlternativeVersionId() !== entry.savedVersionId,
+      externalChange: entry.externalRevision !== null,
+      missing: entry.missing
+    })
+  }
+
+  /** 未保存の変更を持つ位置（閉じる前の確認・終了時の判断で使う）。 */
+  listDirtyPaths(): readonly string[] {
+    return [...this.entries.keys()].filter((relativePath) => this.isDirty(relativePath))
+  }
+
+  /**
+   * 状態が変わったときに呼ばれる。
+   *
+   * 戻り値が解除の関数（Main → Renderer のイベントと同じ形。§3.3）。
+   */
+  onStateChange(listener: DocumentStateListener): () => void {
+    this.stateListeners.add(listener)
+
+    return () => {
+      this.stateListeners.delete(listener)
+    }
+  }
+
+  private notifyState(relativePath: string): void {
+    const state = this.getState(relativePath)
+
+    for (const listener of this.stateListeners) {
+      listener(relativePath, state)
+    }
+  }
+
+  /* ------------------------------------------------------------- 保存 */
+
+  /** 保存に必要なものを取り出す。開いていなければ null。 */
+  readForSave(relativePath: string): EditorSaveSnapshot | null {
+    const entry = this.entries.get(relativePath)
+
+    if (entry === undefined) {
+      return null
+    }
+
+    return {
+      // Model の EOL で連結されるため、開いたときの改行がそのまま出る。
+      content: entry.model.getValue(),
+      versionId: entry.model.getAlternativeVersionId(),
+      baseRevision: entry.revision,
+      encoding: entry.encoding
+    }
+  }
+
+  /**
+   * 保存できたことを反映する。
+   *
+   * `versionId` には**書き込みを始めた時点**の番号を渡すこと（readForSave の戻り値）。
+   * 書き込んでいる間に文字が打たれていれば、それは未保存のまま残る。
+   *
+   * 書けた時点でディスクの内容はこちらのものになったため、食い違いと
+   * 「消えていた」は解消する（Overwrite で書けた場合もここを通る）。
+   */
+  markSaved(relativePath: string, versionId: number, revision: FileRevision): void {
+    const entry = this.entries.get(relativePath)
+
+    if (entry === undefined) {
+      return
+    }
+
+    entry.savedVersionId = versionId
+    entry.revision = revision
+    entry.externalRevision = null
+    entry.missing = false
+
+    this.notifyState(relativePath)
+  }
+
+  /* --------------------------------------------- ディスク側との食い違い */
+
+  /**
+   * アプリの外でディスク側が変わったことを控える。
+   *
+   * 呼ぶのは2つの経路から（DocumentEntry.externalRevision）。
+   * **中身には触れない。** 未保存の変更を持っている以上、
+   * どちらを採るかを決めるのは利用者であって、この層ではない。
+   *
+   * 今ディスクにある版と、既に知っている版が同じなら何もしない。
+   * **自分の保存でもファイル監視は発火する**ため、これが無いと
+   * 保存のたびに自分自身と食い違ったことになる。
+   */
+  markExternalChange(relativePath: string, revision: FileRevision): void {
+    const entry = this.entries.get(relativePath)
+
+    if (entry === undefined) {
+      return
+    }
+
+    if (entry.revision !== null && isSameRevision(entry.revision, revision)) {
+      return
+    }
+
+    if (entry.externalRevision !== null && isSameRevision(entry.externalRevision, revision)) {
+      return
+    }
+
+    entry.externalRevision = revision
+    this.notifyState(relativePath)
+  }
+
+  /** ディスクから消えたことを控える（中身は残す）。 */
+  markMissing(relativePath: string): void {
+    const entry = this.entries.get(relativePath)
+
+    if (entry === undefined || entry.missing) {
+      return
+    }
+
+    entry.missing = true
+    this.notifyState(relativePath)
+  }
+
+  /** 食い違いが起きたときの、ディスク側の版。無ければ null。 */
+  getExternalRevision(relativePath: string): FileRevision | null {
+    return this.entries.get(relativePath)?.externalRevision ?? null
+  }
+
+  /**
+   * ディスクの内容を Model へ取り込む（Reload と、未保存でない場合の自動追従）。
+   *
+   * ## 作り直さない
+   *
+   * Model もタブも作り直さず、**中身だけを差し替える**。作り直すと、
+   *   - タブが React から見て別物になり、開き直しと同じ見え方になる
+   *   - Undo 履歴が消える
+   *   - 言語サービスがそのファイルを開き直す
+   * ことになる。差し替えなら、どれも起きない。
+   *
+   * ## 見ていた場所を保つ
+   *
+   * 全体を1回の編集として置き換え、その前後でカーソル・選択・スクロール位置を
+   * 控えて戻す。編集として適用しているので **Undo で戻せる**（読み込み直しで
+   * 意図せず消えた編集を、その場で取り返せる）。
+   */
+  replaceContent(relativePath: string, source: EditorDocumentSource): void {
+    const entry = this.entries.get(relativePath)
+
+    if (entry === undefined) {
+      return
+    }
+
+    const { model } = entry
+    const editorShowsThis = this.editor !== null && this.editor.getModel() === model
+    const viewState = editorShowsThis ? this.editor!.saveViewState() : entry.viewState
+
+    if (model.getValue() !== source.content) {
+      model.pushEditOperations(
+        [],
+        [{ range: model.getFullModelRange(), text: source.content }],
+        () => null
+      )
+    }
+
+    entry.encoding = source.encoding
+    entry.revision = source.revision
+    entry.externalRevision = null
+    entry.missing = false
+    // 取り込んだ内容が「ディスクと同じ」の新しい基準になる。
+    entry.savedVersionId = model.getAlternativeVersionId()
+
+    if (viewState !== null) {
+      entry.viewState = viewState
+
+      if (editorShowsThis) {
+        this.editor!.restoreViewState(viewState)
+      }
+    }
+
+    this.notifyState(relativePath)
+  }
+
+  /* ------------------------------------------------- カーソル・スクロール */
+
+  /** タブを離れる前に、見ていた位置を控える。 */
+  saveViewState(relativePath: string, editor: monaco.editor.ICodeEditor): void {
+    const entry = this.entries.get(relativePath)
+
+    if (entry !== undefined) {
+      entry.viewState = editor.saveViewState()
+    }
+  }
+
+  /** タブへ戻ってきたときに、控えた位置へ戻す。 */
+  restoreViewState(relativePath: string, editor: monaco.editor.ICodeEditor): void {
+    const viewState = this.entries.get(relativePath)?.viewState
+
+    if (viewState != null) {
+      editor.restoreViewState(viewState)
+    }
+  }
+
+  /* ------------------------------------------------------------- 破棄 */
+
+  /**
+   * その位置の Model を捨てる（タブを閉じた / 読み直す）。
+   *
+   * Model を残しておくと、閉じたはずのファイルの編集内容が
+   * 開き直したときに戻ってくる。閉じる ＝ 編集を捨てる、で揃える。
+   */
+  release(relativePath: string): void {
+    const entry = this.entries.get(relativePath)
+
+    if (entry === undefined) {
+      return
+    }
+
+    this.entries.delete(relativePath)
+    entry.subscription.dispose()
+    entry.model.dispose()
+
+    // 未保存だったものが消えたことを、印を出している側へ伝える。
+    this.notifyState(relativePath)
+  }
+
+  /**
+   * すべて捨てる（Workspace を切り替えた / 閉じた）。
+   *
+   * **前の Workspace の Model が1つでも残っていると、その位置の相対パスは
+   * 新しい Workspace の中の別のファイルを指す。** 保存すれば、開いてもいない
+   * ファイルを別のプロジェクトの内容で上書きすることになる。
+   */
+  disposeAll(): void {
+    for (const relativePath of [...this.entries.keys()]) {
+      this.release(relativePath)
+    }
+  }
+
+  /* ------------------------------------------- ディスク側の変化への追従 */
+
+  /**
+   * Workspace のファイルが変わったことを反映する。
+   *
+   * `editorTabsModel.ts` の `applyFileChanges` と**対になる**が、互いを知らない。
+   * どちらも `files:changed`（§3.3）を独立に受け取って、自分の持ち物だけを直す。
+   * 送る側（Files の操作）が受け手を知らずに済むのがこの経路の要点で、
+   * 受け手が2つに増えてもその形は変わらない。
+   *
+   * | 変化                     | ここでの扱い                                       |
+   * | ------------------------ | -------------------------------------------------- |
+   * | 改名（ファイル / 親）    | 鍵を付け替える（Model はそのまま）                 |
+   * | 削除（ファイル / 親）    | 未保存でなければ捨てる。未保存なら残して印を付ける |
+   * | 作成                     | 何もしない                                         |
+   * | 中身の変更（modified）   | ここでは扱わない（下記）                           |
+   *
+   * 改名で Model を作り直さないのは、未保存の編集と Undo 履歴を保つため。
+   * タブ側が「開き直しにしない」ことにしてある（§10.3）のと同じ判断。
+   *
+   * ## 未保存のものは消えても捨てない
+   *
+   * 保存されていない内容は**この Model の中にしか無い**。ファイルが消えたからと
+   * いって捨てると、利用者が一度も選んでいないのに編集が失われる。
+   * タブ側（editorTabsModel.ts）が同じ判断で未保存のタブを残すため、
+   * 互いを知らないまま結果が揃う（どちらも「未保存か」だけを見ている）。
+   *
+   * ## modified はここで扱わない
+   *
+   * 中身を取り込むには**ディスクを読み直す必要がある**（この層は IPC を知らない）。
+   * どう扱うか（未保存でなければ取り込む / 未保存なら食い違いとして残す）は
+   * useEditorSession.ts が決め、ここには markExternalChange / replaceContent として届く。
+   */
+  applyFileChanges(changes: readonly WorkspaceFileChange[]): void {
+    for (const change of changes) {
+      if (change.kind === 'created' || change.kind === 'modified') {
+        continue
+      }
+
+      if (change.kind === 'deleted') {
+        for (const relativePath of [...this.entries.keys()]) {
+          if (!isAtOrUnder(change.relativePath, relativePath)) {
+            continue
+          }
+
+          if (this.isDirty(relativePath)) {
+            this.markMissing(relativePath)
+          } else {
+            this.release(relativePath)
+          }
+        }
+
+        continue
+      }
+
+      for (const relativePath of [...this.entries.keys()]) {
+        const rebased = rebaseRelativePath(
+          relativePath,
+          change.fromRelativePath,
+          change.toRelativePath
+        )
+
+        if (rebased === null || rebased === relativePath) {
+          continue
+        }
+
+        const entry = this.entries.get(relativePath)
+
+        if (entry === undefined) {
+          continue
+        }
+
+        /*
+          行き先に既に何かある場合（外から同名のものが作られていた等）は、
+          そちらを捨ててから移す。同じ位置に2つの Model が対応する状態を作らない。
+        */
+        this.release(rebased)
+        this.entries.delete(relativePath)
+        this.entries.set(rebased, entry)
+      }
+    }
+  }
+}
