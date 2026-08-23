@@ -1,4 +1,6 @@
 import type { FilesIpcEventContract } from './events/files'
+import type { GitIpcEventContract } from './events/git'
+import type { TerminalIpcEventContract } from './events/terminal'
 import type { WindowIpcEventContract } from './events/window'
 
 /**
@@ -24,9 +26,13 @@ import type { WindowIpcEventContract } from './events/window'
  * | ---------------------- | ------------------------------------------------ |
  * | Files の変更通知       | `files:changed`（アプリの操作とファイル監視）    |
  * | 閉じてよいかの確認     | `window:close-requested`（contracts/window.ts）  |
- * | Terminal の出力        | セッション id 付きのチャンク                     |
- * | Git の状態変化         | ブランチ / 変更ファイルの更新                    |
+ * | Terminal の出力 / 終了 | `terminal:data` / `terminal:exit`（events/terminal.ts） |
+ * | Git の状態変化         | `git:changed`（`.git` の監視。events/git.ts）    |
  * | LSP / DAP              | 診断・停止位置などサーバ発の通知                 |
+ *
+ * `terminal:data` は、この経路で**取りこぼしが許されない**最初のイベントになる
+ * （ファイルの変更通知は読み直せば埋まるが、出力は1回きりで順番に意味がある）。
+ * 束ねはするが間引かない、という扱いの違いは events/terminal.ts の冒頭。
  *
  * `window:close-requested` だけは**応答を期待する**イベントで、他とは性質が違う。
  * 片道の経路にそれを載せているのは、対になる応答が
@@ -46,7 +52,12 @@ import type { WindowIpcEventContract } from './events/window'
  * 渡すと contextBridge で切り離したはずの経路が、イベントの引数として復活する。
  * 剥がすのは Preload の責務（preload/ipc/subscribe.ts）。
  */
-export interface IpcEventContract extends FilesIpcEventContract, WindowIpcEventContract {}
+export interface IpcEventContract
+  extends
+    FilesIpcEventContract,
+    WindowIpcEventContract,
+    TerminalIpcEventContract,
+    GitIpcEventContract {}
 
 /** 有効な IPC イベントチャンネル名。契約に定義されたものだけが存在しうる。 */
 export type IpcEventChannel = keyof IpcEventContract & string

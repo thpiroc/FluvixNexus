@@ -116,64 +116,11 @@
 }
 
 /*
- * ドロップダウンメニュー（View / Layout）。
- *
- * 上部バーの中で開くため、バーの高さに影響しないよう絶対配置で外へ出す。
- * 領域のリサイズやドロップガイドより手前に出す必要があるので、z-index はそれらより上。
+ * ドロップダウンメニュー（View / Layout）の見た目は ui/menu.css へ移した。
+ * Terminal のタブ列（Session 3-7-2）が2つめの使い手になったため
+ * （ui/DropdownMenu.tsx）。ここに残すと、パネルの中で使う側が
+ * Workspace Shell の CSS が読み込まれていることに頼ることになる。
  */
-
-.fx-menu {
-  position: relative;
-  display: flex;
-}
-
-.fx-menu__list {
-  position: absolute;
-  top: calc(100% + var(--fx-space-1));
-  left: 0;
-  z-index: 10;
-  display: flex;
-  flex-direction: column;
-  min-width: 180px;
-  padding: var(--fx-space-1) 0;
-  background: var(--fx-color-surface-raised);
-  border: 1px solid var(--fx-color-border-strong);
-  border-radius: 3px;
-}
-
-.fx-menu__item {
-  display: flex;
-  align-items: baseline;
-  gap: var(--fx-space-2);
-  padding: var(--fx-space-1) var(--fx-space-3) var(--fx-space-1) var(--fx-space-2);
-  color: var(--fx-color-text);
-  background: transparent;
-  border: none;
-  font: inherit;
-  font-size: var(--fx-font-size-sm);
-  text-align: left;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.fx-menu__item:hover {
-  background: var(--fx-color-surface-hover);
-}
-
-/* 印の場所は常に取っておく（選択のたびに文字がずれないように）。 */
-.fx-menu__mark {
-  flex: 0 0 auto;
-  width: 12px;
-  color: var(--fx-color-text-strong);
-}
-
-.fx-menu__label {
-  flex: 1;
-}
-
-.fx-menu__hint {
-  color: var(--fx-color-text-faint);
-}
 
 /* メイン作業領域（レイアウトの木を敷く場所） */
 

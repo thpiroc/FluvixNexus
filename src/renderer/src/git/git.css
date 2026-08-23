@@ -1,0 +1,992 @@
+/*
+ * Git パネルの見た目（Session 3-8-1 / 3-8-2 / 3-8-3 / 3-8-4 / 3-8-5 / 3-8-6）。
+ *
+ * 値を直接書かず styles/theme.css の変数を参照する（files.css / terminal.css と同じ）。
+ *
+ * 3-8-1 で置いたのは器だけ（上のバーと、使えない状態の案内）で、3-8-2 で
+ * その下に変更ファイルの一覧が入り、3-8-4 でさらに下へ Commit 欄が、
+ * 3-8-5 でその下へ Pull / Push の行が付いた
+ * （DESIGN.md §3 の並びのまま、足すのは下へ。設計判断 2）。
+ *
+ * 3-8-6 で足したものだけは**下ではなく上のバーの中**にある ── ブランチを
+ * 選ぶ面は、それまで文字だけだったブランチ名が押せるようになったもので、
+ * 新しい場所を作ったわけではない（開く器は ui/Popover）。
+ *
+ * 3-8-9（差分と破棄）で足した2つは、どちらも**下ではなく上に重なる**。
+ * 差分はパネルの中だけを覆い（一覧は差し替えず、閉じればそのまま戻る）、
+ * 破棄の確認はウィンドウ全体を覆う（答えるまで他のことをさせない。§12.6）。
+ */
+
+.fx-git {
+  /*
+    差分の面を重ねる基準（Session 3-8-9）。ウィンドウ全体ではなくこの器を
+    基準にすることで、重なるのは Git パネルの中だけになる。
+  */
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  color: var(--fx-color-text);
+  font-size: var(--fx-font-size-sm);
+}
+
+/*
+ * 使えない状態の案内。
+ *
+ * 上下中央ではなく上寄せにする ── 文章の長さが状態ごとに違うため、
+ * 中央に置くと状態が変わるたびに見出しの位置が動く。
+ */
+.fx-git--notice {
+  gap: var(--fx-space-2);
+  padding: var(--fx-space-4);
+  overflow-y: auto;
+}
+
+.fx-git__title {
+  margin: 0;
+  color: var(--fx-color-text);
+}
+
+.fx-git__description {
+  margin: 0;
+  max-width: 460px;
+  color: var(--fx-color-text-muted);
+  line-height: 1.6;
+}
+
+.fx-git__action {
+  align-self: flex-start;
+  margin-top: var(--fx-space-1);
+  padding: var(--fx-space-1) var(--fx-space-3);
+  color: var(--fx-color-text);
+  background: var(--fx-color-surface-raised);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.fx-git__action:hover:not(:disabled) {
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-git__action:disabled {
+  color: var(--fx-color-text-faint);
+  cursor: default;
+}
+
+/*
+ * 上のバー。ブランチ名と再取得。
+ *
+ * 高さはパネル共通の細いバー（--fx-bar-height）に合わせる。Terminal のように
+ * タブを持たないため、Editor のタブ列と同じ高さにする理由が無い。
+ */
+.fx-git__bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--fx-space-2);
+  min-height: var(--fx-bar-height);
+  padding: 0 var(--fx-space-1) 0 var(--fx-space-3);
+  border-bottom: 1px solid var(--fx-color-border);
+  white-space: nowrap;
+}
+
+.fx-git__branch-label {
+  flex: 0 0 auto;
+  color: var(--fx-color-text-faint);
+}
+
+/*
+ * ブランチを選ぶボタン（Session 3-8-6）。
+ *
+ * 3-8-2 まで文字だけ（`.fx-git__branch`）だった場所を、押せる形にしたもの。
+ * **見た目は文字のまま**にしてある ── 枠を付けると、上のバーで
+ * いちばん目立つのがブランチ名になり、その下の一覧より先に目に入る。
+ * 押せることは hover の下線と、右の `⌄` で伝わればよい。
+ *
+ * 長いブランチ名でバーを押し広げない（外側の器は `.fx-menu` が持つため、
+ * 縮む指定はそちらと両方に要る）。
+ */
+.fx-git__bar .fx-menu {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.fx-git__branch-button {
+  display: block;
+  max-width: 100%;
+  padding: 0 var(--fx-space-1);
+  color: var(--fx-color-text-strong);
+  background: none;
+  border: none;
+  font: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.fx-git__branch-button:hover,
+.fx-git__branch-button[data-open='true'] {
+  background: var(--fx-color-surface-hover);
+  text-decoration: underline;
+}
+
+.fx-git__branch-button:focus-visible {
+  outline: 1px solid var(--fx-color-border-strong);
+  outline-offset: -1px;
+}
+
+/*
+ * 開いた面。
+ *
+ * 幅を広めに取るのは、ブランチ名が `feature/2026-08/...` のように長くなるため。
+ * 高さは**一覧の側だけ**が伸び、作成の欄は常に見えるところに在る
+ * （Commit 欄が一覧に押し出されないのと同じ形）。
+ */
+.fx-git__branch-panel {
+  min-width: 240px;
+  max-width: 360px;
+}
+
+.fx-git__branch-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+/* 一覧の行。並べ方は menu.css の `.fx-menu__item` をそのまま使う。 */
+.fx-git__branch-item {
+  width: 100%;
+}
+
+.fx-git__branch-item[data-current='true'] {
+  color: var(--fx-color-text-strong);
+}
+
+/* 長いブランチ名で面を押し広げない。 */
+.fx-git__branch-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 一覧の代わりに出す一言（取得中・失敗・1件も無い）。 */
+.fx-git__branch-notice {
+  margin: 0;
+  padding: var(--fx-space-1) var(--fx-space-3);
+  color: var(--fx-color-text-muted);
+  line-height: 1.5;
+}
+
+/* 一覧が切れていることの断り。 */
+.fx-git__branch-truncated {
+  margin: 0;
+  padding: var(--fx-space-1) var(--fx-space-3);
+  color: var(--fx-color-text-faint);
+  line-height: 1.5;
+}
+
+/*
+ * 新しいブランチを作る欄。
+ *
+ * 一覧との間に線を引く ── 押すと切り替わるもの（上）と、打って作るもの（下）で
+ * 起きることが違う。
+ */
+.fx-git__branch-create {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-1);
+  margin-top: var(--fx-space-1);
+  padding: var(--fx-space-2) var(--fx-space-2) var(--fx-space-1);
+  border-top: 1px solid var(--fx-color-border);
+}
+
+.fx-git__branch-create-row {
+  display: flex;
+  gap: var(--fx-space-2);
+}
+
+.fx-git__branch-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: var(--fx-space-1) var(--fx-space-2);
+  color: var(--fx-color-text);
+  background: var(--fx-color-surface);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  font: inherit;
+}
+
+.fx-git__branch-input::placeholder {
+  color: var(--fx-color-text-faint);
+}
+
+.fx-git__branch-input:focus-visible {
+  outline: 1px solid var(--fx-color-border-strong);
+  outline-offset: -1px;
+}
+
+.fx-git__branch-create-action {
+  flex: 0 0 auto;
+  padding: var(--fx-space-1) var(--fx-space-3);
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface-raised);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.fx-git__branch-create-action:hover:not(:disabled) {
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-git__branch-create-action:focus-visible {
+  outline: 1px solid var(--fx-color-border-strong);
+  outline-offset: 1px;
+}
+
+/* 押せない間も場所は残す（Commit / Push と同じ）。 */
+.fx-git__branch-create-action:disabled {
+  color: var(--fx-color-text-faint);
+  cursor: default;
+}
+
+/*
+ * 何が起きるか / なぜ押せないか。
+ *
+ * **常に1行ぶんの場所を取る**（出たり消えたりで面の高さを動かさない）。
+ * 折り返しは許す ── 名前の規則の説明は1行に収まらないことがあり、
+ * 切ると何を直せばよいのか分からなくなる。
+ */
+.fx-git__branch-note {
+  margin: 0;
+  min-height: 1.5em;
+  color: var(--fx-color-text-muted);
+  line-height: 1.5;
+}
+
+.fx-git__refresh {
+  flex: 0 0 auto;
+  width: 24px;
+  padding: 0;
+  color: var(--fx-color-text-muted);
+  background: none;
+  border: none;
+  font: inherit;
+  line-height: var(--fx-bar-height);
+  cursor: pointer;
+}
+
+.fx-git__refresh:hover:not(:disabled) {
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-git__refresh:disabled {
+  color: var(--fx-color-text-faint);
+  cursor: default;
+}
+
+/*
+ * 追跡先との進み具合（↑2 ↓3）。
+ *
+ * ブランチ名の右へ置き、伸び縮みさせない ── ここが縮むと、数字が欠けた形で
+ * 残ることになる（欠けた数字は、無いより悪い）。
+ */
+.fx-git__upstream {
+  flex: 0 0 auto;
+  color: var(--fx-color-text-muted);
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+}
+
+/*
+ * 操作が通らなかったときの1行（Session 3-8-3）。
+ *
+ * 一覧の**上**に置く。行の近くに出すと、一覧が入れ替わったときに
+ * どの行のことだったのか分からなくなる（操作の後に一覧は必ず取り直される）。
+ */
+.fx-git__operation-error {
+  flex: none;
+  margin: 0;
+  padding: var(--fx-space-1) var(--fx-space-3);
+  color: var(--fx-color-danger);
+  background: var(--fx-color-surface-raised);
+  border-bottom: 1px solid var(--fx-color-border);
+  line-height: 1.5;
+}
+
+/* 変更ファイルの一覧が入る場所。 */
+.fx-git__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: var(--fx-space-2) 0;
+  overflow-y: auto;
+}
+
+.fx-git__empty {
+  margin: 0;
+  padding: 0 var(--fx-space-3);
+  color: var(--fx-color-text-faint);
+}
+
+/* ------------------------------------------------------------------ グループ */
+
+.fx-git__group + .fx-git__group {
+  margin-top: var(--fx-space-3);
+}
+
+/*
+ * グループの見出し。
+ *
+ * スクロールしても残す（sticky）── 一覧が長くなると、今どのグループを見ているかが
+ * 画面から消える。Stage 済みと未 Stage の取り違えは、そのまま Commit の中身を
+ * 取り違えることになる。
+ */
+.fx-git__group-title {
+  display: flex;
+  position: sticky;
+  top: 0;
+  align-items: center;
+  gap: var(--fx-space-2);
+  margin: 0;
+  padding: var(--fx-space-1) var(--fx-space-3);
+  color: var(--fx-color-text-muted);
+  background: var(--fx-color-surface);
+  font-size: var(--fx-font-size-sm);
+  font-weight: normal;
+}
+
+.fx-git__group-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 件数。数字が並ぶので等幅の数字にして、更新のたびに幅が動かないようにする。 */
+.fx-git__group-count {
+  flex: 0 0 auto;
+  padding: 0 var(--fx-space-1);
+  color: var(--fx-color-text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * 「すべて Stage」（Session 3-8-3）。
+ *
+ * 見出しの右端へ寄せる（`margin-left: auto`）── 見出しの文字にくっつけると、
+ * グループ名の一部のように読める。押せるものは端に揃えておく方が、
+ * 一覧を縦に読むときに邪魔にならない。
+ *
+ * 記号ではなく言葉にしてあるのは、**戻す手数が行の操作と違う**ため。
+ * 1件ずつ押した Stage は1件ずつ戻せるが、まとめて押した分は
+ * 1件ずつ戻すことになる ── 押す前にそれと分かる形にしておく。
+ */
+.fx-git__group-action {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 0 var(--fx-space-2);
+  color: var(--fx-color-text-muted);
+  background: none;
+  border: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.fx-git__group-action:hover:not(:disabled) {
+  color: var(--fx-color-text-strong);
+}
+
+.fx-git__group-action:focus-visible {
+  outline: 1px solid var(--fx-color-border-strong);
+  outline-offset: -1px;
+}
+
+.fx-git__group-action:disabled {
+  color: var(--fx-color-text-faint);
+  cursor: default;
+}
+
+/* ---------------------------------------------------------------- 変更の行 */
+
+.fx-git__changes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/*
+ * 行そのもの。名前の側（button か span）と、右端の操作を横に並べる
+ * （Session 3-8-3）。
+ */
+.fx-git__change {
+  display: flex;
+  align-items: center;
+}
+
+/*
+ * 行の中身は button（開ける）か span（開けない）。どちらでも同じ形になるよう、
+ * 並べ方はここで一度だけ決める。
+ */
+.fx-git__change-open,
+.fx-git__change-static {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: var(--fx-space-2);
+  /* 行の幅は li が持つ。ここで 100% にすると、右端の操作が押し出される。 */
+  min-width: 0;
+  padding: 2px var(--fx-space-3);
+  color: inherit;
+  background: none;
+  border: none;
+  font: inherit;
+  text-align: left;
+}
+
+.fx-git__change-open {
+  cursor: pointer;
+}
+
+/*
+ * ホバーは行全体に掛ける（Session 3-8-3）。
+ *
+ * 名前の側だけを塗ると、右端の操作へ指を動かした瞬間に色が消える ──
+ * 押そうとしているものが「行から外れた」ように見える。
+ */
+.fx-git__change:hover {
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-git__change-open:focus-visible {
+  outline: 1px solid var(--fx-color-border-strong);
+  outline-offset: -1px;
+}
+
+/* 開けない行（削除済み・未追跡のフォルダ）。押せる形にしない。 */
+.fx-git__change-static {
+  color: var(--fx-color-text-muted);
+  cursor: default;
+}
+
+/*
+ * 行頭の記号。
+ *
+ * 幅を固定して、名前の開始位置を行ごとに揃える ── 揃っていないと、
+ * 一覧を縦に読むときに目が左右へ振られる。
+ */
+.fx-git__symbol {
+  flex: 0 0 auto;
+  width: 12px;
+  color: var(--fx-color-text-muted);
+  text-align: center;
+}
+
+.fx-git__symbol[data-kind='modified'] {
+  color: var(--fx-git-modified);
+}
+
+.fx-git__symbol[data-kind='added'] {
+  color: var(--fx-git-added);
+}
+
+.fx-git__symbol[data-kind='deleted'] {
+  color: var(--fx-git-deleted);
+}
+
+.fx-git__symbol[data-kind='renamed'],
+.fx-git__symbol[data-kind='copied'],
+.fx-git__symbol[data-kind='type-changed'] {
+  color: var(--fx-git-renamed);
+}
+
+.fx-git__symbol[data-kind='untracked'] {
+  color: var(--fx-git-untracked);
+}
+
+.fx-git__symbol[data-kind='conflicted'] {
+  color: var(--fx-git-conflicted);
+}
+
+/* 名前。長くても場所（下）を押し出さない。 */
+.fx-git__change-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 削除されたものは、名前に取り消し線を引く（記号の D と対になる）。 */
+.fx-git__change[data-kind='deleted'] .fx-git__change-name {
+  text-decoration: line-through;
+}
+
+/*
+ * どこにあるか（rename では、どこから来たか）。
+ *
+ * 名前より先に縮める。行が狭いときに残すべきなのはファイル名の方で、
+ * フォルダは見分けが要るときだけ読むものにあたる。
+ */
+.fx-git__change-location {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--fx-color-text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * 行の Stage / Unstage（Session 3-8-3）。
+ *
+ * **常に出しておく。** ホバーしたときだけ現れる形にすると、
+ * 「押せるものがある」こと自体が、指を乗せるまで分からない ── 一覧を見て
+ * 何ができるかを知りたい場面で、隠す理由が無い。色は控えめにして、
+ * ファイル名より前に目に入らないようにしてある。
+ *
+ * 幅を固定するのは、行ごとに名前の終わりの位置が動かないようにするため。
+ */
+.fx-git__change-action {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 20px;
+  padding: 0;
+  color: var(--fx-color-text-faint);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.fx-git__change:hover .fx-git__change-action:not(:disabled) {
+  color: var(--fx-color-text-muted);
+}
+
+.fx-git__change-action:hover:not(:disabled) {
+  color: var(--fx-color-text-strong);
+}
+
+.fx-git__change-action:focus-visible {
+  outline: 1px solid var(--fx-color-border-strong);
+  outline-offset: -1px;
+}
+
+/*
+ * 処理中は押せない。
+ *
+ * 見た目を薄くするだけで、**場所は残す** ── 消すと、押した直後に行の右端が
+ * 空になり、押せたのかどうかが分からなくなる。
+ */
+.fx-git__change-action:disabled {
+  color: var(--fx-color-text-faint);
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* ------------------------------------------------- Commit（Session 3-8-4） */
+
+/*
+ * ②コミットメッセージ + ③Commit。
+ *
+ * 一覧の下に置き、**縮まない**（`flex: none`）── 変更が数百件あっても
+ * Commit 欄が潰れないようにする。スクロールするのは一覧の側だけで、
+ * 押す場所は常に同じところに在る。
+ */
+.fx-git__commit {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: var(--fx-space-2);
+  padding: var(--fx-space-2) var(--fx-space-3);
+  border-top: 1px solid var(--fx-color-border);
+}
+
+/*
+ * メッセージの入力欄。
+ *
+ * 縦にだけ伸ばせる（`resize: vertical`）── 横へ伸ばせると、パネルの幅を
+ * 超えた入力欄が作れてしまう。既定の高さは3行で、要約1行を書くには十分に見え、
+ * 本文を足したくなったら手で広げられる。
+ */
+.fx-git__commit-message {
+  width: 100%;
+  min-height: 52px;
+  max-height: 240px;
+  padding: var(--fx-space-1) var(--fx-space-2);
+  color: var(--fx-color-text);
+  background: var(--fx-color-surface-raised);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  font: inherit;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.fx-git__commit-message::placeholder {
+  color: var(--fx-color-text-faint);
+}
+
+.fx-git__commit-message:focus-visible {
+  outline: 1px solid var(--fx-color-border-strong);
+  outline-offset: -1px;
+}
+
+/* 一言（左）と Commit（右）。 */
+.fx-git__commit-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--fx-space-2);
+}
+
+/*
+ * 押せない理由の一言。
+ *
+ * ボタンの左に置く ── 下に置くと、出たり消えたりするたびにパネルの高さが動き、
+ * 一覧の見えている範囲まで変わる。
+ */
+.fx-git__commit-note {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--fx-color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 残り文字数。数字が動くので等幅の数字にする（件数の表示と同じ）。 */
+.fx-git__commit-count {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--fx-color-text-faint);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/*
+ * Commit ボタン。
+ *
+ * このパネルで唯一の「目立ってよい」ボタンにしてある ── 一覧の中の
+ * `＋` / `−` は流し読みの邪魔にならないよう抑えてあるが、ここは
+ * 利用者が最後に押す場所そのものにあたる。
+ */
+.fx-git__commit-action {
+  flex: 0 0 auto;
+  padding: var(--fx-space-1) var(--fx-space-4);
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface-raised);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.fx-git__commit-action:hover:not(:disabled) {
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-git__commit-action:focus-visible {
+  outline: 1px solid var(--fx-color-border-strong);
+  outline-offset: 1px;
+}
+
+/*
+ * 押せない間。
+ *
+ * **場所は残す**（消さない）── ステージ済みが増えた瞬間にボタンが現れる形だと、
+ * その下にあるものの位置が動く。押せるかどうかは色で伝わればよい。
+ */
+.fx-git__commit-action:disabled {
+  color: var(--fx-color-text-faint);
+  cursor: default;
+}
+
+/* ------------------------------------------ Push / Pull（Session 3-8-5） */
+
+/*
+ * Commit & Push。
+ *
+ * Commit の隣に並ぶため、**左右の余白を詰めてある**（文字数が倍あるので、
+ * 同じ余白のままだとボタン2つでパネルの幅を使い切る）。色と枠は Commit と
+ * 同じにしてあり、片方だけが目立つ形にはしていない ── どちらを押すかは
+ * 利用者が決めることで、アプリが勧める形にはしない。
+ */
+.fx-git__commit-action--push {
+  padding-right: var(--fx-space-2);
+  padding-left: var(--fx-space-2);
+  white-space: nowrap;
+}
+
+/*
+ * Pull / Push の行。
+ *
+ * Commit 欄の下に置き、こちらも縮まない ── 一覧が伸びても、送る / 受け取るの
+ * 押し場所は常に同じところに在る。
+ *
+ * 2つを**均等に割る**（`flex: 1 1 0`）。文字数が違う（Pull / Push、
+ * 「Pull 中…」/「Commit & Push 中…」）ため幅を中身に任せると、
+ * 押している間にボタンの大きさが変わり、隣のボタンの位置まで動く。
+ */
+.fx-git__sync {
+  display: flex;
+  flex: none;
+  gap: var(--fx-space-2);
+  padding: 0 var(--fx-space-3) var(--fx-space-2);
+}
+
+.fx-git__sync-action {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: var(--fx-space-1) var(--fx-space-2);
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface-raised);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.fx-git__sync-action:hover:not(:disabled) {
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-git__sync-action:focus-visible {
+  outline: 1px solid var(--fx-color-border-strong);
+  outline-offset: 1px;
+}
+
+/*
+ * 押せない間。
+ *
+ * Commit と同じく場所は残す。押せない理由は hover と読み上げに入っている
+ * （GitView.tsx）── 横に並ぶ小さなボタンには、文章を置く場所が無い。
+ */
+.fx-git__sync-action:disabled {
+  color: var(--fx-color-text-faint);
+  cursor: default;
+}
+
+/* ==================================================================
+   差分と破棄（Session 3-8-9）
+   ================================================================== */
+
+/*
+ * 差分の面。
+ *
+ * 一覧の**上に重ねる**（GitDiffOverlay.tsx）。差し替えないので、閉じた瞬間に
+ * スクロール位置も開いていたグループもそのまま在る。
+ *
+ * 重なる基準はパネルの器（`.fx-git` の `position: relative`）── ウィンドウ全体
+ * ではなく Git パネルの中に収まる形にして、隣のパネルの上には出さない。
+ */
+.fx-git__diff-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--fx-color-surface);
+}
+
+/*
+ * 面の上のバー。
+ *
+ * 並びは一覧の行と同じ（記号 → 名前 → 場所）にしてある ── 押した行が
+ * そのまま上に来たように見える方が、どれを見ているかを言葉で読み直さずに済む。
+ */
+.fx-git__diff-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--fx-space-2);
+  padding: var(--fx-space-2) var(--fx-space-3);
+  border-bottom: 1px solid var(--fx-color-border);
+}
+
+.fx-git__diff-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fx-color-text-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fx-git__diff-location {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fx-color-text-faint);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 閉じる（Esc でも閉じる）。⟳ と同じ形にして、バーの上の押せるものを揃える。 */
+.fx-git__diff-close {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 20px;
+  padding: 0;
+  color: var(--fx-color-text-muted);
+  background: none;
+  border: none;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.fx-git__diff-close:hover {
+  color: var(--fx-color-text-strong);
+}
+
+.fx-git__diff-close:focus-visible {
+  outline: 1px solid var(--fx-color-border-strong);
+  outline-offset: -1px;
+}
+
+/*
+ * 差分そのものの器。
+ *
+ * Conflict の Compare（editor.css の `.fx-editor__diff-frame`）が高さを固定して
+ * いるのに対し、こちらは**面の残り全部**を使う。中の Diff Editor
+ * （`.fx-editor__diff`）は器の残りを埋めるだけなので、同じ部品が両方に載る。
+ */
+.fx-git__diff-frame {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/*
+ * 左右に何を出しているか。
+ *
+ * Git の「変更前」は3通りある（HEAD / index / 何も無い）ため、色や位置ではなく
+ * 言葉で出す（gitDiff.ts）。
+ */
+.fx-git__diff-legend {
+  display: flex;
+  flex: none;
+  gap: var(--fx-space-4);
+  padding: var(--fx-space-1) var(--fx-space-3);
+  border-bottom: 1px solid var(--fx-color-border);
+  color: var(--fx-color-text-faint);
+}
+
+/*
+ * Diff Editor そのもの（editor/monaco/MonacoDiffEditor.tsx）。
+ *
+ * 部品は Conflict の Compare と同じものを使うが、**大きさを決めるのは
+ * 置いた側**にあたる（editor.css の `.fx-editor__diff-frame` は高さを固定し、
+ * こちらは面の残り全部を使う）。器の側で言い切っておけば、Editor の CSS が
+ * どう変わってもここの見え方は動かない。
+ */
+.fx-git__diff-frame .fx-editor__diff {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.fx-git__diff-note {
+  margin: 0;
+  padding: var(--fx-space-3);
+  color: var(--fx-color-text-muted);
+}
+
+.fx-git__diff-note[data-variant='error'] {
+  color: var(--fx-color-danger);
+}
+
+/*
+ * 破棄の確認。
+ *
+ * 形は Files の削除確認（files.css の `.fx-file-confirm`）と揃えてある ──
+ * 同じ「消してよいか」を尋ねる面が、パネルごとに違う形で出る理由が無い。
+ * **クラスは共有しない**（GitIcons.tsx と同じ判断で、共有するのは描き方であって
+ * 置き場所ではない）。
+ *
+ * 差分の面と違い、こちらはウィンドウ全体に掛かる（`position: fixed`）──
+ * 答えるまで他のことをさせない形にしてある（ARCHITECTURE.md §12.6）。
+ */
+.fx-git__confirm {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--fx-space-4);
+  background: rgb(0 0 0 / 45%);
+}
+
+.fx-git__confirm-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-2);
+  width: min(420px, 100%);
+  padding: var(--fx-space-4);
+  background: var(--fx-color-surface-raised);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 6px;
+  box-shadow: 0 10px 30px rgb(0 0 0 / 50%);
+}
+
+.fx-git__confirm-message {
+  margin: 0;
+  color: var(--fx-color-text-strong);
+  line-height: 1.6;
+  /* 長いファイル名でパネルを押し広げない。 */
+  overflow-wrap: anywhere;
+}
+
+.fx-git__confirm-note {
+  margin: 0;
+  color: var(--fx-color-text-muted);
+  line-height: 1.6;
+}
+
+.fx-git__confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--fx-space-2);
+  margin-top: var(--fx-space-2);
+}
+
+.fx-git__confirm-button {
+  padding: var(--fx-space-1) var(--fx-space-3);
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  font: inherit;
+  font-size: var(--fx-font-size-sm);
+  cursor: pointer;
+}
+
+.fx-git__confirm-button:hover:enabled {
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-git__confirm-button[data-variant='danger'] {
+  color: var(--fx-color-danger);
+  border-color: var(--fx-color-danger);
+}
+
+.fx-git__confirm-button:disabled {
+  color: var(--fx-color-text-faint);
+  border-color: var(--fx-color-border);
+  cursor: default;
+}

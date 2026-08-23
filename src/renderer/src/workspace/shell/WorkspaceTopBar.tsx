@@ -3,7 +3,7 @@ import { useWorkspaceFolder } from '../../workspaceFolder/context'
 import { getLayoutPreset, listLayoutPresets, type LayoutPresetId } from '../layout/presets'
 import { listPanelDefinitions } from '../panels/registry'
 import type { PanelId } from '../panels/types'
-import { WorkspaceMenu, type WorkspaceMenuItem } from './WorkspaceMenu'
+import { DropdownMenu, type DropdownMenuItem } from '../../ui/DropdownMenu'
 
 /**
  * Workspace の上部領域。
@@ -51,24 +51,24 @@ export function WorkspaceTopBar({
 
   /*
     「閉じる」は Workspace が開いているときだけ並べる。
-    WorkspaceMenu に無効状態を持たせていないのは、押せない項目を並べるより
+    DropdownMenu に無効状態を持たせていないのは、押せない項目を並べるより
     「そのとき選べるものだけを出す」方が、メニューの意味が読み取りやすいため。
   */
-  const workspaceItems: readonly WorkspaceMenuItem[] = [
+  const workspaceItems: readonly DropdownMenuItem[] = [
     { key: 'open', label: 'フォルダを開く…', onSelect: openFolder },
     ...(workspace === null
       ? []
       : [{ key: 'close', label: 'Workspace を閉じる', onSelect: closeWorkspace }])
   ]
 
-  const panelItems: readonly WorkspaceMenuItem[] = listPanelDefinitions().map((definition) => ({
+  const panelItems: readonly DropdownMenuItem[] = listPanelDefinitions().map((definition) => ({
     key: definition.id,
     label: definition.title,
     state: visiblePanelIds.has(definition.id) ? 'checked' : 'unchecked',
     onSelect: () => onTogglePanel(definition.id)
   }))
 
-  const presetItems: readonly WorkspaceMenuItem[] = listLayoutPresets().map((preset) => ({
+  const presetItems: readonly DropdownMenuItem[] = listLayoutPresets().map((preset) => ({
     key: preset.id,
     label: preset.title,
     hint: preset.description,
@@ -92,11 +92,15 @@ export function WorkspaceTopBar({
         {status === 'loading' ? '' : (workspace?.displayName ?? 'Workspace 未選択')}
       </span>
 
-      <WorkspaceMenu label="Workspace" items={workspaceItems} />
+      <DropdownMenu label="Workspace" buttonClassName="fx-topbar__button" items={workspaceItems} />
       {busy && <span className="fx-topbar__slot">処理中…</span>}
 
-      <WorkspaceMenu label="View" items={panelItems} />
-      <WorkspaceMenu label={`Layout: ${getLayoutPreset(presetId).title}`} items={presetItems} />
+      <DropdownMenu label="View" buttonClassName="fx-topbar__button" items={panelItems} />
+      <DropdownMenu
+        label={`Layout: ${getLayoutPreset(presetId).title}`}
+        buttonClassName="fx-topbar__button"
+        items={presetItems}
+      />
 
       {/* 初期化ボタンが何のためにあるかを示す（プリセットのままなら押す意味が無い）。 */}
       {modified && <span className="fx-topbar__slot">変更あり</span>}

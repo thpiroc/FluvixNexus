@@ -1,0 +1,64 @@
+/*
+ * ドロップダウンメニュー（ui/DropdownMenu.tsx）の見た目。
+ *
+ * 元は workspace/workspace.css の中にあった。Terminal が2つめの使い手に
+ * なった時点で、器と一緒に ui/ へ引き上げている ── パネルの中で使う側が、
+ * Workspace Shell の CSS が読み込まれていることに頼らずに済むようにするため。
+ *
+ * 開くボタン自体の見た目はここに無い（使う側がクラス名を渡す。
+ * workspace.css の .fx-topbar__button / terminal.css の .fx-terminal-tabs__button）。
+ * 値は styles/theme.css の変数を参照する。
+ */
+
+.fx-menu {
+  position: relative;
+  display: flex;
+}
+
+.fx-menu__list {
+  position: absolute;
+  top: calc(100% + var(--fx-space-1));
+  left: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+  padding: var(--fx-space-1) 0;
+  background: var(--fx-color-surface-raised);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+}
+
+.fx-menu__item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--fx-space-2);
+  padding: var(--fx-space-1) var(--fx-space-3) var(--fx-space-1) var(--fx-space-2);
+  color: var(--fx-color-text);
+  background: transparent;
+  border: none;
+  font: inherit;
+  font-size: var(--fx-font-size-sm);
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.fx-menu__item:hover {
+  background: var(--fx-color-surface-hover);
+}
+
+/* 印の場所は常に取っておく（選択のたびに文字がずれないように）。 */
+.fx-menu__mark {
+  flex: 0 0 auto;
+  width: 12px;
+  color: var(--fx-color-text-strong);
+}
+
+.fx-menu__label {
+  flex: 1;
+}
+
+.fx-menu__hint {
+  color: var(--fx-color-text-faint);
+}

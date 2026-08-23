@@ -150,8 +150,8 @@ export function EditorConflictBar({
           <Suspense fallback={<p className="fx-editor__note">差分を準備しています…</p>}>
             <MonacoDiffEditor
               relativePath={relativePath}
-              diskContent={comparison.content}
-              editorContent={editorContent}
+              original={comparison.content}
+              modified={editorContent}
             />
           </Suspense>
         </div>

@@ -1,12 +1,18 @@
 import {
   IPC_CHANNELS,
   type LoadEditorSettingsResponse,
-  type LoadFilesSettingsResponse
+  type LoadFilesSettingsResponse,
+  type LoadTerminalSettingsResponse
 } from '@shared/ipc'
 import { readEditorSettingsDocument, saveEditorSettingsDocument } from '../../store/editorSettings'
 import { parseEditorSettingsDocument } from '../../store/editorSettingsDocument'
 import { readFilesSettingsDocument, saveFilesSettingsDocument } from '../../store/filesSettings'
 import { parseFilesSettingsDocument } from '../../store/filesSettingsDocument'
+import {
+  readTerminalSettingsDocument,
+  saveTerminalSettingsDocument
+} from '../../store/terminalSettings'
+import { parseTerminalSettingsDocument } from '../../store/terminalSettingsDocument'
 import { invalidRequest } from '../errors'
 import { handleIpc } from '../registry'
 
@@ -19,16 +25,17 @@ import { handleIpc } from '../registry'
  *
  * ## 用途ごとに読み書きの対を足す
  *
- * Editor の設定（Auto Save）と Files の見え方（表示方式・カラムの幅。Session 3-6-8）は
- * **別のチャンネル・別のファイル・別の検証**にしてある。同じ形が2つ並ぶが、
- * 1つにまとめると保存先が用途で切れなくなり、片方の保存の失敗がもう片方を巻き込む
+ * Editor の設定（Auto Save）・Files の見え方（表示方式・カラムの幅。Session 3-6-8）・
+ * Terminal の見え方（文字の大きさ・さかのぼれる行数。Session 3-7-5）は
+ * **別のチャンネル・別のファイル・別の検証**にしてある。同じ形が3つ並ぶが、
+ * 1つにまとめると保存先が用途で切れなくなり、1つの保存の失敗が他を巻き込む
  * （ARCHITECTURE.md §5）。
  *
  * ## 読めなくても失敗にしない
  *
  * 保存が無い / 壊れている場合は `document: null` を返す。設定が読めないことは
  * アプリを使えない理由にならず、Renderer は既定（Auto Save は OFF、Files の
- * 表示方式はパネルの形に任せる）で始まる。
+ * 表示方式はパネルの形に任せる、Terminal は 13px / 5000 行）で始まる。
  *
  * ## 書く前に必ず検証する
  *
@@ -65,6 +72,20 @@ export function registerSettingsHandlers(): void {
     }
 
     saveFilesSettingsDocument(document)
+  })
+
+  handleIpc(IPC_CHANNELS.SETTINGS_LOAD_TERMINAL, (): LoadTerminalSettingsResponse => {
+    return { document: readTerminalSettingsDocument() }
+  })
+
+  handleIpc(IPC_CHANNELS.SETTINGS_SAVE_TERMINAL, (request): void => {
+    const document = parseTerminalSettingsDocument(documentOf(request))
+
+    if (document === null) {
+      throw invalidRequest('the terminal settings document is not in a storable shape.')
+    }
+
+    saveTerminalSettingsDocument(document)
   })
 }
 

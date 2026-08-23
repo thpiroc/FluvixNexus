@@ -21,9 +21,29 @@ import type {
   WriteWorkspaceFileRequest
 } from './ipc/contracts/files'
 import type { IpcInvokeResult } from './ipc/contract'
+import type {
+  CommitAndPushGitChangesRequest,
+  CommitGitChangesRequest,
+  CreateGitBranchRequest,
+  DiscardGitChangesRequest,
+  GetGitFileDiffRequest,
+  StageGitChangesRequest,
+  SwitchGitBranchRequest,
+  UnstageGitChangesRequest
+} from './ipc/contracts/git'
 import type { IpcEventListener, IpcEventUnsubscribe } from './ipc/event'
-import type { SaveEditorSettingsRequest, SaveFilesSettingsRequest } from './ipc/contracts/settings'
+import type {
+  SaveEditorSettingsRequest,
+  SaveFilesSettingsRequest,
+  SaveTerminalSettingsRequest
+} from './ipc/contracts/settings'
 import type { PingRequest } from './ipc/contracts/system'
+import type {
+  CreateTerminalSessionRequest,
+  DisposeTerminalSessionRequest,
+  ResizeTerminalRequest,
+  WriteTerminalInputRequest
+} from './ipc/contracts/terminal'
 import type { RespondWindowCloseRequest } from './ipc/contracts/window'
 import type { SaveWorkspaceLayoutRequest } from './ipc/contracts/workspace'
 
@@ -90,7 +110,8 @@ export interface WindowApi {
  *
  * Workspace レイアウトと同じ形で、**保存先のパスもファイル名も Renderer からは
  * 指定できない**。用途ごとにチャンネルを切る方針（ARCHITECTURE.md §5）に従い、
- * Editor の設定（Auto Save）と Files の見え方（表示方式・カラムの幅。Session 3-6-8）は
+ * Editor の設定（Auto Save）・Files の見え方（表示方式・カラムの幅。Session 3-6-8）・
+ * Terminal の見え方（文字の大きさ・さかのぼれる行数。Session 3-7-5）は
  * 別々のチャンネル・別々のファイルになる。
  */
 export interface SettingsApi {
@@ -104,6 +125,12 @@ export interface SettingsApi {
   readonly loadFiles: () => IpcInvokeResult<'settings:load-files'>
   /** Files の見え方を保存する。書き込みの間引きは Main 側が行う。 */
   readonly saveFiles: (request: SaveFilesSettingsRequest) => IpcInvokeResult<'settings:save-files'>
+  /** 保存済みの Terminal の見え方を読む。未保存・破損時は document が null。 */
+  readonly loadTerminal: () => IpcInvokeResult<'settings:load-terminal'>
+  /** Terminal の見え方を保存する。書き込みの間引きは Main 側が行う。 */
+  readonly saveTerminal: (
+    request: SaveTerminalSettingsRequest
+  ) => IpcInvokeResult<'settings:save-terminal'>
 }
 
 /**
@@ -253,6 +280,254 @@ export interface FilesApi {
 }
 
 /**
+ * Terminal（シェルのセッション）を扱う API。
+ *
+ * ## 公開しているのは「どれが開ける？」「1つ作って」「これを流して」「この大きさで」「もう要らない」の5つ
+ *
+ * **起動する実行ファイルも、作業ディレクトリも渡せない。** 前者は Main が持つ表
+ * （main/terminal/shellCommand.ts）が、後者は Main が持つ現在の Workspace が決める。
+ * `workspaceFolder.open` に開く対象のパスを渡せないのと同じ形で、
+ * ここでも Renderer が言えるのは「**この行の**ターミナルを1つ」までに留まる
+ * （Session 3-7-2 で足した shellId は、表の行を指すだけの閉じた集合。
+ * shared/terminal/shell.ts）。
+ *
+ * Files では「Workspace の外を指せないこと」を相対位置だけを受け取ることで担保したが、
+ * Terminal では同じ手が使えない ── 起動したシェルの中で `cd ..` を止めることに
+ * 意味は無いためで、そこを止めれば道具として成立しない。
+ * そこで境界を**起動の入口**へずらしてある（shared/ipc/contracts/terminal.ts）。
+ *
+ * ## 出力は購読で受ける
+ *
+ * シェルからの出力は要求と応答にならないため、`files.onChanged` と同じく
+ * Main → Renderer のイベントとして受け取る。届くのは**文字列だけ**で、
+ * Main は中身を解釈しない（読むのは xterm.js だけ）。
+ */
+export interface TerminalApi {
+  /**
+   * この環境で起動できるシェルの一覧。
+   *
+   * 表そのものは Main にあり、ここへ返るのは**表示名と、選べるかどうか**だけ。
+   * タブを開く入口（`+` の隣のメニュー）はこの応答から組み立てる。
+   */
+  readonly listShells: () => IpcInvokeResult<'terminal:list-shells'>
+  /**
+   * 今なにかを実行しているセッションを尋ねる（Session 3-7-4）。
+   *
+   * **終わらせる前に確認を出すかどうか**を決めるためだけの問い合わせで、
+   * 返るのはセッションの id だけ（何が動いているかは載らない）。
+   * 「実行中」の定義を持っているのは Main になる
+   * ── そのシェルが子プロセスを持っているか（main/terminal/childProcesses.ts）。
+   */
+  readonly listBusy: () => IpcInvokeResult<'terminal:list-busy'>
+  /**
+   * ターミナルを1つ起動する。
+   *
+   * Workspace が開かれていなければ失敗する ── 作業ディレクトリの正本が
+   * そこにしか無く、代わりに使ってよい既定の場所というものが無いため
+   * （勝手にホームで開くと、DESIGN.md §3 の「4つのパネルは今開いているフォルダを
+   * 共通の対象にする」から Terminal だけが外れる）。
+   */
+  readonly create: (request: CreateTerminalSessionRequest) => IpcInvokeResult<'terminal:create'>
+  /** 打鍵・貼り付け・制御文字をそのままシェルへ流す。加工はしない。 */
+  readonly write: (request: WriteTerminalInputRequest) => IpcInvokeResult<'terminal:write'>
+  /** 画面の大きさ（文字数）を伝える。折り返しの位置を実際のシェルと合わせるために要る。 */
+  readonly resize: (request: ResizeTerminalRequest) => IpcInvokeResult<'terminal:resize'>
+  /**
+   * セッションを終わらせる。
+   *
+   * **パネルを閉じた / 動かしただけでは呼ばない。** セッションの寿命は
+   * パネルの表示より長い（renderer/src/terminal/terminalScreenStore.ts）。
+   */
+  readonly dispose: (request: DisposeTerminalSessionRequest) => IpcInvokeResult<'terminal:dispose'>
+  /** シェルからの出力。届いた順にそのまま画面へ流す。 */
+  readonly onData: (listener: IpcEventListener<'terminal:data'>) => IpcEventUnsubscribe
+  /** シェルが終了した（`exit` と打たれた・アプリが片付けた・落ちた）。 */
+  readonly onExit: (listener: IpcEventListener<'terminal:exit'>) => IpcEventUnsubscribe
+}
+
+/**
+ * その Workspace を Git リポジトリとして扱う API（Session 3-8-1）。
+ *
+ * ## 公開しているのは「今どうなっている？」の1つだけ
+ *
+ * **コマンドも引数も作業ディレクトリも渡せない。** Terminal では「表のどの行か」を
+ * 渡せるようにしたが（shared/terminal/shell.ts）、ここではその欄すら無く、
+ * Renderer が言えるのは「今の Workspace について調べて」までになる。
+ *
+ * 何を実行するか（引数の組み立て）・どこで実行するか（今の Workspace）・
+ * git 本体がどこに在るか（PATH を辿って確かめた絶対パス）は、すべて Main が持つ
+ * （main/git/）。
+ *
+ * ## 汎用の Git 実行 API は作らない
+ *
+ * `run(command, args)` のような形は、この API に**足さない**。`git` は
+ * `-c core.pager=<任意のコマンド>` や `-c alias.x=!<任意のコマンド>` で
+ * 任意の実行ファイルを起動できるため、引数を渡せる API は実質
+ * 「Renderer から任意のコマンドを実行できる API」になる。
+ * Files が絶対パスを受け取らないのと同じく、**弾くのではなく渡せる欄を作らない。**
+ *
+ * Session 3-8-2 以降で足す操作（Stage / Commit / Push / Pull / ブランチ切り替え）も、
+ * この API にメソッドを1つずつ足す形にする。要求に載るのはその操作に固有の値だけで、
+ * git の引数そのものは載らない。
+ */
+export interface GitApi {
+  /**
+   * 今の Workspace が Git 操作の対象になるかを調べる。
+   *
+   * 返るのは分類された状態で、失敗としては返らない（shared/git/repository.ts）。
+   * Git が入っていない・リポジトリではない・Workspace root がリポジトリ root と
+   * 食い違う、はどれも Git パネルが平常時に出す表示にあたる。
+   *
+   * **調べるのは呼ばれたときだけ**で、Main が勝手に状態を押し出すことはしない。
+   * 呼ぶのは Git パネルを出したとき・Workspace が切り替わったとき・利用者が
+   * 更新したとき・作業ツリーが変わったとき（`files.onChanged`）・`.git` が
+   * 変わったとき（`onChanged`。Session 3-8-8）になる。
+   */
+  readonly getRepository: () => IpcInvokeResult<'git:get-repository'>
+  /**
+   * index に載せる（Session 3-8-3）。
+   *
+   * 渡せるのは「Workspace root からの相対位置1つ」か「どのグループか」だけで、
+   * git の引数は載らない（shared/ipc/contracts/git.ts）。
+   *
+   * 応答には**操作後のリポジトリの状態**が入っているため、呼んだ側が
+   * 続けて `getRepository()` を呼ぶ必要は無い ── 2回に分けると、その間の変化で
+   * 一覧が別の瞬間の写しになる。
+   */
+  readonly stage: (request: StageGitChangesRequest) => IpcInvokeResult<'git:stage'>
+  /**
+   * index から外す（Session 3-8-3）。**作業ツリーには触らない。**
+   *
+   * 初回 commit 前（HEAD がまだ無い）かどうかで Main が経路を選ぶ ──
+   * 呼ぶ側がその区別を持つ必要は無い（main/git/gitStage.ts）。
+   */
+  readonly unstage: (request: UnstageGitChangesRequest) => IpcInvokeResult<'git:unstage'>
+  /**
+   * ステージ済みの変更を Commit する（Session 3-8-4）。
+   *
+   * 渡せるのは Commit メッセージだけで、**何を Commit するかは渡せない**
+   * （対象は index の中身そのもの）。amend / no-verify / allow-empty /
+   * author / date / sign の欄も無い（shared/ipc/contracts/git.ts）。
+   *
+   * メッセージは引数ではなく git の標準入力へ渡る（main/git/gitCommands.ts）。
+   * 応答には Commit 後のリポジトリの状態が入っているため、呼んだ側が
+   * 続けて `getRepository()` を呼ぶ必要は無い。
+   */
+  readonly commit: (request: CommitGitChangesRequest) => IpcInvokeResult<'git:commit'>
+  /**
+   * 今のブランチを追跡先へ送る（Session 3-8-5）。
+   *
+   * **引数が無い。** remote 名もブランチ名も refspec も渡せず、送り先は
+   * リポジトリの設定から Main が決める（shared/ipc/contracts/git.ts）。
+   * 追跡先がまだ無ければ、この1回の中で `--set-upstream` まで行う。
+   *
+   * 強制 Push の口は無い（`--force` / `--force-with-lease`）。
+   */
+  readonly push: () => IpcInvokeResult<'git:push'>
+  /**
+   * 追跡先の変更を取り込む（Session 3-8-5）。
+   *
+   * 中身は `fetch` と `merge --ff-only` の2つで、`git pull` は使わない ──
+   * `pull.rebase` の設定で振る舞いが変わり、同じボタンが PC ごとに
+   * 違う履歴を作ることになる。早送りできなければ取り込まずに `diverged` で返る。
+   */
+  readonly pull: () => IpcInvokeResult<'git:pull'>
+  /**
+   * Commit してから Push する（Session 3-8-5）。
+   *
+   * Renderer から `commit()` → `push()` と続けて呼ぶのとは別物になる ──
+   * こちらは Commit・Push・状態の読み直しがまるごと1つの順番待ちの枠に入り、
+   * その間に別の Git 操作が挟まらない（main/git/gitQueue.ts）。
+   *
+   * Commit は通ったのに Push が通らなかった場合、`outcome` は
+   * `partly-applied` で返る（失敗に丸めない。shared/git/operation.ts）。
+   */
+  readonly commitAndPush: (
+    request: CommitAndPushGitChangesRequest
+  ) => IpcInvokeResult<'git:commit-and-push'>
+  /**
+   * ローカルブランチの一覧を尋ねる（Session 3-8-6）。
+   *
+   * **引数が無い。** remote-tracking branch も、並べ替えも、絞り込みも
+   * 指定できない ── 出てくるのは常に「今の Workspace のローカルブランチを
+   * git が返した順で、上限まで」になる（shared/git/branch.ts）。
+   *
+   * 呼ぶのは**選ぶ面を開いたとき**で、覚えておいたものを出さない。
+   * `.git` の監視（Session 3-8-8）が届くのは「状態が変わった」という合図までで、
+   * ブランチの一覧はそこに相乗りさせていない ── 見られているのは面が開いている
+   * 一瞬だけで、相乗りさせると保存のたびにブランチを数え直すことになる。
+   */
+  readonly listBranches: () => IpcInvokeResult<'git:list-branches'>
+  /**
+   * 別のローカルブランチへ切り替える（Session 3-8-6）。
+   *
+   * 渡せるのは名前だけで、`--force` / `--merge` / start point の欄は無い
+   * （shared/ipc/contracts/git.ts）── 切り替えてよいかを決めるのは git 自身で、
+   * アプリはその判断を上書きしない。
+   *
+   * 応答には**切り替えた後のリポジトリの状態**が入っているため、呼んだ側が
+   * 続けて `getRepository()` を呼ぶ必要は無い。
+   */
+  readonly switchBranch: (request: SwitchGitBranchRequest) => IpcInvokeResult<'git:switch-branch'>
+  /**
+   * 今の場所から新しいブランチを作って、そこへ切り替える（Session 3-8-6）。
+   *
+   * 作るだけ（切り替えない）の口は無い ── 分けると「作ったのに切り替わって
+   * いない」状態が生まれ、その後の Commit が意図しないブランチに積まれる。
+   *
+   * 同じ名前が既にあれば `branch-exists` として返り、**上書きはしない**
+   * （shared/git/operation.ts）。
+   */
+  readonly createBranch: (request: CreateGitBranchRequest) => IpcInvokeResult<'git:create-branch'>
+  /**
+   * 1行の差分を尋ねる（Session 3-8-9）。
+   *
+   * 渡せるのは「どの行か」（位置1つ + グループ1つ）だけで、rev も
+   * `--cached` も `--textconv` も渡せない（shared/ipc/contracts/git.ts）。
+   *
+   * 返るのは patch ではなく**中身2つ**（左に出すもの / 右に出すもの）になる。
+   * どこが変わったかを決めるのは Renderer 側の Monaco で、`git diff` の
+   * 出力を解析する経路はどこにも無い（shared/git/diff.ts）。
+   *
+   * バイナリ・2MB 超・見つからない、はどれも失敗ではなく分類として返る ──
+   * 差分を出せない理由は、利用者の次の一手がそれぞれ違う。
+   */
+  readonly getFileDiff: (request: GetGitFileDiffRequest) => IpcInvokeResult<'git:get-file-diff'>
+  /**
+   * 作業ツリーの変更を破棄する（Session 3-8-9）。
+   *
+   * 渡せるのは1件だけで、**グループの「すべて」は無い。** `staged` も
+   * `conflicted` も渡せず、ステージ済みを戻すには先に `unstage()` を通る
+   * （shared/git/operation.ts）。
+   *
+   * 未追跡のファイルは git ではなく **OS のごみ箱**へ送られる ──
+   * `git clean` は使わない（戻せる形を残すため。ARCHITECTURE.md §14.17）。
+   *
+   * 応答には破棄した後のリポジトリの状態が入っているため、呼んだ側が
+   * 続けて `getRepository()` を呼ぶ必要は無い。
+   */
+  readonly discard: (request: DiscardGitChangesRequest) => IpcInvokeResult<'git:discard'>
+  /**
+   * リポジトリの状態が変わったときに呼ばれる（Session 3-8-8）。
+   *
+   * 届くのは**合図だけ**で、何が変わったかは載らない（`workspaceId` のみ）。
+   * 受け手がすることは常に1つ ── `getRepository()` を呼び直す。ブランチ名と
+   * 変更一覧はその1回の応答に揃って載るため、半分だけ新しい画面にならない。
+   *
+   * 拾えるのは `.git` の中で起きたこと（`git add` / `commit` / `switch` /
+   * `fetch`）で、作業ツリー側のファイルの変化は従来どおり `files.onChanged`
+   * が運ぶ ── Renderer 側では**同じ更新タイマーへ合流させる**
+   * （renderer/src/git/useGitRepository.ts）。
+   *
+   * 監視が使えない環境では1度も呼ばれないが、それで壊れるものは無い
+   * （更新ボタンと、操作の応答に載る状態は従来どおり効く）。
+   *
+   * 戻り値は購読の解除。React の useEffect からそのまま返せる形にしてある。
+   */
+  readonly onChanged: (listener: IpcEventListener<'git:changed'>) => IpcEventUnsubscribe
+}
+
+/**
  * `window.fluvix` として Renderer に公開される API 全体。
  *
  * Files / Terminal / GitHub など OS に触れるドメイン API は、
@@ -270,6 +545,10 @@ export interface FluvixApi {
   readonly workspaceFolder: WorkspaceFolderApi
   /** その Workspace の中のファイル / フォルダ。 */
   readonly files: FilesApi
+  /** その Workspace を作業ディレクトリにするシェル。 */
+  readonly terminal: TerminalApi
+  /** その Workspace を Git リポジトリとして扱う。 */
+  readonly git: GitApi
   /** アプリの設定の永続化。 */
   readonly settings: SettingsApi
 }

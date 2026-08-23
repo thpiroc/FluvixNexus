@@ -1,13 +1,16 @@
 import { app } from 'electron'
 import { startWorkspaceWatching, stopWorkspaceWatching } from '../files/workspaceWatcher'
+import { startGitWatching, stopGitWatching } from '../git/gitWatcher'
 import { registerIpcHandlers } from '../ipc'
 import { createLogger } from '../logger'
 import { isMacOS } from '../platform'
 import { applySessionSecurityPolicy, applyWebContentsSecurityPolicy } from '../security'
 import { flushEditorSettingsDocument } from '../store/editorSettings'
 import { flushFilesSettingsDocument } from '../store/filesSettings'
+import { flushTerminalSettingsDocument } from '../store/terminalSettings'
 import { flushWorkspaceFolderDocument } from '../store/workspaceFolder'
 import { flushWorkspaceLayoutDocument } from '../store/workspaceLayout'
+import { stopTerminalSessions } from '../terminal/terminalSessions'
 import { createMainWindow, focusMainWindow, getMainWindow } from '../windows/mainWindow'
 import { applyApplicationMenu } from './menu'
 
@@ -51,6 +54,20 @@ export function bootstrapApp(): void {
     // 開いている Workspace の外部変更を見張る（開く / 閉じるに追従する）。
     startWorkspaceWatching()
 
+    /*
+      同じ Workspace の `.git` を、別の watcher で見張る（Session 3-8-8）。
+      作業ツリーの監視は `.git` を除外することで成り立っているため
+      （main/files/ignoredDirectories.ts）、そこへ穴を開けずに1本足してある。
+    */
+    startGitWatching()
+
+    /*
+      シェルのセッションは Workspace の切り替えに追従しない（Session 3-7-3）。
+      作業ディレクトリは起動時に決まり、動いているプロセスを切り替えで
+      終わらせることはしないため、起動時に用意するものが無い
+      （main/terminal/terminalSessions.ts）。片付けは will-quit で行う。
+    */
+
     createMainWindow()
 
     app.on('activate', () => {
@@ -66,11 +83,20 @@ export function bootstrapApp(): void {
   app.on('will-quit', () => {
     // 監視のハンドルを閉じてから落とす（この時点でウィンドウはもう無い）。
     stopWorkspaceWatching()
+    stopGitWatching()
+
+    /*
+      動いているシェルを終わらせる。ウィンドウが閉じても消えるのは Renderer だけで、
+      プロセスは Main の持ち物のまま残る ── 片付けないと、ターミナルで立てた
+      dev server がアプリの終了後もポートを掴み続ける。
+    */
+    stopTerminalSessions()
 
     flushWorkspaceLayoutDocument()
     flushWorkspaceFolderDocument()
     flushEditorSettingsDocument()
     flushFilesSettingsDocument()
+    flushTerminalSettingsDocument()
   })
 
   app.on('window-all-closed', () => {

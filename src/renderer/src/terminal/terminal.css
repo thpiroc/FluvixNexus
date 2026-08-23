@@ -1,0 +1,326 @@
+/*
+ * Terminal パネルの見た目（Session 3-7-1 / 3-7-2）。
+ *
+ * 値を直接書かず styles/theme.css の変数を参照する（files.css / editor.css と同じ）。
+ * 例外は xterm 自身が JavaScript の値として要求する色で、そちらは xtermSetup.ts が持つ。
+ *
+ * 端末の中の色（ANSI 16色・シェルが出すエスケープシーケンス）はここでは扱わない。
+ * それはシェルとその中の CLI が決めるものであって、アプリの見た目ではない。
+ */
+
+.fx-terminal {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  /* 端末の地は他のパネルより一段沈める（面としての区別を色ではなく明度で付ける）。 */
+  background: var(--fx-color-surface-sunken);
+  color: var(--fx-color-text);
+}
+
+/* 起動できなかったときなど、端末の代わりに案内を出す状態。 */
+.fx-terminal--notice {
+  align-items: flex-start;
+  justify-content: center;
+  gap: var(--fx-space-2);
+  padding: var(--fx-space-4);
+}
+
+/*
+ * 上のバー。タブ列と、開く入口を並べる。
+ *
+ * 高さは Editor のタブ列（--fx-tabbar-height）に合わせる ── Session 3-7-1 では
+ * パネル共通の細いバー（--fx-bar-height）だったが、タブが載ったことで
+ * 「パネルの中身が持つタブ列」という Editor と同じ役どころになったため。
+ *
+ * `overflow: hidden` を置かないのは、この中からメニューが**外へ**開くため
+ * （ui/menu.css の .fx-menu__list は絶対配置でバーの下に出る）。
+ * 横に溢れるのはタブ列の側で受ける。
+ */
+.fx-terminal__bar {
+  display: flex;
+  flex: none;
+  align-items: stretch;
+  min-width: 0;
+  min-height: var(--fx-tabbar-height);
+  border-bottom: 1px solid var(--fx-color-border);
+  font-size: var(--fx-font-size-sm);
+  white-space: nowrap;
+}
+
+/* タブ列だけが伸縮する。開く入口（＋ / ⌄）は押し出されない。 */
+.fx-terminal-tabs {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: stretch;
+  min-width: 0;
+  /* タブが増えたら横に流す。パネル自体は横スクロールを作らない。 */
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.fx-terminal-tab {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  max-width: 200px;
+  border-right: 1px solid var(--fx-color-border);
+  color: var(--fx-color-text-muted);
+  background: transparent;
+}
+
+.fx-terminal-tab[data-active='true'] {
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface);
+  /*
+    手前のタブは Terminal の識別色で示す（Editor と同じ位置・同じ太さ）。
+    色は Panel Registry の accent から降りてくる（workspace.css の --fx-panel-accent）
+    ── パネルの識別色とタブ列の色が食い違わないようにするため。
+  */
+  box-shadow: inset 0 -2px 0 var(--fx-panel-accent, var(--fx-accent-neutral));
+}
+
+.fx-terminal-tab:hover {
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-terminal-tab__label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--fx-space-1);
+  min-width: 0;
+  padding: 0 var(--fx-space-1) 0 var(--fx-space-3);
+  color: inherit;
+  background: none;
+  border: none;
+  font: inherit;
+  line-height: var(--fx-tabbar-height);
+  cursor: pointer;
+  /* 長い名前でタブ列を押し広げない。全体は title 属性で読める。 */
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/*
+ * 今開いているフォルダとは別の場所で動いているタブ（Session 3-7-3）。
+ *
+ * 名前の**前**に置く。タブ列が詰まって名前が省略されても消えない位置で、
+ * Editor が未保存の印を置いているのと同じ考え方にあたる。
+ * 色は使わない ── 危険でも失敗でもなく、そういう状態というだけのため。
+ */
+.fx-terminal-tab__origin {
+  flex: 0 0 auto;
+  color: var(--fx-color-text-faint);
+  font-size: var(--fx-font-size-sm);
+}
+
+/* 起動中 / 終了 / 失敗。普通に動いている間は何も出ない（TerminalTabs.tsx）。 */
+.fx-terminal-tab__note {
+  flex: 0 0 auto;
+  color: var(--fx-color-text-faint);
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-terminal-tab[data-status='failed'] .fx-terminal-tab__note {
+  color: var(--fx-color-danger);
+}
+
+.fx-terminal-tab__close {
+  flex: 0 0 auto;
+  width: 18px;
+  padding: 0;
+  color: inherit;
+  background: none;
+  border: none;
+  font: inherit;
+  line-height: var(--fx-tabbar-height);
+  cursor: pointer;
+}
+
+.fx-terminal-tab__close:hover:not(:disabled) {
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface-hover);
+}
+
+/*
+ * 閉じてよいかを確かめている最中（Session 3-7-4）。
+ *
+ * 実行中かどうかは Main に聞くため、押してから閉じるまでに一往復ぶんの間が空く。
+ * その間は押しても何も起きないので、押せないことを見せる（TerminalTabs.tsx）。
+ */
+.fx-terminal-tab__close:disabled {
+  color: var(--fx-color-text-faint);
+  cursor: default;
+}
+
+/* 開く入口（＋ と ⌄）。タブ列が溢れても幅を保つ。 */
+.fx-terminal-tabs__button {
+  flex: 0 0 auto;
+  width: 24px;
+  padding: 0;
+  color: var(--fx-color-text-muted);
+  background: none;
+  border: none;
+  font: inherit;
+  line-height: var(--fx-tabbar-height);
+  cursor: pointer;
+}
+
+.fx-terminal-tabs__button:hover:not(:disabled),
+.fx-terminal-tabs__button[data-open='true'] {
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface-hover);
+}
+
+/* 上限に達している（TerminalTabs.tsx）。押せないことが見えている方が早い。 */
+.fx-terminal-tabs__button:disabled {
+  color: var(--fx-color-text-faint);
+  cursor: default;
+}
+
+/*
+ * 表示設定の面（TerminalSettingsMenu.tsx。Session 3-7-5）。
+ *
+ * 器は ui/Popover.tsx の .fx-menu__list で、ここはその中身のための上書きになる
+ * （メニューの項目が並ぶ面より広く、縦の間隔が要る）。開く位置と地の色は
+ * 共通のままにしてある ── 同じバーから開く面が2種類あることを、見た目で
+ * 別物にする理由が無い。
+ *
+ * 右端のボタンから開くので、左揃え（.fx-menu__list の left: 0）だと
+ * パネルの外へはみ出す。ここだけ右揃えにする。
+ */
+.fx-terminal-settings {
+  left: auto;
+  right: 0;
+  gap: var(--fx-space-2);
+  min-width: 220px;
+  padding: var(--fx-space-2) var(--fx-space-3);
+}
+
+.fx-terminal-settings__field {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 0 var(--fx-space-2);
+}
+
+.fx-terminal-settings__label {
+  color: var(--fx-color-text);
+  font-size: var(--fx-font-size-sm);
+  white-space: nowrap;
+}
+
+.fx-terminal-settings__value {
+  display: flex;
+  align-items: baseline;
+  gap: var(--fx-space-1);
+}
+
+.fx-terminal-settings__input {
+  width: 72px;
+  padding: 2px var(--fx-space-1);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 2px;
+  background: var(--fx-color-surface-sunken);
+  color: var(--fx-color-text-strong);
+  font-family: inherit;
+  font-size: var(--fx-font-size-sm);
+  text-align: right;
+}
+
+.fx-terminal-settings__input:focus {
+  outline: 1px solid var(--fx-panel-accent, var(--fx-accent-neutral));
+  outline-offset: -1px;
+}
+
+.fx-terminal-settings__unit {
+  color: var(--fx-color-text-muted);
+  font-size: var(--fx-font-size-sm);
+}
+
+/* 範囲の案内。欄の下（ラベルの列）に小さく添える。 */
+.fx-terminal-settings__hint {
+  grid-column: 1 / -1;
+  color: var(--fx-color-text-faint);
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-terminal-settings__note {
+  margin: 0;
+  padding-top: var(--fx-space-1);
+  border-top: 1px solid var(--fx-color-border);
+  color: var(--fx-color-text-faint);
+  font-size: var(--fx-font-size-sm);
+  white-space: normal;
+}
+
+/*
+ * 終了 / 失敗の申告。画面の上に1行だけ足す。
+ *
+ * 画面と差し替えないのは、そこまでの出力（最後に出たエラー）を残すため
+ * ── 読むために立て直す、が起きないようにする（TerminalView.tsx）。
+ */
+.fx-terminal__notice {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--fx-space-2);
+  padding: var(--fx-space-1) var(--fx-space-2);
+  border-bottom: 1px solid var(--fx-color-border);
+  background: var(--fx-color-surface);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* タブが1枚も無い（最後の1枚を閉じた）。 */
+.fx-terminal__empty {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding: var(--fx-space-4);
+}
+
+.fx-terminal__message {
+  margin: 0;
+  color: var(--fx-color-text-muted);
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-terminal__action {
+  padding: 2px var(--fx-space-2);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 2px;
+  background: var(--fx-color-surface-raised);
+  color: var(--fx-color-text);
+  font-family: inherit;
+  font-size: var(--fx-font-size-sm);
+  cursor: pointer;
+}
+
+.fx-terminal__action:hover {
+  background: var(--fx-color-surface-hover);
+}
+
+/*
+ * 画面を置く器。
+ *
+ * `min-height: 0` が要る ── flex の中で `height: 100%` を持つ子は、
+ * 既定では中身より小さくならない。ここが縮まないと、出力が増えるたびに
+ * パネルからはみ出す（スクロールは xterm が自分の中で持つ）。
+ */
+.fx-terminal__surface {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: var(--fx-space-1);
+  overflow: hidden;
+}
+
+/* xterm が中に DOM を組み立てる要素（terminalScreenStore.ts が持ち回る）。 */
+.fx-terminal__screen {
+  width: 100%;
+  height: 100%;
+}

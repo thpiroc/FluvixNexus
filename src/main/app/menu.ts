@@ -31,10 +31,18 @@ export function applyApplicationMenu(): void {
         { role: 'forceReload' },
         { role: 'toggleDevTools' },
         { type: 'separator' },
-        { role: 'resetZoom' },
-        { role: 'zoomIn' },
-        { role: 'zoomOut' },
-        { type: 'separator' },
+        /*
+          ズームの3項目は外してある（Session 3-7-3）。
+
+          Electron のズームは**メニュー項目が持つアクセラレータ**として効くため、
+          置いておくと Ctrl + `+` / `-` / `0` を native メニューが先に取る。
+          Session 3-7-3 で端末の文字の大きさを同じ組み合わせに割り当てたので、
+          **開発中だけ端末側へ届かない**という食い違いが生まれる
+          （配布ビルドはメニューを持たない ＝ 常に端末側へ届く）。
+
+          アプリ自身に画面全体を拡大する機能は無く、この3項目は
+          開発中の便宜でしか無かったため、食い違いの側を消した。
+        */
         { role: 'quit' }
       ]
     }

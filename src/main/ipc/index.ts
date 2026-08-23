@@ -1,6 +1,8 @@
 import { registerFilesHandlers } from './handlers/files'
+import { registerGitHandlers } from './handlers/git'
 import { registerSettingsHandlers } from './handlers/settings'
 import { registerSystemHandlers } from './handlers/system'
+import { registerTerminalHandlers } from './handlers/terminal'
 import { registerWindowHandlers } from './handlers/window'
 import { registerWorkspaceHandlers } from './handlers/workspace'
 import { registerWorkspaceFolderHandlers } from './handlers/workspaceFolder'
@@ -18,9 +20,9 @@ const handlerRegistrations: readonly (() => void)[] = [
   registerWorkspaceHandlers,
   registerWorkspaceFolderHandlers,
   registerFilesHandlers,
-  registerSettingsHandlers
-  // registerTerminalHandlers, ← STEP 3 の後続セッションで追加
-  // registerGitHubHandlers,
+  registerSettingsHandlers,
+  registerTerminalHandlers,
+  registerGitHandlers
 ]
 
 export function registerIpcHandlers(): void {

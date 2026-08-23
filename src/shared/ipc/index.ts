@@ -73,10 +73,37 @@ export type {
 export type {
   LoadEditorSettingsResponse,
   LoadFilesSettingsResponse,
+  LoadTerminalSettingsResponse,
   SaveEditorSettingsRequest,
   SaveFilesSettingsRequest,
+  SaveTerminalSettingsRequest,
   SettingsIpcContract
 } from './contracts/settings'
+export type {
+  CommitAndPushGitChangesRequest,
+  CommitGitChangesRequest,
+  CreateGitBranchRequest,
+  DiscardGitChangesRequest,
+  GetGitFileDiffRequest,
+  GetGitFileDiffResponse,
+  GetGitRepositoryResponse,
+  GitIpcContract,
+  GitOperationResponse,
+  ListGitBranchesResponse,
+  StageGitChangesRequest,
+  SwitchGitBranchRequest,
+  UnstageGitChangesRequest
+} from './contracts/git'
+export type {
+  CreateTerminalSessionRequest,
+  CreateTerminalSessionResponse,
+  DisposeTerminalSessionRequest,
+  ListBusyTerminalSessionsResponse,
+  ListTerminalShellsResponse,
+  ResizeTerminalRequest,
+  TerminalIpcContract,
+  WriteTerminalInputRequest
+} from './contracts/terminal'
 export type {
   RespondWindowCloseRequest,
   WindowCloseDecision,
@@ -87,4 +114,10 @@ export type {
   WorkspaceFileChangeSource,
   WorkspaceFilesChangedEvent
 } from './events/files'
+export type { GitChangedEvent, GitIpcEventContract } from './events/git'
+export type {
+  TerminalExitEvent,
+  TerminalIpcEventContract,
+  TerminalOutputEvent
+} from './events/terminal'
 export type { WindowCloseRequestedEvent, WindowIpcEventContract } from './events/window'

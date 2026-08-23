@@ -1,6 +1,6 @@
 import { useEffect, useMemo, type JSX, type ReactNode } from 'react'
 import { useUnsavedChanges } from '../unsaved/context'
-import type { UnsavedItem, UnsavedSource } from '../unsaved/types'
+import type { LossItem, LossSource } from '../unsaved/types'
 import { useWorkspaceFolder } from '../workspaceFolder/context'
 import { EditorContext } from './context'
 import { useEditorSession } from './useEditorSession'
@@ -35,11 +35,17 @@ export function EditorProvider({ children }: { children: ReactNode }): JSX.Eleme
     （申告し直すたびに登録し直す形にすると、タブを1枚開くだけで
     購読の付け替えが起きる）。
   */
-  const source = useMemo<UnsavedSource>(
+  const source = useMemo<LossSource>(
     () => ({
-      listUnsaved: (): readonly UnsavedItem[] =>
+      /*
+        どの操作でも同じものを申告する。未保存の変更は、Workspace を閉じても
+        切り替えても失われる（Terminal と違い、タブは切り替えで捨てられる）。
+        非同期なのは器の都合で、こちらは自分の状態を見れば答えられる。
+      */
+      listLosses: async (): Promise<readonly LossItem[]> =>
         unsavedTabs.map((tab) => ({
           id: tab.relativePath,
+          kind: 'unsaved-file',
           name: tab.name,
           detail: tab.relativePath,
           // 消えたファイルは保存し直せない（別名保存は Session 3-6 以降）。

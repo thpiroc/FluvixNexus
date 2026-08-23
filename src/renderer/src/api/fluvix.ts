@@ -43,6 +43,12 @@ export const fluvix: FluvixApi = {
   get files() {
     return bridge().files
   },
+  get terminal() {
+    return bridge().terminal
+  },
+  get git() {
+    return bridge().git
+  },
   get settings() {
     return bridge().settings
   }

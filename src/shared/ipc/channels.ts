@@ -29,10 +29,30 @@ export const IPC_CHANNELS = {
   FILES_SEARCH: 'files:search',
   FILES_SEARCH_CONTENT: 'files:search-content',
   FILES_CANCEL_SEARCH: 'files:cancel-search',
+  TERMINAL_LIST_SHELLS: 'terminal:list-shells',
+  TERMINAL_LIST_BUSY: 'terminal:list-busy',
+  TERMINAL_CREATE: 'terminal:create',
+  TERMINAL_WRITE: 'terminal:write',
+  TERMINAL_RESIZE: 'terminal:resize',
+  TERMINAL_DISPOSE: 'terminal:dispose',
+  GIT_GET_REPOSITORY: 'git:get-repository',
+  GIT_STAGE: 'git:stage',
+  GIT_UNSTAGE: 'git:unstage',
+  GIT_COMMIT: 'git:commit',
+  GIT_PUSH: 'git:push',
+  GIT_PULL: 'git:pull',
+  GIT_COMMIT_AND_PUSH: 'git:commit-and-push',
+  GIT_LIST_BRANCHES: 'git:list-branches',
+  GIT_SWITCH_BRANCH: 'git:switch-branch',
+  GIT_CREATE_BRANCH: 'git:create-branch',
+  GIT_GET_FILE_DIFF: 'git:get-file-diff',
+  GIT_DISCARD: 'git:discard',
   SETTINGS_LOAD_EDITOR: 'settings:load-editor',
   SETTINGS_SAVE_EDITOR: 'settings:save-editor',
   SETTINGS_LOAD_FILES: 'settings:load-files',
-  SETTINGS_SAVE_FILES: 'settings:save-files'
+  SETTINGS_SAVE_FILES: 'settings:save-files',
+  SETTINGS_LOAD_TERMINAL: 'settings:load-terminal',
+  SETTINGS_SAVE_TERMINAL: 'settings:save-terminal'
 } as const satisfies Record<string, IpcChannel>
 
 /**

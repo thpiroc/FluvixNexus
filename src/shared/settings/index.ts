@@ -15,3 +15,10 @@ export type { EditorSettingsDocument, StoredAutoSaveSettings } from './editorSet
 export { FILES_SETTINGS_DOCUMENT_MAX_BYTES, FILES_SETTINGS_SCHEMA_VERSION } from './filesSettings'
 
 export type { FilesSettingsDocument, StoredFilesViewSettings } from './filesSettings'
+
+export {
+  TERMINAL_SETTINGS_DOCUMENT_MAX_BYTES,
+  TERMINAL_SETTINGS_SCHEMA_VERSION
+} from './terminalSettings'
+
+export type { StoredTerminalDisplaySettings, TerminalSettingsDocument } from './terminalSettings'

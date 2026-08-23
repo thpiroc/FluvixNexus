@@ -13,7 +13,10 @@ import type { IpcEventChannel } from './event'
  */
 export const IPC_EVENT_CHANNELS = {
   FILES_CHANGED: 'files:changed',
-  WINDOW_CLOSE_REQUESTED: 'window:close-requested'
+  WINDOW_CLOSE_REQUESTED: 'window:close-requested',
+  TERMINAL_DATA: 'terminal:data',
+  TERMINAL_EXIT: 'terminal:exit',
+  GIT_CHANGED: 'git:changed'
 } as const satisfies Record<string, IpcEventChannel>
 
 /**

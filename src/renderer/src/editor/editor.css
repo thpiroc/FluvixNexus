@@ -282,9 +282,18 @@
  * 高さを固定しているのは、Conflict の帯が伸び続けると
  * エディタ本体が押し出されて見えなくなるため。
  */
+/*
+ * Compare の器。
+ *
+ * **高さを決めるのはこちら**（Session 3-8-9）。Diff Editor そのもの
+ * （`.fx-editor__diff`）は器の残りを埋めるだけにしてあり、同じ部品を
+ * Git パネルの面いっぱいにも置けるようにしてある（git.css）。
+ */
 .fx-editor__diff-frame {
   display: flex;
+  flex: none;
   flex-direction: column;
+  height: 240px;
   min-height: 0;
   border: 1px solid var(--fx-color-border);
   border-radius: 3px;
@@ -301,8 +310,9 @@
 }
 
 .fx-editor__diff {
-  height: 240px;
+  flex: 1 1 auto;
   min-width: 0;
+  min-height: 0;
 }
 
 .fx-editor__note {

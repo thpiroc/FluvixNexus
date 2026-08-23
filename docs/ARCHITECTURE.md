@@ -1,7 +1,7 @@
 # アーキテクチャ
 
-> 対象: Session 3-6-8（Files の仕上げ ― 見え方の保存・カラムの幅・自動スクロール）完了時点の実装
-> 最終更新: 2026-08-19
+> 対象: Session 3-8-9（Git の Diff 表示と破棄）完了時点の実装
+> 最終更新: 2026-08-23
 
 製品としての方向性は [DESIGN.md](../DESIGN.md) を参照。このドキュメントは「現在のコードがどう組まれているか」と「機能を足すときにどこへ書くか」を扱う。
 
@@ -53,7 +53,9 @@ src/
 │   │       ├── workspace.ts       レイアウトの読み書き（workspace ドメイン）
 │   │       ├── workspaceFolder.ts フォルダを開く / 閉じる（workspace-folder ドメイン・§8）
 │   │       ├── files.ts           Workspace 内の列挙・読み込み・作成 / 改名 / 削除（§9・§10）
-│   │       └── settings.ts        アプリの設定の永続化（Editor は §12.4・Files の見え方は §10.14）
+│   │       ├── terminal.ts        シェルの起動 / 入力 / 大きさ / 片付け（§13）
+│   │       ├── git.ts             リポジトリの検出・変更ファイルの一覧・Stage / Unstage・Commit・Push / Pull・ブランチ・差分 / 破棄（§14）
+│   │       └── settings.ts        アプリの設定の永続化（Editor は §12.4・Files は §10.14・Terminal は §13.4）
 │   ├── workspaceFolder/      開いているプロジェクトフォルダ（§8）
 │   │   ├── currentWorkspaceFolder.ts  現在の Workspace の正本（開く・閉じる・復元・購読）
 │   │   └── folderPath.ts              パスの検証と表示名（Electron 非依存・テスト対象）
@@ -76,6 +78,34 @@ src/
 │   │   ├── searchQuery.ts             検索語の規則（名前 / 全文で共有・fs 非依存・§10.11）
 │   │   ├── workspaceSearchSession.ts  今走っている検索1本の管理（名前 / 全文で共有・テスト対象・§10.10）
 │   │   └── workspaceWatcher.ts        外部変更の監視（§12.1）
+│   ├── terminal/             シェルのセッション（§13）
+│   │   ├── shellCommand.ts            何を起動するかの表と解決（Electron / fs 非依存・テスト対象・§13.2）
+│   │   ├── terminalEnvironment.ts     何を渡すか（同上・§13.3）
+│   │   ├── outputCoalescer.ts         出力を束ねてから配る（同上・§13.5）
+│   │   ├── childProcesses.ts          実行中かを OS に聞く（Electron 非依存・テスト対象・§13.9）
+│   │   └── terminalSessions.ts        動いているセッションの表（node-pty に触れる唯一の場所）
+│   ├── git/                  Workspace を Git リポジトリとして扱う（§14）
+│   │   ├── gitExecutable.ts           git 本体の解決（Electron / fs 非依存・テスト対象・§14.1）
+│   │   ├── gitCommands.ts             実行する引数の表（組み立てられる唯一の場所・§14.2）
+│   │   ├── gitEnvironment.ts          git へ渡す環境変数（同上・テスト対象・§14.3）
+│   │   ├── gitOutput.ts               出力の読み取り・パスの比較・ブランチの一覧（同上・テスト対象・§14.4・§14.14）
+│   │   ├── gitStatusOutput.ts         status --porcelain=v2 の読み取り（同上・テスト対象・§14.8）
+│   │   ├── gitFailure.ts              stderr の分類（同上・テスト対象・§14.6・§14.11・§14.12・§14.14）
+│   │   ├── gitPathspec.ts             pathspec として通してよい形か（同上・テスト対象・§14.10）
+│   │   ├── runGit.ts                  git を実行する唯一の場所（cwd は現在の Workspace・§14.2）
+│   │   ├── gitQueue.ts                走るのは常に1本（§14.11）
+│   │   ├── gitRepository.ts           検出と一覧の噛み合わせ（§14.4・§14.8）
+│   │   ├── gitStage.ts                Stage / Unstage の噛み合わせ（§14.11）
+│   │   ├── gitCommit.ts               Commit の噛み合わせ（§14.12）
+│   │   ├── gitSync.ts                 Push / Pull / Commit & Push の噛み合わせ（§14.13）
+│   │   ├── gitBranches.ts             ブランチの一覧 / 切り替え / 作成の噛み合わせ（§14.14）
+│   │   ├── gitBlob.ts                 ls-files / ls-tree の読み取り・object 名の検査（同上・テスト対象・§14.16）
+│   │   ├── gitDiff.ts                 差分（左右の中身2つ）の噛み合わせ（§14.16）
+│   │   ├── gitDiscard.ts              破棄（restore --worktree / ごみ箱）の噛み合わせ（§14.16）
+│   │   ├── gitOperationResult.ts      書き込み操作の応答の形（§14.12）
+│   │   ├── gitWatchPaths.ts           `.git` の中で拾う名前か（Electron / fs 非依存・テスト対象・§14.15）
+│   │   ├── gitChangeSchedule.ts       いつ配るか（同上・テスト対象・§14.15）
+│   │   └── gitWatcher.ts              `.git` を見張り `git:changed` を配る（§14.15）
 │   ├── store/
 │   │   ├── jsonStore.ts      userData 配下への JSON 永続化（共通部分）
 │   │   ├── windowBounds.ts   ウィンドウ状態の検証（Electron 非依存・テスト対象）
@@ -87,14 +117,18 @@ src/
 │   │   ├── editorSettingsDocument.ts   Editor 設定の検証（Electron 非依存・テスト対象）
 │   │   ├── editorSettings.ts           Editor 設定の保存先（userData 配下・§12.4）
 │   │   ├── filesSettingsDocument.ts    Files の見え方の検証（Electron 非依存・テスト対象）
-│   │   └── filesSettings.ts            Files の見え方の保存先（userData 配下・§10.14）
+│   │   ├── filesSettings.ts            Files の見え方の保存先（userData 配下・§10.14）
+│   │   ├── terminalSettingsDocument.ts Terminal の見え方の検証（Electron 非依存・テスト対象）
+│   │   └── terminalSettings.ts         Terminal の見え方の保存先（userData 配下・§13.4）
 │   ├── logger/index.ts       Main 側のログ出力
-│   └── platform/index.ts     OS 依存判定の抽象化
+│   └── platform/
+│       ├── index.ts          OS 依存判定の抽象化
+│       └── executablePath.ts PATH の辿り方（Terminal と Git が共有・テスト対象・§13.2・§14.1）
 ├── preload/
 │   ├── index.ts              contextBridge での公開
 │   ├── ipc/invoke.ts         Main を呼ぶ唯一の経路
 │   ├── ipc/subscribe.ts      Main からのイベントを受ける唯一の経路（§3.3）
-│   └── api/                  ドメインごとの薄いラッパ（env / system / workspace / workspaceFolder / files）
+│   └── api/                  ドメインごとの薄いラッパ（env / system / workspace / workspaceFolder / files / terminal / settings）
 ├── renderer/
 │   ├── index.html            CSP を含む唯一の HTML
 │   └── src/
@@ -163,8 +197,43 @@ src/
 │       │       ├── documentStore.ts   Model / 未保存 / 食い違い / カーソル位置の持ち主
 │       │       ├── MonacoEditor.tsx   エディタの器（遅延読み込みの入口）
 │       │       └── MonacoDiffEditor.tsx Compare の差分（遅延読み込み）
-│       └── unsaved/            未保存を失う操作に挟む確認（§12.6）
+│       ├── terminal/           動いているシェルと、その画面（§13）
+│       │   ├── terminalTabsModel.ts   タブの並びの規則（React / DOM 非依存・テスト対象・§13.6.1）
+│       │   ├── terminalDisplay.ts     見え方の既定値・範囲・打鍵の判断（React / DOM 非依存・テスト対象・§13.4）
+│       │   ├── terminalSettings.ts    見え方 ↔ 保存形式の変換（同上・テスト対象・§13.4）
+│       │   ├── useTerminalSettings.ts 見え方の正本と永続化（いつ読み、いつ書くか・§13.4）
+│       │   ├── terminalScreenStore.ts xterm のインスタンスの持ち主（パネルより長く生きる・§13.6）
+│       │   ├── useTerminalTabs.ts     タブごとのセッションの状態と IPC（§13.6・§13.6.1）
+│       │   ├── useTerminalCloseGuard.ts 実行中のタブを閉じる前の確認（§13.9）
+│       │   ├── terminalError.ts       失敗の文言（React / DOM 非依存）
+│       │   ├── context.ts             Context の定義
+│       │   ├── TerminalProvider.tsx   Shell の外側でセッションと画面を持ち、実行中を申告する
+│       │   ├── TerminalView.tsx       何を出す状態か（起動中 / 動作中 / 終了 / 失敗）
+│       │   ├── TerminalTabs.tsx       タブ列と、開く入口（＋ / シェルの選択 / 設定）
+│       │   ├── TerminalSettingsMenu.tsx 表示設定の面（文字の大きさ・行数・§13.4）
+│       │   ├── TerminalCloseConfirm.tsx タブ1枚ぶんの確認（§13.9）
+│       │   ├── TerminalSurface.tsx    画面を置く器（遅延読み込みの入口・§13.7）
+│       │   ├── xtermSetup.ts          xterm 本体・テーマ・測り直し（§13.7）
+│       │   └── terminal.css
+│       ├── git/               Workspace と Git リポジトリの関係（§14）
+│       │   ├── gitRepositoryMessage.ts 状態 → 画面に出す文言（React / DOM 非依存・テスト対象・§14.6）
+│       │   ├── gitChanges.ts          変更の一覧 → 画面に並べる形・行に置く操作・Commit が押せるか・破棄の確認の文言（React / DOM 非依存・テスト対象・§14.9・§14.11・§14.12・§14.16）
+│       │   ├── gitBranches.ts         ブランチの一覧 → 面に並べる形・作れる名前か（React / DOM 非依存・テスト対象・§14.14）
+│       │   ├── useGitRepository.ts     状態の保持・いつ調べ直すか（`files:changed` / `git:changed` の合流）・Stage / Unstage / Commit / Push / ブランチ / 差分 / 破棄 の実行（§14.5・§14.11・§14.12・§14.14・§14.15・§14.16）
+│       │   ├── GitView.tsx             何を出す状態か（ブランチ / 一覧 / 案内 / 操作 / Commit 欄 / 差分の面・§14.9・§14.11・§14.12・§14.16）
+│       │   ├── GitBranchMenu.tsx       ブランチを選ぶ / 作る面（ui/Popover の中身・§14.14）
+│       │   ├── gitDiff.ts             差分の面に出す言葉・開ける行か（React / DOM 非依存・テスト対象・§14.16）
+│       │   ├── GitDiffOverlay.tsx      一覧の上に重なる読み取り専用の差分（§14.16）
+│       │   ├── GitDiscardConfirm.tsx   破棄の確認（§12.6・§14.16）
+│       │   ├── GitIcons.tsx            Stage / Unstage / 差分 / 破棄 のアイコン（Files と同じ描き方・§14.11・§14.16）
+│       │   └── git.css
+│       ├── ui/                 パネルをまたいで使う器
+│       │   ├── Popover.tsx          ボタンの真下に開く面（開閉と閉じ方だけを持つ）
+│       │   ├── DropdownMenu.tsx     その面に項目を並べたもの（上部バー / Terminal のタブ列）
+│       │   └── menu.css
+│       └── unsaved/            失われるものがある操作に挟む確認（§12.6）
 │           ├── types.ts             申告と確認の型（React / DOM 非依存）
+│           ├── lossMessage.ts       確認の文面（React / DOM 非依存・テスト対象・§12.6）
 │           ├── context.ts           Context の定義
 │           ├── UnsavedChangesProvider.tsx 確認の器（App の一番外）
 │           ├── UnsavedChangesDialog.tsx   まとめて尋ねる確認
@@ -175,6 +244,8 @@ src/
     ├── ipc/                  IPC の契約（要求 / 応答とイベント。§3）
     ├── workspace/            レイアウトの保存形式（§7.8）と Workspace の型（§8.2）
     ├── files/                ファイルの型・上限・名前の規則・コピー名の規則・相対位置・変化・文字コード・検索の規則・全文検索の上限と結果の型
+    ├── terminal/              セッションの型・上限・大きさの正規化・シェルの選択肢（§13）
+    ├── git/                   リポジトリの状態・HEAD・失敗の分類・変更ファイルの一覧・操作の対象と結末・Commit メッセージの規則・ブランチの一覧と名前の規則（§14）
     └── settings/             アプリ設定の保存形式（Editor は §12.4・Files の見え方は §10.14）
 ```
 
@@ -255,12 +326,17 @@ Renderer            window.fluvix.files.onChanged(listener) → 解除の関数
 - **送るのはアプリのウィンドウすべて。** イベントは「Workspace で起きた出来事」であって特定のウィンドウ宛ての返事ではない。パネルを独立ウィンドウ化しても送る側は変わらない（`windows/mainWindow.ts` が `getAllWindows()` を避けているのは**同一性**の話で、ここは**集合**の話）
 - **受け手は `workspaceId` を突き合わせる。** イベントには「要求」という対応関係が無く、受け手側で世代を数える手段がない。切り替えの前後で行き違った通知は捨てる
 
-現在流れているのは2つ。Terminal の出力・Git の状態変化・LSP / DAP の通知も同じ経路に載せる。
+現在流れているのは5つ。LSP / DAP の通知も同じ経路に載せる。
 
 | チャンネル               | 内容                                                                    |
 | ------------------------ | ----------------------------------------------------------------------- |
 | `files:changed`          | Workspace の中のファイルの変化（アプリの操作 / 外部変更。§10.5・§12.1） |
 | `window:close-requested` | ウィンドウを閉じてよいかの問い合わせ（§12.7）                           |
+| `terminal:data`          | シェルからの出力（§13.5）                                               |
+| `terminal:exit`          | シェルが終わった（§13.5）                                               |
+| `git:changed`            | `.git` が変わった（Session 3-8-8。§14.15）                              |
+
+**`git:changed` を `files:changed` に相乗りさせていない。** 同じ「変わった」でも運ぶものが違う ── `files:changed` が運ぶのは「どの位置がどうなったか」（`WorkspaceFileChange`）で、`.git/index` が書き換わったことに当てはまる相対位置は存在しない。そもそも `files:changed` は `.git` を**除外することで**成り立っている（§12.1）ため、相乗りさせるにはその除外に穴を開けることになり、Files のツリーと Editor が `.git` の中の変化を受け取り始める（§14.15）。
 
 `window:close-requested` だけは**応答を期待する**イベントで、他とは性質が違う。片道の経路にそれを載せているのは、対になる応答が「同じウィンドウから、同じ `requestId` で戻ってくる別の要求」でしかないため（Renderer が利用者に尋ねている間、Main の invoke を待たせ続ける形にしない）。送り先も**そのウィンドウ1つ**で、`emitIpcEvent`（全ウィンドウ）は通らない ── 「閉じてよいか」はそのウィンドウ宛ての問いかけであって、Workspace で起きた出来事の通知ではない。
 
@@ -270,15 +346,16 @@ Renderer            window.fluvix.files.onChanged(listener) → 解除の関数
 
 保存されるものはどれも `app.getPath('userData')`（Windows では `%APPDATA%/Fluvix Nexus`）配下の小さな JSON になる。インストール先にもプロジェクトフォルダにも書かない。
 
-| ファイル                | 内容                                   | 検証（Electron 非依存）            | 保存を決める場所           |
-| ----------------------- | -------------------------------------- | ---------------------------------- | -------------------------- |
-| `window-state.json`     | ウィンドウのサイズ・位置・最大化       | `store/windowBounds.ts`            | `store/windowState.ts`     |
-| `workspace-layout.json` | Workspace レイアウト（§7.8）           | `store/workspaceLayoutDocument.ts` | `store/workspaceLayout.ts` |
-| `workspace-folder.json` | 最後に開いていたフォルダ（§8.5）       | `store/workspaceFolderDocument.ts` | `store/workspaceFolder.ts` |
-| `editor-settings.json`  | Editor の設定（Auto Save。§12.4）      | `store/editorSettingsDocument.ts`  | `store/editorSettings.ts`  |
-| `files-settings.json`   | Files の見え方（表示方式・幅。§10.14） | `store/filesSettingsDocument.ts`   | `store/filesSettings.ts`   |
+| ファイル                 | 内容                                     | 検証（Electron 非依存）             | 保存を決める場所            |
+| ------------------------ | ---------------------------------------- | ----------------------------------- | --------------------------- |
+| `window-state.json`      | ウィンドウのサイズ・位置・最大化         | `store/windowBounds.ts`             | `store/windowState.ts`      |
+| `workspace-layout.json`  | Workspace レイアウト（§7.8）             | `store/workspaceLayoutDocument.ts`  | `store/workspaceLayout.ts`  |
+| `workspace-folder.json`  | 最後に開いていたフォルダ（§8.5）         | `store/workspaceFolderDocument.ts`  | `store/workspaceFolder.ts`  |
+| `editor-settings.json`   | Editor の設定（Auto Save。§12.4）        | `store/editorSettingsDocument.ts`   | `store/editorSettings.ts`   |
+| `files-settings.json`    | Files の見え方（表示方式・幅。§10.14）   | `store/filesSettingsDocument.ts`    | `store/filesSettings.ts`    |
+| `terminal-settings.json` | Terminal の見え方（大きさ・行数。§13.4） | `store/terminalSettingsDocument.ts` | `store/terminalSettings.ts` |
 
-**用途ごとに1ファイル・1チャンネルにする。** 設定が2つになった時点で `editor-settings.json` へ相乗りさせる選択肢はあったが、そうすると「Editor の設定」という限定が最初の相乗りで消え、片方の保存の失敗がもう片方を巻き込む（§5「永続化の API を用途ごとに切る」）。増やすのはファイルとチャンネルであって、既存の文書の項目ではない。
+**用途ごとに1ファイル・1チャンネルにする。** 設定が2つになった時点で `editor-settings.json` へ相乗りさせる選択肢はあったが、そうすると「Editor の設定」という限定が最初の相乗りで消え、片方の保存の失敗がもう片方を巻き込む（§5「永続化の API を用途ごとに切る」）。増やすのはファイルとチャンネルであって、既存の文書の項目ではない。3つめ（Terminal。Session 3-7-5）も同じ形をそのままなぞっており、**同じ形が3つ並んだ**ことでこれがこのアプリの設定の形になった。
 
 共通の作法は `jsonStore.ts` が持つ。
 
@@ -319,6 +396,9 @@ Renderer            window.fluvix.files.onChanged(listener) → 解除の関数
 | ウィンドウを閉じる / アプリ終了      | Renderer から始められない。返事を返す口だけを公開する（§12.7）                                     |
 | Main → Renderer のイベント           | 契約にあるチャンネルだけ購読できる。Electron の event は Preload が剥がす（§3.3）                  |
 | Monaco の Worker                     | アプリにバンドルしたものだけ。blob: も外部 CDN も経由しない（§11.2。Diff Editor も同じ）           |
+| シェルの起動                         | 起動する実行ファイルは Main の表が決める。PATH は辿って絶対パスで起動する（§13.1・§13.2）          |
+| git の実行                           | コマンド・引数・作業ディレクトリを Renderer から渡せない（要求は `void`。§14.2）                   |
+| git 本体の解決                       | PATH に任せず辿る。作業ディレクトリの中の `git.exe` は起動されない（§14.1）                        |
 
 ガードは webContents 単位（`app.on('web-contents-created')`）で掛けている。ウィンドウが増えても掛け忘れが起きない形にするため。
 
@@ -344,17 +424,18 @@ Session 3-6-8 の Files の見え方（表示方式・カラムの幅）も同�
 
 ## 6. 今後の機能を受け入れる余地
 
-| 予定している機能                   | 現状の受け口                                                                                                                                                    |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Dockable UI / レイアウトプリセット | Workspace Shell（§7）。**STEP 2 として完成**（Dock / Split・ドラッグ&ドロップ・境界のリサイズ・表示管理・プリセットの器・レイアウトの保存 / 復元）。残りは §7.9 |
-| Monaco Editor                      | **§11 / §12 として実装済み**（Worker・Model 管理・言語判定・保存・外部変更・Conflict・Auto Save）                                                               |
-| LSP                                | 言語 id は `editor/monaco/language.ts` が決める（§11.4）。サーバのプロセス起動は Main（`platform/` に OS 依存部分）、通知は §3.3 の経路                         |
-| Files                              | **§9 / §10 として実装済み**（列挙・読み込み・作成 / 改名 / 移動 / 削除・保存・外部変更の追従）。コピーは同じ経路に足す                                          |
-| Settings（設定の永続化）           | **§12.4 として実装済み**（`settings:*` ドメイン）。設定を足すならチャンネルを増やす。画面は後続                                                                 |
-| Terminal                           | node-pty は Main に置き、`externalizeDepsPlugin` により external 扱い。作業ディレクトリは §8 から取る。出力のストリームは §3.3 の経路                           |
-| GitHub パネルの独立ウィンドウ化    | セキュリティガードは webContents 単位、IPC は送信元ウィンドウを `IpcContext` で受け取れる。イベントは全ウィンドウへ届く（§3.3）                                 |
-| DAP                                | Terminal / LSP と同じ経路（Main でプロセス、IPC でやり取り、通知は §3.3）                                                                                       |
-| Mac 対応                           | OS 依存判定は `platform/`。Renderer / shared に OS 依存は入っていない                                                                                           |
+| 予定している機能                   | 現状の受け口                                                                                                                                                                               |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Dockable UI / レイアウトプリセット | Workspace Shell（§7）。**STEP 2 として完成**（Dock / Split・ドラッグ&ドロップ・境界のリサイズ・表示管理・プリセットの器・レイアウトの保存 / 復元）。残りは §7.9                            |
+| Monaco Editor                      | **§11 / §12 として実装済み**（Worker・Model 管理・言語判定・保存・外部変更・Conflict・Auto Save）                                                                                          |
+| LSP                                | 言語 id は `editor/monaco/language.ts` が決める（§11.4）。サーバのプロセス起動は Main（`platform/` に OS 依存部分）、通知は §3.3 の経路                                                    |
+| Files                              | **§9 / §10 として実装済み**（列挙・読み込み・作成 / 改名 / 移動 / コピー / 削除・保存・外部変更の追従・検索）                                                                              |
+| Settings（設定の永続化）           | **§12.4 として実装済み**（`settings:*` ドメイン）。設定を足すならチャンネルを増やす。画面は後続                                                                                            |
+| Terminal                           | **§13 として実装済み**（node-pty は Main・作業ディレクトリは §8・出力は §3.3 の経路）。複数タブは同じ表に足す                                                                              |
+| Git / GitHub パネル                | **§14 として実装済み**（git の実行基盤・リポジトリ検出・変更ファイルの一覧・Stage / Unstage・Commit・Push / Pull・ブランチの切り替え / 作成）。残りは `git:*` に操作ごとのチャンネルを足す |
+| GitHub パネルの独立ウィンドウ化    | セキュリティガードは webContents 単位、IPC は送信元ウィンドウを `IpcContext` で受け取れる。イベントは全ウィンドウへ届く（§3.3）                                                            |
+| DAP                                | Terminal / LSP と同じ経路（Main でプロセス、IPC でやり取り、通知は §3.3）                                                                                                                  |
+| Mac 対応                           | OS 依存判定は `platform/`。Renderer / shared に OS 依存は入っていない                                                                                                                      |
 
 STEP 1 から持ち越していた **Main → Renderer のイベント経路**は Session 3-3 で用意した（§3.3）。残る機能はいずれも現在の構造のまま追加できる。
 
@@ -400,7 +481,7 @@ src/renderer/src/workspace/
 │   ├── DockResizeHandle.tsx  領域と領域の間の掴み手
 │   ├── PanelGroup.tsx        パネルを置く共通コンテナ（タブ + 閉じる + 本体）
 │   ├── DockGuideOverlay.tsx  ドロップ先の表示（5方向のガイドと結果のプレビュー）
-│   ├── WorkspaceMenu.tsx     上部バーのドロップダウン（View / Layout の共通の器）
+│                             （上部バーのドロップダウンは ui/DropdownMenu.tsx へ引き上げ済み）
 │   ├── WorkspaceTopBar.tsx   上部領域（Dock 対象外）
 │   └── WorkspaceStatusBar.tsx 下部領域（Dock 対象外）
 └── panels/                   パネルの中身と Registry
@@ -2239,7 +2320,7 @@ Files のツリー / Editor のタブ / Monaco の Model が、それぞれ独�
 
 - **束ねてから配る。** 1回の保存でも OS からは複数の通知が来る（rename → change、属性の更新）。120ms 束ね、位置ごとに1つの結末へ畳んでから配る
 - **何が起きたかはディスクを見て決める。** OS のイベント種別だけでは「作られた」と「別のファイルが rename で被せられた」の区別が付かない。束ねた位置を `lstat` して、無ければ `deleted`、フォルダなら現れたときだけ `created`、ファイルなら `modified`（現れたなら `created` も）にする
-- **`.git` と `node_modules` は見張らない**（規則は `ignoredDirectories.ts`。Session 3-6-4 で**検索と共有**した。§10.10）。外さないと `npm install` や `git` の操作1回で数万件が流れる。VS Code の既定の除外と同じ考え方で、**見えなくなるわけではない**（再読み込みで取れるし、開いて編集も保存もできる）
+- **`.git` と `node_modules` は見張らない**（規則は `ignoredDirectories.ts`。Session 3-6-4 で**検索と共有**した。§10.10）。外さないと `npm install` や `git` の操作1回で数万件が流れる。VS Code の既定の除外と同じ考え方で、**見えなくなるわけではない**（再読み込みで取れるし、開いて編集も保存もできる）。Session 3-8-8 で `.git` を見張るようになった後も、**この除外はそのまま**にしてある ── Git 用の監視は別の watcher・別のイベントで、この経路には1件も入ってこない（§14.15）
 - **自分の操作は配らない。** アプリ自身の作成 / 改名 / 削除 / 保存でも監視は発火する。そのまま配ると1回の操作で `files:changed` が2回流れ、Files パネルが同じフォルダを2度読み直す（§10.5 の「読み直すのは親1つだけ」が崩れる）。操作した側が `noteAppFileChange` で位置を申告し、監視側が短い間だけ黙る
 - **1束の上限は 500 件。** 大量コピーや checkout で Renderer を埋めない
 - **落とさない。** 再帰監視が使えない OS（Linux）や root が消えた場合は、監視をやめるだけ。外部変更に自動で気づけなくなるが、Files の再読み込みと保存時の版の確認（§11.6）は従来どおり効く
@@ -2360,7 +2441,19 @@ main/store/editorSettings.ts    %APPDATA%/Fluvix Nexus/editor-settings.json
 
 **読み込みが終わるまで保存を許さない。** 先に許すと、既定値で上書きした後に読み込みが届き、起動のたびに設定が OFF へ戻る。
 
-Session 3-6-8 で足した Files の見え方（`settings:load-files` / `settings:save-files`）も、この形をそのまま写している ── **同じチャンネルへ項目を足していない**のが要点で、理由は §10.14。
+Session 3-6-8 で足した Files の見え方（`settings:load-files` / `settings:save-files`）も、Session 3-7-5 で足した Terminal の見え方（`settings:load-terminal` / `settings:save-terminal`）も、この形をそのまま写している ── **同じチャンネルへ項目を足していない**のが要点で、理由は §10.14 / §13.4。
+
+3つとも同じ形になったことで、設定を1つ増やす手順も決まった形になる。
+
+| 足すもの                         | 置き場所                                             |
+| -------------------------------- | ---------------------------------------------------- |
+| ディスクに置く形（型と上限だけ） | `shared/settings/<用途>Settings.ts`                  |
+| 形として読めるかの検証           | `main/store/<用途>SettingsDocument.ts`（テスト対象） |
+| 保存先（`<用途>-settings.json`） | `main/store/<用途>Settings.ts`                       |
+| 読み書きの対                     | `settings:load-<用途>` / `settings:save-<用途>`      |
+| 値の意味（既定・範囲・丸め方）   | その機能の Renderer 側                               |
+
+**アプリ全体の Settings 画面はまだ無い**（DESIGN.md §9）。値の持ち主はどれも機能の側にあるので、画面を作るときに移るのは「並べる場所」だけになる。
 
 ### 12.5 文字コード
 
@@ -2380,9 +2473,9 @@ writeWorkspaceFile  中身 + encoding → バイト列（BOM を足す）
 
 改行（`FileLineEnding`）とまったく同じ持ち回し方にしてあるのは、どちらも「開いたときの形を保つ」という同じ目的のため。
 
-### 12.6 未保存を失う操作に、確認を1本で挟む
+### 12.6 失われるものがある操作に、確認を1本で挟む
 
-未保存の内容が失われる操作は4つある。
+続けると何かが失われる操作は4つある。
 
 - Editor のタブを閉じる
 - Workspace を閉じる（上部バー / Files の root 行の ×）
@@ -2392,30 +2485,47 @@ writeWorkspaceFile  中身 + encoding → バイト列（BOM を足す）
 **確認をそれぞれの入口に書かない。** 書くと入口が増えるたびに保護が抜ける。§10.4 で「閉じる入口が増えても後片付けは増えない」形にしたのと同じ考え方で、確認も分ける。
 
 ```
-失われるものを持つ側（EditorProvider）
-   ↓  registerSource：今何が未保存か / 全部保存できるか
+失われるものを持つ側（EditorProvider / TerminalProvider）
+   ↓  registerSource：この操作で何が失われるか / 保存で救えるか
 UnsavedChangesProvider   確認の器（App の一番外）
    ↑  confirmDiscard：この操作を続けてよいか
 失わせる側（WorkspaceFolderProvider / ウィンドウを閉じる）
 ```
 
-Provider を**両方より外側**に置くことで、未保存を持つ側と失わせる側が互いを知らないまま同じ確認を通せる。後で Terminal に「実行中のプロセスがある」確認が要るようになっても、`registerSource` するだけで増える。
+Provider を**両方より外側**に置くことで、失われるものを持つ側と失わせる側が互いを知らないまま同じ確認を通せる。実際 Session 3-7-4 で Terminal の「実行中のプロセスがある」が加わったときに増えたのは、`registerSource` する側と文面の分岐だけになる（§13.9）。
 
 ```
 App.tsx
 └── UnsavedChangesProvider     確認の器
       └── WorkspaceFolderProvider   どの Workspace か
             └── EditorProvider      開いているタブ（未保存を申告する）
-                  └── FilesViewProvider   Files の表示方式として選んだ方（§10.13）
-                        └── WorkspaceShell
+                  └── TerminalProvider    動いているシェル（実行中を申告する・§13.9）
+                        └── FilesViewProvider   Files の表示方式として選んだ方（§10.13）
+                              └── WorkspaceShell
 ```
+
+#### 失われるものは1種類ではない（Session 3-7-4）
+
+申告には**種別**が付く（`LossKind`）。文面と選べる道が種別で変わるためで、混ぜると「実行中のターミナルを保存しますか」になる。
+
+| 種別               | 誰が申告するか   | いつ失われるか                 | 保存で救えるか |
+| ------------------ | ---------------- | ------------------------------ | -------------- |
+| `unsaved-file`     | EditorProvider   | 上の4つすべて                  | 救える         |
+| `running-terminal` | TerminalProvider | **ウィンドウを閉じるときだけ** | 救えない       |
+
+**どの操作で失われるかは、持ち主に判断させる。** `listLosses(action)` が操作の種類を受け取るのはこのためで、Terminal は Workspace の切り替えでも Workspace を閉じても何も失わない（§13.8）。器の側に「Terminal は切り替えでは消えない」と書くと、その知識が持ち主と器の2箇所に置かれる。
+
+**申告は非同期にしてある。** Editor は自分の状態を見れば答えられるが、Terminal は OS に聞かないと分からない（§13.9）。確認が出るのは操作の瞬間なので、その場で聞いて、その場の答えで判断する。聞いている間も「確認の最中」として扱う ── そうしないと、往復の隙に2つ目の操作が同じ確認をすり抜ける。
+
+文面の組み立て（種別の組み合わせ → 題・本文・ボタンの言葉）は `lossMessage.ts` に切り出してテストで固定してある。**同じ器で違うことを言う**以上、言い間違いは確認そのものを逆に働かせる ── 実行中のターミナルしか無いのに「保存されていない変更があります」と出れば、身に覚えのない警告として読み飛ばされる。
 
 #### 答える単位が違うので、器は2つ
 
-| 場面             | 器                         | 尋ね方                             |
-| ---------------- | -------------------------- | ---------------------------------- |
-| タブ1枚を閉じる  | `TabCloseConfirm.tsx`      | このファイルを保存するか           |
-| Workspace / 終了 | `UnsavedChangesDialog.tsx` | 複数のファイルをまとめてどうするか |
+| 場面                       | 器                         | 尋ね方                                |
+| -------------------------- | -------------------------- | ------------------------------------- |
+| Editor のタブ1枚を閉じる   | `TabCloseConfirm.tsx`      | このファイルを保存するか              |
+| Terminal のタブ1枚を閉じる | `TerminalCloseConfirm.tsx` | このターミナルを終わらせるか（§13.9） |
+| Workspace / 終了           | `UnsavedChangesDialog.tsx` | まとめてどうするか                    |
 
 1枚のときに一覧を出すと大げさで、複数のときに1枚ずつ尋ねると押し続けることになる。選択肢の意味（Save / Don't Save / Cancel）と見た目は揃えてある（`unsaved.css` を共有）。
 
@@ -2425,9 +2535,10 @@ App.tsx
 - **走っている書き込みの結果を流用しない。** 同じファイルへの書き込みは重ねられないが、待っている側へ走っているものの結果を返すと、**その書き込みの最中に打った文字が保存されていないのに「保存済み」と判断される**。ファイルごとに順番待ちにして、前が終わってから中身を取り直す（`saveFile`）
 - **失うものが無ければ尋ねない。** 確認を出すこと自体が目的ではない
 - **既定は「キャンセル」**（初期 focus）。Enter を押した勢いで内容が失われない側を既定にする（`DeleteConfirm.tsx` と同じ）
-- **必ず失敗する選択肢を出さない。** ディスクから消えたファイルには「保存」を並べない
-- **一度に1つだけ。** 確認が出ている間は次の確認を受け付けず、その場で「続けない」を返す
-- **確認は Renderer の中で出す。** ネイティブの `dialog.showMessageBox` を使うと、Main が Renderer の事情（何が未保存か）を知ることになる
+- **必ず失敗する選択肢を出さない。** ディスクから消えたファイルにも、実行中のターミナルにも「保存」を並べない
+- **一度に1つだけ。** 確認が出ている間（申告を集めている間も含む）は次の確認を受け付けず、その場で「続けない」を返す
+- **確認は Renderer の中で出す。** ネイティブの `dialog.showMessageBox` を使うと、Main が Renderer の事情（何が未保存か・どのタブが動いているか）を知ることになる
+- **申告を集められなければ続けない。** 失われるものが無いとは言えない状態で進めると、この経路が守ろうとしているものを失う
 
 #### 削除されたファイルのタブは残る
 
@@ -2488,3 +2599,1422 @@ Renderer が応答できない状態（読み込み前・スクリプトが止�
 | Settings 画面                       | 設定の**値**は既にアプリの設定として保存されている。並べる場所を作るだけ（DESIGN.md §9）    |
 | Files Tree の完全な追従             | created / deleted は既に届いている。ツリー側で「追加された行を選択状態にする」等は後続      |
 | Conflict の3方向マージ              | Compare は読み取り専用（§12.3）。編集できる差分は Git の解決 UI と同時に考える              |
+
+---
+
+## 13. Terminal（シェルのセッション）
+
+Session 3-7-1 / 3-7-2 / 3-7-3 / 3-7-4 / 3-7-5 の成果物。DESIGN.md §3「Terminal パネル」と §6「Claude Code 連携」の第一段階にあたる。
+
+Files / Editor が「Workspace の中のファイルを読み書きする」機能だったのに対し、Terminal は **Main が長命な子プロセスを持つ最初の機能**になる。要求のたびに始まって応答で終わる処理ではなく、一度立てたら利用者が終わらせるまで生き続け、その間ずっと出力を出し、アプリが終わるときには確実に片付ける必要がある。この形は LSP（サーバ1本）と DAP（デバッグ対象）がそのまま踏襲する。
+
+```
+Renderer                        Main
+  terminal:list-shells ─────→   shellCommand.ts   この環境で起動できる行はどれか
+  ←──── shells[]                                  （名前と available だけ）
+  terminal:create      ─────→   shellCommand.ts   行 → 実行ファイル（%SystemRoot% / PATH から解決）
+    { shellId, size }           §8 の Workspace   どこで起動するか
+                                node-pty spawn
+  ←──── session.id
+  terminal:write       ─────→   pty.write         打鍵をそのまま流す
+  terminal:resize      ─────→   pty.resize
+  ←──── terminal:data           outputCoalescer   束ねてから配る（§3.3 のイベント経路）
+  ←──── terminal:exit
+  terminal:list-busy   ─────→   childProcesses.ts 子プロセスを持つシェルはどれか（§13.9）
+  ←──── busySessionIds[]                          （終わらせる前に尋ねるかの判断）
+  terminal:dispose     ─────→   pty.kill
+```
+
+### 13.1 境界は「プロセスの中身」ではなく「起動の入口」にある
+
+Files は「Workspace の外へ出られないこと」を、**相対位置しか受け取らない**ことで担保している（§9.3）。Terminal に同じ手は使えない。起動したシェルの中で `cd ..` を止めることに意味は無いし、止めれば道具として成立しないためで、**Terminal は定義上 Workspace の外へ出られる。**
+
+そこで守る場所を1つ内側へずらしてある。
+
+| 決めるもの                     | 誰が決めるか                         | Renderer から指定できるか       |
+| ------------------------------ | ------------------------------------ | ------------------------------- |
+| 表にどんな行があるか           | `main/terminal/shellCommand.ts` の表 | **できない**                    |
+| 行の中身（実行ファイル・引数） | 同上                                 | **できない**                    |
+| どの行を起動するか             | Renderer（`shellId`）                | できる（閉じた集合の値1つだけ） |
+| どこで起動するか               | 今の Workspace（§8）                 | **できない**                    |
+| 大きさ                         | Renderer が測った値（丸められる）    | できる                          |
+| 何を流すか                     | 打鍵・貼り付け（加工しない）         | できる                          |
+
+`terminal:create` の要求に入っているのは大きさと `shellId` だけで、実行ファイルの欄も引数の欄も作業ディレクトリの欄も無い。`workspace-folder:open` が「ダイアログを出して」としか言えない（§8.4）のと同じ形で、ここも「**この行の**ターミナルを1つ」としか言えない。**入口さえ Renderer から指定できなければ、「Renderer からの要求で任意の場所の任意の実行ファイルが動く」という形は作られない。**
+
+Session 3-7-2 でシェルを選ばせる入口を作ったが、**境界の性質は変えていない。** 渡るのは `'default' | 'node' | 'claude-code'` という閉じた集合の値で（`shared/terminal/shell.ts`）、知らない値は Main が断る。Renderer が指すのは表の**行**であって、起動されるものではない。
+
+既定のシェルの id が `'powershell'` ではなく `'default'` なのも同じ線の上にある。「その OS の既定のシェル」という行が1つあるだけで、それが Windows で PowerShell に、Unix 系で `$SHELL` に解決されるのは Main の表の都合になる ── shared にも Renderer にも「Windows なら PowerShell」という知識が出てこない（DESIGN.md §8）。
+
+### 13.2 PATH で解決しない
+
+`powershell.exe` とだけ書くと、解決に使われるのは起動時の PATH と**作業ディレクトリ**になる。作業ディレクトリは利用者が開いた Workspace で、その中に `powershell.exe` が置かれていることは十分にありうる（clone してきたリポジトリの中身は、この時点ではただのファイルでしかない）。「フォルダを開いただけ」が「そのフォルダの中の実行ファイルが動く」になっては困る。
+
+そこで `%SystemRoot%` から絶対パスを組み立てる。System32 配下は Workspace の中身によって変わらない場所であり、ここを起点にする限り**開いたフォルダの中身が起動されるものに影響しない**（`shellCommand.test.ts` がこの性質を直接確かめている）。
+
+`%SystemRoot%` が無い環境では名前だけに落とす。落としてでも起動できる方が「ターミナルが使えない」より良いが、それは異常な環境での最後の手段であって既定の経路ではない。
+
+#### PATH を「辿る」ことと、PATH に「任せる」ことは違う
+
+Session 3-7-2 で足した Node / Claude Code は System32 には居ない。置き場所を決めるのは利用者で、それを知っているのは PATH だけになる。それでも実行ファイル名だけを node-pty へ渡すことはしない ── 上とまったく同じ理由で、cwd の中身が起動されうるため。
+
+**PATH はこちらで辿り、実体を確かめてから絶対パスを渡す。**
+
+| すること                       | しないこと                             |
+| ------------------------------ | -------------------------------------- |
+| PATH の項目を順に見る          | 実行ファイル名だけを渡して OS に任せる |
+| 絶対の項目だけを使う           | `.` や `bin` のような相対の項目を使う  |
+| 実体（`existsSync`）を確かめる | 在ることを前提に spawn して失敗を見る  |
+
+相対の項目を飛ばすのが要点にあたる。PATH に `.` が入っている環境は珍しくなく、拾ってしまえば「フォルダを開いただけ」が「そのフォルダの `node.exe` が動く」になる ── §13.2 が守っている性質を、自分で壊すことになる。
+
+見つからなければその行は「この環境には無い」として選択肢から外れる（`available: false`）。Node も Claude Code も入っていない PC はふつうにあり、**表にあることと起動できることは別**になる。
+
+#### `.cmd` は直接起動できない
+
+npm が入れる `claude` は Windows では `claude.cmd`（バッチ）で、CreateProcess はバッチを直接実行できない。`cmd.exe /c <絶対パス>` で包むが、**その `cmd.exe` も `%SystemRoot%` から組み立てる**（PATH に任せない）。包む相手は PATH から実体を確かめた絶対パスなので、ここでも開いたフォルダの中身は起動されるものに影響しない。
+
+`%SystemRoot%` が読めない環境では、この行は**選択肢から外す**（既定のシェルのように名前だけへ落とさない）。落とすと「PATH と cwd から解決される cmd.exe」になり、この表が守っている性質そのものが崩れる。Claude Code が選べなくなるだけで、既定のシェルは使える。
+
+### 13.3 Electron の中で動いていることを子プロセスへ持ち出さない
+
+ターミナルは Main Process の子として起動するため、何もしなければ Electron が自分のために立てた環境変数をそのまま受け継ぐ。
+
+| 変数                   | 引き継ぐと起きること                                                                                                 |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `ELECTRON_RUN_AS_NODE` | ターミナルから起動した Electron アプリが**素の Node として立ち上がる**。`require('electron')` が文字列を返して落ちる |
+| `NODE_OPTIONS`         | このアプリのために付けた起動オプションが、無関係な node へ効く                                                       |
+
+1つめは、**このアプリで Electron アプリを開発する利用者が最初に踏む**類のもので、しかも落ちるのは相手のアプリなので原因がターミナル側にあると気づきにくい。「開いたターミナルは、素の PowerShell を開いたときと同じように振る舞う」を満たすために落とす（`terminalEnvironment.ts`）。
+
+足すのは `TERM` だけ。環境変数はそこから起動されるすべてに効くため、増やすほど「素のシェルと違う場所」になる。
+
+### 13.4 大きさは断らずに丸める
+
+他の入力（ファイル名・相対位置）は規則に合わなければ**断る**が、大きさは丸める（`shared/terminal/size.ts`）。違いは**利用者がその値を指したかどうか**にある。
+
+- ファイル名 … 利用者が打ったもの。勝手に直すと、指したものと違うものを触る
+- 大きさ … 画面から測ったもの。利用者は 0 行を指していない
+
+パネルが畳まれている間・まだ描かれていない間は 0 が測られる。それを失敗として返すと、**畳んだだけでターミナルが壊れる。** 数として読めないもの（文字列・NaN）だけは丸めようが無いので断る。
+
+正規化を shared に置いてあるのは、Renderer が測った大きさと Main が ConPTY へ渡す大きさが食い違うと、**改行の位置が画面と実際でずれる**ため（fileName.ts と同じ理由）。
+
+#### 測るのは器、決めるのは xterm（Session 3-7-3）
+
+大きさの単位は文字数であってピクセルではない。器の px から桁数を出せるのは**実際の文字の幅を知っている xterm だけ**なので、測ること自体は FitAddon（`screen.fit()`）に任せ、Renderer 側が決めるのは「いつ測り直すか」だけになる。きっかけは4つある。
+
+| きっかけ               | 何が起きたか                                           | 拾う場所                     |
+| ---------------------- | ------------------------------------------------------ | ---------------------------- |
+| 器が現れた             | パネルを開いた / 別の場所へ動かした / タブを切り替えた | `TerminalSurface` の effect  |
+| 器の大きさが変わった   | Dock / Split / 境界のドラッグ / ウィンドウのリサイズ   | `ResizeObserver`             |
+| 文字の大きさが変わった | 器は同じまま、入る桁数だけが変わる（下記）             | `fontSize` を見る別の effect |
+| セッションが立ち直った | 立て直しの要求に最初の大きさが要る                     | `restart` の呼び出し側       |
+
+**Shell の側から「大きさが変わった」を伝える経路は作らない。** 観測するのは器1か所だけで、Monaco の `automaticLayout`・Files の `useFilesLayout` と同じ形になる。パネルの置き場所は自由に変わるため、伝える側を作ると置き方が増えるたびに伝え忘れが生まれる。
+
+3つめだけは `ResizeObserver` では拾えない ── 器のピクセルは1つも変わっていないため、effect を分けてある。
+
+**測り直しは次のフレームまで待つ。** `ResizeObserver` のコールバックの中で `fit()` を呼ぶと、その中で xterm が自分の DOM を組み替える ＝ **観測している最中に観測対象を変える**ことになり、境界をドラッグしている間ずっと `ResizeObserver loop completed with undelivered notifications` が出る。`requestAnimationFrame` 1つに束ねると、何度鳴っても1フレームにつき1回で足りる（描画はそれ以上細かくならない）。
+
+Main へ送るのはさらに絞る ── 文字数に直して**前回と同じなら送らない**（`isSameTerminalSize`）。器は1px 変わるたびに鳴るが、桁数が変わらないことがほとんどで、そのたびに ConPTY を作り直させる理由が無い。
+
+#### 表示の設定 ― フォントとスクロールバック（Session 3-7-3 / 永続化と設定 UI は 3-7-5）
+
+端末の見え方としてアプリが決めているものは `renderer/src/terminal/terminalDisplay.ts` の1箇所に集めてある。
+
+| 何               | 値                            | 変えられるか                                |
+| ---------------- | ----------------------------- | ------------------------------------------- |
+| フォント         | Editor / Files と同じ等幅     | いいえ（等幅でないと桁が狂う）              |
+| 文字の大きさ     | 既定 13px（8〜32px）          | **はい**（Ctrl + `+` / `-` / `0`・設定 UI） |
+| 行の高さ         | 1.2                           | いいえ                                      |
+| スクロールバック | 既定 5000 行（500〜50000 行） | **はい**（設定 UI）                         |
+
+**shared ではなく Renderer に置く。** 大きさ（桁数・行数）は Main と Renderer が同じ答えを見る必要があるため shared にあるが（§13.4）、文字の大きさとスクロールバックは **IPC を1度も渡らない** ── 前者はピクセルの話で、Main が受け取るのは桁数と行数だけ。後者は Renderer 側のメモリの話にほかならない。Main が知る必要の無いものを shared へ置くと「shared にあるのだから Main も見てよい」が後から生える。
+
+保存形式（`shared/settings/terminalSettings.ts`）だけが shared にあるのは、それが**ディスクに置く形**であって見え方の意味ではないため（Editor / Files と同じ扱い。§12.4）。Main はその形しか見ず、8〜32px に収まっているかは見ない。
+
+**文字の大きさもスクロールバックも全部のタブで同じ。** タブごとに持つと、切り替えるたびに見え方が変わることになる。ストア（`terminalScreenStore.ts`）が今の値を覚えていて、**後から作られる画面にも同じ値が渡る** ── 新しく開いたタブだけ既定のまま、が起きない。
+
+**端末の打鍵を横取りすることになる。** 端末は打鍵をそのまま渡すのが約束（§13.1）なので、横取りする組み合わせは少ないほどよい。それでも3つ取っているのは、Session 3-7-3 の時点で文字の大きさを変える入口が他に無かったため。設定 UI ができた後も打鍵は残している ── 端末を触っている手を止めずに変えられることに意味があり、**どちらも同じ1つの値を変える**（打鍵で変えた値は設定 UI にもそのまま出る）。どれを取るかの判断は `terminalDisplay.ts` の純粋な関数に置いてあり、**横取りの範囲が広がっていないことをテストで固定してある**（`Ctrl+C` / `Ctrl+D` などが通ること）。
+
+xterm 側の窓口は `attachCustomKeyEventHandler`（false を返すとシェルへ流れない）を使う。器の `onKeyDown` で拾わないのは、xterm が textarea 上で打鍵を組み立てており、**どこまで外へ漏れるかが xterm の実装都合になる**ため。
+
+開発時のネイティブメニューからズームの3項目を外してあるのはこの割り当てのため（`app/menu.ts`）。Electron のズームは**メニュー項目のアクセラレータ**として効くので、置いておくと開発中だけ Ctrl + `+` / `-` / `0` が端末へ届かない（配布ビルドはメニューを持たない）。
+
+#### 見え方の設定と永続化（Session 3-7-5）
+
+層の分け方は Files の見え方（§10.14）をそのまま写している。
+
+```
+terminalDisplay.ts        既定値・範囲・丸め方（React も IPC も知らない）
+terminalSettings.ts       実行時の設定 ↔ 保存形式の変換（同上）
+useTerminalSettings.ts    いつ読み、いつ書くか
+useTerminalTabs.ts        読んだ値を画面（terminalScreenStore）へ配る
+TerminalSettingsMenu.tsx  変えるための入口（Terminal のタブ列の ⚙）
+shared/settings/terminalSettings.ts  ディスクに置く形
+main/store/terminalSettingsDocument.ts  形として読めるかの検証
+main/store/terminalSettings.ts       保存先（terminal-settings.json）
+```
+
+- **器（Provider）を増やしていない。** Files は見え方のために `FilesViewProvider` を足したが、それは選択がパネルの中にあり、パネルを動かすと消えたためだった（§10.14）。Terminal の持ち主（`TerminalProvider`）は Session 3-7-1 の時点で Workspace Shell の外側にあるので、そこへ載せれば同じ寿命が得られる ── 寿命の同じ Provider を2つ並べない
+- **設定 UI はパネルの中、値はパネルの外。** ⚙ は Terminal のタブ列にあるが、押した先が読み書きするのは Context 越しの値になる。パネルは Dock で動かせるため、ここに持つと置き場所を変えただけで文字の大きさが戻る
+- **丸める関数は1つ。** 設定 UI に打ち込まれた値も、ディスクから読んだ値も、ディスクへ書く値も `clampTerminalFontSize` / `clampTerminalScrollback` を通る。通り道が分かれると「UI では止まるのに、保存ファイルを直接書けば通る」が生まれる（`clampColumnWidth` と同じ線。§10.14）
+- **読み込みが終わるまで保存を許さない。** 先に許すと既定値で上書きした後に読み込みが届き、起動のたびに 13px へ戻る（§12.4 と同じ）
+- **読めなくても端末は開く。** 壊れた JSON も、範囲の外の値も既定（13px / 5000 行）へ落ちる。項目ごとに落とすので、片方が読めなくてももう片方は活きる
+
+**打ち込んでいる途中の値で端末を変えない。** 欄の中身は打っている間ずっと変わるため、1文字ごとに反映すると `1200` と打つ途中の `1` が丸められ（500 行）、**打ち終わる前に画面が作り替えられる。** 欄は自分の下書きを持ち、Enter か欄から離れたときに確定する。確定した値は丸めた結果をそのまま欄へ書き戻す（効かなかった入力を残さない）。
+
+**スクロールバックの上限（50000 行）はメモリから決めている。** 出力の量に比例して Renderer のメモリが伸び、タブごとに1本ぶん持つ（`TERMINAL_MAX_SESSIONS` = 8）。減らす向きに変えると、溢れた行はその場で捨てられる（xterm 側の挙動）── 遡れる量を自分で減らしたのだからそれ自体は筋が通っており、そうなることだけを設定 UI に書いてある。
+
+**開く面の器を1段引き上げた。** 設定 UI は「ボタンの真下に開くが、項目は並ばない」形で、`DropdownMenu` が持っていた開閉と閉じ方（項目の選択 / 外側のクリック / Escape / ウィンドウの blur）だけを `ui/Popover.tsx` へ移し、`DropdownMenu` はその上に項目を描くものになった。**振る舞いの塊を写して増やさない**ためで、写すと次に閉じ方を1つ直すときに直す場所が2つになる。
+
+### 13.5 出力は束ねる。ただし間引かない
+
+`terminal:data` は §3.3 のイベント経路に載る3つめの用途だが、**扱いが1つだけ違う。**
+
+```
+files:changed   束ねて、畳んで、上限で間引く（MAX_CHANGES_PER_BATCH）
+terminal:data   束ねるだけ。畳まないし、間引かない
+```
+
+ファイルの変化は「同じ位置に3回起きた」を1回に畳んでよく、多すぎれば捨ててよい ── 受け手は結局そのフォルダを読み直すので、正しい状態に追いつける。ターミナルの出力にその性質は無い。**1回きりで、順番に意味があり、落とした分を後から取り戻す手段が無い**（消えた文字の分だけ画面が壊れる）。
+
+したがって `outputCoalescer.ts` の上限は「捨てる基準」ではなく「**待たずに送る基準**」になる。送る条件は2つで、短い時間（16ms・打鍵の反響が遅れて見えない範囲）と、溜まった長さ（64KB・大量出力でメモリを溜め込まない）。時間だけだと1回あたりが際限なく太り、長さだけだと1文字打った反響がいつまでも出ない。
+
+### 13.6 セッションと画面は、パネルより長く生きる
+
+パネルは View メニューから閉じられ（§7.7）、Dock で動かせば React から見て作り直される。ここで消えてはいけないものが2つある。
+
+| もの                 | 持ち主                               | 消えると                             |
+| -------------------- | ------------------------------------ | ------------------------------------ |
+| シェルのプロセス     | Main（`terminalSessions.ts` の表）   | パネルを動かすたびにシェルが切れる   |
+| 画面（xterm と DOM） | Renderer の `terminalScreenStore.ts` | 動かすたびにスクロールバックが消える |
+
+前者は Main が持っているので自然に守られる。**後者が Editor の Model と同じ問題**にあたるため、置き場所も同じにしてある ── ストアの持ち主は `TerminalProvider`（Workspace Shell の外側。App.tsx）で、パネルの中ではない。
+
+xterm は `open(parent)` で渡された要素の中に DOM を組み立てるため、パネルを動かすたびに作り直すと画面が消える。そこで**自前の要素を1つ持ち、それを器から器へ付け替える**。`terminal.open()` を呼び直さないのがこの形の要点になる。
+
+id が2つ出てくるのも寿命の違いによる。
+
+| id           | 誰が発番 | いつまで生きるか                                 |
+| ------------ | -------- | ------------------------------------------------ |
+| `terminalId` | Renderer | 画面が要る間（シェルが終わって立て直しても同じ） |
+| `sessionId`  | Main     | そのシェルのプロセスが動いている間               |
+
+Editor がタブ id（発番したもの）と relativePath（中身の同一性）を分けているのと同じ形で、`exit` と打って立て直したときに**画面はそのままでプロセスだけが変わる**のが自然なため、画面の鍵にセッションを使わない。
+
+**応答より先に届く出力を捨てない。** `terminal:create` の応答が返るより先にシェルは喋る（PowerShell は起動直後にプロンプトを出す）。その一瞬の間、Renderer は「その sessionId がどの画面のものか」を知らない。出力は読み直せないため、結び付くまでの分はストアが預かり、`bind` で流し込む。これは Editor には無かった事情にあたる ── ファイルの中身は後から読み直せるが、出てしまった文字は取り戻せない。
+
+### 13.6.1 複数タブ（Session 3-7-2）
+
+並びを持つのは Renderer だけ。Main の表（`sessions` Map）もストア（`terminalId` が鍵）も Session 3-7-1 の時点で複数を持てる形にしてあったため、増えたのは Renderer 側の3つになる。
+
+```
+terminalTabsModel.ts   並びの規則（React 非依存・テスト対象）
+useTerminalTabs.ts     セッションの生き死に・出力・大きさ（1つ → 並び）
+TerminalTabs.tsx       タブ列と、開く入口
+```
+
+**器は1つのまま。** タブごとに器を並べて隠す形にはしていない ── 隠れている器は大きさが 0 になり、出す / 隠すたびに測り直しが要る。ストアは元々「自前の要素を器から器へ付け替える」形（§13.6）なので、タブの切り替えはその経路をそのまま使う。付け替えの後片付け（前のタブの要素を外す）が Session 3-7-2 で増えた1行にあたる ── 前は器ごと React に捨てられていたので外す必要が無かった。
+
+**手前に出ていないタブは器を持たない。** したがってシェルが立つのは、そのタブが一度手前に出てからになる（開いた時点では `idle`）。開いたタブは必ず手前に出るため、実際には開いた直後に立つ。
+
+#### 状態として持つものと、ref に置くもの
+
+| 何                                  | どこ            | 変わると             |
+| ----------------------------------- | --------------- | -------------------- |
+| status / 表示名 / 終了コード        | state（描く）   | タブの見た目が変わる |
+| sessionId / 起動中か / 最後の大きさ | ref（描かない） | 何も描き替わらない   |
+
+`sessionId` を state に置かないのは、**画面へ流す宛先を引くため**だけに要るもので、変わっても描き直す必要が無いため（出力を画面へ渡すのは購読側の仕事で、React を通らない）。置くと、シェルを立て直すたびにタブ列ごと描き替わる。
+
+#### 上限の数え方が Main と違う
+
+`TERMINAL_MAX_SESSIONS`（8）は本来「同時に動くプロセスの数」の歯止めで、終わったタブはプロセスを持たない。それでも Renderer 側ではタブの枚数で数えている ── タブ列そのものも無限には伸びてほしくないため。数え方が違うぶん**Renderer の側が厳しくなる**ので、緩い側に倒れることはない（断るのは常に Main。UI は迂回されうる）。
+
+### 13.7 CSP を1文字も緩めていない
+
+xterm は既定の描画（DOM ベース）で Worker も blob も使わないため、Monaco のときのような迂回（§11.2 の `MonacoEnvironment.getWorker`）は要らない。CSS は `@xterm/xterm/css/xterm.css` を import してアプリにバンドルし、外部からは取りに行かない。実行時に注入される style は `style-src 'unsafe-inline'` で既に許してあり、これは STEP 1 の CSP コメントが最初から見込んでいたもの。
+
+WebGL の addon は入れていない。速くはなるが、このアプリが出す量では違いが出ないうえ、描画まわりの不具合の切り分けが増える。
+
+xterm 本体は **`React.lazy` で遅延読み込みする**（Monaco と同じ2つの理由。§11.3）。Terminal パネルを開くまで読み込まれず、Panel Registry を辿るだけのテスト（node 環境）からも読み込まれない。ビルド成果物でも `TerminalSurface-*.js`（約 330KB）として独立した chunk に分かれる。
+
+### 13.8 Workspace が変わっても終わらせない（Session 3-7-3）
+
+シェルの作業ディレクトリは起動時に決まり、**後から動かす手段は無い**（中で `cd` するのは利用者であってアプリではない）。ここは Session 3-7-1 から変わっていない。Session 3-7-3 で改めたのは、そこから何を導くかになる。
+
+| 対象                     | 切り替えた後                                      |
+| ------------------------ | ------------------------------------------------- |
+| 既に動いているセッション | **そのまま。** cwd は起動したフォルダのまま       |
+| これから立てるセッション | 今開いているフォルダで起動する（決めるのは Main） |
+
+Session 3-7-1 / 3-7-2 では切り替えのたびに全部片付けていた（Editor がタブを捨てるのに揃えていた）。**Editor のタブと違い、ここで捨てるのは動いている OS のプロセスにほかならない。** ビルド・dev server・Claude Code の対話は、フォルダを見に行く操作1つで消えてよいものではなく、捨てたものは開き直しても戻らない。「開いていないフォルダを指したターミナルが残る」ことは受け入れ、**残っている事実を隠さずタブに出す**方を選んである。
+
+そのため Main 側はこの切り替えを購読しない。`terminalSessions.ts` が「今のフォルダ」を読むのは**起動のときだけ**で、切り替えでする仕事が無い（ファイル監視 §12.1 が購読を持つのと対照的）。
+
+Renderer 側に残るのは「**Workspace が開かれたときにタブが1枚も無ければ1枚置く**」ことだけになる。切り替えのたびに足さないのは、開いた覚えのないターミナルが増えるのを避けるため ── 新しいフォルダで1本要るなら `＋` で開き、そのとき起動するのは今開いているフォルダにほかならない。
+
+#### 食い違いはタブに出す
+
+タブは「どの Workspace で**起動したか**」を持つ（`terminalTabsModel.ts` の `workspaceId`）。今開いているものと違えば、名前の前に印（⌂）を1つ足し、全体は `title` で読めるようにする。
+
+見た目が同じままだと、そこで `npm run build` と打った結果が**どちらのプロジェクトのものか分からない。** 持つのは id だけで、パスも表示名も入っていない（§13.1 の「Renderer へ OS の場所を渡さない」を崩さない）ため、**どのフォルダかまでは出せない。** 立て直せば今のフォルダの id に変わる ── 新しいセッションは今開いているフォルダで起動するため。
+
+#### 片付けるのは2つの場合だけ
+
+| きっかけ          | 何が起きるか                                          |
+| ----------------- | ----------------------------------------------------- |
+| タブの × で閉じた | そのセッションを終わらせ、画面も捨てる                |
+| アプリが終わる    | すべて終わらせる（`app/lifecycle.ts` の `will-quit`） |
+
+**アプリの終了時に片付けるのは必須にあたる。** ウィンドウが閉じても消えるのは Renderer だけで、プロセスは Main の持ち物のまま残る ── 片付けないと、ターミナルで立てた dev server がアプリの終了後もポートを掴み続ける。
+
+Session 3-7-3 の時点ではどちらも**黙って終わらせていた。** 切り替えが対象から外れたぶん、確認を挟む相手はこの2つに絞られ、Session 3-7-4 でその2つに確認が入っている（§13.9）。
+
+### 13.9 終わらせる前に尋ねる（Session 3-7-4）
+
+片付ける2つの場合（§13.8）に確認を挟む。**Session 3-7-1 から残っていた最後の「黙って」**がここにあたる。
+
+```
+タブの ×        → 実行中なら確認（TerminalCloseConfirm.tsx）
+アプリの終了    → 実行中なら確認（§12.6 の器へ申告して出す）
+Workspace の切替 → 何も失われない。尋ねない（§13.8）
+```
+
+#### 何を実行中と見なすか
+
+**そのシェルが子プロセスを持っているか**、それだけを見る（`childProcesses.ts`）。
+
+| 状態                         | 子プロセス       | 判定         |
+| ---------------------------- | ---------------- | ------------ |
+| プロンプトで待っている       | 1つも居ない      | 実行中でない |
+| `npm run build` / dev server | その実行ファイル | 実行中       |
+
+ConPTY はシェルの中で何が起きているかを教えてくれない。画面に流れた文字から「まだ終わっていないか」を当てにいく道もあるが、それは**プロンプトの見た目を推測すること**にほかならず（利用者は自由にプロンプトを変えられる）、外れれば「動いているものを黙って殺す」か「何も無いのに毎回尋ねる」のどちらかになる。だから推測せず、OS に聞く。
+
+見るのは**直接の子だけ**で足りる。`npm run build` の下の node も、その下の tsc も、辿れば必ずシェルの直接の子を1つ経由する ── 孫が居て子が居ない形は作れない。
+
+聞き方は `Get-CimInstance Win32_Process -Filter 'ParentProcessId=… OR …'` を1回。**問い合わせはセッションごとではなく1回**で、8本開いていても OS へ聞くのは1度になる。PowerShell は `%SystemRoot%` から絶対パスで指す（§13.2 と同じ理由。PATH に任せない）。
+
+#### 分からないときは尋ねる側に倒す
+
+PowerShell が見つからない・応答が返らない・出力が読めない、はどれも起こりうる。`childProcesses.ts` は「子が居なかった」と「分からなかった」を型で分けて返し（`known` / `unknown`）、`terminalSessions.ts` が後者を**生きているセッション全部**として扱う。混ぜて空配列を返すと、分からなかったことが「何も動いていない」として伝わり、動いているビルドが確認なしで死ぬ。
+
+#### 渡すのはセッションの id だけ
+
+`terminal:list-busy` の応答に載るのは id の並びだけで、pid も実行ファイル名も入っていない（§13.1 の線）。要求には**欄そのものが無い** ── どのセッションについて聞くかを Renderer に言わせず、Main が自分の表を見て答える。
+
+利用者に伝えたいのは「閉じると失われるものがある」という一点で、その一点に名前は要らない。何が動いているかは端末の画面そのものに出ている。
+
+#### 代償は 0.4 秒
+
+OS へ聞く往復ぶん、× を押してから閉じるまでに間が空く（実測 425〜453ms）。**実行していないタブを閉じるときにも通る**ため、ここは常に払うことになる。
+
+その間はそのタブの × を押せない見た目にしてある（押しても何も起きない時間を、押せるように見せない）。待ちの画面は出さない ── 0.4 秒に器を1枚挟むと、閉じるたびに一瞬ちらつく。
+
+立っていないタブ（`idle` / `exited` / `failed`）は OS のプロセスを持たないので、聞かずにそのまま閉じる。
+
+#### アプリの終了は既存の経路に載る
+
+`window:close-requested` → Renderer が `'deciding'` を返す → 確認、という §12.7 の流れは変わっていない。上限（4秒）は `'deciding'` の時点で外れるため、その後に OS へ聞く時間が挟まっても閉じられなくなることはない。
+
+### 13.10 native モジュールを持つ最初の依存
+
+`@lydell/node-pty` は本家 `node-pty` の再配布で、**現在のプラットフォーム向けの prebuilt だけ**を入れる（Windows では ConPTY のみ。winpty は含まれない）。Electron 43（ABI 148）でリビルド無しに読み込めることを実機で確認済み。
+
+これがこのプロジェクトで最初の `dependencies`（＝配布物に同梱される依存）になる。`externalizeDepsPlugin` により Main のバンドルからは external 扱いのままなので構成は変わらないが、**exe 化（DEVELOPMENT.md §6）では `node_modules` を成果物に含める必要が出る。**
+
+xterm（`@xterm/xterm` / `@xterm/addon-fit`）は Renderer にバンドルされるため `devDependencies` に置く（monaco-editor と同じ扱い）。
+
+### 13.11 Session 3-7-5 の範囲外
+
+| 項目                                 | 状況                                                                                                    |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| 何が実行中かを名前で出す             | 応答に載るのは id だけ（§13.9）。名前を渡すと、それを指して止める API が欲しくなる                      |
+| Windows 以外での「実行中」の判定     | `ps` の呼び方が OS ごとに違う。今は分からない扱い＝毎回尋ねる側に倒れる（v1 は Windows・§13.9）         |
+| 0.4 秒を待たずに答える               | 定期的に聞いて控える形にすると、確認の瞬間の答えではなくなる。native モジュールを入れる道もある         |
+| フォントの種類・行の高さの設定       | 固定値のまま。等幅でないフォントを選べると、画面と ConPTY の折り返しが食い違う（§13.4）                 |
+| 「＋」で開くシェルの既定を選ぶ       | 既定は OS の既定シェル（`default` の行）。選ぶのは `⌄` からで、設定としては持たない                     |
+| 端末の配色（テーマ）の設定           | ANSI 16色はシェルとその中の CLI のもの。アプリが決めているのは地の色だけ（`xtermSetup.ts`）             |
+| アプリ全体の Settings 画面           | Terminal の設定は Terminal のタブ列に置いた。並べ直すのは画面を作るとき（§12.4）                        |
+| タブごとに違う文字の大きさ           | 全部のタブで同じ。切り替えるたびに文字の大きさが変わるのは道具として落ち着かない                        |
+| 別フォルダのタブに、その名前を出す   | 印（⌂）だけ。名前を出すには Renderer が Workspace の表示名を持つ必要がある（§13.1 の線）                |
+| 動いているターミナルの cwd を移す    | **手段が無い**（ConPTY は cwd を変えられない）。中で `cd` するのは利用者であってアプリではない          |
+| タブの並べ替え / 名前の変更          | 並びは開いた順のまま。掴んで動かす経路も、名前を上書きする欄も持たない                                  |
+| タブの復元（起動し直しても残る）     | セッションは OS のプロセスで、保存できるのは「何を開いていたか」まで。見え方（§13.4）とは別の文書になる |
+| シェルの行を増やす（WSL / Git Bash） | `shellCommand.ts` に行を1つ足すだけ。解決の仕方（PATH / レジストリ）が行ごとに違う                      |
+| イベントの宛先を絞る                 | `terminal:data` は今も全ウィンドウへ配られる。独立ウィンドウ化のときに最初に見直す相手になる            |
+| 検索・選択のコピー / 貼り付け        | xterm の addon か、自前の経路。OS クリップボードは Main 側の別の話（§10.14 の表と同じ線）               |
+| 分割（1パネルの中で上下に2本）       | レイアウトは Workspace Shell が持つ。Terminal の中に別の分割を作らない                                  |
+
+---
+
+## 14. Git（Workspace をリポジトリとして扱う）
+
+DESIGN.md §3 の GitHub パネルが最終的に答えるのは「①変更確認 → ②コミットメッセージ → ③Commit & Push」だが、その手前に先に決まっていなければならない問いが1つある ── **今開いている Workspace で、そもそも Git 操作を始められるのか。**
+
+Session 3-8-1 で置いたのはその**土台**（git の実行基盤とリポジトリ検出）だけで、Session 3-8-2 でその上に①（変更ファイルの一覧）を載せ、Session 3-8-3 でその一覧に**手を伸ばせる**ようにし（Stage / Unstage。§14.10 / §14.11）、Session 3-8-4 で②と③の前半（Commit。§14.12）を、Session 3-8-5 で③の残り（Push / Pull / Commit & Push。§14.13）を足した。Session 3-8-6 で足したのは、その3つとは並びの違うもの ── **どのブランチの上でそれを行うか**（一覧・切り替え・作成。§14.14）になる。Session 3-8-7 では**新しい機能を1つも足さず**、ここまでの6つを利用者が実際に通す1本の流れ（Status → Stage / Unstage → Commit → Push / Pull → ブランチの作成・切り替え）として production ビルド版で通し、ドキュメントの記録を実装に合わせて揃えた（確認の内訳は [DEVELOPMENT.md](DEVELOPMENT.md) §4）。
+
+Session 3-8-8 で足したのは、ここまでのどれとも並びが違う ── **アプリの外で起きた Git の変化に、手を触れずに追いつくこと**（`.git` の監視。§14.15）になる。3-8-7 までは「調べるのは呼ばれたときだけ」で通していたが、内蔵 Terminal（§13）から `git add` / `git commit` / `git switch` を叩けるようになった時点で、その前提は**同じアプリの中で**崩れている。
+
+Session 3-8-9 で足したのは、一覧の**中身**に手が届くようになること（差分と破棄。§14.16）── ここまでの一覧は「何が変わったか」までで、**どう変わったか**を見る手立ても、その1行だけを**やめる**手立ても無かった。この2つは同じ行の上に並ぶが性質は正反対で、片方は何も変えず、もう片方は Git 機能で唯一、利用者の書いたものを消す。
+
+```
+Renderer          git:get-repository（要求は void）
+                  git:stage / git:unstage（要求は相対位置1つ、またはグループの区別）
+                  git:commit（要求はメッセージ1つ・§14.12）
+                  git:push / git:pull（要求は void・§14.13）
+                  git:commit-and-push（要求はメッセージ1つ・§14.13）
+                  git:list-branches（要求は void・§14.14）
+                  git:switch-branch / git:create-branch（要求は名前1つ・§14.14）
+                  git:get-file-diff（要求は位置1つ + グループ1つ・§14.16）
+                  git:discard（要求は位置1つ + グループ1つ・§14.16）
+   ↓
+Main handler      handlers/git.ts        読み取りは確かめる値が無い／書き込みは値を1つだけ確かめる
+   ↓
+Main domain       git/gitRepository.ts   噛み合わせ（読み取り）
+                  git/gitStage.ts        噛み合わせ（書き込み・§14.11）
+                  git/gitCommit.ts       噛み合わせ（Commit・§14.12）
+                  git/gitSync.ts         噛み合わせ（Push / Pull / Commit & Push・§14.13）
+                  git/gitBranches.ts     噛み合わせ（ブランチの一覧 / 切り替え / 作成・§14.14）
+                  git/gitDiff.ts         噛み合わせ（差分・§14.16）
+                  git/gitDiscard.ts      噛み合わせ（破棄・§14.16）
+   ├── git/gitQueue.ts         走るのは常に1本（§14.11）
+   ├── git/gitOperationResult.ts 応答の形（書き込み操作で共有・§14.12）
+   ├── git/gitCommands.ts      引数を組み立てられる唯一の場所
+   ├── git/runGit.ts           git を実行する唯一の場所（cwd は現在の Workspace）
+   ├── git/gitExecutable.ts    git 本体を PATH から辿る
+   ├── git/gitPathspec.ts      pathspec として通してよい形か（純粋・§14.10）
+   ├── git/gitOutput.ts        出力の読み取り / パスの比較 / ブランチの一覧（純粋・§14.14）
+   ├── git/gitStatusOutput.ts  status --porcelain=v2 の読み取り（純粋・§14.8）
+   ├── git/gitBlob.ts          ls-files / ls-tree の読み取り・object 名の検査（純粋・§14.16）
+   └── git/gitFailure.ts       stderr の分類（純粋）
+
+Main event      git/gitWatcher.ts        `.git` を見張る（Session 3-8-8・§14.15）
+   ├── git/gitWatchPaths.ts     拾う名前か（純粋・§14.15）
+   └── git/gitChangeSchedule.ts いつ配るか（純粋・§14.15）
+   ↓
+Renderer        `git:changed` → `files:changed` と同じタイマーへ合流（§14.15）
+```
+
+**読み取りのチャンネルは1本のまま増やしていない。** 変更ファイルの一覧は `ready` の中身として返る（§14.8）── ブランチ名と一覧を別々に問い合わせる形にすると、画面の上下が別の瞬間の写しになり、ブランチを切り替えた直後に前のブランチの一覧が新しいブランチ名の下に並びうる。**操作ごとに1本ずつ切る**という §14.2 の規則は書き込む操作に対するもので、同じ画面を組み立てるための読み取りを分けにいく理由にはならない。
+
+その規則どおり、Session 3-8-3 で増えたのは `git:stage` と `git:unstage` の**2本**になる。1本にまとめて「どちらか」を引数で持たせない ── Stage は作業ツリーの姿を index へ写す操作、Unstage は index だけを戻す操作で、いつか片方の意味でもう片方が動く形を作らない。Session 3-8-4 で増えたのも `git:commit` の1本だけで、**何を Commit するかを要求に載せていない**のが Stage / Unstage との違いになる（§14.12）。
+
+Session 3-8-5 で増えた3本のうち2本は、**要求が `void` に戻る**（§14.13）── ネットワークへ出る操作でこそ相手の名前を渡したくなるが、remote 名もブランチ名も refspec も欄そのものを作っていない。3本目の `git:commit-and-push` を「Renderer から2本を続けて呼ぶ」で済ませていないのは、順番待ちが**1回の要求ごとに枠を取る**ため ── その2回の間に別の操作が挟まると「Commit したものを送った」と言えなくなる。
+
+Session 3-8-9 で増えた2本には、**位置1つに加えてグループ1つ**が載る（§14.16）── 一覧は同じファイルを2つのグループに並べることがあるため（§14.8）、位置だけでは「どちらの行を押したのか」が決まらない。読み取りの `git:get-file-diff` を `git:get-repository` に相乗りさせていないのは `git:list-branches` と同じ理由で、**見られているのは1行を選んだ一瞬だけ**にあたる。書き込みの `git:discard` を `git:unstage` と分けてあるのは、あちらが index だけを戻すのに対しこちらが**作業ツリーを消す**ためで、同じチャンネルに区別を引数として持たせるといつか片方の意味でもう片方が動く。
+
+Session 3-8-6 で増えた3本のうち2本には、**初めてブランチ名が載る**（§14.14）。3-8-5 で「名前で指せる形にしない」と決めたのは Push / Pull の**送り先**についてで、切り替え先は事情が違う ── 利用者が一覧から選んだそのものであり、他に指しようが無い。載るのは名前だけで、`--force` も `--merge` も start point も欄そのものを作っていない。読み取りの1本（`git:list-branches`）だけは `git:get-repository` に相乗りさせていない ── 変更ファイルの一覧と違い、**見られているのは面を開いている一瞬だけ**で、相乗りさせると保存のたびにブランチを数え直すことになる（§14.14）。
+
+### 14.1 git 本体を PATH に任せない
+
+`git` とだけ書いて `execFile` に渡すと、Windows の CreateProcess は**作業ディレクトリを先に見る**。Git の作業ディレクトリは利用者が開いた Workspace そのもので、その中に `git.exe` が置かれていることは十分ありうる（clone してきたリポジトリの中身は、この時点ではただのファイルでしかない）。「フォルダを開いて Git パネルを見た」が「そのフォルダの中の実行ファイルが動く」になっては困る。
+
+Terminal が Node / Claude Code に対して引いたのと同じ線で、**PATH はこちらで辿り、実体を確かめてから絶対パスを渡す**。相対の項目（`.` や `bin`）は飛ばす。
+
+規則そのものは `main/platform/executablePath.ts` へ寄せ、Terminal と Git が同じ実装を共有する。2箇所に書くと、片方だけ「相対の項目も拾う」ように直された時点で、その経路からだけ作業ディレクトリの中身が起動されるようになる（Session 3-8-1 での唯一の既存コードの変更がこの切り出しにあたる。`shellCommand.ts` の振る舞いは変わっていない）。
+
+**PATH に居ないこともある。** Git for Windows のインストーラには「Git Bash からのみ使う（PATH に入れない）」という選択肢があり、それを選んだ PC では git は入っているのに PATH からは見つからない。PATH で見つからなかったときだけ、`%ProgramFiles%` などの**環境変数から組み立てた絶対パス**を当たる（`Git\cmd\git.exe`。隣の `bin\git.exe` は Git Bash 用なので指さない）。ここでも「名前だけに落とす」ことはしない。
+
+**解決の結果は覚えない。** 利用者はアプリを開いたまま Git を入れることがあり、控えると「入れたのに使えない」が起動し直すまで続く（Terminal のシェル一覧と同じ理由）。
+
+### 14.2 Renderer から任意の git を実行できる形を作らない
+
+これが Session 3-8-1 の核心にあたる。
+
+`git:get-repository` の**要求は `void`** で、コマンド名も引数も作業ディレクトリも渡す欄が無い。Terminal では「表のどの行か」（`TerminalShellId`）を渡せるようにしたが（§13.1）、Git ではその必要すら無く、Renderer が言えるのは「今の Workspace について調べて」までになる。
+
+**なぜ git の引数を外から渡させてはいけないか。** `git` は引数だけで任意のプログラムを起動できる。
+
+```
+git -c core.pager=<任意のコマンド> log
+git -c alias.x=!<任意のコマンド> x
+git --exec-path=<任意のフォルダ> ...
+```
+
+つまり「git の引数を渡せる API」は、実質「任意のコマンドを実行できる API」にほかならない。Files が絶対パスを受け取らないのと同じく、**危ないものを弾くのではなく、渡せる欄そのものを作らない。**
+
+引数を組み立てられるのは `main/git/gitCommands.ts` だけで、`runGit` はそこが作った `GitCommand` しか受け取らない。**`runGit` は作業ディレクトリも引数に取らない** ── 現在の Workspace を正本から自分で読む。受け取る形にすると、呼び出し側が増えるたびに「どこで実行するか」を決める場所が増え、いずれ Renderer から届いたパスがそこへ入る（`terminalSessions.ts` が cwd を受け取らないのと同じ形）。
+
+シェルは通さない（`execFile` を使い、`shell` は既定の false のまま）。通すと引数が文字列として再解釈され、`&` や `|` を含む値が別のコマンドとして走りうる ── ブランチ名やファイル名にそういう文字は実際に入る。
+
+**Session 3-8-2 以降で操作を足すときも、チャンネルは操作ごとに1本ずつ切る。** 要求に載るのはその操作に固有の値（commit メッセージ・Workspace root からの相対位置・ブランチ名）だけで、git の引数そのものは載せない。値は必ず独立した1つの引数として渡し、`--` の後ろへ置く（`-` で始まるブランチ名・ファイル名は実在する）。
+
+### 14.3 アプリが呼ぶ git にだけ渡す環境変数
+
+Terminal の `terminalEnvironment.ts` とは目的が違う。あちらは「素の PowerShell を開いたときと同じに見えること」を目指すが、こちらは**アプリが黙って呼ぶプロセス**なので「利用者を待たせない」ことを優先する。
+
+| 変数                    | 何のために                                                                                  |
+| ----------------------- | ------------------------------------------------------------------------------------------- |
+| `GIT_TERMINAL_PROMPT=0` | 端末が付いていないため、尋ねようとされると待ち続ける。尋ねる代わりに即座に失敗させる        |
+| `GIT_OPTIONAL_LOCKS=0`  | 読み取りのために `.git/index.lock` を取らない。利用者自身の `git commit` を横から邪魔しない |
+| `LC_ALL=C`              | 失敗の文章の言語を固定する（§14.6 の分類と対になっている）                                  |
+
+`ELECTRON_RUN_AS_NODE` / `NODE_OPTIONS` は Terminal と同じく落とす。git 自身は node を起動しないが、**フックと credential helper は利用者が用意した任意のプログラム**で、その中に node が居ることは珍しくない。
+
+利用者自身が設定した `GIT_*`（`GIT_SSH_COMMAND` など）は消さない ── 消すと、意図して変えた振る舞いがアプリの中でだけ違うことになる。
+
+`GIT_TERMINAL_PROMPT=0` は Session 3-8-1 の `rev-parse` には要らないが、先に決めてある。Push / Pull（Session 3-8-5）でこれが無いと、認証未設定の PC で Git パネルが固まる ── 設計判断 7（credential.helper 未設定時は強行せず案内する）は「固まらない」が前提になっている。
+
+### 14.4 Workspace root がリポジトリ root でなければ操作しない
+
+判定の順に意味がある。
+
+```
+1. Workspace はあるか              → 無ければ調べる先が無い
+2. rev-parse --show-toplevel       → リポジトリか / その root はどこか
+3. root は Workspace root と同じか → 違えば操作しない
+4. HEAD はどこを指しているか        → ブランチ / detached
+```
+
+**3 を 4 より先に置く。** root が食い違う状態でブランチ名だけ出すと、画面には Git が使えるように見えて、実際には**見えていないファイルまで Commit / Push の対象**になる。Files に出ていない変更が変更ファイル一覧に並ぶことになり、利用者から見て何を送ったのか分からない。だから「使えるかどうか」を先に確定させてから中身を聞く。サブフォルダ側のリポジトリを勝手に選ぶこともしない。
+
+**Renderer へ渡すのはリポジトリの名前だけで、その絶対パスは渡さない。** 渡せば、それを指して開き直させる API が欲しくなる（Files が絶対パスを渡さない §9.2 と同じ線）。開き直すのは利用者がフォルダ選択ダイアログで行う。
+
+**「同じ場所か」の判定は厳密一致ではない。** git は区切りを常に `/` で返し、Workspace root は OS の表記で持つ。Windows のパスは大文字小文字も区別しない。ここを厳密一致にすると、リポジトリ root を開いているのに必ず食い違い、Git パネルが何もできなくなる。文字列としての正規化は `gitOutput.ts`（純粋・テスト対象）が持ち、symlink / ジャンクションを解いた比較だけを `gitRepository.ts` が足す（`realpath` に触れた時点でテストで固定できなくなるため）。
+
+**ブランチ名は `symbolic-ref --quiet --short HEAD` で読む。** `rev-parse --abbrev-ref HEAD` ではなく、というのは、**1つも commit が無いリポジトリ（`git init` 直後）でも答えが返る**ため。HEAD は最初から `refs/heads/main` を指していて、その先がまだ無いだけになる。`--quiet` を付けてあるので detached HEAD では何も言わずに 1 で終わり、それは失敗ではなく「ブランチの上に居ない」という答えとして扱う。
+
+detached を「ブランチ名の欄に commit を出す」形にしていないのは、**利用者が次に取る行動が違う**ため。ブランチの上に居れば Commit はそのブランチに積まれるが、detached ではどこにも属さない commit になる。
+
+### 14.5 いつ調べ直すか
+
+Main は状態を覚えない。`describeGitRepository()` は呼ばれたときに毎回調べるだけで、Main から状態を押し出す経路は無い（Session 3-8-8 で `.git` を見張るようになった後も、そこから流れるのは**「調べ直して」という合図1つ**で状態そのものではない。§14.15）。
+
+調べる契機は次のとおり。
+
+| 契機                     | 実装での現れ方                                                  |
+| ------------------------ | --------------------------------------------------------------- |
+| Git パネルを出した       | `useGitRepository` が動き出す時点（パネルを畳めば状態も消える） |
+| Workspace の切り替え     | `workspace.id` が変わったら調べ直す                             |
+| 利用者の手動更新         | バーの再取得ボタン                                              |
+| 作業ツリーのファイル変化 | `files:changed`（Session 3-8-2 で追加）                         |
+| `.git` の変化            | `git:changed`（Session 3-8-8 で追加。§14.15）                   |
+| Stage / Unstage の後     | **操作の応答に載って届く**（Session 3-8-3 で追加。§14.11）      |
+| Commit の後              | **操作の応答に載って届く**（Session 3-8-4 で追加。§14.12）      |
+
+**`files:changed` は Session 3-8-2 で購読するようになった。** 3-8-1 で購読していなかったのは、出していたのがブランチ名だけで、それは作業ツリーのファイルが変わっても動かないためになる。変更ファイルの一覧が入ったことで事情が変わった ── 保存するたび、ファイルを1つ作るたびに一覧は変わり、**手で更新しない限り古いままの一覧は「変更したのに出てこない」という形で嘘をつく。**
+
+そこで拾えるのは作業ツリー側だけになる。`.git` の中は `files:changed` の対象外なので（§12.1 の除外規則）、`git add` も `git commit` も `git switch` もこの経路には載らない ── **Session 3-8-7 まで手動の更新が要ったのはそのため**で、Session 3-8-8 で足した `git:changed` がその残り半分を運ぶ（§14.15）。
+
+**2つを Renderer 側で同じタイマーへ合流させる**（`useGitRepository.ts`）。変化は 0.4 秒だけ束ねてから1回調べる ── 別々のタイマーに分けると、`git commit` のように両方が同時に動く操作で読み直しが2回走り、しかも1回目は「index は空になったが作業ツリーはまだ」という途中の写しになりうる。
+
+**手動の更新は残してある。** 監視は失敗しうる（再帰監視が使えない OS・権限が無い・ネットワークドライブ）し、失敗しても Git パネルは立っているべきものにあたる ── 自動で追いつかない環境で、押す先が1つも無い形にしない。
+
+**変化の中身は見ない。** 「この変化なら一覧は変わらない」を Renderer 側で先回りして決めると、その判断が git の判断と食い違ったときに一覧が古いまま止まる。
+
+状態は Shell の外側へ持ち上げていない。Terminal（`TerminalProvider`）や Editor（`EditorProvider`）が外に居るのは**パネルより長く生きる必要のあるもの**（OS のプロセス・未保存の Model）を抱えているためで、Git が持っているのは調べ直せば済む写しでしかない。パネルを畳めば消え、開けば調べ直す ── それがそのまま「パネルを出したときに調べる」という契機になっている。
+
+問い合わせている間に Workspace は切り替わりうるため、応答には `workspaceId` が載る（§12.2 と同じ理由）。突き合わせずに書き込むと、切り替え直後に前の Workspace のブランチ名が一瞬出る。追い越しは通し番号で捌く ── 「実行中なら弾く」形にすると、切り替えが実行中に起きたときに次の問い合わせが始まらないまま止まる。
+
+### 14.6 生の stderr を Renderer へ渡さない
+
+git の失敗の説明は開発者向けの英文で、複数行にわたり、`hint:` の付いた助言まで混ざる。そのまま UI に出すと、利用者が読むのは「何かに失敗した英語の文章」でしかない。
+
+そこで**分類するのは Main**（`gitFailure.ts`）で、Renderer へ渡るのは分類だけになる。元の文章は Main のログへ残す（`IpcErrorPayload` の `detail` と同じ分担）── 開発中に原因を追う手段まで失う理由は無い。
+
+分ける基準は「**利用者の次の一手が変わるか**」。次の一手が同じものを分けても、UI に同じ案内が2つ並ぶだけになる。
+
+| 分類                            | 利用者の次の一手                                                            |
+| ------------------------------- | --------------------------------------------------------------------------- |
+| `dubious-ownership`             | `git config --global --add safe.directory` で信頼する（Windows で最も多い） |
+| `no-work-tree`                  | bare リポジトリ。clone した作業用のフォルダを開く                           |
+| `permission-denied`             | フォルダのアクセス許可を確認する                                            |
+| `timeout`                       | もう一度試す                                                                |
+| `unreadable-output` / `unknown` | もう一度試す / ログを見る                                                   |
+
+**知らない文章は `unknown` に倒す。** 近そうな分類へ寄せると、間違った直し方を案内することになる。
+
+分類が英文を当てにできるのは、アプリが呼ぶ git にだけ `LC_ALL=C` を渡しているため（§14.3）。この2つは対になっていて、片方だけ変えると分類が環境ごとに割れる。
+
+**「リポジトリではない」は失敗の表に入れていない。** それは `rev-parse` に対する正常な答えの1つ（未初期化のフォルダを開いている）であって、失敗ではない。同じ表に混ぜると、状態と失敗の区別が溶ける。
+
+### 14.7 失敗を IpcResult の失敗にしない
+
+Git が入っていない・リポジトリではない・root が食い違う ── どれも `IpcError` にせず、応答の中の**状態**として返す。汎用のエラー文言（`api/result.ts` の対応表）に丸められると、Git パネルが「何をすればよいか」を出せなくなるため（`workspace-folder:open` の取り消しを失敗にしていないのと同じ理由）。
+
+**Git が入っていない PC でアプリが落ちる理由にもしない**（設計判断 6）。使えないのは Git パネルだけで、Files / Editor / Terminal はそのまま動く。
+
+Git パネルが出す案内はほとんどが**利用者に直せる状態**を指しているため、文言はすべて「次の一手」とセットにしてある。理由だけを出して終わると、利用者から見て「壊れている」と区別が付かない。未初期化のフォルダに `git init` のボタンを出さない代わりに、どうすれば始められるかを書いてあるのもこのためになる（設計判断 1）。
+
+### 14.8 変更ファイルの一覧を読む（Session 3-8-2）
+
+Git パネルの①（変更確認）にあたる。Main が読むのは1回の `git status` で、Renderer へ渡るのは**分類された一覧だけ**になる。
+
+```
+git --no-optional-locks status --porcelain=v2 --branch -z --untracked-files=normal
+```
+
+引数の1つ1つに理由がある（`main/git/gitCommands.ts`）。
+
+| 引数                       | 何のために                                                               |
+| -------------------------- | ------------------------------------------------------------------------ |
+| `--no-optional-locks`      | 読むだけで `.git/index.lock` を取らない（利用者自身の git を邪魔しない） |
+| `--porcelain=v2`           | 機械が読むための形。人向けの出力と違い、git の版で文言が変わらない       |
+| `--branch`                 | ブランチ・upstream・ahead / behind の見出し行が付く                      |
+| `-z`                       | 区切りを NUL にする。**名前が引用符で包まれなくなる**（下記）            |
+| `--untracked-files=normal` | 未追跡はフォルダ単位でまとめる。`all` だと `node_modules` で数万行になる |
+
+#### `--no-optional-locks` は、Session 3-8-8 で意味が1つ増えた
+
+3-8-2 で置いた時点の理由は「利用者自身の `git commit` を横から邪魔しない」だけだった。`.git/index` を見張るようになった今、この指定は**監視が成立する前提**そのものになっている。
+
+`git status` は既定で、読んだついでに index の stat キャッシュを書き戻す（`.git/index` の更新）。`.git/index` を見張りながらこれを許すと、
+
+```
+.git/index が変わった → git:changed → git status → .git/index が変わった → …
+```
+
+という輪ができ、**アプリが自分の読み取りで自分を呼び戻し続ける。** `--no-optional-locks`（サブコマンドより前に置く git 本体の引数）と `GIT_OPTIONAL_LOCKS=0`（§14.3）はどちらもこの書き戻しを止めるため、読み取りは index を**読むだけ**で終わる。片方が外れても効くよう二重に掛けてあるのは 3-8-2 からの形のままで、**そこへ手を入れると輪が生まれる**という理由が新しく足された、という関係になる。
+
+書き込む操作（Stage / Commit / 切り替え）はもちろん index を書くので、応答で状態を返した後に `git:changed` が1回届く。それは読み直し1回で終わる ── **読み直しが次の変化を生まない**ため（実測: アプリ自身の Stage 1回に対して `git:changed` は1本。[DEVELOPMENT.md](DEVELOPMENT.md) §4）。
+
+**`-z` が効いているのは区切りだけの話ではない。** これが無いと git は「変わった名前」を引用符で包み `\303\251` のようにエスケープして返す（`core.quotepath`）── 日本語のファイル名は必ず化け、それを解くコードをこちら側に持つことになる。`-z` なら生のバイト列がそのまま返り、**解く処理そのものが要らなくなる**（空白・引用符・改行を含む名前も同じ理由で通る）。
+
+**読み替えは Main に閉じる。** `XY` の2文字も、`1` / `2` / `u` / `?` のレコード種別も、`R100` のスコアも Renderer へは渡らない（`shared/git/status.ts` が持つのは分類だけ）。porcelain の版が変わっても直すのは `gitStatusOutput.ts` 1つで済む。
+
+読み取りで外せない判断が3つある。
+
+- **`2`（rename / copy）のレコードだけが、その中に NUL を1つ含む。** 元の path が次のフィールドとして続くため、区切りで割っただけでは1件が2件に見える ── rename が「新しいファイル」と「知らない path の行」に化ける
+- **`XY` は2つの答えを持つ。** `X` が index 側、`Y` が作業ツリー側で、`MM` のファイルは staged と unstaged に**1件ずつ**並ぶ。1行に畳むと、片方だけを戻す操作（Session 3-8-3 の Unstage）が行の上で表せない
+- **知らない形は「読めなかった」に倒す。** 途中まで読めた分を返さず `unreadable-output` にする ── 黙って1件欠けた一覧は、案内が出るより危険にあたる（利用者はそれを「変更のすべて」として読む）
+
+**衝突（unmerged）は staged / unstaged と別のグループにしてある。** 解決するまで Stage も Unstage も意味を持たないため、同じ場所に並べると成立しない操作を勧めることになる。
+
+**path の形も確かめてから通す。** git が返すのはリポジトリ root からの相対位置（区切りは `/`）で、Workspace root ＝ リポジトリ root のときしか一覧を出さない（§14.4）ため、それはそのまま Files / Editor の relativePath になる。それでも `..` を含む形・`/` で始まる形・`.git` の中は受け付けない ── clone してきたものの中身はこの時点ではただのデータでしかなく、**境界の判断を「git は変な path を返さない」という前提に預けない**（実際に開くときの検証は `main/files/workspacePath.ts` が独立に行うので、ここは二重の1枚目にあたる）。
+
+### 14.9 一覧の見せ方（Renderer）
+
+**Git 専用のファイルの開き方を作らない。** 行から開くのは `openFile({ relativePath, name })`（§12.2）で、Files のツリーの行・カラムの行・検索結果とまったく同じ入口になる。別の経路を作ると、「タブが2枚できる」「未保存の確認が効かない」といった差が Git から開いたときだけ現れる。同じ形にできるのは、Main から届く path が Workspace root からの相対位置だからにほかならない（§14.8）。
+
+**開けないものは button にしない。** 削除されたファイルと未追跡のフォルダは「今は押せない」のではなく**押す先が無い**ため、`disabled` の button ではなく `span` にしてある。開ける条件は `gitChanges.ts`（純粋・テスト対象）が1箇所で持つ ── 行を描く側の if に散らすと、削除された行だけ押せてしまう形が生まれる。
+
+**Session 3-8-2 の段階で押せたのは2つだけ**（再取得と、行を押してファイルを開く）。Stage / Unstage / Commit / 破棄のボタンは1つも置いていなかった ── 押しても何も起きないボタンや半分だけ効く操作を先に並べると、利用者はそれを「壊れている」と受け取る（3-8-1 で `git init` のボタンを出さなかったのと同じ判断）。3-8-3 で足したのも、その原則どおり**本当に効くものだけ**になる（§14.11）。3-8-4 の Commit も同じで、押せない条件（ステージ済みが無い / メッセージが空 / 他の Git 操作が動いている）は**理由の一言と一緒に**出す（§14.12）。
+
+**並べ替えを持たない。** git が返した順（path 順）のまま出す。一覧は数秒ごとに読み直されうるため、種類ごとにまとまっていることより**並びが動かないこと**の方が効く（押そうとしていた行が入れ替わらない）。
+
+グループの順は「利用者が次に触るもの」から並べてある ── 競合 → ステージ済みの変更 → 変更 → 未追跡のファイル。上から下へ読むと Commit に近い順になり、DESIGN.md §3 の並び（設計判断 2）とも揃う。空のグループは出さない。
+
+**記号だけに意味を預けない。** 行頭の記号は `git status` の短い形と同じ字（`M` / `A` / `D` / `R` / `C` / `T` / `?` / `!`）で、端末で見ている字と揃う。色は補助でしかなく、種類の言葉は読み上げにも hover にも渡している。
+
+**upstream が無いときは欄そのものを出さない。** 「0 / 0」で表すと、同期済みと**比べる相手が無い**が同じ表示に潰れる。upstream はあるが差が分からない（ref が手元に無い）場合も 0 とは書かない。
+
+### 14.10 pathspec は path ではない（Session 3-8-3）
+
+Stage / Unstage で初めて、**Renderer から届いた値が git の引数に入る**。ここが Session 3-8-3 でいちばん気を遣った場所になる。
+
+Files が受け取る相対位置と、git へ渡す値は**同じ文字列でも意味が違う**。git が受け取るのは pathspec ＝「対象を選ぶ式」で、次のように働く。
+
+| 値              | Files での意味     | git（pathspec）での意味                        |
+| --------------- | ------------------ | ---------------------------------------------- |
+| `a*.txt`        | その名前のファイル | **glob。** 他のファイルまで巻き込む            |
+| `:(exclude)src` | その名前のファイル | **魔法。** path ですらない（除外の指定）       |
+| `:/`            | その名前のファイル | 魔法（リポジトリ root からの指定）             |
+| `` （空文字）   | Workspace root     | **すべてに近い。** 1件のつもりが全件になりうる |
+| `dir`           | そのフォルダ       | その下**すべて**（前方一致）                   |
+
+判断は2段構えにしてある。
+
+**1. 通してよい形かを確かめる**（`main/git/gitPathspec.ts`・純粋・テスト対象）。土台には Files と**同じ関数**（`normalizeWorkspaceRelativePath`。§9.3）を使う ── 「Workspace の中の相対位置か」という問いは同じもので、2箇所に書けば片方だけ直された時点でその経路からだけ外へ出られる（`executablePath.ts` を Terminal と Git で共有しているのと同じ理由）。その上に git の分だけを足す。
+
+- **空文字を受け付けない**（Files では root を指す正常な値だが、pathspec では「1件」ではない）
+- **先頭の `:` を名指しで弾く**（`normalizeWorkspaceRelativePath` は別の理由で `:` を弾くが、その理由が無くなった日に穴が空かないよう、こちらでも確かめる）
+- **`.git` の中を弾く**（git 自身も拒むが、拒み方は版によって変わる。読み取り側の `gitStatusOutput.ts` と対になる）
+- **C0 制御文字を弾く**（Windows では作れない名前で、ログにも UI にも壊れた形で出る）
+
+**2. 弾けないものは、意味の側を止める。** `*` `?` `[` を含むファイル名は POSIX では実在しうるため、弾くと**一覧には出るのに永久に Stage できないファイル**が生まれる。代わりに git 本体の引数で解釈そのものを切る。
+
+```
+git --literal-pathspecs add -- <pathspec>
+```
+
+`--` と `--literal-pathspecs` は役割が違い、**片方だけでは足りない。**
+
+| 仕掛け                | 止めるもの                                          |
+| --------------------- | --------------------------------------------------- |
+| `--`                  | 値が**オプション**として読まれること（`-lead.txt`） |
+| `--literal-pathspecs` | 値が**魔法や glob**として読まれること（`a*.txt`）   |
+
+これは §14.2 の「危ないものを弾くのではなく、渡せる欄そのものを作らない」を、**渡さざるを得ない値**に対して適用した形にあたる。値を疑い続けるのではなく、値が値でしかない状態を作る。
+
+前後に空白のある名前（`notes.txt `）を `trim` しないことも Files と同じ（§10.2）── 判定は写しに対して行い、git へ渡すのは生の文字列に揃えた形になる。日本語・空白・引用符・先頭 `-`・glob に見える名前は、実際の git に対するテスト（`gitStageRepository.test.ts`）で1件ずつ固定してある。
+
+### 14.11 Stage / Unstage（Session 3-8-3）
+
+#### 1つの仕事は「読む → 動かす → 読み直す」
+
+```
+1. 今の状態を読む      → 操作できるか / 対象は何か
+2. git を動かす        → add / reset / rm --cached
+3. もう一度状態を読む  → 応答に載せる（成功でも失敗でも）
+```
+
+**1 と 3 で同じ読み取り経路を使う**（`gitRepository.ts`）。対象を決めた一覧と、操作の後に画面へ出す一覧が同じところから出てくるため、「画面に出ているもの」と「実際に Stage されたもの」が食い違わない。
+
+**応答に操作後の状態を載せる**ので、Renderer は続けて `git:get-repository` を呼ばない。2回に分けると、その間に挟まった別の変化を「押した操作の結果」として出すことになる。**失敗でも読み直す** ── 失敗の後に古い一覧を残すと、利用者から見て「押したのに何も変わらない」になり、本当の状態が分からなくなる。
+
+#### 走る git は常に1本（`gitQueue.ts`）
+
+読み取りだけだった 3-8-2 までと違い、index に書き込む操作は同時に走れない（`.git/index.lock` の取り合いで、片方が理由も無く失敗する）。
+
+**ボタンを `disabled` にするだけでは足りない。** Renderer 側の抑止が止められるのは「同じ行の二度押し」までで、別の行の操作や、`files:changed` から始まる自動の読み直しは止まらない。順番を決めるのは git を動かす側 ＝ Main になる。
+
+**弾かずに並ばせる。** 「走っている間は断る」形にすると、押したのに何も起きない（しかもいつ押せるのか分からない）が起きる。並べておけば押した順に必ず効く。
+
+束ねる単位は「1回の git」ではなく**1つの仕事**にしてある ── `runGit` の中で待たせると、上の 2 と 3 の間に割り込まれる。その代わり、枠の中から順番待ちを呼んではいけない（`describeGitRepository` が待つ版、`readGitRepositoryOutcome` が待たない版）。
+
+#### 何を Stage するかは、Main が読んだ状態から決める
+
+要求に載るのは「ファイル1件」か「どのグループか」だけで、**path の配列は載らない**（載せた瞬間、任意の複数 path を渡せる欄になる）。グループの中身は Main がその場で読み直した一覧から決める ── 押すまでの間に消えたファイルや、競合に変わったファイルを巻き込まないためでもある。
+
+**`git add -u`（作業ツリー全体）は使わない。** あれは衝突しているファイルまで index に載せる ＝ **黙って「解決済み」にする**。画面では競合を別のグループに分けてある（§14.8）のに、「変更のすべて」を押したら競合まで解決された、という食い違いを作らない。
+
+pathspec は Windows のコマンドラインの上限（32767 文字）に収まるよう分けて渡す。分けた2回目で失敗すれば途中まで進んだ状態になるが、**3 の読み直しでその姿がそのまま画面に出る**ので嘘にはならない。
+
+#### Unstage は HEAD の有無で経路を分ける
+
+| 状態               | 実行するもの                        | なぜ                                                   |
+| ------------------ | ----------------------------------- | ------------------------------------------------------ |
+| commit がある      | `git reset --quiet HEAD -- <path>`  | index だけを HEAD の中身へ戻す（作業ツリーに触らない） |
+| まだ commit が無い | `git rm --cached --force -- <path>` | HEAD が無いので「戻す先」も無い。index から取り除く    |
+
+**初回 commit 前に `reset` / `restore --staged` を通さない。** git の版によっては `fatal: could not resolve 'HEAD'` で断られる（手元の 2.54 では `reset` が通り、`restore` は断られた）── いちばん人が触る場面で、結果を git の版に委ねない。`rm --cached` なら戻り先は「未追跡」になり、それは初回 commit 前の利用者の期待とも合う。
+
+`--force` を付けても**作業ツリーのファイルは消えない**（`--cached` が付いている限り git が触るのは index だけ）。外れるのは「index の中身が作業ツリーとも HEAD とも違うときは念のため断る」という安全弁の方で、ここではそれが邪魔になる（Stage した後にもう一度書き換えたファイルで、Unstage だけが断られる）。
+
+HEAD があるかどうかは `rev-parse --verify --quiet HEAD` で確かめる。`symbolic-ref` の結果から判断しない ── あれは commit がまだ無くてもブランチ名を答える（§14.4）ため、「ブランチの上に居る」と「commit がある」は別の問いになる。
+
+**rename では元の位置も一緒に戻す。** index の上で rename は「元の削除」と「新しい位置の追加」の2つで、新しい位置だけを戻すと**削除だけが Stage に残る** ── 画面では1行だったものを戻したのに、別の1行が残る。copy（`C`）では元が変わっていないので、対象は新しい位置だけになる。
+
+#### 失敗は、状態としては返さない
+
+`GitFailureReason`（§14.6）と別に `GitOperationFailureReason` を持つ。**出す場所が違う**ためで、あちらは Git パネル全体を案内の画面へ差し替える分類、こちらは**一覧を出したまま上に1行だけ添える**分類になる。同じ型にすると、`no-work-tree` のように操作の失敗としては起こりえないものまで混ざる。
+
+| 分類                  | 次の一手                                                           |
+| --------------------- | ------------------------------------------------------------------ |
+| `index-locked`        | 他の git（端末の `git commit` など）を終えてやり直す               |
+| `path-not-found`      | 対象が消えた / 既に外れていた。一覧を見直す                        |
+| `nothing-to-do`       | グループが空になっていた（押しても何も起きない、を黙って通さない） |
+| `not-ready`           | Workspace が閉じた・リポジトリでなくなった                         |
+| `permission-denied`   | フォルダのアクセス許可を見る                                       |
+| `timeout` / `unknown` | もう一度試す / ログを見る                                          |
+
+**`IpcResult` の失敗になるのは、要求そのものが壊れている場合だけ**（pathspec として通せない値・知らないグループ名）。それは利用者に起こることではなく Renderer 側の不具合なので、`INVALID_REQUEST` として返す。生の stderr を渡さない方針は 3-8-1 のまま（分類するのは Main の `gitFailure.ts`）。
+
+#### UI（Renderer）
+
+**押せるのは、グループから決まる操作だけ。** 行に置く操作を「その行がどのグループに居るか」から決める（`gitChanges.ts`・純粋・テスト対象）── 行の `kind` から決めると、同じ `modified` でも staged なら外す側・unstaged なら載せる側、という判断をもう一度どこかで持つことになる。
+
+| 場所                   | 置くもの                                                        |
+| ---------------------- | --------------------------------------------------------------- |
+| 変更 / 未追跡 の行     | `＋`（Stage）                                                   |
+| ステージ済み の行      | `−`（Unstage）                                                  |
+| 変更 / 未追跡 の見出し | 「すべて Stage」                                                |
+| 競合 の行・見出し      | **置かない**（解決するまで両方とも成立しない）                  |
+| ステージ済み の見出し  | **置かない**（すべて Unstage は Commit の中身を丸ごと空にする） |
+
+競合の行に `disabled` のボタンを置かないのは、開けないものを button にしていない（§14.9）のと同じ判断にあたる ── 「今は押せない」ではなく「押す操作が無い」。
+
+アイコンは Files と同じ描き方（その場で描く SVG・`currentColor`・16 の viewBox）にしてある。CSP を1文字も緩めないためで、置き場所だけはドメインの中（`git/GitIcons.tsx`）にした ── 共有するのは描き方であって、Files のアイコンの表に Git の操作を混ぜない。
+
+**止めるのは押した対象だけ。** 処理中でもパネル全体は生きている（1件の Stage で一覧ごと押せなくすると、続けて何件も Stage するという普通の使い方が1件ずつ待つ作業になる）。二重の要求は目印の集合で止め、**state と ref の両方に持つ** ── state だけだと、描き直しを待つ間に届いた2つ目が古い写しを見て通る。
+
+### 14.12 Commit（Session 3-8-4）
+
+Git パネルの②（コミットメッセージ）と③の前半にあたる。増えたチャンネルは `git:commit` の**1本**で、要求に載るのは利用者が書いた文章だけになる。
+
+#### 何を Commit するかは、要求に載らない
+
+```
+git commit --quiet --cleanup=whitespace --file=-
+```
+
+pathspec も `-a` も付いていない。つまり **対象は index の中身そのもの**で、Renderer から「このファイルを Commit」と言える欄が無い（`shared/ipc/contracts/git.ts`）。欄を作ると、画面に「ステージ済み」として出ているものと、実際に Commit されるものが別々に決まりうる。
+
+この形がそのまま、Session 3-8-4 でいちばん守りたい保証になっている。
+
+| 状態                    | Commit した結果                                    |
+| ----------------------- | -------------------------------------------------- |
+| staged `A`              | **`A` だけが commit に入る**                       |
+| unstaged `B`            | そのまま残る（index に無いため）                   |
+| untracked `C`           | そのまま残る（index に無いため）                   |
+| `A` を Stage 後に再編集 | Stage した時点の中身が入り、続きは unstaged に残る |
+
+実際の git に対して `gitCommitRepository.test.ts` で1件ずつ固定してある。
+
+#### 利用者が書いた文章は、引数ではなく標準入力から渡す
+
+Stage / Unstage で引数に入ったのは **位置**（pathspec）だったが、Commit で入るのは **文章**になる。これはコマンドラインに載せない。
+
+`execFile` はシェルを通さない（§14.2）ので、引数に載せてもそれ自体で別のコマンドが走ることは無い。それでも標準入力を選ぶのは、引数に載せると**別々の配慮が4つ同時に要る**ため。
+
+| 引数に載せると要る配慮                       | 標準入力なら |
+| -------------------------------------------- | ------------ |
+| Windows のコマンドラインの上限（32767 文字） | 関係が無い   |
+| 複数行が1つの引数として渡るか                | 関係が無い   |
+| `-x` で始まる文章がオプションと読まれないか  | 関係が無い   |
+| プロセス一覧・監査ログへの写り込み           | 載らない     |
+
+pathspec で「弾くのではなく、値が値でしかない状態を作る」（§14.10）としたのと同じ形にあたる。危ない使われ方を1つずつ潰すのではなく、使われる経路そのものを無くす。
+
+`runGit` に足したのは `input` の1つで、**実行ファイル・引数・作業ディレクトリを受け取らない**という線は動いていない（`main/git/runGit.ts`）。git が読む前に終わったときの EPIPE は握り潰す ── それは「git を動かせなかった」ではなく、その git の終了コードで既に分かっていることになる。
+
+#### `--cleanup=whitespace` を明示する
+
+git の後始末の既定は「編集させるかどうか」で変わる（編集させるなら `strip`、させないなら `whitespace`）。さらに `commit.cleanup` の設定でも変わる。**版や設定で変わるものを既定に任せない。**
+
+`strip` が効くと `#` で始まる行が黙って消え、`#123 の修正` のようなメッセージが**空になって Commit が失敗する。** `whitespace` が落とすのは前後の空行と行末の空白だけで、それは `normalizeGitCommitMessage` が渡す前に落としている分と重なる ── 入力した文字列がそのまま記録される。
+
+#### メッセージの規則は shared に1つだけ置く
+
+|        |                                                    |
+| ------ | -------------------------------------------------- |
+| 場所   | `shared/git/commitMessage.ts`（純粋・テスト対象）  |
+| 拒む   | 空 / 空白だけ / 10,000 文字超 / NUL などの制御文字 |
+| 通す   | 改行・タブ・日本語・引用符・`#`・先頭の `-`        |
+| 揃える | CRLF と CR を LF へ / 前後の空白を落とす           |
+
+`fileName.ts`（§9.3）と同じ立ち位置になる ── Renderer は入力中にその場で「まだ押せない」を出す必要があり、1文字打つたびに IPC を往復させるわけにはいかない。2箇所に書けば、片方だけ直された日に「ボタンは押せるのに Main が弾く」が生まれる。
+
+**同じ関数を使うことと、検証を Renderer へ委譲することは別の話。** Main は受け取った文字列を必ずこの関数へ通してから git を触り（`main/ipc/handlers/git.ts`）、通せない値は `INVALID_REQUEST` として返す ── Renderer 側でボタンが押せなくなっている以上、ここへ届くのは Renderer の不具合であって利用者に起こることではない。
+
+改行を残しているのは、Commit メッセージが「要約 + 空行 + 本文」という形を取りうるため。**渡し方が標準入力なので、許すために特別な配慮が要らない。**
+
+#### 押す前に分かることは、押した後に git へ聞かない
+
+1つの仕事は Stage / Unstage の「読む → 動かす → 読み直す」に **1つ挟まった**形になる（`main/git/gitCommit.ts`）。
+
+```
+1. 今の状態を読む   → Commit できる状態か / ステージ済みは何件か
+2. 名乗りを確かめる → git var GIT_AUTHOR_IDENT
+3. git commit       → メッセージは標準入力から
+4. もう一度読む     → 応答に載せる（成功でも失敗でも）
+```
+
+1 と 2 で分かることを git commit に聞かないのは、**聞くと hook が先に走る**ため。通らないと分かっている Commit のために、リポジトリの lint やテストを動かすことになる。
+
+| 押す前に分かること      | どこで                                 | 分類                   |
+| ----------------------- | -------------------------------------- | ---------------------- |
+| 競合が残っている        | 1 で読んだ一覧（`changes.conflicted`） | `unresolved-conflicts` |
+| ステージ済みが1件も無い | 1 で読んだ一覧（`changes.staged`）     | `nothing-to-do`        |
+| 名乗りが決まっていない  | 2（`git var GIT_AUTHOR_IDENT`）        | `identity-missing`     |
+
+**空の Commit を作る経路は持たない**（`--allow-empty` は使わない）。押したのに何も起きないの別の形にあたる。
+
+#### 名乗りはアプリが決めない
+
+`user.name` / `user.email` が決まっていなければ Commit は失敗として案内するだけで、**Fluvix Nexus 側から設定することはしない。** 名乗りはリポジトリの履歴に永久に残るもので、アプリが推測した値を黙って刻むと利用者は後から直せない。設定の UI も持たない（Session 3-8-4 の範囲外）。
+
+実 git で確かめた挙動が2つある。
+
+- `user.email` を外すと、git はホスト名から作った宛先（`…@host.(none)`）を**自分で断る**
+- `user.name` を外しただけでは、git は OS の情報から名前を作れてしまう（空文字にすると `empty ident name` で断る）
+
+どちらも `git var GIT_AUTHOR_IDENT` が 128 で終わる形になり、commit を動かす前に分かる。
+
+#### hook は迂回せず、終わり方の形で見分ける
+
+`--no-verify` は使わない。リポジトリが置いた決まりごとをアプリが黙って外すことになるためで、その代わりに **hook が走る分だけ待ち時間の上限を別に持つ**（`GIT_COMMIT_TIMEOUT_MS` = 2分。他の git は 10 秒のまま）。lint やテストを丸ごと動かす hook は珍しくなく、10 秒で諦めるとそういうリポジトリでは Commit が必ず時間切れになる。
+
+分類は難しい。実 git で確かめたところ、**hook が Commit を止めたとき git 自身は何も言わない** ── 出るのは hook 自身の出力だけで、黙って落ちる hook なら stderr も空になる。つまり文言の表で当てにいく相手が居ない。
+
+代わりに終わり方を見る（`classifyGitCommitFailure`）。
+
+| 終わり方                       | 分類                                          |
+| ------------------------------ | --------------------------------------------- |
+| `fatal:` を書いて 128 で終わる | git 自身の理由（名乗り / 競合 / lock / 権限） |
+| `fatal:` を書かずに 1 で終わる | `hook-rejected`                               |
+
+**Stage / Unstage とは別の分類関数にしてある。** 同じ stderr でも読み方が違う ── あちらは git 自身の文章だけだが、Commit の stderr には**利用者が置いた任意のプログラムの出力**が混ざる。hook の出力に `permission denied` という語が出てきても、それは git がそう言ったこととは違う（`fatal:` が行頭に無い限り、権限の案内は出さない）。
+
+hook の出力そのものは Renderer へ渡さない（生の stderr を渡さない方針の中で、もっとも当てにならないものにあたる）。詳細は Main のログに残る。
+
+#### UI（Renderer）
+
+入力欄とボタンは**一覧の下**に置く。上から下へ「①何が変わったか → ②何と書くか → ③押す」と読める形で、VS Code のように入力欄を一覧の上へ持ってくる形へは寄せていない（DESIGN.md 設計判断 2）。
+
+**Commit 欄は変更が無くても出したままにする。** 変更があるときだけ現れる形にすると、ファイルを1つ保存した瞬間に画面の下半分が生えてきて、一覧の位置まで動く。
+
+押せる条件は `gitChanges.ts`（`toGitCommitReadiness`・純粋・テスト対象）が1箇所で決め、**押せない理由の一言も一緒に返す** ── 条件が3つあるため、`disabled` の式を JSX に直接書くと理由を添える場所が無くなり、薄いボタンだけが並ぶ。
+
+| 状態                        | Commit ボタン | 添える一言                 |
+| --------------------------- | ------------- | -------------------------- |
+| ステージ済みが無い          | disabled      | 変更をステージするよう促す |
+| メッセージが空              | disabled      | **出さない**（下記）       |
+| メッセージが長すぎる / 不正 | disabled      | 直すべきところを出す       |
+| 他の Git 操作が動いている   | disabled      | なし                       |
+| 上記以外                    | enabled       | なし                       |
+
+**空欄には理由を出さない。** 何も書いていない欄の下に「入力してください」と出しても、増えるのは文字だけになる。出すのは「書いたのに押せない」場合だけにしてある。
+
+**Commit だけは、他の操作が動いている間も押せなくする。** 行の `＋` / `−` は押した対象だけを止める（§14.11）が、Commit の中身は「ステージ済み」の**全体**で、走っている Stage / Unstage はまさにその全体を書き換えている最中にあたる ── 押せてしまうと「画面に出ている一覧を Commit した」と言えなくなる。
+
+**競合が残っているかは Renderer では見ない。** 競合の間 git は commit を作らないが、その判断は git の側にあり、こちらで先回りして真似ると2箇所に規則が生まれる。押した結果は `unresolved-conflicts` として一覧の上に出る。
+
+**成功したときだけ入力欄を空にする。** 失敗のときに消すと、書いた文章が失われたうえで「もう一度書いてやり直してください」と言うことになる ── 名乗りが未設定・hook が止めた・競合が残っている、はどれも文章とは無関係な理由で、直したうえで**同じ文章のまま**押し直せる必要がある。応答が Workspace の切り替えで捨てられた場合も「通らなかった」側に倒す（`useGitRepository.ts`）。
+
+入力欄は `<textarea>`（複数行）で、`Ctrl + Enter` でも Commit できる。Enter だけを割り当てないのは本文の改行と衝突するため。残り文字数は上限に近づいたときにだけ出す ── 常に出していると、要約1行を書くだけの場面でも数字が目に入る。
+
+#### 応答の形は Stage / Unstage と共有する
+
+「操作の後に必ず状態を読み直し、成功でも失敗でもその新しい状態を応答に載せる」という決めごとは、2つめの利用者ができた時点で `main/git/gitOperationResult.ts` へ寄せてある。2箇所に書くと、片方だけ直された日に「Commit のときだけ失敗すると古い一覧が残る」といった差が生まれる。
+
+**読み直しが失敗しても、操作の結末は書き換えない。** Commit は通ったのに直後の読み取りだけが失敗した、という場合に「Commit に失敗した」と出すと、利用者は**同じ commit をもう1つ積む**ことになる。
+
+### 14.13 Push / Pull / Commit & Push（Session 3-8-5）
+
+Git パネルの③の後半にあたる。増えたチャンネルは3本（`git:push` / `git:pull` / `git:commit-and-push`）で、**そのうち2本は要求が `void`** になる。
+
+#### ネットワークへ出る操作でこそ、渡せる欄を作らない
+
+remote 名・ブランチ名・refspec は1つも渡せない。Renderer が言えるのは「今のブランチを送って」「取り込んで」だけで、相手を決めるのはリポジトリの設定になる。
+
+```
+git:push               要求は void
+git:pull               要求は void
+git:commit-and-push    要求は Commit と同じメッセージ1つだけ
+```
+
+名前で指せる形にすると、**画面に出ているブランチとは別のものへ送れる欄**になり、押した人から見て何が起きたのか分からなくなる。Stage で「渡せるのは値1つ」（§14.10）、Commit で「文章1つ」（§14.12）と絞ってきた線の、いちばん外側にあたる。
+
+**Main の側でも名前を組み立てていない。** 使っているのは git 自身に解かせる記法だけになる。
+
+| 使う記法                | 何を指すか                           |
+| ----------------------- | ------------------------------------ |
+| `@{upstream}`           | そのブランチの追跡先（設定が指す先） |
+| `push.default=upstream` | 追跡先へ送る（2回目以降）            |
+| `push.default=current`  | 今のブランチと同じ名前で作る（初回） |
+
+ブランチ名を文字列として作らない限り、`-` で始まる名前も、空白や日本語を含む名前も、引数として解釈される経路そのものが無い ── pathspec で「値が値でしかない状態を作る」（§14.10）としたのと同じ形になる。
+
+#### `push.default` を明示するのは、既定が条件付きだから
+
+引数を省いた `git push` の相手は `push.default` で変わり、既定の `simple` は「upstream と**同じ名前**のときだけ送る」という条件が付く。手元の `feature` が `origin/main` を追っている設定では、`simple` は送らずに断る ── 追跡先があるのに Push だけできない、という形になる。
+
+`upstream` に固定すると、送り先は常にそのブランチの追跡先そのものになり、**画面の `↑2` が指している差と、実際に送るものが一致する。**
+
+初回（追跡先がまだ無い）だけ `current` + `--set-upstream` を使う。同じ1回の中で追跡先まで作るのは、**送れたのに次から送れない**を作らないため ── 追跡先が付かないまま送ると、画面の `↑ ↓` は次も出ないままになる。「初回だけ別のボタン」にもしない（どちらを押すかを利用者が先に判断することになる）。
+
+#### `git pull` は使わない
+
+Pull は `fetch` → `merge --ff-only` の2つに分けてある。
+
+| 分ける理由                                                                                             |
+| ------------------------------------------------------------------------------------------------------ |
+| `pull` は `pull.rebase` の設定で merge にも rebase にもなる。**同じボタンが PC ごとに違う履歴を作る**  |
+| 分ければ**どちらで失敗したか**が分かる。届かなかったのか、届いたが取り込めなかったのかで次の一手が違う |
+
+**`--ff-only` に固定し、早送りできないときは取り込まずに断る。** merge commit を作るか rebase するかは履歴の形を決める判断で、リポジトリの流儀によって答えが違う ── アプリが黙って選ぶと、利用者が意図していない形の履歴が残り、後から直すのは難しい。断ったときに失われるものは無い（git は上書きせずに断る）。
+
+`--prune` も付けていない。手元の remote-tracking ref を**消す**操作が混ざることになり、「取ってくる」ボタンが何かを消すのは押した人の予想から外れる。
+
+#### 認証：待たせずに、持たない（設計判断 7）
+
+アプリが呼ぶ git には端末が付いていないため、認証を尋ねられると待ち続ける。それを止める仕掛けが2つあり、**片方だけでは足りない。**
+
+| 仕掛け                                 | 何を止めるか                                       |
+| -------------------------------------- | -------------------------------------------------- |
+| `GIT_TERMINAL_PROMPT=0`（§14.3）       | git 自身が**端末から**尋ねること                   |
+| `credential.interactive=false`（新規） | credential helper が**自前のウィンドウ**を出すこと |
+
+Windows の既定の helper（Git Credential Manager）は端末ではなくウィンドウを出すため、環境変数では止まらない。`credential.interactive=false` を渡すと helper は覚えている資格情報だけを答え、無ければ黙って諦める ── つまり Fluvix Nexus からの Push / Pull は必ず次のどちらかに落ちる。
+
+```
+覚えている   → そのまま通る（利用者は何もしなくてよい）
+覚えていない → 即座に auth-required として返る（数分固まらない）
+```
+
+**Fluvix Nexus 自身は認証情報を持たない。** 尋ねればどこかへ持つことになり、保管の設計（暗号化・失効・複数ホスト）はアプリ1つ分の話で、しかも OS と Git が既に持っている仕組みと二重になる。案内するのは「Terminal パネルで一度 push / pull して credential helper に覚えさせる」で、その後はアプリからも通る。
+
+#### 押す前に分かることは、ネットワークへ出る前に分ける
+
+Commit で名乗りを先に確かめている（§14.12）のと同じ形だが、こちらの方が効く ── 相手のサーバー次第で数十秒待たされた末に、手元の理由で失敗するのを避けられる。
+
+| 押す前に分かること   | どこで                         | 分類                   | Push | Pull |
+| -------------------- | ------------------------------ | ---------------------- | ---- | ---- |
+| ブランチの上に居ない | 読んだ状態（`head`）           | `not-on-branch`        | ○    | ○    |
+| 追跡先が無い         | 読んだ状態（`upstream`）       | `no-upstream`          | ―    | ○    |
+| 競合が残っている     | 読んだ状態（`conflicted`）     | `unresolved-conflicts` | ―    | ○    |
+| 送る commit が無い   | 読んだ状態（`upstream.ahead`） | `nothing-to-do`        | ○    | ―    |
+| commit が1つも無い   | `rev-parse --verify HEAD`      | `nothing-to-do`        | ○    | ―    |
+| remote が1つも無い   | `git remote`                   | `no-remote`            | ○    | ―    |
+
+Push で「追跡先が無い」を止めないのは、それが**初回の Push そのもの**だから。逆に Pull では止める ── どこから受け取るかが決まっておらず、アプリが remote を推測して選ぶと意図しない相手から取り込むことになる。
+
+`ahead === null`（差が分からない）では止めない。分からないことを「無い」として扱わない（§14.8）。
+
+#### 失敗の分類は、操作ごとに別の関数
+
+同じ transport を通っても、**起こりうる結末の集合が違う。**
+
+| 関数                      | 起こること                                    | 起こらないこと                   |
+| ------------------------- | --------------------------------------------- | -------------------------------- |
+| `classifyGitPushFailure`  | 断られた / 認証 / ネットワーク / 送り先が無い | ―                                |
+| `classifyGitFetchFailure` | 認証 / ネットワーク / 送り先が無い            | **断られた**（相手は拒まない）   |
+| `classifyGitMergeFailure` | 枝分かれ / 作業ツリー / 競合 / lock           | **ネットワーク**（もう通らない） |
+
+順番にも意味がある。
+
+- **認証をネットワークより先に見る。** 403 は `unable to access '<URL>': ...` に包まれて出るため、先にネットワーク側で当たると「回線を確認してください」という的外れな案内になる
+- **`remote rejected` を `rejected` より先に見る。** 保護ブランチの拒否は「rejected」を含むが、次の一手は正反対にあたる
+
+| 断られ方                     | 分類              | 次の一手                             |
+| ---------------------------- | ----------------- | ------------------------------------ |
+| non-fast-forward             | `push-rejected`   | **Pull**（隣のボタンにそのまま在る） |
+| 保護ブランチ / `pre-receive` | `remote-rejected` | 何度 Pull しても送れない             |
+
+`remote:` で始まる行はサーバーが書いた任意の文章にあたる。生の stderr を渡さない方針（§14.6）はそのままで、Renderer へ行くのは分類だけになる。
+
+#### Commit & Push は1本の IPC
+
+`git:commit` の後に `git:push` を呼ぶ形にはしていない。順番待ち（§14.11）は**1回の要求ごとに枠を取る**ため、その2回の間に別の操作が挟まりうる ── 挟まると「Commit したものを送った」と言えなくなる。1本にすれば、Commit・Push・状態の読み直しがまるごと1つの枠に入る。
+
+```
+1. 今の状態を読む       → ready か
+2. Push の土台を見る    → ブランチの上に居るか / remote があるか（Commit しても変わらないもの）
+3. Commit               → git:commit とまったく同じ手順（runGitCommitStep）
+4. Push                 → 2 で読んだ状態から、初回かどうかを決める
+5. もう一度読む         → 応答に載せる
+```
+
+2 を 3 より先に置いているのが要点になる。**通らないと分かっている Push のために commit を積まない。** 逆に「送るものがあるか」は見ない ── Commit すれば必ず1件増える。
+
+#### 途中で止まったら `partly-applied`
+
+Commit は通ったのに Push が通らなかった、は普通に起こる（認証・ネットワーク・remote 側の拒否）。これを `failed` に丸めない。
+
+| 丸めると起こること                                                                                         |
+| ---------------------------------------------------------------------------------------------------------- |
+| 利用者は「Commit も失敗した」と読む → **同じ内容をもう一度 Commit する** → 履歴に同じ commit が2つ積まれる |
+
+**Commit を取り消して失敗に揃えることもしない**（`reset --soft` は使わない）。Push が通らない理由のほとんどは手元と無関係で、そのたびに履歴を巻き戻すのは利用者が頼んでいない取り消しにあたる。しかも戻す操作そのものが失敗しうる。Commit はそのまま残し、Push だけを押し直せばよい。
+
+Renderer 側では `partly-applied` を**「入力欄を空にしてよい」側**として扱う ── その文章は既に履歴に記録されているため、欄に残すと同じ内容をもう一度 Commit しかねない。出す1行は「Commit は完了しましたが、Push できませんでした。◯◯」と、**済んでいることを先に**伝える形にしてある。
+
+#### 待ち時間の上限は3つになった
+
+| 定数                     | 値   | 何のために                                       |
+| ------------------------ | ---- | ------------------------------------------------ |
+| `GIT_COMMAND_TIMEOUT_MS` | 10秒 | 即答するはずの読み取りが返ってこない場合の逃げ道 |
+| `GIT_COMMIT_TIMEOUT_MS`  | 2分  | **利用者の hook が走る**（lint / テスト）        |
+| `GIT_NETWORK_TIMEOUT_MS` | 2分  | **相手のサーバーを待つ**（fetch / push）         |
+
+後ろの2つは同じ数字だが、理由が違うので別の定数にしてある（片方を変えたいときにもう片方まで動かない）。`merge --ff-only` はネットワークを使わないため Commit 側を使う ── `post-merge` hook が走りうる、つまり「利用者のプログラムが動く」方の理由にあたる。
+
+上限そのものを外さないのは、**返ってこない相手が実在する**ため。順番待ちは1本なので、握られている間は Stage も Commit も動かない。
+
+#### UI（Renderer）
+
+Commit 欄の**下**へ積む。上から下へ「①何が変わったか → ②何と書くか → ③Commit / Commit & Push → 送る・受け取る」と読める並びのままで、DESIGN.md 設計判断 2（足すのは下へ）を動かしていない。
+
+**Pull を Push の左に置く。** Push が断られたときの次の一手が Pull になるため、「先に Pull してください」と出たときに目が右から左へ戻らずに済む。
+
+押せる条件は `gitChanges.ts`（純粋・テスト対象）が1箇所で決め、理由も一緒に返す。ただし **Commit と理由の置き場所が違う** ── Commit の一言は入力欄の下に出せるが、横に並ぶ小さなボタンには文章を置く場所が無いため、そちらは `title` と `aria-label` に渡している。
+
+| ボタン        | 押せない条件                                                    |
+| ------------- | --------------------------------------------------------------- |
+| Push          | ブランチの上に居ない / 差が 0 / 他の Git 操作が動いている       |
+| Pull          | ブランチの上に居ない / 追跡先が無い / 他の Git 操作が動いている |
+| Commit & Push | Commit が押せない条件そのまま / ブランチの上に居ない            |
+
+**Pull は `behind` の値では止めない。** それは前回 fetch した時点の写しでしかなく、0 で止めると新しい変更を取りに行く手段そのものを塞ぐことになる（Pull の半分は fetch にあたる）。
+
+**Commit & Push は Commit の条件をそのまま引き継ぐ**（`toGitCommitReadiness` の結果を渡す）── 同じ条件を2箇所で組み立てると、片方だけ直された日に「Commit は押せないのに Commit & Push は押せる」が生まれる。
+
+remote の有無・commit の有無は Renderer では見ない。押した結果として Main が答える ── こちらで先回りして真似ると、2箇所に規則が生まれる（§14.12 で「競合が残っているかは Renderer では見ない」としたのと同じ判断）。
+
+#### 実物に対して固定してあること
+
+`gitSyncRepository.test.ts` は remote を**同じ PC の bare リポジトリ**にしてある。git にとってそれは他の remote と変わらず、`push` / `fetch` / `merge --ff-only` は同じ経路を通る ── 変わるのは transport だけになる。回線が無くても、資格情報が1つも無くても、次を実物に対して固定できる。
+
+- 初回の Push が追跡先まで作ること
+- 追跡先と違う名前のブランチでも送れること（`push.default=upstream` が効いている）
+- remote 側が先に進んでいるときに `push-rejected` になり、**remote が1文字も変わらない**こと
+- 枝分かれでは取り込まず、**手元の HEAD が動かない**こと
+- 作業ツリーの書きかけが上書きされないこと
+- Commit & Push が途中で止まったとき、**commit が残ったまま** `partly-applied` になること
+- Push できない土台（remote が無い / detached）では、**commit を積まずに**断ること
+
+認証とネットワークの失敗だけはここでは作れない（相手が要る）。そちらは文言の分類として `gitFailure.test.ts` が固定してある。
+
+### 14.14 ブランチの一覧 / 切り替え / 作成（Session 3-8-6）
+
+ここまでの3つ（Stage / Commit / Push）は「①変更確認 → ②コミットメッセージ → ③Commit & Push」という**1本の流れ**の上に並んでいた。Session 3-8-6 が足したのはその流れの上ではなく、**その流れをどのブランチの上で行うか**にあたる。だから画面でも、下へ積むのではなく上のバーの中に置いてある（それまで文字だけだったブランチ名を、押せる場所にした）。
+
+増えたチャンネルは3本で、**そのうち2本に初めてブランチ名が載る。**
+
+```
+git:list-branches    要求は void
+git:switch-branch    要求は名前1つ
+git:create-branch    要求は名前1つ
+```
+
+#### 名前を載せる／載せないの線は、動いていない
+
+§14.13 では「remote 名もブランチ名も渡す欄を作らない」と決めた。ここで名前が載るのは、その線を緩めたからではない ── **指しているものが違う。**
+
+| どちらの名前か              | 欄  | なぜ                                                                             |
+| --------------------------- | --- | -------------------------------------------------------------------------------- |
+| Push / Pull の**送り先**    | 無  | 設定が既に持っている。名前で指せると「画面に出ているものとは別のところへ送れる」 |
+| 切り替え / 作成の**行き先** | 有  | **利用者が一覧から選んだ／打ったそのもの**で、他に指しようが無い                 |
+
+載るのは名前だけで、git の `switch` が受け取れる他のものは欄そのものを作っていない。
+
+| 作らない欄                      | なぜ                                                             |
+| ------------------------------- | ---------------------------------------------------------------- |
+| `--force` / `--discard-changes` | 作業ツリーの書きかけを黙って捨てる                               |
+| `--merge`                       | 書きかけを切り替え先へ持ち込み、**競合を作りうる**               |
+| `--detach` / `--orphan`         | ブランチから降りる／履歴を持たない枝を作る。切り替えの口ではない |
+| start point（どの commit から） | 「切り替え」と「別の場所から作る」が1つの口に混ざる              |
+| 削除 / rename                   | 戻せない操作。確認の形と一緒に設計する（§14.15）                 |
+
+#### 名前は「形」と「置き方」の両方で守る
+
+ブランチ名は、このアプリで**初めて引数としてコマンドラインに載る外来の値**になる（Commit メッセージは標準入力、pathspec は `--` の後ろだった）。守り方は pathspec と同じ二重構えにしてある ── 片方が外れた日に破れる形にしない。
+
+| どこで                     | 何を                                                                  |
+| -------------------------- | --------------------------------------------------------------------- |
+| `shared/git/branchName.ts` | 名前の**形**（空白・制御文字・`~^:?*[]` ・`"<>                        | `・`..`・`@{`・先頭の `-`・`.lock` 終わり・`HEAD`） |
+| `main/git/gitCommands.ts`  | 名前の**置き方**（必ず単独の引数として、`--end-of-options` の後ろへ） |
+
+形の規則は **Renderer と Main が同じ関数を通す**（`commitMessage.ts` と同じ理由 ── 2箇所に書くと「ボタンは押せるのに Main が弾く」が生まれる）。git より厳しくしてあるのは、ref の実体が `.git/refs/heads/<name>` というファイルで、**Windows で作れない名前**を通すと「作れそうに見えて分類しにくい形で失敗する」ため。
+
+逆に、**リポジトリの中身を見ないと決まらないこと**（同じ名前が既にあるか・大文字小文字だけが違う名前・`a` と `a/b` の衝突）はここでは見ない。答えるのは git で、結末は `branch-exists` として返る。
+
+#### `git checkout` ではなく `git switch`
+
+`checkout` は**1つのコマンドが2つの仕事**を持つ ── ブランチの切り替えと、ファイルの取り戻し（`git checkout <path>`）にあたる。どちらとして読むかは渡した名前が何に当たるかで決まるため、`main` という名前のファイルがある状態で `git checkout main` を動かすと、**切り替えたつもりで作業ツリーの書きかけが消える**ことが起こりうる。`switch` は pathspec を取らないので、その取り違えが起こる余地そのものが無い。
+
+Unstage で `restore`（2.23 以降）を避けて `reset` を選んだ（§14.11）のとは逆の判断に見えるが、決め方は同じ「起こしてはいけないことから決める」になる ── **あちらは代わりの手段が同じくらい安全**だったのに対し、こちらは代わりの手段が上記の危うさを持つ。git 2.23 より古い環境ではブランチ操作だけが失敗として返る（パネルが黙って壊れることは無い）。
+
+`--no-guess` を渡してあるのが、**「ローカルブランチだけ」を担保している引数**になる。既定の `git switch <name>` は、その名前のローカルブランチが無いと remote-tracking branch を探して**手元にブランチを作り、追跡先まで設定する** ── 一覧に出していないものが、名前を渡しただけで生えることになる。
+
+作成は `switch --create` の**1回**で作って切り替える。2回（`branch` → `switch`）に分けると、1つめが通って2つめが通らなかったときに「作られたのに切り替わっていない」状態が残り、その後の Commit が意図しないブランチに積まれる。始点は常に HEAD なので、**detached HEAD からでも作れる**（Push が detached で断るのとは対照的に、こちらは塞がない ── そこから抜け出す手立てになる）。
+
+なお `--create` だけは `--end-of-options` を使わない。名前が位置引数ではなく**オプション自身の引数**だからで、挟むと名前が始点として読まれて `invalid reference` になる（実際に確かめた）。オプションの引数は次の1つをそのまま取るため、`-x` のような名前でもオプションとしては読まれない（これも確かめた）。
+
+#### 切り替えてよいかを決めるのは git（アプリは確認を挟まない）
+
+「未保存の変更があります。切り替えますか？」は**出さない。** 出すと、アプリが「切り替えると失われる」と判断したことになるが、その判断は git 自身が持っている ── `--force` も `--merge` も渡していないので、失われるものがあるときは git が断る。
+
+| アプリが重ねて尋ねると                                                                  |
+| --------------------------------------------------------------------------------------- |
+| **通るはずの切り替えを止める。** 切り替え先が触らないファイルの書きかけは、そのまま残る |
+| **尋ねた後で git に断られる。** 押した人から見ると、アプリが二度手間を作っただけになる  |
+
+Editor の未保存の中身（まだファイルになっていないもの）は、そもそも git から見えない ── 切り替えても消えず、タブに残ったままになる。失われるものがある操作に確認を挟む（§12.6）のは**こちらが消す側に回るとき**で、ここはそうではない。
+
+切り替えた後、Files と Editor は**既存の追従の仕組み**（監視 → `files:changed`。§12.1 / §12.2）でそれぞれ追いつく。Git パネルからファイルの変化を配る、という逆向きの経路は作っていない。
+
+#### 押す前に分かることは、git を動かす前に分ける
+
+| 押す前に分かること           | どこで                     | 分類                   | 切り替え | 作成 |
+| ---------------------------- | -------------------------- | ---------------------- | -------- | ---- |
+| 今そこに居るブランチを選んだ | 読んだ状態（`head`）       | `nothing-to-do`        | ○        | ―    |
+| 競合が残っている             | 読んだ状態（`conflicted`） | `unresolved-conflicts` | ○        | ―    |
+
+**一覧では今のブランチも選べる**（印は付く）。選べなくすると、「今どこに居るか」を確かめるために開いた面で、いちばん見たい行だけが薄くなる ── 押しても git は動かず、`nothing-to-do` として返る。
+
+作成の側に事前の判断が1つも無いのは、**手元の状態から分かる「作れない理由」が無い**ため（同じ名前があるかは git にしか分からず、detached HEAD でも書きかけがあっても作れる）。
+
+#### 一覧は `git:get-repository` に相乗りさせない
+
+変更ファイルの一覧は `ready` の中身として返している（§14.8）が、ブランチの一覧は別のチャンネルにしてある。分けている理由は**見られている時間の違い**になる。
+
+```
+変更ファイル … パネルが開いている間ずっと出ている
+ブランチ     … 選ぶ面を開いた、その一瞬だけ
+```
+
+相乗りさせると、ファイルを保存するたび（`files:changed` からの読み直し）にブランチを数え直すことになる ── 誰も見ていない一覧のために git を1回多く起動し続ける形にあたる。
+
+逆に、**開くたびに必ず取り直す**のはこちら側の決めごとになる。`.git` の監視（§14.15）が配るのは「状態が変わった」という合図までで、ブランチの一覧はそこにも相乗りさせていない ── 覚えておいた一覧を出すと「さっき作ったブランチが無い」が起きる。
+
+一覧そのものは `for-each-ref` で読む（`git branch` は**人向け**の出力で、印と字下げが混ざり、detached HEAD では「ブランチではない行」まで並ぶ）。`refs/heads/` に絞ってあるので remote-tracking branch も tag も混ざらず、区切りは `%00`（`%(HEAD)` 自身が空白を出すため、空白では区切りと値の区別が消える）。
+
+**上限は 500 件で、git 自身に掛ける**（`--count`）。数千行を受け取ってから捨てる形にしないためで、上限より1つ多く求めることで「切ったかどうか」も同じ1回で分かる。切ったときは**黙って捨てず**、面の中でそう伝える ── 出ていないものがあることを言わずに済ませると、利用者は「消えた」と読む。
+
+#### 待ち時間の上限は4つになった
+
+| 定数                      | 値   | 何のために                                             |
+| ------------------------- | ---- | ------------------------------------------------------ |
+| `GIT_COMMAND_TIMEOUT_MS`  | 10秒 | 即答するはずの読み取りが返ってこない場合の逃げ道       |
+| `GIT_COMMIT_TIMEOUT_MS`   | 2分  | **利用者の hook が走る**（lint / テスト）              |
+| `GIT_NETWORK_TIMEOUT_MS`  | 2分  | **相手のサーバーを待つ**（fetch / push）               |
+| `GIT_CHECKOUT_TIMEOUT_MS` | 2分  | **作業ツリーを実際に書き換える**（＋ `post-checkout`） |
+
+4つめを別に立てたのは、他の3つと理由が違うため ── 切り替えではファイル数・ウイルス対策ソフト・ネットワークドライブのどれもが効いてきて、10 秒では大きなリポジトリで必ず時間切れになる。しかも時間切れは**途中まで書き換えた作業ツリー**を残す（プロセスを殺すため）ので、他のどの操作の時間切れよりも直しにくい。ブランチの**一覧**はこれを使わない（即答する読み取りなので既定のまま）。
+
+#### UI（Renderer）
+
+開く器は `ui/Popover`（閉じ方が3つ＋ウィンドウが焦点を失ったとき）で、`ui/DropdownMenu` は使わない ── 面の中に**入力欄**（新しいブランチ名）が入るため、役割は `menu` ではなく `dialog` にあたる（Terminal の設定 UI と同じ形）。
+
+一覧と作成を**1つの面**に置いてあるのは、「切り替える」と「作って切り替える」が利用者から見て同じ場面で選ぶことだから ── 行き先が既にあるかどうかは、一覧を見て初めて決まる。別の面に分けると、開いて「無かった」と分かってから閉じて別のところを押し直すことになる。
+
+| 押せる条件（`gitBranches.ts` が1箇所で決める） |                                                             |
+| ---------------------------------------------- | ----------------------------------------------------------- |
+| 一覧の行                                       | 他の Git 操作が動いていなければ押せる（**今のブランチも**） |
+| 作成                                           | 名前の形が通り、かつ他の Git 操作が動いていない             |
+
+理由の置き場所は Commit 欄と同じ「欄の下の1行」にしてある（Push / Pull のように hover へ逃がさない）── 打っている最中の人が、指を止めずに読めるため。**通ったときだけ**入力欄を空にして面を閉じるのも Commit 欄と同じ判断で、失敗のときに消すと、打った名前が失われたうえで「もう一度」と言うことになる。
+
+#### 実物に対して固定してあること
+
+`gitBranchRepository.test.ts` は本物の git に対して次を確かめる（remote が要る回だけ、同じ PC の bare リポジトリを相手にする）。
+
+- 書きかけが**上書きされない**こと（git が断り、ファイルも HEAD も動かない）
+- 切り替え先が触らないファイルの書きかけ・未追跡のファイルは、**切り替えても残る**こと
+- 同じ名前で作ろうとしても**既存のブランチが1文字も動かない**こと
+- remote-tracking branch の名前では**手元にブランチが増えない**こと（`--no-guess`）
+- 今のブランチを選んでも git を動かさないこと（`nothing-to-do`）
+- detached HEAD からでも作れて、ブランチへ戻れること
+- 一覧が上限で切られ、切られたことが分かること（ref は `update-ref --stdin` で一度に作る）
+
+### 14.15 `.git` を見張る（Session 3-8-8）
+
+3-8-7 までの Git は「呼ばれたときだけ調べる」で通していた。その前提が崩れるのは外部の端末ではなく、**このアプリの中**にあたる ── 内蔵 Terminal（§13）で `git add` と打った利用者にとって、隣のパネルが古いままなのは「同じアプリなのに伝わっていない」という形で見える。
+
+```
+fs.watch（.git 1つ・再帰）
+   ↓  .git からの相対位置
+main/git/gitWatchPaths.ts     許可した名前だけを通す（`.lock` と `objects/` は捨てる）
+   ↓
+main/git/gitChangeSchedule.ts いつ配るかを決める（束ねる・遅れすぎない・暴れない）
+   ↓
+emitIpcEvent('git:changed', { workspaceId })              ← §3.3 の既存の経路
+   ↓
+useGitRepository が `files:changed` と同じタイマーへ合流させ、`git:get-repository` を1回
+```
+
+#### `files:changed` に混ぜず、Git 専用の watcher を1本足す
+
+理由は3つある。
+
+1. **見る場所が逆。** `files:changed` は `.git` を**除外することで**成り立っている（§12.1）。同じ経路に載せるにはその除外に穴を開けることになり、Files のツリーと Editor が `.git` の中の位置を受け取り始める
+2. **運ぶものが違う。** `files:changed` が運ぶのは「どの位置がどうなったか」（`WorkspaceFileChange`）で、`.git/index` が書き換わったことに当てはまる相対位置は存在しない
+3. **桁が違う。** 1回の `git commit` で `.git` の中には数百件の書き込みが起き、その大半は `objects/`。同じ束に入れると、Files 側の上限（1束 500 件）をこの watcher が食い潰す
+
+#### 運ぶのは `workspaceId` だけ
+
+**何が変わったかは載せない。** `.git` の中の位置は Renderer にとって意味を持たず、意味に翻訳できるのは git 自身だけになる。受け手がすることは常に1つ（`git:get-repository` を呼び直す）で、**ブランチ名と変更ファイルの一覧はその1回の応答に揃って載る**（§14.4 で読み取りのチャンネルを1本に留めた形が、そのままここで効いている）。半分だけ新しい画面 ── ブランチ名は新しいのに一覧は前のブランチのもの ── を作らない形が、このイベントを「合図1つ」に留める理由でもある。
+
+#### 拾う名前を数え上げる（許可制）
+
+`.git` の中は1回の操作で数百から数万の書き込みが起きる。「ノイズを列挙して外す」形にすると、知らない名前が増えるたびに漏れ、その1つが `git status` の連射に化ける。そこで**拾う側を数え上げてある**（`gitWatchPaths.ts`。純粋・テスト対象）。
+
+| 拾う                                                                     | 何が変わったか                      |
+| ------------------------------------------------------------------------ | ----------------------------------- |
+| `HEAD`                                                                   | どのブランチの上に居るか            |
+| `index`                                                                  | ステージの中身                      |
+| `packed-refs` / `config`                                                 | まとめられた ref / 追跡先などの設定 |
+| `MERGE_HEAD` `CHERRY_PICK_HEAD` `REVERT_HEAD` `REBASE_HEAD` `BISECT_LOG` | 途中で止まっている操作              |
+| `refs/**` `rebase-merge/**` `rebase-apply/**` `sequencer/**`             | ref と、続きのある操作の状態        |
+
+捨てるものにも理由がある。
+
+- **`.lock` は必ず先に捨てる。** git はどの書き込みでも「`x.lock` を作る → 書く → `x` へ rename する」を通る。ロック側を拾うと1回の書き込みが2回の変化として届き、しかも**まだ何も変わっていない時点**で読みに行くことになる（本体は必ず別のイベントとして届くので、捨てて落ちるものは無い）
+- **`objects/**` は桁が違う。** 通すと、1回の commit / fetch で束ねの上限に張り付いたまま `git status` が回り続ける
+- **`logs/**`（reflog）は二重。** `HEAD` / `refs/` と必ず一緒に動く
+- **`ORIG_HEAD` / `FETCH_HEAD` / `COMMIT_EDITMSG` も二重。** 状態が変わった瞬間に一緒に書かれるが、それ自体は状態ではない
+- **知らない名前は捨てる。** 捨てて困るのは「その変化に気づくのが手動更新まで遅れる」ことだけで、それは 3-8-7 までと同じにしかならない
+
+#### 3つの線で挟んで配る
+
+`gitChangeSchedule.ts`（純粋・テスト対象）が持つのは時刻の計算1つだけになる。
+
+| 線                       | 値    | 無いとどうなるか                                      |
+| ------------------------ | ----- | ----------------------------------------------------- |
+| 静まるまで待つ           | 250ms | 1回の commit で `git status` が何度も走る             |
+| 最初の変化からの上限     | 1s    | `git checkout` の間じゅう配られず、画面だけが前のまま |
+| 前に配ってからの最小間隔 | 500ms | `git fetch` の最中に1秒ごとの連射になる               |
+
+上限より**最小間隔を優先する** ── 上限は「遅れないため」の線、間隔は「暴れないため」の線で、押し寄せている最中に遅れを取り戻しても出てくるのは同じ連射でしかない。Renderer 側でさらに 0.4 秒束ねる（§14.5）ため、利用者から見た遅れは最大で 0.65 秒になる。
+
+#### 読み取りが自分を呼び戻さないこと
+
+`.git/index` を見張るということは、**アプリ自身の `git status` が index を書き換えたらそこで無限に回る**ということでもある。回らないのは、読み取りに `--no-optional-locks` と `GIT_OPTIONAL_LOCKS=0` を掛けてあるためになる（§14.8 / §14.3）。この2つは 3-8-2 から「利用者自身の git を邪魔しない」ために置いてあったもので、Session 3-8-8 で**監視が成立する前提**という意味が1つ増えた。
+
+#### `.git` がまだ無い Workspace
+
+`git init` するまで見張る先が無い。そこだけ **Workspace root を浅く**（再帰なし）見張り、`.git` が現れたら本来の監視へ切り替える。root を再帰で見張らないのは、それが `files:changed` の担当そのものだから ── 同じ木を2本の再帰監視で見張ると、Windows の ReadDirectoryChangesW のバッファを二重に使うことになる。浅い監視で拾うのも `.git` ただ1つで、それ以外の変化は捨てる（Git ではないフォルダで保存するたびに git を起動しない）。
+
+#### 決めていること
+
+- **Workspace の切り替えでは、前の watcher を必ず閉じてから次を張る**（`files:changed` の watcher と同じ形）。閉じ忘れると、前の Workspace の `.git` の変化が新しい `workspaceId` で配られる。束ねている最中に切り替わった分も配らない ── 受け手も `workspaceId` を突き合わせて捨てるが、切り替わった後の通知をそもそも作らない方が素直（§9.6）
+- **監視が落ちたら、1度は張り直す。** `.git` がフォルダごと消えれば `workspace-root` の浅い監視へ落ち、次の `git init` を待てる。ただし**張り直しては落ちるを繰り返さない**よう、回数に上限（5）を置く
+- **張れなくてもアプリを止めない。** 再帰監視が使えない OS・権限が無い・ネットワークドライブ ── どれも「自動で気づけなくなる」だけで、更新ボタンと、操作の応答に載る状態は従来どおり効く（§14.5）
+- **ブランチの一覧は相乗りさせない。** 見られているのは面が開いている一瞬だけで、相乗りさせると `.git` が動くたびにブランチを数え直すことになる（§14.14）
+
+### 14.16 差分の表示と破棄（Session 3-8-9）
+
+3-8-1 〜 3-8-8 で置いたのは「今どうなっているか」と「それをどう進めるか」だった。3-8-9 で足すのは、その一覧の**中身**に手が届くようになること ── 1行の変更を**見る**（差分）と、1行の変更を**やめる**（破棄）の2つになる。
+
+この2つは同じ行の上に並ぶが、性質は正反対にあたる。**片方は何も変えず、もう片方は Git 機能で唯一、利用者の書いたものを消す。**
+
+#### patch を渡さず、中身2つを渡す
+
+`git diff` の出力（unified diff）を Renderer へ渡す形にはしない。渡すのは「左に出す中身」と「右に出す中身」の2つの文字列だけになる（`shared/git/diff.ts`）。
+
+- **生の git の出力を渡さない**という 3-8-1 の線に触れる。patch にはヘッダ（`diff --git a/... b/...`）もモードもスコアも index 行も、git の記法がそのまま載る
+- 渡した先で**もう一度解析が要る。** Monaco の Diff Editor が受け取るのは2つの中身であって patch ではない ── patch を渡すと、Renderer 側に「patch を当てて元の中身を復元する」という2つ目の実装が生まれる
+- patch は**差分アルゴリズムの結果**で、`diff.algorithm` / `diff.context` / `textconv` などリポジトリの設定で形が変わる。中身2つを渡せば、どう並べて見せるかは Monaco が一貫して決める
+
+#### 何と何を比べるかは、押した行が決める
+
+同じファイルが2つのグループに並ぶことがある（`git add` した後にもう一度書き換えた状態。§14.8）。だから要求に載るのは位置1つと**グループ1つ**で、位置だけでは「どちらの行を押したのか」が決まらない。
+
+| グループ  | 左（変更の前）        | 右（変更の後）   |
+| --------- | --------------------- | ---------------- |
+| staged    | HEAD の中身           | index の中身     |
+| unstaged  | index の中身          | 作業ツリーの中身 |
+| untracked | 空（まだ Git に無い） | 作業ツリーの中身 |
+
+種類による例外が3つと、リポジトリの状態による例外が1つある。
+
+- 追加（staged の `added`）… 左は空（HEAD に相手が居ない）
+- 削除 … 右は空（相手が居ない）。**行そのものは Editor で開けないが、差分は出す** ── むしろ開けない行でこそ、何が消えたのかを確かめたい
+- rename / copy … 左は **`originalPath`** の HEAD の中身。変更後の位置で訊くと HEAD に見つからず、「全部が追加された」差分になる
+- **初回 commit 前**（HEAD がまだ無い）… staged の左は常に空。ここを失敗に倒すと、`git init` した直後のリポジトリで差分が1件も出せない
+
+競合（`conflicted`）は対象外にしてある。「前」と「後」が2組（ours / theirs）あり、**2つの中身を並べる形そのものが当てはまらない**（Stage / Unstage を置いていないのと同じ理由。§14.8）。
+
+#### 位置は最後まで pathspec のまま、object 名は git が作ったものだけ
+
+`git show HEAD:<path>` / `git cat-file blob :<path>` のような**組み合わせた1つの引数**は作らない。作ると、Renderer から来た位置が `:` や `^` を含む revision 表記の一部として読まれる余地が生まれ、3-8-3 で「値が値でしかない状態」にしたところ（§14.10）が崩れる。
+
+代わりに2段にしてある。
+
+1. 位置を **pathspec のまま**渡して（`--` の後ろ + `--literal-pathspecs`）、git に object 名を答えさせる（`ls-files --stage` / `ls-tree -r`）
+2. その object 名で大きさと中身を取りに行く（`cat-file -s` / `cat-file blob`）
+
+2段目の引数に載るのは **git 自身が作った 40 〜 64 桁の16進**だけで、外から来た値は1文字も入らない。引数に載る直前で `isGitObjectName` をもう一度通してあるのも、3-8-3 で pathspec に二重の備えを置いたのと同じ形になる（`main/git/gitBlob.ts`）。
+
+往復が1回増えるが、差分は「1行を選んだ一瞬」にしか走らないため、その代償は一覧の側には出ない。
+
+**`--textconv` / `--filters` / `--ext-diff` は付けない。** どれもリポジトリの設定に書かれた任意のプログラムを起動する指定で、差分のために `.gitattributes` の中の実行ファイルが走る形にはしない。
+
+#### 出せないものは、失敗ではなく理由として返す
+
+バイナリ・2MB 超・見つからない。どれも `IpcResult` の失敗にしない（§14.7 と同じ線）── 利用者の次の一手が理由ごとに違い、「表示できません」に丸めると出せなくなる。
+
+**大きさの上限は Editor で開ける上限と同じ値**（`FILES_FILE_MAX_BYTES`）にしてある。差分の側だけが大きいものを開けると、「Git パネルからは見えるのに、Editor では開けない」が起きる ── そのファイルを直しに行く先が無い。
+
+作業ツリー側の読み取りは **files ドメインの `readWorkspaceFile` をそのまま通る。** Workspace の境界の確認・symlink の追跡・大きさの上限・バイナリの判定・BOM の扱いが、Editor でそのファイルを開いたときとまったく同じになる。
+
+#### 改行は LF に均す
+
+Windows の git は checkout のときに改行を CRLF へ直す（`core.autocrlf`）。index の中身（LF）と作業ツリーの中身（CRLF）をそのまま並べると、**1行も書き換えていないファイルが全行変更として出る。**
+
+git 自身は正規化した後の中身で「変わったかどうか」を決めているので、一覧に出ている「変わっている」と揃えるにはこちらも均した中身で見せる必要がある。代わりに**改行だけの違いは差分として出ない** ── その1点は失うが、全行が真っ赤になるより実態に近い。
+
+#### 差分は Editor のタブにしない
+
+読み取り専用のオーバーレイとして、Git パネルの一覧の**上に重ねる**（`renderer/src/git/GitDiffOverlay.tsx`）。
+
+- **タブは「編集して保存するもの」の置き場所**になっている。読み取り専用のものが同じ列に混ざると、閉じるときの確認（§12.6）も未保存の印も「このタブには当てはまらない」という例外を1つずつ持つ
+- **Auto Save の相手が増える。** 保存が触るのは documentStore が持つ Model だけで（§11.7）、差分の Model はそこに登録されない ── タブにすると、その線を「タブなのに登録されないもの」として跨ぐ
+- 差分は**一覧の隣で見るもの**にあたる。行を押す → 見る → 隣の行を押す、という往復がパネルを跨がずに済む
+
+面ごと差し替えず重ねているのは、差し替えると閉じたときにどこを見ていたか（スクロール位置・開いていたグループ）が失われるため。重なる基準は Git パネルの器なので、隣のパネルの上には出ない。
+
+**部品は Conflict の Compare と同じもの**（`editor/monaco/MonacoDiffEditor.tsx`）を使う。3-8-9 でその部品から用途の名残（`diskContent` / `editorContent`）を外し、受け取るのを `original` / `modified` の2つだけにしてある ── 何を左に出しているかを言葉にするのは呼ぶ側の仕事で、器の中に用途ごとの分岐を持たせると3つ目の呼び出し元で必ず増える。高さも呼ぶ側が決める（Conflict は固定、Git は面の残り全部）。
+
+#### 破棄は、グループごとに行うことがまるごと違う
+
+| グループ  | 何をするか                                     | 戻せるか         |
+| --------- | ---------------------------------------------- | ---------------- |
+| unstaged  | `git restore --worktree`（index は動かさない） | 戻せない         |
+| untracked | OS のごみ箱へ送る（files ドメイン）            | ごみ箱から戻せる |
+
+**`git clean` は使わない。** `.gitignore` の対象まで巻き込みうるうえ、**ごみ箱を経由しない。** まだ一度も Git に入っていないファイルは、消してしまうと**どこにも写しが無い** ── Files パネルの削除がごみ箱へ送っている（完全削除の経路を持たない。§10.2）のに、Git パネルの破棄だけが取り返しのつかない消し方をするのは筋が通らない。消す経路そのものが `deleteWorkspaceEntry` を通るので、境界の確認も名前の判断も失敗の分類も Files から消したときと同じになる。
+
+**`reset --hard` も使わない。** あれは指した1件ではなく作業ツリー全体を戻す。
+
+`git restore` に `--staged` を渡さないので、この1回で起きるのは「作業ツリーが index の中身になる」だけ ── **index は1バイトも動かない。** `git checkout --` ではなく `git restore` なのは、`checkout` が同じ書き方で「ブランチを切り替える」にもなるため（§14.14 で `switch` を選んだのと同じ理由）。消える側の操作でこそ、コマンド名で意味が1つに決まる方を選ぶ。
+
+#### 破棄に渡せないもの
+
+- **`staged`。** 「ステージ済みの変更を破棄」は実際には2つの操作（index を戻す ＋ 作業ツリーを戻す）で、押した人から見て失われるものが1回で2段になる。**先に Unstage してもらう** ── そうすれば「index を戻した」と「作業ツリーを戻した」が別々の1回として画面に出る
+- **`conflicted`。** 何に戻すのかが ours / theirs / merge base の3つに分かれる
+- **グループの「すべて」。** Stage には「変更のすべて」があるが、破棄には置いていない ── Stage の押し間違いは Unstage で戻せるが、こちらは戻せる先が無い
+- **未追跡のフォルダ1件。** 一覧では `node_modules/` のように1行にまとまる（§14.8）。通すと、押した人から見て1行だったものが数万件の削除になる。行にボタンを出さないだけでなく、**Main も届いた対象を確かめて断る**
+
+#### 動かす前に、対象が今もそのグループに居るか確かめる
+
+Stage / Unstage と同じく、**Renderer が抱えていた一覧は信じない**（§14.11）。押すまでの間に端末で `git add` されていれば、その行はもう「変更」ではない ── 古い一覧のまま走らせると、ステージ済みの内容を作業ツリーごと巻き添えにする。差分の側でも同じ確認を通り、そちらでは「もう存在しない組み合わせの差分」を作らないために効く。
+
+#### 未保存の Editor タブがあるファイルは破棄させない
+
+判断は **Renderer が持つ。** Main は「どのファイルが開かれているか」を持たず、その一覧を IPC で配ると、Git の操作のためだけに Editor の状態を Main が持つことになる。押せる場所の側で止める方が層が増えない。
+
+「保存してから破棄」にはしない ── **書きかけをディスクへ書いてから消す**ことになり、何も救われない。黙って破棄するのも駄目で、Editor 側は未保存のまま残り、次に保存した瞬間に破棄したはずの中身が書き戻る。止めたうえで次の一手（保存する / タブを閉じる）を出す。
+
+確認の面では、その場合**押せるボタンそのものを出さない。** disabled のボタンを添えないのは、押せない理由が「今は忙しい」ではなく「先に別のことをする必要がある」だから ── 待っても押せるようにはならない（一覧の競合の行に操作を置いていないのと同じ判断。§14.11）。
+
+#### 確認を挟むのは、Git ではこの1つだけ
+
+Stage / Unstage も Commit も Push も、押しても失われるものが無い（あるいは失われるなら git が断る）。確認は**押した人にしか止められないもの**に限ってある（§12.6）。
+
+文言はグループで割れる ── 未追跡は「ごみ箱に移動します／ごみ箱から元に戻せます」、変更は「ステージ済みの内容に戻します／この変更は元に戻せません」。**同じ文言で済ませると、片方に必ず嘘をつく。** 未追跡で「元に戻せません」と出すのは要らない怖さを作り、変更で「戻せます」と出すのは取り返しのつかない誤りにあたる。
+
+器は Files の削除確認と同じ形（初期 focus はキャンセル、Esc と背景で閉じる）だが、**クラスは共有していない** ── 共有するのは描き方であって置き場所ではない（`GitIcons.tsx` と同じ判断）。
+
+#### 目印は Stage / Unstage と同じ
+
+破棄の「処理中」の鍵は、その行の Stage / Unstage とまったく同じ `path:<位置>` にしてある（`renderer/src/git/gitChanges.ts`）。分けると「破棄している最中に、その同じ行を Stage できる」形になり、走る git 2本がどちらの順で当たるかで結果が変わる。
+
+#### 破棄した後は、既存の追従に載る
+
+応答に**破棄した後の状態が丸ごと載る**のは他の書き込み操作と同じ（`finishGitOperation`）。作業ツリーの側は監視（`files:changed`）が拾い、`.git` が動いていれば `git:changed` も届く ── **どちらも 3-8-2 / 3-8-8 で置いたものがそのまま効く**ので、破棄のための配り方は1つも足していない（ブランチの切り替えで Files と Editor が追いつくのと同じ形。§14.14）。
+
+#### 待ち時間の上限
+
+差分も破棄も既定の `GIT_COMMAND_TIMEOUT_MS`（10 秒）を使う。ネットワークにも hook にも触れず、`checkout` のように作業ツリーを丸ごと入れ替えることもないため、3-8-5 / 3-8-6 で足した長い上限は要らない。
+
+### 14.17 Session 3-8-1 〜 3-8-9 の範囲外
+
+| 項目                                             | 状況                                                                                                                 |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| 複数ファイルの任意選択                           | Stage は「1件」か「グループのすべて」だけ。任意の複数を渡せる欄は作らない（§14.11）                                  |
+| すべて Unstage                                   | 置いていない。Commit の中身を丸ごと空にする操作で、押し間違いの代償が釣り合わない                                    |
+| 強制 Push（`--force` / `--force-with-lease`）    | 欄そのものを作っていない。他人の commit を消しうる操作で、押し間違えたときに戻せない（§14.13）                       |
+| 自動 merge / rebase（Pull）                      | `--ff-only` 固定。どちらを選ぶかはリポジトリの流儀で決まり、アプリが黙って決めてよいことではない（§14.13）           |
+| Push / Pull / 切り替えの取り消し                 | 持たない。動いている git を途中で止める手段（キャンセル）は後続のセッションで、Terminal の終了確認と同じ形で設計する |
+| remote の追加 / 切り替え / 一覧                  | remote を指せる欄は作らない。追加は端末で行う（`no-remote` として案内する。§14.13）                                  |
+| 特定のブランチ / tag だけを Push                 | 送るのは常に「今のブランチ」。refspec を渡せる欄は作らない（§14.13）                                                 |
+| Push / Pull の進捗表示                           | 「動いている」までで、何 % かは出していない。`--porcelain` も使わず、結末は終了コードで決める（§14.13）              |
+| amend / sign / author / date の変更              | 欄そのものを作っていない。履歴に永久に残るものを Renderer から書き換えられる形にしない（§14.12）                     |
+| `--no-verify`（hook の迂回）                     | 持たない。リポジトリが置いた決まりごとをアプリが黙って外すことになる（§14.12）                                       |
+| 空の Commit（`--allow-empty`）                   | 持たない。押したのに何も起きない、の別の形にあたる（§14.12）                                                         |
+| Commit テンプレート / 専用エディタ               | 入力欄は `<textarea>` 1つ。改行は通るが、書式を用意する側には回らない                                                |
+| Commit メッセージの AI 生成                      | 走査の入口が別のもの（差分の中身）になるため、別の経路として設計する                                                 |
+| Git identity の設定 UI                           | 未設定なら失敗として案内するだけ。**アプリからは設定しない**（§14.12）                                               |
+| ブランチの削除 / rename                          | 置いていない。削除は**戻せない**操作で、確認の形（§12.6）と一緒に設計する（§14.14）                                  |
+| remote-tracking branch からのブランチ作成        | 一覧にも載せず、名前を渡しても作らない（`--no-guess`）。remote を指せる欄と一緒に設計する（§14.14）                  |
+| 一覧に無いブランチへ名前で切り替える             | 切り替え先は**一覧から選んだものだけ**。上限を超えた分は Terminal パネルで扱う（§14.14）                             |
+| 切り替え時の自動 stash / merge（`--merge`）      | 渡さない。切り替えてよいかを決めるのは git 自身で、アプリはその判断を上書きしない（§14.14）                          |
+| 別の commit からブランチを作る（start point）    | 欄そのものを作っていない。選ぶための画面（履歴）と一緒でなければ意味を持たない（§14.14）                             |
+| ブランチの追跡先を設定する（`--track`）          | 渡さない。始点は HEAD で、追跡先を付けるかはリポジトリの設定の領分になる（§14.14）                                   |
+| `git init` / 「GitHub に公開」                   | 検出と案内までに留めた。初期化は Push までを一続きにして設計する（DESIGN.md §3）                                     |
+| 認証情報の保存                                   | アプリ自身では持たない。credential.helper 未設定なら案内に留める（設計判断 7）                                       |
+| `.git` の中身を Renderer へ渡す                  | `git:changed` が運ぶのは `workspaceId` だけ。何が変わったかは載せない（§14.15）                                      |
+| Main から Git の**状態**を push                  | 押し出すのは「調べ直して」という合図までで、状態そのものは要求と応答で運ぶ（§14.15）                                 |
+| 監視の除外を Settings から変える                 | `.git` の中で拾う名前は固定の表（§14.15）。`ignoredDirectories.ts` と同じく、設定から読む形は後                      |
+| submodule / worktree の `.git` を追う            | `modules/` も `worktrees/` も拾わない。どちらも「Workspace root ＝ リポジトリ root」の前提から外れる（§14.15）       |
+| サブフォルダのリポジトリを自動で選ぶ             | 選ばない。root が食い違えば操作しない（§14.4）                                                                       |
+| worktree / submodule / sparse checkout           | どれも「Workspace root ＝ リポジトリ root」という前提から外れる。別の設計が要る                                      |
+| ステージ済みの破棄（1回で index も作業ツリーも） | 置いていない。**先に Unstage** してもらう ── 1回で失われるものが2段になる（§14.16）                                  |
+| グループごとの一括破棄 / すべて破棄              | 置いていない。Stage の押し間違いは Unstage で戻せるが、破棄には戻せる先が無い（§14.16）                              |
+| 未追跡のフォルダ1件の破棄                        | 断る。1行に見えて中身は数万件になりうる。行にも出さず、Main も届いた対象を確かめて断る（§14.16）                     |
+| `git clean` / `reset --hard`                     | 使わない。前者はごみ箱を経由せず、後者は指した1件より広い範囲を戻す（§14.16）                                        |
+| 差分の中からの編集 / 行単位の Stage              | Diff Editor は読み取り専用。直すのは元のエディタで行う ── 保存の入口を2つにしない（§14.16）                          |
+| 履歴の2点を比べる（`HEAD~1` など）               | rev を渡せる欄そのものが無い。走査の入口が別のもの（commit の連なり）になり、履歴の画面と一緒に設計する（§14.16）    |
+| 差分の `--textconv` / `--ext-diff`               | 付けない。どちらもリポジトリの設定にある**任意のプログラム**を起動する指定にあたる（§14.16）                         |
+| 競合しているファイルの差分 / 破棄                | 対象外。「前」と「後」が2組（ours / theirs）あり、2つの中身を並べる形そのものが当てはまらない（§14.16）              |
+| 改行だけの違いを差分として出す                   | 出せない。左右とも LF に均してある ── 均さないと `core.autocrlf` の環境で全行が変更として出る（§14.16）              |
+| Merge Conflict 解決 UI                           | 衝突は**別のグループとして出す**ところまで（§14.8）。Stage / Unstage / 差分 / 破棄も置かず、Commit は git が断る     |
+| 履歴 / Graph / stash / rebase / tag              | 走査の入口が別のもの（commit の連なり）になるため、別の経路として設計する                                            |
+| GitHub の API（Issues / PR / Actions）           | git の実行とは別のドメイン（ネットワークと認証が絡む）                                                               |

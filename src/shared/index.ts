@@ -3,6 +3,7 @@ export type {
   EnvApi,
   FilesApi,
   FluvixApi,
+  GitApi,
   PlatformId,
   RuntimeVersions,
   SettingsApi,
@@ -41,6 +42,8 @@ export type {
   WorkspaceFileStatus
 } from './files'
 
+export type { GitFailureReason, GitHead, GitRepositoryState } from './git'
+
 export { EDITOR_SETTINGS_DOCUMENT_MAX_BYTES, EDITOR_SETTINGS_SCHEMA_VERSION } from './settings'
 export type { EditorSettingsDocument, StoredAutoSaveSettings } from './settings'
 
@@ -71,6 +74,7 @@ export type {
   DeleteWorkspaceEntryRequest,
   DeleteWorkspaceEntryResponse,
   GetCurrentWorkspaceFolderResponse,
+  GetGitRepositoryResponse,
   IpcChannel,
   IpcContract,
   IpcErrorCode,

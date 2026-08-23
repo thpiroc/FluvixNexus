@@ -1,5 +1,6 @@
 import type { EditorSettingsDocument } from '../../settings/editorSettings'
 import type { FilesSettingsDocument } from '../../settings/filesSettings'
+import type { TerminalSettingsDocument } from '../../settings/terminalSettings'
 
 /**
  * settings ドメインの IPC 契約（アプリの設定の永続化）。
@@ -12,10 +13,10 @@ import type { FilesSettingsDocument } from '../../settings/filesSettings'
  * そこで崩れる（ARCHITECTURE.md §5）。
  *
  * そのため、別のものを保存したくなったらこのドメインに**チャンネルを足す**形にする。
- * Editor の設定（Auto Save）と Files の見え方（Session 3-6-8）はそれぞれ別のチャンネル・
- * 別のファイルで、Terminal / Git の設定が要るようになったら `settings:load-terminal` の
- * ように増やす。**既にあるチャンネルへ相乗りさせない** ── 相乗りを1つ許した時点で
- * 「Editor の設定」という限定が消え、保存の失敗が無関係な機能へ波及する。
+ * Editor の設定（Auto Save）・Files の見え方（Session 3-6-8）・Terminal の見え方
+ * （Session 3-7-5）はそれぞれ別のチャンネル・別のファイルで、Git の設定が要るように
+ * なったら同じ形で増やす。**既にあるチャンネルへ相乗りさせない** ── 相乗りを1つ
+ * 許した時点で「Editor の設定」という限定が消え、保存の失敗が無関係な機能へ波及する。
  *
  * ## 読めなければ既定で始める
  *
@@ -43,6 +44,15 @@ export interface SaveFilesSettingsRequest {
   readonly document: FilesSettingsDocument
 }
 
+export interface LoadTerminalSettingsResponse {
+  /** 保存済みの設定。未保存・破損・想定外の内容なら null（＝既定で始める）。 */
+  readonly document: TerminalSettingsDocument | null
+}
+
+export interface SaveTerminalSettingsRequest {
+  readonly document: TerminalSettingsDocument
+}
+
 export interface SettingsIpcContract {
   'settings:load-editor': {
     request: void
@@ -58,6 +68,14 @@ export interface SettingsIpcContract {
   }
   'settings:save-files': {
     request: SaveFilesSettingsRequest
+    response: void
+  }
+  'settings:load-terminal': {
+    request: void
+    response: LoadTerminalSettingsResponse
+  }
+  'settings:save-terminal': {
+    request: SaveTerminalSettingsRequest
     response: void
   }
 }

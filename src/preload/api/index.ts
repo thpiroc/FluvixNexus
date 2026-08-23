@@ -1,8 +1,10 @@
 import type { FluvixApi } from '@shared/api'
 import { envApi } from './env'
 import { filesApi } from './files'
+import { gitApi } from './git'
 import { settingsApi } from './settings'
 import { systemApi } from './system'
+import { terminalApi } from './terminal'
 import { windowApi } from './window'
 import { workspaceApi } from './workspace'
 import { workspaceFolderApi } from './workspaceFolder'
@@ -28,5 +30,7 @@ export const api: FluvixApi = {
   workspace: workspaceApi,
   workspaceFolder: workspaceFolderApi,
   files: filesApi,
+  terminal: terminalApi,
+  git: gitApi,
   settings: settingsApi
 }

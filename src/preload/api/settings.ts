@@ -12,5 +12,7 @@ export const settingsApi: SettingsApi = {
   loadEditor: () => invokeIpc(IPC_CHANNELS.SETTINGS_LOAD_EDITOR),
   saveEditor: (request) => invokeIpc(IPC_CHANNELS.SETTINGS_SAVE_EDITOR, request),
   loadFiles: () => invokeIpc(IPC_CHANNELS.SETTINGS_LOAD_FILES),
-  saveFiles: (request) => invokeIpc(IPC_CHANNELS.SETTINGS_SAVE_FILES, request)
+  saveFiles: (request) => invokeIpc(IPC_CHANNELS.SETTINGS_SAVE_FILES, request),
+  loadTerminal: () => invokeIpc(IPC_CHANNELS.SETTINGS_LOAD_TERMINAL),
+  saveTerminal: (request) => invokeIpc(IPC_CHANNELS.SETTINGS_SAVE_TERMINAL, request)
 }
