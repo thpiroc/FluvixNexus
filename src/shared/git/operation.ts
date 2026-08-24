@@ -1,7 +1,7 @@
 /**
  * Git の**書き込み操作**（Session 3-8-3 の Stage / Unstage、Session 3-8-4 の Commit、
  * Session 3-8-5 の Push / Pull / Commit & Push、Session 3-8-6 のブランチの
- * 切り替え / 作成）。
+ * 切り替え / 作成、Session 3-8-9 の破棄、Session 3-8-10 の初期化と公開）。
  *
  * ## repository.ts / status.ts との分担
  *
@@ -109,7 +109,7 @@ export interface GitDiscardTarget {
   /**
    * どちらのグループの1行か。
    *
-   * **グループごとに、行うことがまるごと違う**（ARCHITECTURE.md §14.17）。
+   * **グループごとに、行うことがまるごと違う**（ARCHITECTURE.md §14.16）。
    *
    *   unstaged  … `git restore --worktree`（index には触らない）
    *   untracked … OS のごみ箱へ送る（`git clean` は使わない）
@@ -207,10 +207,25 @@ export type GitOperationFailureReason =
    * remote が1つも設定されていない（Session 3-8-5）。
    *
    * `git init` しただけのリポジトリがこれにあたる。次の一手は
-   * 「remote を追加する」で、GitHub への公開の入口（DESIGN.md §3）が
-   * 用意されるまでは端末で行うことになる。
+   * 「GitHub に公開」（Session 3-8-10）か、端末での `git remote add` になる。
    */
   | 'no-remote'
+  /**
+   * commit がまだ1つも無い（Session 3-8-10）。
+   *
+   * `git init` の直後がこれにあたる。GitHub への公開でだけ起こる ──
+   * **中身の無いリポジトリを公開しない**（DESIGN.md §3 の「初期化 → 初回
+   * Commit → 公開」の順を、アプリが飛び越えない）。
+   *
+   * **アプリが代わりに Commit を作ることはしない。** 何を最初の commit に
+   * 含めるかは利用者の判断で、`.gitignore` を書く前に全部入りの commit が
+   * 履歴の1つめとして永久に残るのは、後から直しにくい
+   * （`identity-missing` でアプリが名乗りを決めないのと同じ判断）。
+   *
+   * `nothing-to-do` と分けてあるのは、次の一手がはっきり別だから ──
+   * あちらは「押した意味が無かった」で、こちらは「先にすることがある」になる。
+   */
+  | 'no-commit'
   /**
    * 追跡先（upstream）が決まっていない（Session 3-8-5）。
    *
@@ -259,6 +274,41 @@ export type GitOperationFailureReason =
    * Pull すれば送れるようになるが、こちらは何度 Pull しても送れない。
    */
   | 'remote-rejected'
+  /**
+   * GitHub CLI（`gh`）がこの PC で見つからなかった（Session 3-8-10）。
+   *
+   * 公開でだけ起こる。**アプリが代わりに入れることはしない**（設計判断）──
+   * 次の一手は「winget で入れる」で、その1行は Renderer が文字として出す
+   * （renderer/src/git/githubPublish.ts）。入れれば、アプリを開き直さずに
+   * そのまま使える（実行ファイルの解決を覚えていないため。
+   * main/github/githubExecutable.ts）。
+   *
+   * `git-unavailable`（リポジトリの状態の側）と別なのは、こちらが
+   * **Git パネル全体を止める理由にならない**ため ── gh が無くても
+   * Commit も Push もそのまま使える。
+   */
+  | 'github-cli-missing'
+  /**
+   * GitHub CLI に GitHub アカウントが結び付いていない（Session 3-8-10）。
+   *
+   * `gh auth status` が断った状態にあたる。次の一手は
+   * 「Terminal パネルで `gh auth login`」で、**Fluvix Nexus は認証情報を
+   * 持たない**（設計判断 7）── これは Push / Pull で
+   * credential helper に任せているのとまったく同じ分担になる
+   * （`auth-required`）。
+   *
+   * 分けてあるのは、直す場所が違うため ── あちらは git の資格情報、
+   * こちらは gh のログインになる。
+   */
+  | 'github-signed-out'
+  /**
+   * 同じ名前の repository が GitHub 側に既にある（Session 3-8-10）。
+   *
+   * **別の名前で作り直すことも、上書きすることもしない**（設計判断）──
+   * どちらも「押した人が指していないもの」を相手にすることになる。
+   * 次の一手は「別の名前を打つ」で、それは同じ面の中にそのまま在る。
+   */
+  | 'github-repository-exists'
   /**
    * 追跡先と枝分かれしていて、早送りできない（Session 3-8-5）。
    *
@@ -347,21 +397,44 @@ export type GitOperationFailureReason =
   | 'unknown'
 
 /**
+ * 途中まで通った操作で、**どこまでが済んでいるか**（Session 3-8-10）。
+ *
+ * 3-8-5 の時点では `partly-applied` を返しうるのが Commit & Push だけだったため、
+ * 文言の側が「Commit は完了しましたが」を決め打ちできた。3-8-10 で
+ * GitHub への公開が2つめの利用者になり、そこでは**済んでいるものが違う**
+ * （repository が作られ、remote が設定された）── 決め打ちのまま流用すると、
+ * 公開の失敗が「Commit は完了しました」と名乗ることになる。
+ *
+ * 閉じた集合にしてあるのは、文言を持つ側（renderer/src/git/gitChanges.ts）が
+ * **どれにも文を用意したことを型で確かめられる**ようにするため。
+ */
+export type GitPartialOperationStep =
+  /** commit は作られた（Commit & Push の Push だけが通らなかった）。 */
+  | 'commit'
+  /** GitHub の repository を作り、remote を設定した（初回 Push だけが通らなかった）。 */
+  | 'github-repository'
+
+/**
  * 1回の操作の結末。
  *
  * **何が変わったかは載せない。** Commit（Session 3-8-4）で作られた commit の
  * ハッシュも、Stage された件数も返していない ── 操作の後の状態は
  * 同じ応答の `repository` に丸ごと入っており（shared/ipc/contracts/git.ts）、
  * 2つの経路で同じことを伝えると、片方だけが古い形が生まれる。
+ *
+ * 例外は `partly-applied` の `completed` だけになる（Session 3-8-10）。あれは
+ * 「今どうなっているか」ではなく**その1回がどこで止まったか**で、状態を
+ * 読み直しても分からない（repository が作られたのか、commit が積まれたのかは、
+ * 止まった後の状態からは区別が付かない）。
  */
 export type GitOperationOutcome =
   /** 要求どおりに変わった（index が変わった / commit が作られた / 送れた）。 */
   | { readonly status: 'applied' }
   /**
-   * **途中まで通った**（Session 3-8-5）。
+   * **途中まで通った**（Session 3-8-5 / 3-8-10）。
    *
-   * 今のところ Commit & Push だけが返しうる ── Commit は作られたが、
-   * その後の Push が通らなかった状態にあたる。
+   * 返しうるのは Commit & Push と、GitHub への公開の2つ ── どちらも
+   * 「手元は変わった／外に物ができたのに、Push だけが通らなかった」状態にあたる。
    *
    * ## なぜ `failed` に丸めないか
    *
@@ -377,8 +450,24 @@ export type GitOperationOutcome =
    * 取り消し**にほかならない。Commit はそのまま残し、Push だけを押し直せばよい。
    *
    * `reason` は **Push が通らなかった理由**が入る（Commit の理由ではない）。
+   *
+   * ## 公開でも同じ形にする（Session 3-8-10）
+   *
+   * GitHub の repository は作られ、remote も設定されたのに初回 Push が
+   * 通らなかった、も同じく普通に起こる（認証）。**作った repository を
+   * 消して失敗に揃えることはしない** ── 頼まれていない取り消しであり、
+   * しかも消す操作そのものが失敗しうる（Commit を戻さないのと同じ理由）。
+   *
+   * 残った Push は、そのまま Push ボタンで送り直せる ── remote が付いた
+   * 時点で `hasRemote` が真になり、画面は「公開の入口」から
+   * 「Push / Pull の並び」へ切り替わっている（shared/git/repository.ts）。
    */
-  | { readonly status: 'partly-applied'; readonly reason: GitOperationFailureReason }
+  | {
+      readonly status: 'partly-applied'
+      /** どこまでが済んでいるか（文言の前半を決める）。 */
+      readonly completed: GitPartialOperationStep
+      readonly reason: GitOperationFailureReason
+    }
   | { readonly status: 'failed'; readonly reason: GitOperationFailureReason }
 
 /**

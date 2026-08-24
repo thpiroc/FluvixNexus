@@ -4,6 +4,7 @@ export type {
   FilesApi,
   FluvixApi,
   GitApi,
+  GitHubApi,
   PlatformId,
   RuntimeVersions,
   SettingsApi,

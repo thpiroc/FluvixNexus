@@ -130,9 +130,10 @@ export type GitRepositoryState =
   /**
    * Workspace はあるが、Git リポジトリではない（未初期化）。
    *
-   * Session 3-8-1 では**検出と案内だけ**を行い、`git init` は実行しない
-   * （設計判断 1）。初期化は DESIGN.md §3 の「GitHub に公開」の一部として、
-   * remote 作成・初回 Commit・Push と一続きで設計する。
+   * Session 3-8-1 では**検出と案内だけ**を行い、`git init` は実行しなかった
+   * （設計判断 1）。Session 3-8-10 で、ここから抜け出す口（`git:init`）を
+   * 足してある ── ただし**初期化はそれだけで完結する1つの操作**で、
+   * 初回 Commit も GitHub への公開も続けて行わない（main/git/gitInit.ts）。
    */
   | { readonly status: 'not-a-repository' }
   /**
@@ -173,6 +174,34 @@ export type GitRepositoryState =
       readonly changes: GitWorkingTreeChanges
       /** 追跡先との進み具合。upstream が無ければ null。 */
       readonly upstream: GitUpstreamStatus | null
+      /**
+       * remote が1つでも設定されているか（Session 3-8-10）。
+       *
+       * ## 名前も URL も載せず、有無だけを載せる
+       *
+       * `origin` という名前も、その先の URL も渡さない ── リポジトリ root の
+       * 絶対パスを渡していない（このファイルの冒頭）のと同じ線で、**渡せば
+       * Renderer がそれを指して何かを頼みたくなる**。remote を指せる欄は
+       * Push / Pull にも作っていない（相手を決めるのはリポジトリの設定で、
+       * それを読むのは Main になる。shared/ipc/contracts/git.ts）。
+       *
+       * ## なぜ `ready` の中なのか
+       *
+       * ブランチの一覧を `ready` に入れなかった（shared/git/branch.ts）のとは
+       * 逆の判断になる。基準は同じ**「見られている時間」**で、この値は
+       * Git パネルが開いている間ずっと画面を決めている ──
+       *
+       *   remote が無い … 「GitHub に公開」の入口を出す（Session 3-8-10）
+       *   remote がある … Push / Pull の並びだけを出す
+       *
+       * 別の問い合わせに分けると、一覧やブランチ名と**別の瞬間の写し**になり、
+       * 「公開の入口と Push が同時に出ている」画面がありうる。
+       *
+       * 代償は、状態を読むたびに git が1回増えること（`git remote`）。その1回は
+       * Push が押される前に払っていたもの（`listRemotes`）をそのまま前へ
+       * 移しただけで、合計は増えていない（main/git/gitSync.ts）。
+       */
+      readonly hasRemote: boolean
     }
   /** Git を動かせたが、答えが得られなかった。 */
   | { readonly status: 'failed'; readonly reason: GitFailureReason }

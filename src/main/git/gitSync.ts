@@ -6,7 +6,6 @@ import type {
 import { createLogger } from '../logger'
 import {
   fetchFromRemote,
-  listRemotes,
   mergeUpstreamFastForwardOnly,
   pushSettingUpstream,
   pushToUpstream
@@ -15,17 +14,17 @@ import { runGitCommitStep } from './gitCommit'
 import {
   classifyGitFetchFailure,
   classifyGitMergeFailure,
-  classifyGitPushFailure,
-  summarizeGitStderr
+  classifyGitPushFailure
 } from './gitFailure'
 import {
   finishGitOperation,
   notReadyGitOperation,
+  toGitOperationOutcome,
   type GitOperationResult
 } from './gitOperationResult'
 import { runGitExclusively } from './gitQueue'
 import { hasGitHeadCommit, readGitRepositoryOutcome } from './gitRepository'
-import { GIT_COMMIT_TIMEOUT_MS, GIT_NETWORK_TIMEOUT_MS, runGit, type GitRunOutcome } from './runGit'
+import { GIT_COMMIT_TIMEOUT_MS, GIT_NETWORK_TIMEOUT_MS, runGit } from './runGit'
 
 /**
  * Push / Pull / Commit & Push（Session 3-8-5）。
@@ -95,7 +94,7 @@ export async function applyGitPush(): Promise<GitOperationResult> {
     }
 
     const blocked =
-      (await findPushDestinationProblem(before.repository)) ??
+      findPushDestinationProblem(before.repository) ??
       (await findPushSubjectProblem(before.repository))
 
     if (blocked !== null) {
@@ -112,9 +111,7 @@ export async function applyGitPush(): Promise<GitOperationResult> {
  * **Commit しても変わらないもの**だけをここに入れてある ── Commit & Push は
  * この関数だけを Commit の前に通す（送るものの有無は、Commit すれば変わる）。
  */
-async function findPushDestinationProblem(
-  repository: ReadyRepository
-): Promise<GitOperationFailureReason | null> {
+function findPushDestinationProblem(repository: ReadyRepository): GitOperationFailureReason | null {
   /*
     detached HEAD では「今のブランチ」が無く、送り先を決める土台が無い。
     アプリが代わりにブランチを作ることはしない（shared/git/operation.ts）。
@@ -123,13 +120,15 @@ async function findPushDestinationProblem(
     return 'not-on-branch'
   }
 
-  const remotes = await hasAnyRemote()
+  /*
+    remote の有無は、状態を読んだその1回に既に載っている（Session 3-8-10）。
 
-  if (remotes === null) {
-    return 'unknown'
-  }
-
-  return remotes ? null : 'no-remote'
+    3-8-5 ではここで `git remote` を1回動かしていたが、公開の入口を出すために
+    同じことを状態の側で読むようになった（shared/git/repository.ts の
+    `hasRemote`）── 2箇所で別々に読むと、**画面に出ている入口と、押したときの
+    判断が別の瞬間の写し**になる。git を動かす回数も1回減る。
+  */
+  return repository.hasRemote ? null : 'no-remote'
 }
 
 /**
@@ -166,17 +165,6 @@ async function findPushSubjectProblem(
   return head ? null : 'nothing-to-do'
 }
 
-/** remote が1つでも設定されているか。分からなければ null。 */
-async function hasAnyRemote(): Promise<boolean | null> {
-  const outcome = await runGit(listRemotes())
-
-  if (outcome.status !== 'completed' || outcome.exitCode !== 0) {
-    return null
-  }
-
-  return outcome.stdout.trim().length > 0
-}
-
 /**
  * `git push` を1回動かす。
  *
@@ -187,7 +175,7 @@ async function runPush(repository: ReadyRepository): Promise<GitOperationOutcome
   const command = repository.upstream === null ? pushSettingUpstream() : pushToUpstream()
   const outcome = await runGit(command, { timeoutMs: GIT_NETWORK_TIMEOUT_MS })
 
-  return toOutcome(outcome, classifyGitPushFailure)
+  return toGitOperationOutcome(outcome, classifyGitPushFailure)
 }
 
 /* -------------------------------------------------------------------------------- Pull */
@@ -253,7 +241,7 @@ function findPullBlockingState(repository: ReadyRepository): GitOperationFailure
  */
 async function runPull(): Promise<GitOperationOutcome> {
   const fetched = await runGit(fetchFromRemote(), { timeoutMs: GIT_NETWORK_TIMEOUT_MS })
-  const fetchOutcome = toOutcome(fetched, classifyGitFetchFailure)
+  const fetchOutcome = toGitOperationOutcome(fetched, classifyGitFetchFailure)
 
   if (fetchOutcome.status !== 'applied') {
     return fetchOutcome
@@ -266,7 +254,7 @@ async function runPull(): Promise<GitOperationOutcome> {
     それを `nothing-to-do` にしないのは、Pull の目的が**取ってくること**にあり、
     それは通っているため ── 押した意味はあった、という結末にあたる。
   */
-  return toOutcome(merged, classifyGitMergeFailure)
+  return toGitOperationOutcome(merged, classifyGitMergeFailure)
 }
 
 /* --------------------------------------------------------------------- Commit & Push */
@@ -304,7 +292,7 @@ export async function applyGitCommitAndPush(message: string): Promise<GitOperati
       return notReadyGitOperation(before)
     }
 
-    const blocked = await findPushDestinationProblem(before.repository)
+    const blocked = findPushDestinationProblem(before.repository)
 
     if (blocked !== null) {
       return await finishGitOperation(before.workspaceId, { status: 'failed', reason: blocked })
@@ -327,54 +315,8 @@ export async function applyGitCommitAndPush(message: string): Promise<GitOperati
 
     return await finishGitOperation(before.workspaceId, {
       status: 'partly-applied',
+      completed: 'commit',
       reason: pushed.reason
     })
   })
-}
-
-/* ------------------------------------------------------------------------------ 共通 */
-
-/**
- * 1回の実行の結末を、操作の結末へ翻訳する。
- *
- * 分類の表だけを差し替えられるようにしてあるのは、**同じ終わり方でも
- * 読み方が違う**ため（gitFailure.ts）── fetch に「断られた」は無く、
- * merge にネットワークの失敗は無い。
- *
- * `git-unavailable` / `no-workspace` を `not-ready` に寄せているのは
- * Stage / Commit と同じで、どちらも「もう操作できる状態ではない」にあたる。
- * 一緒に返る `repository` が新しい状態を持っているので、画面はそちらへ切り替わる。
- */
-function toOutcome(
-  outcome: GitRunOutcome,
-  classify: (stderr: string) => GitOperationFailureReason
-): GitOperationOutcome {
-  switch (outcome.status) {
-    case 'no-workspace':
-    case 'git-unavailable':
-      return { status: 'failed', reason: 'not-ready' }
-
-    case 'failed':
-      return { status: 'failed', reason: outcome.reason === 'timeout' ? 'timeout' : 'unknown' }
-
-    case 'completed':
-      break
-  }
-
-  if (outcome.exitCode === 0) {
-    return { status: 'applied' }
-  }
-
-  /*
-    push / fetch は進捗も要約も stderr へ書く（`--quiet` でも remote からの
-    `remote:` 行は残る）。分類に使うのはその文字列だが、Renderer へ渡すのは
-    分類だけという方針は 3-8-1 のまま ── 原因を追う手立てはログに残す。
-  */
-  const trailing = outcome.stdout.trim()
-
-  if (trailing.length > 0) {
-    log.info(`git exited ${outcome.exitCode} with stdout: ${summarizeGitStderr(trailing)}`)
-  }
-
-  return { status: 'failed', reason: classify(outcome.stderr) }
 }

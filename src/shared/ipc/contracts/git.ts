@@ -290,7 +290,7 @@ export interface GetGitFileDiffResponse {
  * files ドメインのごみ箱（untracked）の2つだけになる。
  * `git clean` は `.gitignore` の対象まで巻き込みうえに**ごみ箱を経由しない**、
  * `reset --hard` は指した1件ではなく作業ツリー全体を戻す ── どちらも
- * 「押した行1つ」より広い範囲を消す（ARCHITECTURE.md §14.17）。
+ * 「押した行1つ」より広い範囲を消す（ARCHITECTURE.md §14.16）。
  */
 export interface DiscardGitChangesRequest {
   readonly target: GitDiscardTarget
@@ -300,6 +300,37 @@ export interface GitIpcContract {
   'git:get-repository': {
     request: void
     response: GetGitRepositoryResponse
+  }
+  /**
+   * 今の Workspace を Git リポジトリにする（Session 3-8-10）。
+   *
+   * ## 要求は `void`
+   *
+   * どこを初期化するかは載らない ── 対象は常に「今の Workspace」で、
+   * それを持っているのは Main（main/workspaceFolder/currentWorkspaceFolder.ts）に
+   * なる。初期ブランチ名も、テンプレートも、`--bare` も欄そのものが無い
+   * （main/git/gitCommands.ts）。
+   *
+   * ## ここで終わる操作にしてある
+   *
+   * `git init` は**それだけで完結する1つの操作**で、初回 Commit も
+   * `.gitignore` の生成も remote の設定も続けて行わない。3-8-1 で
+   * 「途中まで自動でやって止まると、利用者が自分で片付けられない中途半端な
+   * リポジトリが残る」として初期化そのものを見送ったが、答えは
+   * 「一続きにする」ではなく**「一続きにしない」**の側になった ──
+   * 初期化した後に何を最初の commit に含めるかは利用者の判断で、
+   * アプリが決めてよいことではない（shared/git/operation.ts の `no-commit`）。
+   *
+   * GitHub への公開（`github:publish`）とも**完全に別の操作**にしてある。
+   * 初期化した後に公開を促すことはしない ── Git は GitHub のためだけの
+   * ものではなく、ここで Commit / Branch / Diff / 破棄はすべて使えるようになる。
+   *
+   * 応答は他の書き込み操作と同じ `GitOperationResponse` で、**初期化後の状態が
+   * 丸ごと載る**（`not-a-repository` から `ready` へ変わる）。
+   */
+  'git:init': {
+    request: void
+    response: GitOperationResponse
   }
   /**
    * index に載せる（Session 3-8-3）。

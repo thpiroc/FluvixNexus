@@ -34,6 +34,7 @@ export type {
   GitOperationFailure,
   GitOperationFailureReason,
   GitOperationOutcome,
+  GitPartialOperationStep,
   GitStageTarget,
   GitUnstageTarget
 } from './operation'

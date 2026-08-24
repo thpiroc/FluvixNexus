@@ -5,6 +5,7 @@ import { currentPlatform } from '../platform'
 import { getCurrentWorkspaceFolder } from '../workspaceFolder/currentWorkspaceFolder'
 import { deriveWorkspaceDisplayName } from '../workspaceFolder/folderPath'
 import {
+  listRemotes,
   showCurrentBranch,
   showHeadCommit,
   showRepositoryRoot,
@@ -40,7 +41,8 @@ import { runGit } from './runGit'
  * 2. rev-parse --show-toplevel     → リポジトリか / その root はどこか
  * 3. root は Workspace root と同じか → 違えば操作しない（設計判断 10）
  * 4. HEAD はどこを指しているか      → ブランチ / detached
- * 5. 作業ツリーはどう変わっているか → 変更ファイルの一覧（Session 3-8-2）
+ * 5. remote は設定されているか      → 公開の入口を出すか（Session 3-8-10）
+ * 6. 作業ツリーはどう変わっているか → 変更ファイルの一覧（Session 3-8-2）
  * ```
  *
  * 3 を 4 / 5 より先に置いているのが要点になる。root が食い違う状態で一覧を出すと、
@@ -208,6 +210,7 @@ async function resolveRepositoryState(workspaceRoot: string): Promise<GitReposit
  */
 async function resolveReadyState(): Promise<GitRepositoryState> {
   const head = await resolveHead()
+  const hasRemote = await resolveHasRemote()
   const status = await runGit(showWorkingTreeStatus())
 
   switch (status.status) {
@@ -235,7 +238,44 @@ async function resolveReadyState(): Promise<GitRepositoryState> {
     return { status: 'failed', reason: 'unreadable-output' }
   }
 
-  return { status: 'ready', head, changes: reading.changes, upstream: reading.upstream }
+  return {
+    status: 'ready',
+    head,
+    changes: reading.changes,
+    upstream: reading.upstream,
+    hasRemote
+  }
+}
+
+/**
+ * remote が1つでも設定されているか（Session 3-8-10）。
+ *
+ * ## 読めなかったら「無い」に倒す
+ *
+ * HEAD（`resolveHead`）と同じで、**読めなかったことを失敗にしない** ──
+ * remote の有無が分からないだけで、リポジトリが使えないわけではない。
+ *
+ * 倒す先を `false` にしてあるのは、その方の間違いが**取り返しがつく**ため。
+ *
+ *   false へ倒す … 公開の入口が出る。押せば Main が実際の remote を見て
+ *                  断る（`git remote add origin` は既にあれば失敗する）
+ *   true へ倒す  … 公開の入口が消え、Push だけが並ぶ。remote が無ければ
+ *                  Push は必ず `no-remote` で断られ、**押す先がどこにも無くなる**
+ *
+ * ## 名前も URL も持ち帰らない
+ *
+ * 出力（remote 名の一覧）は「何か書かれていたか」だけを見て捨てる。
+ * 呼び出し側が名前を知る必要が無いのは、remote を名前で指せる操作が
+ * 1つも無いため（shared/git/repository.ts）。
+ */
+async function resolveHasRemote(): Promise<boolean> {
+  const outcome = await runGit(listRemotes())
+
+  if (outcome.status !== 'completed' || outcome.exitCode !== 0) {
+    return false
+  }
+
+  return outcome.stdout.trim().length > 0
 }
 
 /* ------------------------------------------------------------------------ HEAD の判定 */

@@ -2,9 +2,12 @@ import type { JSX, KeyboardEvent } from 'react'
 import { useCallback, useMemo, useState } from 'react'
 import type { GitDiscardTarget, GitFileChange } from '@shared/git'
 import { useEditorContext } from '../editor/context'
+import { useWorkspaceFolder } from '../workspaceFolder/context'
 import { GitBranchMenu } from './GitBranchMenu'
 import { GitDiffOverlay } from './GitDiffOverlay'
 import { GitDiscardConfirm } from './GitDiscardConfirm'
+import { GitHubPublishForm } from './GitHubPublishForm'
+import { GitInitConfirm } from './GitInitConfirm'
 import { DiffIcon, DiscardIcon, StageIcon, UnstageIcon } from './GitIcons'
 import {
   canDiscardGitChange,
@@ -17,6 +20,7 @@ import {
   findGitDiscardBlocker,
   GIT_COMMIT_AND_PUSH_OPERATION_KEY,
   GIT_COMMIT_OPERATION_KEY,
+  GIT_INIT_OPERATION_KEY,
   GIT_PULL_OPERATION_KEY,
   GIT_PUSH_OPERATION_KEY,
   toGitChangeGroups,
@@ -34,11 +38,12 @@ import {
   type GitRowAction
 } from './gitChanges'
 import { canDiffGitChange, toGitDiffGroup } from './gitDiff'
+import { GITHUB_PUBLISH_OPERATION_KEY } from './githubPublish'
 import { describeGitRepositoryNotice } from './gitRepositoryMessage'
 import { useGitRepository } from './useGitRepository'
 
 /**
- * Git パネルの中身（Session 3-8-1 / 3-8-2 / 3-8-3 / 3-8-4 / 3-8-5 / 3-8-6）。
+ * Git パネルの中身（Session 3-8-1 / 3-8-2 / 3-8-3 / 3-8-4 / 3-8-5 / 3-8-6 / 3-8-9 / 3-8-10）。
  *
  * ## 出しているのは DESIGN.md §3 の「①変更確認 → ②コミットメッセージ → ③Commit & Push」
  *
@@ -129,6 +134,7 @@ export function GitView(): JSX.Element {
     refresh,
     pending,
     failure,
+    init,
     stage,
     unstage,
     discard,
@@ -143,9 +149,30 @@ export function GitView(): JSX.Element {
     branches,
     refreshBranches,
     switchBranch,
-    createBranch
+    createBranch,
+    githubStatus,
+    refreshGitHubStatus,
+    publishToGitHub
   } = useGitRepository()
   const { openFile, unsavedTabs } = useEditorContext()
+  /*
+    Workspace の表示名（Session 3-8-10）。
+
+    使うのは2箇所 ── 初期化の確認に出す名前と、公開する repository 名の
+    初期値になる。**Main から取り直さない**（Files / Terminal と同じ写しを見る）
+    ── Git の応答に名前を載せると、同じものの出どころが2つになる。
+  */
+  const { workspace } = useWorkspaceFolder()
+  const workspaceName = workspace?.displayName ?? ''
+
+  /*
+    初期化の確認を出しているか（Session 3-8-10）。
+
+    Commit メッセージや破棄の確認と同じくここが持つ ── フックが持っているのは
+    「git に聞けば分かること」の写しで、これは**まだ何も起きていない、
+    押すかどうかの途中**にあたる。
+  */
+  const [initializing, setInitializing] = useState(false)
 
   /*
     Commit メッセージ（Session 3-8-4）。
@@ -315,10 +342,52 @@ export function GitView(): JSX.Element {
         {notice.description === null ? null : (
           <p className="fx-git__description">{notice.description}</p>
         )}
+        {/*
+          その状態から抜け出す操作（Session 3-8-10）。
+
+          出すかどうかを決めるのは gitRepositoryMessage.ts で、ここが持つのは
+          押したときに何をするかだけになる ── 今のところ1つ（`git init`）で、
+          **押しても即座には何も起きない**（確認が出る）。
+
+          「もう一度確認する」の**左**に置く。左から右へ「進む → 調べ直す」で、
+          いちばん右にいちばん押されないものが来る並びは一覧の行と同じ。
+        */}
+        {notice.action === null ? null : (
+          <button
+            type="button"
+            className="fx-git__action"
+            data-variant="primary"
+            onClick={() => setInitializing(true)}
+            disabled={busy || pending.has(GIT_INIT_OPERATION_KEY)}
+          >
+            {notice.action}
+          </button>
+        )}
         {notice.retryable ? (
           <button type="button" className="fx-git__action" onClick={refresh} disabled={busy}>
             もう一度確認する
           </button>
+        ) : null}
+        {/*
+          操作の失敗は、案内の画面でも出す（Session 3-8-10）── 初期化を
+          押したのに何も起きなかった場合、理由を出せる場所がここしか無い
+          （一覧はまだ存在しない）。
+        */}
+        {failure === null ? null : (
+          <p className="fx-git__operation-error" role="status">
+            {describeGitOperationFailure(failure)}
+          </p>
+        )}
+        {initializing ? (
+          <GitInitConfirm
+            workspaceName={workspaceName}
+            busy={pending.has(GIT_INIT_OPERATION_KEY)}
+            onConfirm={() => {
+              init()
+              setInitializing(false)
+            }}
+            onCancel={() => setInitializing(false)}
+          />
         ) : null}
       </div>
     )
@@ -498,6 +567,26 @@ export function GitView(): JSX.Element {
           onClick={push}
         />
       </div>
+      {/*
+        GitHub に公開（Session 3-8-10）。
+
+        出るのは **remote がまだ1つも無いとき**だけになる（DESIGN.md §3 の
+        「初回のみ」）── 公開が済めばこの場所ごと消え、上の Push / Pull が
+        その先を担う。押す場所が2つ並ばないので、「どちらを押せばよいか」を
+        利用者が判断する必要が無い。
+
+        置き場所は Push / Pull の**下**（足すのは下へ）。
+      */}
+      {repository.hasRemote ? null : (
+        <GitHubPublishForm
+          workspaceName={workspaceName}
+          status={githubStatus}
+          operating={operating}
+          publishing={pending.has(GITHUB_PUBLISH_OPERATION_KEY)}
+          onRefreshStatus={refreshGitHubStatus}
+          onPublish={publishToGitHub}
+        />
+      )}
       {/*
         差分（Session 3-8-9）。
 

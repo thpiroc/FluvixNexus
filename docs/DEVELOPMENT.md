@@ -1,6 +1,6 @@
 # 開発ガイド
 
-> 対象: Session 3-8-9（Git の Diff 表示と破棄）完了時点
+> 対象: Session 3-8-10（`git init` と GitHub への公開）完了時点
 > 最終更新: 2026-08-23
 
 ---
@@ -117,9 +117,9 @@ Vitest を使い、**Electron に依存しない純粋なロジック**だけを
 
 Files の検証（`main/files/workspacePath.ts`）は Electron にも fs にも依存しない形に切り出してある。symlink による脱出だけはパス文字列では判断できないため、realpath を取ってから同じ関数へ通す側（`readWorkspaceDirectory.ts` / `readWorkspaceFile.ts` / `mutateWorkspaceEntry.ts`）が担う。
 
-#### 例外: 実ディスクを触るテスト（Session 3-5.1 / 3-6-2 / 3-6-4 / 3-6-5 / 3-8-2 / 3-8-3 / 3-8-4 / 3-8-5 / 3-8-6 / 3-8-9）
+#### 例外: 実ディスクを触るテスト（Session 3-5.1 / 3-6-2 / 3-6-4 / 3-6-5 / 3-8-2 / 3-8-3 / 3-8-4 / 3-8-5 / 3-8-6 / 3-8-9 / 3-8-10）
 
-「純粋なロジックだけを対象にする」方針に対する例外が11つある ── `mutateWorkspaceEntry.test.ts`（作成 / 改名 / 移動 / 削除）、`copyTree.test.ts`（再帰コピー）、`searchWorkspaceFiles.test.ts`（Workspace 全体の走査）、`searchWorkspaceFileContents.test.ts`（全文検索の走査）、`gitStatusRepository.test.ts`（本物の git の出力）、`gitStageRepository.test.ts`（本物の git への Stage / Unstage）、`gitCommitRepository.test.ts`（本物の git への Commit）、`gitSyncRepository.test.ts`（本物の git への Push / Pull）、`gitBranchRepository.test.ts`（本物の git へのブランチ操作）、`gitDiffRepository.test.ts`（本物の git から読む差分）、`gitDiscardRepository.test.ts`（本物の git に対する破棄）。確かめたいのがパスの文字列処理ではなく **「実際にそこに在るものを操作できるか」** だからで、モックしたファイルシステムでは何も確かめられない ── 判定と実体がずれることこそが Session 3-5.1 で直した不具合の中身だった。`aux.ts` や末尾に空白を持つ名前を Windows がどう扱うかは実装ではなく OS が決めるため、写しを相手にするとその答えを自分で書くことになる。
+「純粋なロジックだけを対象にする」方針に対する例外が13つある ── `mutateWorkspaceEntry.test.ts`（作成 / 改名 / 移動 / 削除）、`copyTree.test.ts`（再帰コピー）、`searchWorkspaceFiles.test.ts`（Workspace 全体の走査）、`searchWorkspaceFileContents.test.ts`（全文検索の走査）、`gitStatusRepository.test.ts`（本物の git の出力）、`gitStageRepository.test.ts`（本物の git への Stage / Unstage）、`gitCommitRepository.test.ts`（本物の git への Commit）、`gitSyncRepository.test.ts`（本物の git への Push / Pull）、`gitBranchRepository.test.ts`（本物の git へのブランチ操作）、`gitDiffRepository.test.ts`（本物の git から読む差分）、`gitDiscardRepository.test.ts`（本物の git に対する破棄）、`gitInitRepository.test.ts`（本物の git での初期化）、`publishRepository.test.ts`（本物の git での公開の一連）。確かめたいのがパスの文字列処理ではなく **「実際にそこに在るものを操作できるか」** だからで、モックしたファイルシステムでは何も確かめられない ── 判定と実体がずれることこそが Session 3-5.1 で直した不具合の中身だった。`aux.ts` や末尾に空白を持つ名前を Windows がどう扱うかは実装ではなく OS が決めるため、写しを相手にするとその答えを自分で書くことになる。
 
 どれも一時フォルダを Workspace root に見立てる。走査（検索）のテストでは、深い階層・大量ファイル・除外フォルダ・**外を指すジャンクション**を実際に作って、リンクの中へ潜っていないことを「指し先の中身が結果に出ていないこと」で確かめる ── 「潜らないつもり」を実物で確かめるため。上限（件数 / 深さ / 走査数）は引数で差し替えて小さくし、時間の上限だけは `now` を差し替えて固定する（実時間に依存させると、速いマシンでは通り遅いマシンでは落ちるテストになる）。
 
@@ -192,6 +192,20 @@ Files の検証（`main/files/workspacePath.ts`）は Electron にも fs にも�
 3. 未追跡が **git ではなくごみ箱**へ行くこと（`git clean` を使っていない）
 4. 未追跡の**フォルダ1件**が、数万件の削除に化けないこと
 5. 押すまでの間にグループが変わっていたら、**git を動かさない**こと（端末で `git add` された後に「変更」の行を押した場合）
+
+**初期化と公開（Session 3-8-10）では、外の世界だけを差し替える。** `git init` の側は他と同じで、実物に確かめさせるのは「git が実際に何を作るか」になる ── 初期ブランチ名をアプリから渡していないこと（その PC の `init.defaultBranch` がそのまま効く）、**commit も `.gitignore` も remote も作られない**こと、既にリポジトリなら作り直さないこと、リポジトリの中のサブフォルダでは初期化しないこと。
+
+公開の側は事情が1つ違う ── 相手が GitHub になる。そこで **repository を作る側だけを差し替える**（`setGitHubRepositoryPublisher`）。差し替えた実装がすることは1つで、同じ PC に bare リポジトリを作ってその場所を「remote の URL」として返すだけになる。git にとってそれは他の remote と何も変わらないため、`remote add` と `push --set-upstream` は**本番と同じ経路**を通る（`gitSyncRepository.test.ts` が Push / Pull で bare な remote を使っているのと同じ形）。
+
+こうすると、GitHub CLI が入っていない PC でも・回線が無くても、次を実物に対して固定できる。
+
+1. 公開が「作る → remote → Push」の順で通り、**追跡先まで設定される**こと
+2. commit が無い / detached HEAD では、**外に物を作らずに断る**こと（作る側が1度も呼ばれないことで測る）
+3. 同じ名前が既にあるときに remote を設定しないこと
+4. Push だけが通らなかったとき、`partly-applied` として返し **remote は残す**こと（続きを Push ボタンからやり直せる）
+5. **remote が既にあれば作り直さず、続きの Push だけを行う**こと（`origin` を上書きしない）
+
+gh そのものの振る舞い（引数・出力の読み方・失敗の文言）は、この塊の外で純粋なテストとして固定してある ── 逆に言えば、**gh を実際に動かすテストは1つも無い。** ネットワークと利用者のアカウントに触れるものは、production 実機での確認（§4）に回している。
 
 **ごみ箱だけは差し替える。** `shell.trashItem` を本物で呼ぶと、実行するたびにごみ箱が汚れる ── `mutateWorkspaceEntry.test.ts` と同じく、**呼ばれた絶対パスを記録して実体を消す**偽物を置く。記録が残るので「ごみ箱を通ったこと」自体もそのまま確かめられる（`git clean` に切り替わっていれば記録が空になる）。
 
@@ -919,6 +933,21 @@ Session 3-8-9（Diff 表示と破棄）では、**production ビルド版 67項�
 - **`git clean` を使っていないことは、隣が残っていることで測る。** 未追跡を1つ破棄したときに、他の未追跡（フォルダ・バイナリ）が手つかずで残っているかを見る。ごみ箱を通ったこと自体は、単体テスト側で `shell.trashItem` の呼び出しを記録して確かめている。
 - **Monaco の中へ打ち込むには、`textarea` ではなく `.view-lines` を押す。** 隠し `textarea` は行の `span` に遮られてクリックが通らない（実際に1回そう転んだ）。テキスト面を押してから `keyboard.type` すれば、そのまま未保存のタブが作れる。
 - 確認用のリポジトリは 3-8-7 / 3-8-8 と同じく `os.tmpdir()` に `git init` から作り、`workspace-folder.json` を書き換えて**起動時の復元**で開かせる。終わったら `{"schemaVersion":1,"lastWorkspace":null}` に戻し、リポジトリを消す。
+
+Session 3-8-10（`git init` と GitHub への公開）では、**production ビルド版 18項目、全項目 PASS。** 相手は**リポジトリではない**フォルダ1つ（中にファイルを1つ置いただけ）で、1回の起動の中を「案内 → 確認 → 初期化 → 公開の面 → remote を足して消える」の順に通している。**この PC には GitHub CLI が入っていない**ため、gh が無い側の経路がそのまま実物で確かめられた。
+
+- ① 案内: 「まだ Git リポジトリではありません」と出ること、「Git リポジトリにする」が1つだけ出ること、**その文字が案内の側（`gitRepositoryMessage.ts`）から来ている**こと
+- ② 確認: 押すと確認が出ること、**Workspace 名が出る**こと、「.git が作られます」と何が起きるかを言うこと
+- ③ 初期化: `.git` ができること、**`.gitignore` が作られない**こと、**remote が設定されない**こと、**commit が1つも作られない**こと（`rev-parse --verify HEAD` が断る）、置いてあったファイルが未追跡として一覧に出ること
+- ④ 公開の入口: 初期化の直後に「GitHub に公開」が出ること
+- ⑤ 公開の面: gh が無いことが出ること、**`winget install --id GitHub.cli` の1行が出る**こと、その間「公開する」が押せないこと、repository 名の初期値に Workspace 名が入ること、**公開範囲の既定が private** であること
+- ⑥ remote があると消える: 端末を使わず外から `git remote add` してパネルを更新すると、**公開の入口ごと消える**こと、Push / Pull はそのまま並んでいること
+
+確認の要領（この回で分かったもの）:
+
+- **gh が入っていない PC は、確かめる相手として都合がよい。** 「入っていないときに何が出るか」はいちばん多くの人が最初に通る道で、しかも単体テストでは文言までしか確かめられない ── 実機なら「押せないこと」と「winget の1行が選べる形で出ていること」まで見られる。gh が入っている側（ログイン済み / 未ログイン / 実際に公開する）は**手で確かめるしかない**（下記）。
+- **`git init` の結果は、画面ではなく実 git とファイルに訊く。** 「一覧が出た」だけでは、`.gitignore` を置いていないことも commit を作っていないことも言えない ── このセッションで守っているものの多くは**やっていないこと**なので、`existsSync` と `git rev-parse` の側で測る。
+- **公開の入口が消えることは、Renderer の外から作った状態で測れる。** `git remote add` を Node 側から叩いてパネルの更新ボタンを押せば、`hasRemote` が状態に載っていることと、画面がそれで切り替わることが1回で確かめられる。
 
 ---
 

@@ -16,6 +16,7 @@ import { applyGitCreateBranch, applyGitSwitchBranch, listGitBranches } from '../
 import { applyGitCommit } from '../../git/gitCommit'
 import { readGitFileDiff } from '../../git/gitDiff'
 import { applyGitDiscard } from '../../git/gitDiscard'
+import { applyGitInit } from '../../git/gitInit'
 import { normalizeGitPathspec } from '../../git/gitPathspec'
 import { describeGitRepository } from '../../git/gitRepository'
 import { applyGitStage, applyGitUnstage } from '../../git/gitStage'
@@ -24,7 +25,7 @@ import { invalidRequest } from '../errors'
 import { handleIpc } from '../registry'
 
 /**
- * git ドメインのハンドラ（Session 3-8-1 / 3-8-3 / 3-8-4 / 3-8-5）。
+ * git ドメインのハンドラ（Session 3-8-1 / 3-8-3 / 3-8-4 / 3-8-5 / 3-8-6 / 3-8-9 / 3-8-10）。
  *
  * ## 3-8-1 では確かめる値が無かった
  *
@@ -236,6 +237,20 @@ function branchNameField(request: unknown): string {
 export function registerGitHandlers(): void {
   handleIpc(IPC_CHANNELS.GIT_GET_REPOSITORY, async (): Promise<GetGitRepositoryResponse> => {
     return await describeGitRepository()
+  })
+
+  /*
+    初期化（Session 3-8-10）。
+
+    要求は `void` ── どこを初期化するかも、初期ブランチ名も渡せないため、
+    ここで確かめるべき値そのものが届かない（3-8-1 の `git:get-repository` と
+    同じ形）。対象は常に「今の Workspace」で、それを持っているのは Main になる。
+
+    **GitHub への公開（`github:*`）とは別の口**にしてある。初期化した後に
+    公開を続けて呼ぶことも、促すこともしない（main/git/gitInit.ts）。
+  */
+  handleIpc(IPC_CHANNELS.GIT_INIT, async (): Promise<GitOperationResponse> => {
+    return await applyGitInit()
   })
 
   handleIpc(IPC_CHANNELS.GIT_STAGE, async (request): Promise<GitOperationResponse> => {

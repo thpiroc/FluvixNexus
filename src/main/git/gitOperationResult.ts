@@ -1,5 +1,12 @@
-import type { GitOperationOutcome, GitRepositoryState } from '@shared/git'
+import type {
+  GitOperationFailureReason,
+  GitOperationOutcome,
+  GitRepositoryState
+} from '@shared/git'
+import { createLogger } from '../logger'
+import { summarizeGitStderr } from './gitFailure'
 import { readGitRepositoryOutcome, type GitRepositoryOutcome } from './gitRepository'
+import type { GitRunOutcome } from './runGit'
 
 /**
  * 書き込み操作の応答を組み立てる共通部分（Session 3-8-3 / 3-8-4）。
@@ -12,7 +19,17 @@ import { readGitRepositoryOutcome, type GitRepositoryOutcome } from './gitReposi
  * その決めごとを2箇所に書くと、片方だけ直された時点で「Commit のときだけ
  * 失敗すると古い一覧が残る」といった差が生まれる。Session 3-8-4 で
  * 2つめの利用者ができた時点で、ここへ寄せてある。
+ *
+ * ## Session 3-8-10 で、もう1つの共通部分が移ってきた
+ *
+ * `toGitOperationOutcome`（1回の実行 → 操作の結末）は 3-8-5 で gitSync.ts に
+ * 置かれたものになる。GitHub への公開（main/github/publishRepository.ts）が
+ * **git を動かす3つめの場所**になった時点で、あちらに置いたままだと
+ * 「Push / Pull の中の私的な関数」を別のドメインから使うことになる ──
+ * どちらの利用者にも属さない決めごとは、応答の形と同じくここへ寄せる。
  */
+
+const log = createLogger('git')
 
 /** 応答がそのまま持つ形（IPC のハンドラは受け取ったものを詰め替えるだけ）。 */
 export interface GitOperationResult {
@@ -53,4 +70,49 @@ export function notReadyGitOperation(before: GitRepositoryOutcome): GitOperation
     repository: before.repository,
     outcome: { status: 'failed', reason: 'not-ready' }
   }
+}
+
+/**
+ * 1回の実行の結末を、操作の結末へ翻訳する（Session 3-8-5 / 3-8-10）。
+ *
+ * 分類の表だけを差し替えられるようにしてあるのは、**同じ終わり方でも
+ * 読み方が違う**ため（gitFailure.ts）── fetch に「断られた」は無く、
+ * merge にネットワークの失敗は無い。
+ *
+ * `git-unavailable` / `no-workspace` を `not-ready` に寄せているのは
+ * Stage / Commit と同じで、どちらも「もう操作できる状態ではない」にあたる。
+ * 一緒に返る `repository` が新しい状態を持っているので、画面はそちらへ切り替わる。
+ */
+export function toGitOperationOutcome(
+  outcome: GitRunOutcome,
+  classify: (stderr: string) => GitOperationFailureReason
+): GitOperationOutcome {
+  switch (outcome.status) {
+    case 'no-workspace':
+    case 'git-unavailable':
+      return { status: 'failed', reason: 'not-ready' }
+
+    case 'failed':
+      return { status: 'failed', reason: outcome.reason === 'timeout' ? 'timeout' : 'unknown' }
+
+    case 'completed':
+      break
+  }
+
+  if (outcome.exitCode === 0) {
+    return { status: 'applied' }
+  }
+
+  /*
+    push / fetch は進捗も要約も stderr へ書く（`--quiet` でも remote からの
+    `remote:` 行は残る）。分類に使うのはその文字列だが、Renderer へ渡すのは
+    分類だけという方針は 3-8-1 のまま ── 原因を追う手立てはログに残す。
+  */
+  const trailing = outcome.stdout.trim()
+
+  if (trailing.length > 0) {
+    log.info(`git exited ${outcome.exitCode} with stdout: ${summarizeGitStderr(trailing)}`)
+  }
+
+  return { status: 'failed', reason: classify(outcome.stderr) }
 }

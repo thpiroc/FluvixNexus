@@ -115,6 +115,27 @@ export const GIT_COMMIT_TIMEOUT_MS = 120_000
 export const GIT_NETWORK_TIMEOUT_MS = 120_000
 
 /**
+ * 認証のやりとりを挟みうる Push を待つ上限（Session 3-8-10）。
+ *
+ * 公開の初回 Push だけがこれを使う（gitCommands.ts の
+ * `pushSettingUpstreamInteractively`）。他のネットワーク越しの git より
+ * 長いのは、**待っている相手が人**だから ── credential helper が出した
+ * ウィンドウでアカウントを選び、ブラウザで承認し、戻ってくるまでの時間が
+ * ここに入る。2分（`GIT_NETWORK_TIMEOUT_MS`）では、二段階認証を1つ挟んだ
+ * だけで足りなくなる。
+ *
+ * それでも上限を外さないのは、他と同じ理由（返ってこない相手が実在する）に
+ * 加えて、**順番待ちが1本**（gitQueue.ts）だからになる ── 握られている間は
+ * Stage も Commit も動かない。5分は「人が認証を終えるには十分で、
+ * パネルを預けたままにするには長すぎる」の境目にあたる。
+ *
+ * 時間切れになっても、失われるものは無い ── repository は作られ、remote も
+ * 設定されたまま残り、`partly-applied` として返る。続きは Push ボタンを
+ * 押し直せばよい（shared/git/operation.ts）。
+ */
+export const GIT_INTERACTIVE_PUSH_TIMEOUT_MS = 300_000
+
+/**
  * ブランチの切り替え / 作成を待つ上限（Session 3-8-6）。
  *
  * 上限が要る理由は Commit と同じ（`post-checkout` hook が走りうる ── つまり

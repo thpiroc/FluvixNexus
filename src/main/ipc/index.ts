@@ -1,5 +1,6 @@
 import { registerFilesHandlers } from './handlers/files'
 import { registerGitHandlers } from './handlers/git'
+import { registerGitHubHandlers } from './handlers/github'
 import { registerSettingsHandlers } from './handlers/settings'
 import { registerSystemHandlers } from './handlers/system'
 import { registerTerminalHandlers } from './handlers/terminal'
@@ -22,7 +23,8 @@ const handlerRegistrations: readonly (() => void)[] = [
   registerFilesHandlers,
   registerSettingsHandlers,
   registerTerminalHandlers,
-  registerGitHandlers
+  registerGitHandlers,
+  registerGitHubHandlers
 ]
 
 export function registerIpcHandlers(): void {

@@ -36,6 +36,12 @@ import { subscribeIpcEvent } from '../ipc/subscribe'
  * Preload で確かめない理由は Files と同じで、**Preload は Renderer と同じ側から
  * 差し替えられうる**前提に立つため。ここでの検証は境界にならない。
  *
+ * ## Session 3-8-10 で足した `init` も、渡す値が1つも無い
+ *
+ * 初期化の要求は `void` ── どこを初期化するかも初期ブランチ名も渡せない。
+ * GitHub への公開は**別のドメイン**（preload/api/github.ts）で、gh を動かすのも
+ * その名前を確かめるのも Main になる。
+ *
  * ## Session 3-8-8 で購読が1本増えても、同じ形のまま
  *
  * `onChanged` は `files.onChanged` とまったく同じ作りで、チャンネル名を
@@ -45,6 +51,7 @@ import { subscribeIpcEvent } from '../ipc/subscribe'
  */
 export const gitApi: GitApi = {
   getRepository: () => invokeIpc(IPC_CHANNELS.GIT_GET_REPOSITORY),
+  init: () => invokeIpc(IPC_CHANNELS.GIT_INIT),
   stage: (request) => invokeIpc(IPC_CHANNELS.GIT_STAGE, request),
   unstage: (request) => invokeIpc(IPC_CHANNELS.GIT_UNSTAGE, request),
   commit: (request) => invokeIpc(IPC_CHANNELS.GIT_COMMIT, request),

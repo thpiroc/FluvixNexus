@@ -355,7 +355,11 @@ describe('describeGitOperationFailure', () => {
    */
   describe('partly-applied（Commit は通ったが Push が通らなかった）', () => {
     it.each(reasons)('%s でも Commit が済んでいることを先に伝える', (reason) => {
-      const message = describeGitOperationFailure({ status: 'partly-applied', reason })
+      const message = describeGitOperationFailure({
+        status: 'partly-applied',
+        completed: 'commit',
+        reason
+      })
 
       expect(message).toContain('Commit は完了')
       expect(message.indexOf('Commit は完了')).toBe(0)
@@ -365,6 +369,7 @@ describe('describeGitOperationFailure', () => {
       const failed = describeGitOperationFailure({ status: 'failed', reason: 'auth-required' })
       const partly = describeGitOperationFailure({
         status: 'partly-applied',
+        completed: 'commit',
         reason: 'auth-required'
       })
 

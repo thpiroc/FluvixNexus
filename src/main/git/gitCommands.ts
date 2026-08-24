@@ -812,3 +812,109 @@ export function restoreWorktreePaths(paths: readonly string[]): GitCommand {
     args: [LITERAL_PATHSPECS, 'restore', '--worktree', '--quiet', '--', ...paths]
   }
 }
+
+/* --------------------------------- 初期化と公開（Session 3-8-10） */
+
+/**
+ * 今の Workspace を Git リポジトリにする（Session 3-8-10）。
+ *
+ * ## 素の `git init` にする
+ *
+ * 初期ブランチ名を渡さない（`-b main` も `-c init.defaultBranch=main` も
+ * 付けない）。**その PC の git が既定にしている名前がそのまま使われる。**
+ *
+ * アプリが `main` を指定すると、次の2つが起きる。
+ *
+ *   - 利用者が `init.defaultBranch` を設定していても、**アプリからだけ
+ *     別の名前になる。** 設定した本人から見て説明の付かない振る舞いになる
+ *   - 古い git（2.28 未満）は `-b` を知らない ── 初期化そのものが失敗する
+ *
+ * ブランチ名は履歴に長く残るもので、`user.name` / `user.email` をアプリが
+ * 決めない（`verifyCommitIdentity`）のと同じ理由で、ここでも決めない。
+ *
+ * ## 付けていないもの
+ *
+ * | 付けない            | なぜ                                                             |
+ * | ------------------- | ---------------------------------------------------------------- |
+ * | 対象のパス          | 場所は作業ディレクトリ（＝今の Workspace）。渡せる欄を作らない   |
+ * | `--bare`            | 作業ツリーの無いリポジトリ。Git パネルが扱えない形（`no-work-tree`） |
+ * | `--template`        | **任意のフォルダの hook がそのまま入る**（3-8-1 で引いた線の内側） |
+ * | `--separate-git-dir`| `.git` の場所が動く。監視（gitWatcher.ts）の前提から外れる       |
+ * | `--shared`          | 権限の設定。Windows では意味を持たず、他の OS では副作用になる    |
+ *
+ * `--quiet` は出力を減らすためだけのもの（作られた場所を1行で報告する）。
+ * 初期化そのものの結果は、この後に状態を読み直して確かめる
+ * （main/git/gitInit.ts）── リポジトリになったかどうかは、git の言葉ではなく
+ * `rev-parse` の答えで決める。
+ */
+export function initializeRepository(): GitCommand {
+  return { label: 'init', args: ['init', '--quiet'] }
+}
+
+/**
+ * `origin` を設定する（Session 3-8-10）。
+ *
+ * ## 名前は固定、URL は Main が受け取ったものだけ
+ *
+ * remote の名前は `origin` という**固定の文字列**で、Renderer から来た値では
+ * ない（remote 名を渡せる欄はどこにも無い。shared/ipc/contracts/git.ts）。
+ *
+ * `url` は GitHub 側で repository を作った結果として返ってきた文字列で、
+ * これも Renderer からは来ない（main/github/publishRepository.ts）。形の検証は
+ * 渡す側が済ませている ── この表は「何を実行するか」だけを持ち、値の良し悪しは
+ * 呼び出し側が先に決める（`stagePaths` と同じ分担）。
+ *
+ * ## `set-url` ではなく `add`
+ *
+ * `git remote add` は、その名前が**既にあれば失敗する**。それがここで
+ * 欲しい振る舞いになる ── `set-url` は黙って上書きするため、既に別の
+ * remote を設定しているリポジトリで公開を押すと、**送り先が入れ替わる。**
+ *
+ * 呼ぶ側でも先に「remote が1つも無いこと」を確かめてあり（publishRepository.ts）、
+ * 二重の備えになっている（pathspec に `--` と `--literal-pathspecs` を
+ * 両方掛けているのと同じ構え）。
+ *
+ * `--fetch` は付けない ── 追加した直後にネットワークへ出ることになり、
+ * この1回で何が起きるかが増える。
+ */
+export function addOriginRemote(url: string): GitCommand {
+  return { label: 'remote add origin', args: ['remote', 'add', 'origin', url] }
+}
+
+/**
+ * 公開の初回 Push（Session 3-8-10）。
+ *
+ * ## ここだけ `credential.interactive=false` を外す
+ *
+ * 引数の中身は `pushSettingUpstream` と同じ（`push.default=current` +
+ * `--set-upstream`）で、違いは **`NON_INTERACTIVE_CREDENTIALS` を渡さない**
+ * ことだけになる。
+ *
+ * 3-8-5 で対話を止めたのは、**利用者が頼んでいない場面**（保存のたびに走る
+ * 読み取りの延長や、Push ボタン1つ）でアプリの裏に認証ウィンドウが出て、
+ * 見つけられないまま数分固まるのを避けるためだった。
+ *
+ * 公開の初回 Push はそこが違う ── 利用者は今まさに
+ * 「GitHub に公開する」と押したところで、**認証を求められることを予期できる
+ * 唯一の場面**にあたる。ここで helper を黙らせると、GitHub CLI で
+ * ログインを済ませた人が、初回 Push だけ `auth-required` で断られ、
+ * 「Terminal で1度 push してください」と案内されることになる ──
+ * アプリの中で完結すると言った手順が、最後の1歩だけ外に出る。
+ *
+ * **外すのはこの1回だけ。** 以降の Push / Pull は `pushToUpstream` /
+ * `fetchFromRemote` を通り、対話は止まったままになる。
+ *
+ * `GIT_TERMINAL_PROMPT=0`（gitEnvironment.ts）は外していない ── 端末が
+ * 付いていない子プロセスに**文字入力を待たせる**ことには、この場面でも
+ * 意味が無い（待っているものが誰にも見えない）。出てよいのは
+ * helper 自身のウィンドウだけになる。
+ *
+ * 待ち時間の上限も別に持たせてある（人が答える時間が要る。
+ * runGit.ts の `GIT_INTERACTIVE_PUSH_TIMEOUT_MS`）。
+ */
+export function pushSettingUpstreamInteractively(): GitCommand {
+  return {
+    label: 'push --set-upstream (interactive credentials)',
+    args: ['-c', 'push.default=current', 'push', '--quiet', '--set-upstream']
+  }
+}

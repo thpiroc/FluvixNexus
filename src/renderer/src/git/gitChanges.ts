@@ -12,6 +12,7 @@ import type {
   GitHead,
   GitOperationFailure,
   GitOperationFailureReason,
+  GitPartialOperationStep,
   GitStageTarget,
   GitUpstreamStatus,
   GitWorkingTreeChanges
@@ -276,7 +277,7 @@ export function toGitDiscardGroup(groupId: GitChangeGroup['id']): GitDiscardTarg
 /**
  * 破棄で何が起きるかを、押す前に言う。
  *
- * **グループごとに、失われ方がまるごと違う**（ARCHITECTURE.md §14.17）。
+ * **グループごとに、失われ方がまるごと違う**（ARCHITECTURE.md §14.16）。
  * 同じ文言で済ませると、片方に嘘をつくことになる ── 未追跡は
  * ごみ箱から戻せるのに「元に戻せません」と出すのは、要らない怖さを作る。
  * 逆に変更の側で「戻せます」と出すのは、取り返しのつかない誤りにあたる。
@@ -359,15 +360,45 @@ export function findGitDiscardBlocker(
  * （`partly-applied`）、**先に伝えるべきなのは「Commit は済んでいる」**に
  * なるためで、同じ `auth-required` でも言うことが違う ── そこを取り違えると、
  * 利用者は同じ内容をもう一度 Commit することになる。
+ *
+ * ## 済んでいるものは、結末が自分で名乗る（Session 3-8-10）
+ *
+ * 途中まで通る操作が2つになった（Commit & Push と、GitHub への公開）。
+ * 前半の1文を決め打ちにしたままだと、**公開の失敗が「Commit は完了しました」と
+ * 名乗る**ことになる ── どこまで済んでいるかは `completed` として
+ * 結末に載っている（shared/git/operation.ts）。
  */
 export function describeGitOperationFailure(failure: GitOperationFailure): string {
   const reason = describeGitOperationFailureReason(failure.reason)
 
   if (failure.status === 'partly-applied') {
-    return `Commit は完了しましたが、Push できませんでした。${reason}`
+    return `${describeGitPartialStep(failure.completed)}${reason}`
   }
 
   return reason
+}
+
+/**
+ * どこまで済んでいるかの一言（`partly-applied` の前半・Session 3-8-10）。
+ *
+ * **「済んでいること」を先に言う。** 後半に来る理由（認証・ネットワーク）は
+ * どちらの操作でも同じ文になるため、前半が違わないと
+ * 「もう一度最初から押す」を招く ── Commit なら同じ commit が2つ積まれ、
+ * 公開なら同じ名前で作ろうとして断られる。
+ */
+function describeGitPartialStep(step: GitPartialOperationStep): string {
+  switch (step) {
+    case 'commit':
+      return 'Commit は完了しましたが、Push できませんでした。'
+
+    /*
+      remote の設定まで済んでいるとは限らない（`no-remote` が理由として
+      来るのがその場合にあたる）ため、ここでは**作られたことだけ**を言う。
+      続きに何をすればよいかは、後半の理由が言う。
+    */
+    case 'github-repository':
+      return 'GitHub の repository は作成されました。'
+  }
 }
 
 /** 分類ごとの一言（`partly-applied` でも同じものを後半に使う）。 */
@@ -394,8 +425,24 @@ function describeGitOperationFailureReason(reason: GitOperationFailureReason): s
     case 'not-on-branch':
       return 'ブランチの上に居ないため Push / Pull できません。ブランチに切り替えてからお試しください。'
 
+    /*
+      Session 3-8-10 で次の一手が変わった ── 端末で `git remote add` を
+      打つ以外に、「GitHub に公開」がパネルの中に在る。
+    */
     case 'no-remote':
-      return 'このリポジトリには remote が設定されていません。Terminal パネルで git remote add を実行してください。'
+      return 'このリポジトリには remote が設定されていません。「GitHub に公開」から作成するか、Terminal パネルで git remote add を実行してください。'
+
+    case 'no-commit':
+      return 'まだ Commit が1つもありません。先に Commit してから公開してください。'
+
+    case 'github-cli-missing':
+      return 'GitHub CLI が見つかりませんでした。インストールしてから、もう一度お試しください。'
+
+    case 'github-signed-out':
+      return 'GitHub にログインしていません。Terminal パネルで gh auth login を実行してください。'
+
+    case 'github-repository-exists':
+      return '同じ名前の repository が GitHub に既にあります。別の名前をお試しください。'
 
     case 'no-upstream':
       return '追跡先が設定されていないため Pull できません。先に Push すると追跡先が設定されます。'
@@ -572,6 +619,17 @@ export function toGitCommitReadiness(
  * 衝突しない綴りにしてある。3つとも「対象を指せない」操作なので、
  * Commit と同じく関数ではなく定数になる。
  */
+/**
+ * 初期化の目印（Session 3-8-10）。
+ *
+ * `git init` も対象を指せない操作なので、Commit / Push と同じく定数になる。
+ * **押せる場所が1つしか無い**（まだリポジトリではないときの案内の中）ため、
+ * ここが押されている間に他の Git 操作が並ぶことはそもそも無い ── それでも
+ * 目印を持つのは、同じ経路（`operate`）に載せて二重の要求を止めるためになる
+ * （useGitRepository.ts）。
+ */
+export const GIT_INIT_OPERATION_KEY = 'init'
+
 export const GIT_PUSH_OPERATION_KEY = 'push'
 export const GIT_PULL_OPERATION_KEY = 'pull'
 export const GIT_COMMIT_AND_PUSH_OPERATION_KEY = 'commit-and-push'

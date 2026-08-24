@@ -2,6 +2,7 @@ import type { FluvixApi } from '@shared/api'
 import { envApi } from './env'
 import { filesApi } from './files'
 import { gitApi } from './git'
+import { githubApi } from './github'
 import { settingsApi } from './settings'
 import { systemApi } from './system'
 import { terminalApi } from './terminal'
@@ -32,5 +33,6 @@ export const api: FluvixApi = {
   files: filesApi,
   terminal: terminalApi,
   git: gitApi,
+  github: githubApi,
   settings: settingsApi
 }

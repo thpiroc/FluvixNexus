@@ -31,6 +31,7 @@ import type {
   SwitchGitBranchRequest,
   UnstageGitChangesRequest
 } from './ipc/contracts/git'
+import type { PublishGitHubRepositoryRequest } from './ipc/contracts/github'
 import type { IpcEventListener, IpcEventUnsubscribe } from './ipc/event'
 import type {
   SaveEditorSettingsRequest,
@@ -385,6 +386,21 @@ export interface GitApi {
    */
   readonly getRepository: () => IpcInvokeResult<'git:get-repository'>
   /**
+   * 今の Workspace を Git リポジトリにする（Session 3-8-10）。
+   *
+   * **引数が無い。** どこを初期化するかも、初期ブランチ名も渡せない ──
+   * 対象は常に「今の Workspace」で、それを持っているのは Main になる
+   * （shared/ipc/contracts/git.ts）。
+   *
+   * **これだけで終わる操作**にしてある。初回 Commit も `.gitignore` の生成も
+   * GitHub への公開も続けて行わない ── 何を最初の commit に含めるかは
+   * 利用者の判断で、アプリが決めてよいことではない。
+   *
+   * 応答には初期化後の状態が入っているため、呼んだ側が続けて
+   * `getRepository()` を呼ぶ必要は無い。
+   */
+  readonly init: () => IpcInvokeResult<'git:init'>
+  /**
    * index に載せる（Session 3-8-3）。
    *
    * 渡せるのは「Workspace root からの相対位置1つ」か「どのグループか」だけで、
@@ -501,7 +517,7 @@ export interface GitApi {
    * （shared/git/operation.ts）。
    *
    * 未追跡のファイルは git ではなく **OS のごみ箱**へ送られる ──
-   * `git clean` は使わない（戻せる形を残すため。ARCHITECTURE.md §14.17）。
+   * `git clean` は使わない（戻せる形を残すため。ARCHITECTURE.md §14.16）。
    *
    * 応答には破棄した後のリポジトリの状態が入っているため、呼んだ側が
    * 続けて `getRepository()` を呼ぶ必要は無い。
@@ -528,6 +544,47 @@ export interface GitApi {
 }
 
 /**
+ * GitHub へ公開する（Session 3-8-10）。
+ *
+ * ## `git` と別の名前空間にしてある
+ *
+ * ここまでの `git` が相手にしていたのは PC の中のフォルダ1つだけで、
+ * こちらは初めて外（ネットワークの向こうのサービス）へ出る ── 動かす
+ * 実行ファイルも認証も別のものになる（shared/ipc/contracts/github.ts）。
+ *
+ * **GitHub を使わなくても Git は使える。** この名前空間の関数を1度も
+ * 呼ばなくても、Commit / Branch / Diff / Stage / 破棄はそのまま動く。
+ */
+export interface GitHubApi {
+  /**
+   * GitHub CLI が使える状態かを尋ねる。
+   *
+   * **引数が無い。** ホストもアカウントも指定できず、見るのは常に
+   * github.com への1つのログインだけになる。
+   *
+   * 呼ぶのは**公開の面を開いたとき**で、リポジトリの状態には相乗りさせない
+   * ── 相乗りさせると、ファイルを保存するたびに gh を1回起動することになる。
+   */
+  readonly getStatus: () => IpcInvokeResult<'github:get-status'>
+  /**
+   * 今のリポジトリを GitHub へ公開する。
+   *
+   * 渡せるのは名前1つと公開範囲（`private` / `public`）だけで、gh の引数も
+   * remote の URL も欄そのものが無い（shared/ipc/contracts/github.ts）。
+   *
+   * 中身は「空の repository を作る → `origin` を設定する → 初回 Push」の3つで、
+   * **既に在るものは作り直さない** ── 押すたびに実際の状態を読み直し、
+   * 済んでいるところは飛ばす（途中で止まっても、もう一度押せば続きから進む）。
+   *
+   * repository は作られたのに Push が通らなかった場合、`outcome` は
+   * `partly-applied`（`completed: 'github-repository'`）で返る ──
+   * **作った repository を消して失敗に揃えることはしない**
+   * （shared/git/operation.ts）。
+   */
+  readonly publish: (request: PublishGitHubRepositoryRequest) => IpcInvokeResult<'github:publish'>
+}
+
+/**
  * `window.fluvix` として Renderer に公開される API 全体。
  *
  * Files / Terminal / GitHub など OS に触れるドメイン API は、
@@ -549,6 +606,8 @@ export interface FluvixApi {
   readonly terminal: TerminalApi
   /** その Workspace を Git リポジトリとして扱う。 */
   readonly git: GitApi
+  /** そのリポジトリを GitHub へ公開する（Session 3-8-10）。 */
+  readonly github: GitHubApi
   /** アプリの設定の永続化。 */
   readonly settings: SettingsApi
 }

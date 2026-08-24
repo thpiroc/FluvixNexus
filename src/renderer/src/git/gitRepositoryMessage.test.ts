@@ -25,7 +25,8 @@ describe('describeGitRepositoryNotice', () => {
       status: 'ready',
       head: { kind: 'branch', name: 'main' },
       changes: { staged: [], unstaged: [], untracked: [], conflicted: [] },
-      upstream: null
+      upstream: null,
+      hasRemote: false
     }
 
     expect(describeGitRepositoryNotice(state)).toBeNull()
@@ -45,13 +46,42 @@ describe('describeGitRepositoryNotice', () => {
   })
 
   /*
-    Session 3-8-1 では `git init` を実行しない（設計判断 1）。
-    ボタンを出さない代わりに、どうすれば始められるかを書く。
+    Session 3-8-10 で、ここから抜け出す口（`git:init`）が画面に付いた。
+    案内に**押せるものの名前**が載ることで、画面の側の if で
+    「この状態のときだけボタンを足す」と書かずに済む（gitRepositoryMessage.ts）。
   */
-  it('未初期化では初期化の方法を案内する', () => {
+  it('未初期化ではリポジトリにする操作を出す', () => {
     const notice = describeGitRepositoryNotice({ status: 'not-a-repository' })
 
-    expect(notice?.description).toContain('git init')
+    expect(notice?.action).not.toBeNull()
+    expect(notice?.description).not.toBeNull()
+  })
+
+  /*
+    初期化と GitHub への公開は完全に別の操作にしてある ── ここで公開を
+    促すと、Git を GitHub のためだけのものとして案内することになる。
+  */
+  it('未初期化の案内で GitHub への公開を促さない', () => {
+    const notice = describeGitRepositoryNotice({ status: 'not-a-repository' })
+
+    expect(notice?.description).toContain('Commit')
+    expect(notice?.action).not.toContain('GitHub')
+  })
+
+  /*
+    押せるものが付くのは、その1つだけになる ── 他の状態でボタンを出すと、
+    押しても状況が変わらないものが並ぶ。
+  */
+  it('他の状態には操作を出さない', () => {
+    expect(describeGitRepositoryNotice({ status: 'no-workspace' })?.action).toBeNull()
+    expect(describeGitRepositoryNotice({ status: 'git-unavailable' })?.action).toBeNull()
+    expect(
+      describeGitRepositoryNotice({ status: 'nested', repositoryName: 'x' })?.action
+    ).toBeNull()
+
+    for (const reason of FAILURE_REASONS) {
+      expect(describeGitRepositoryNotice({ status: 'failed', reason })?.action, reason).toBeNull()
+    }
   })
 
   it('サブフォルダを開いている場合はリポジトリ名を出す', () => {

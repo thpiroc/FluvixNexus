@@ -479,7 +479,11 @@ describeWithGit('applyGitCommitAndPush', () => {
 
       const result = await applyGitCommitAndPush('b を足した')
 
-      expect(result.outcome).toEqual({ status: 'partly-applied', reason: 'push-rejected' })
+      expect(result.outcome).toEqual({
+        status: 'partly-applied',
+        completed: 'commit',
+        reason: 'push-rejected'
+      })
       // Commit は作られている（もう一度 Commit させない）。
       expect(commitCount()).toBe(2)
       expect(git('log', '-1', '--format=%B').trim()).toBe('b を足した')

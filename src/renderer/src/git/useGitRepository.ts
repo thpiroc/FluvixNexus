@@ -7,6 +7,7 @@ import type {
   GitRepositoryState,
   GitStageTarget
 } from '@shared/git'
+import type { GitHubRepositoryVisibility } from '@shared/github'
 import type { GitOperationResponse, IpcResult } from '@shared/ipc'
 import { fluvix } from '../api/fluvix'
 import { useWorkspaceFolder } from '../workspaceFolder/context'
@@ -20,14 +21,21 @@ import {
 import {
   GIT_COMMIT_AND_PUSH_OPERATION_KEY,
   GIT_COMMIT_OPERATION_KEY,
+  GIT_INIT_OPERATION_KEY,
   GIT_PULL_OPERATION_KEY,
   GIT_PUSH_OPERATION_KEY,
   toGitOperationKey
 } from './gitChanges'
+import {
+  GITHUB_PUBLISH_OPERATION_KEY,
+  INITIAL_GITHUB_STATUS,
+  toGitHubStatusState,
+  type GitHubStatusState
+} from './githubPublish'
 
 /**
  * Git リポジトリの状態を保持し、いつ調べ直すかを決める（Session 3-8-1 / 3-8-2 /
- * 3-8-3 / 3-8-4）。
+ * 3-8-3 / 3-8-4 / 3-8-5 / 3-8-6 / 3-8-8 / 3-8-9 / 3-8-10）。
  *
  * Renderer 側で git ドメインの IPC を呼ぶ唯一の場所になる
  * （WorkspaceFolderProvider が workspace-folder ドメインに対して果たしている役と同じ）。
@@ -127,6 +135,20 @@ export interface GitRepositoryController {
    * 同じ分類でも言うことが違う（gitChanges.ts）。
    */
   readonly failure: GitOperationFailure | null
+  /**
+   * 今の Workspace を Git リポジトリにする（Session 3-8-10）。
+   *
+   * 経路は Stage / Commit / Push とまったく同じ（`operate`）で、要求に載る値が
+   * **1つも無い**ところだけが違う。初期化のための別の道は作っていない。
+   *
+   * **確認を挟むのはここではない。** 押してよいかを尋ねるのは面の側で
+   * （GitInitConfirm.tsx）、ここへ来るのは既に尋ね終えたものになる ──
+   * 破棄（`discard`）と同じ分担にしてある。
+   *
+   * 結末を返さない ── 通ったかどうかは**画面そのもの**に出る（案内が消え、
+   * 変更の一覧と Commit 欄が現れる）。
+   */
+  readonly init: () => void
   /** index に載せる。 */
   readonly stage: (target: GitStageTarget) => void
   /** index から外す（作業ツリーには触らない）。 */
@@ -215,6 +237,34 @@ export interface GitRepositoryController {
    * 「同じ名前が既にあります」と言われた人が打ち直すことになる。
    */
   readonly createBranch: (name: string) => Promise<boolean>
+  /**
+   * GitHub CLI が使える状態か（Session 3-8-10）。
+   *
+   * **リポジトリの状態とは別に持つ。** `repository` の中に入れると、
+   * ファイルを保存するたびに gh を1回起動することになる ── 見えているのは
+   * 公開の面を開いている間だけなので、取り直す契機もそこに合わせてある
+   * （ブランチの一覧とまったく同じ判断。shared/ipc/contracts/github.ts）。
+   */
+  readonly githubStatus: GitHubStatusState
+  /** gh の状態を取り直す（面を開いたとき・「もう一度確認する」）。 */
+  readonly refreshGitHubStatus: () => void
+  /**
+   * 今のリポジトリを GitHub へ公開する（Session 3-8-10）。
+   *
+   * 経路は Commit / Push とまったく同じ（`operate`）で、**外へ出る操作のための
+   * 別の道は作っていない** ── 二重の要求を止める仕組みも、応答に載っている
+   * 操作後の状態をそのまま使う決めごとも共通になる。
+   *
+   * `commit` と同じく**通ったかどうかを返す** ── 打った名前を消してよいか、
+   * 面を閉じてよいかという画面側の判断がぶら下がっているため
+   * （GitHubPublishForm.tsx）。`partly-applied`（repository は作られたが
+   * Push が通らなかった）も「通った」側として返す ── 外に物ができている
+   * 以上、同じ名前でもう一度押しても断られるだけになる。
+   */
+  readonly publishToGitHub: (
+    name: string,
+    visibility: GitHubRepositoryVisibility
+  ) => Promise<boolean>
 }
 
 /**
@@ -275,6 +325,18 @@ export function useGitRepository(): GitRepositoryController {
    * もう片方を捨てさせる形にはしない。
    */
   const branchRequestRef = useRef(0)
+
+  /**
+   * GitHub CLI の状態（Session 3-8-10）。
+   *
+   * ブランチの一覧とまったく同じ扱いで、**面を開くたびに取り直す。**
+   * 覚えておいたものを出すと、「gh を入れた直後なのに『見つかりません』のまま」
+   * が起きる ── そこがいちばん起こりやすい場面にあたる。
+   */
+  const [githubStatus, setGitHubStatus] = useState<GitHubStatusState>(INITIAL_GITHUB_STATUS)
+
+  /** gh の問い合わせの通し番号（一覧・差分と同じ理由で別に持つ）。 */
+  const githubRequestRef = useRef(0)
 
   /**
    * 今どの行の差分を見ているか（Session 3-8-9）。
@@ -760,6 +822,82 @@ export function useGitRepository(): GitRepositoryController {
     [operate]
   )
 
+  /*
+    初期化（Session 3-8-10）。
+
+    経路は他の書き込み操作とまったく同じ（`operate`）で、要求に載せる値が
+    1つも無いところだけが違う。**初期化の後に何かを続けて呼ばない** ──
+    Commit も公開も、利用者が別に選ぶことになる（main/git/gitInit.ts）。
+
+    `.git` が現れたことは watcher も拾う（gitWatcher.ts）が、二重に
+    読み直すことにはならない ── 変化から始まる読み直しは同じタイマーへ
+    合流し、応答で差し替わった状態と同じものに落ち着く。
+  */
+  const init = useCallback((): void => {
+    void operate(GIT_INIT_OPERATION_KEY, () => fluvix.git.init())
+  }, [operate])
+
+  /**
+   * GitHub CLI の状態を取り直す（Session 3-8-10）。
+   *
+   * 呼ばれるのは**面が開いた瞬間**と、案内の「もう一度確認する」を押したとき
+   * だけになる（GitHubPublishForm.tsx）。`git:changed` にも `files:changed` にも
+   * 相乗りさせていない ── gh の状態はリポジトリの中身とは無関係で、
+   * ファイルを保存するたびに確かめるものではない。
+   *
+   * 状態の読み直し（`load`）と混ぜていないのも同じ理由で、こちらは
+   * 開いている面のためだけに走り、Git パネル全体の見た目は動かさない。
+   */
+  const refreshGitHubStatus = useCallback(async (): Promise<void> => {
+    const requestId = githubRequestRef.current + 1
+    githubRequestRef.current = requestId
+    setGitHubStatus(INITIAL_GITHUB_STATUS)
+
+    const result = await fluvix.github.getStatus()
+
+    // 追い越された（面を開き直した / もう一度押した）。新しい方の答えが来る。
+    if (githubRequestRef.current !== requestId) {
+      return
+    }
+
+    if (!result.ok) {
+      console.warn('[github] GitHub CLI の状態を取得できませんでした。', result.error)
+      setGitHubStatus({ status: 'failed' })
+      return
+    }
+
+    /*
+      Workspace が切り替わっていても捨てない ── gh の状態は Workspace に
+      依らないため（応答に `workspaceId` そのものが載っていない。
+      shared/ipc/contracts/github.ts）。
+    */
+    setGitHubStatus(toGitHubStatusState(result.data.availability))
+  }, [])
+
+  /** 面の側から呼ぶ形（結末は画面の中だけで完結する）。 */
+  const requestGitHubStatus = useCallback((): void => {
+    void refreshGitHubStatus()
+  }, [refreshGitHubStatus])
+
+  /**
+   * GitHub へ公開する（Session 3-8-10）。
+   *
+   * 経路は Commit / Push とまったく同じ（`operate`）── 外へ出る操作のための
+   * 別の道は作っていない。`partly-applied` を「通った」側として返すのは
+   * Commit & Push と同じ理由で、**外に物ができている**以上、同じ名前で
+   * もう一度押しても断られるだけになる。
+   */
+  const publishToGitHub = useCallback(
+    async (name: string, visibility: GitHubRepositoryVisibility): Promise<boolean> => {
+      const outcome = await operate(GITHUB_PUBLISH_OPERATION_KEY, () =>
+        fluvix.github.publish({ name, visibility })
+      )
+
+      return outcome !== null && outcome.status !== 'failed'
+    },
+    [operate]
+  )
+
   return {
     status: state.status,
     repository: state.repository,
@@ -767,6 +905,7 @@ export function useGitRepository(): GitRepositoryController {
     refresh,
     pending,
     failure,
+    init,
     stage,
     unstage,
     discard,
@@ -781,6 +920,9 @@ export function useGitRepository(): GitRepositoryController {
     branches,
     refreshBranches: requestBranches,
     switchBranch,
-    createBranch
+    createBranch,
+    githubStatus,
+    refreshGitHubStatus: requestGitHubStatus,
+    publishToGitHub
   }
 }

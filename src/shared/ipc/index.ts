@@ -95,6 +95,12 @@ export type {
   UnstageGitChangesRequest
 } from './contracts/git'
 export type {
+  GetGitHubStatusResponse,
+  GitHubIpcContract,
+  PublishGitHubRepositoryRequest,
+  PublishGitHubRepositoryResponse
+} from './contracts/github'
+export type {
   CreateTerminalSessionRequest,
   CreateTerminalSessionResponse,
   DisposeTerminalSessionRequest,
