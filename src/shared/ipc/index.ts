@@ -90,6 +90,7 @@ export type {
   GitIpcContract,
   GitOperationResponse,
   ListGitBranchesResponse,
+  ListGitCommitsResponse,
   StageGitChangesRequest,
   SwitchGitBranchRequest,
   UnstageGitChangesRequest

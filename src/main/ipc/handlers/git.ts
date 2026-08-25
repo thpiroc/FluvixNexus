@@ -10,12 +10,14 @@ import {
   type GetGitFileDiffResponse,
   type GetGitRepositoryResponse,
   type GitOperationResponse,
-  type ListGitBranchesResponse
+  type ListGitBranchesResponse,
+  type ListGitCommitsResponse
 } from '@shared/ipc'
 import { applyGitCreateBranch, applyGitSwitchBranch, listGitBranches } from '../../git/gitBranches'
 import { applyGitCommit } from '../../git/gitCommit'
 import { readGitFileDiff } from '../../git/gitDiff'
 import { applyGitDiscard } from '../../git/gitDiscard'
+import { listGitCommits } from '../../git/gitHistory'
 import { applyGitInit } from '../../git/gitInit'
 import { normalizeGitPathspec } from '../../git/gitPathspec'
 import { describeGitRepository } from '../../git/gitRepository'
@@ -25,7 +27,8 @@ import { invalidRequest } from '../errors'
 import { handleIpc } from '../registry'
 
 /**
- * git ドメインのハンドラ（Session 3-8-1 / 3-8-3 / 3-8-4 / 3-8-5 / 3-8-6 / 3-8-9 / 3-8-10）。
+ * git ドメインのハンドラ（Session 3-8-1 / 3-8-3 / 3-8-4 / 3-8-5 / 3-8-6 / 3-8-9 /
+ * 3-8-10 / 3-8-11）。
  *
  * ## 3-8-1 では確かめる値が無かった
  *
@@ -302,6 +305,21 @@ export function registerGitHandlers(): void {
   */
   handleIpc(IPC_CHANNELS.GIT_LIST_BRANCHES, async (): Promise<ListGitBranchesResponse> => {
     return await listGitBranches()
+  })
+
+  /*
+    commit の履歴（Session 3-8-11）。
+
+    要求は `void`。**rev も件数も並べ替えも絞り込みも届かない**ため、
+    ここで確かめるべき値そのものが無い（`git:list-branches` と同じ形）。
+    答えるのは常に「今の HEAD からさかのぼった 100 件」だけになる
+    （shared/git/history.ts）。
+
+    書き込みの口はこのドメインに1つも足していない ── 履歴の面から
+    revert も reset も amend も動かせない（docs/ARCHITECTURE.md §14.19）。
+  */
+  handleIpc(IPC_CHANNELS.GIT_LIST_COMMITS, async (): Promise<ListGitCommitsResponse> => {
+    return await listGitCommits()
   })
 
   /*

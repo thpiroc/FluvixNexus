@@ -18,6 +18,7 @@ import {
   INITIAL_GIT_BRANCH_LIST,
   type GitBranchListState
 } from './gitBranches'
+import { INITIAL_GIT_COMMIT_HISTORY, type GitCommitHistoryState } from './gitHistory'
 import {
   GIT_COMMIT_AND_PUSH_OPERATION_KEY,
   GIT_COMMIT_OPERATION_KEY,
@@ -35,7 +36,7 @@ import {
 
 /**
  * Git リポジトリの状態を保持し、いつ調べ直すかを決める（Session 3-8-1 / 3-8-2 /
- * 3-8-3 / 3-8-4 / 3-8-5 / 3-8-6 / 3-8-8 / 3-8-9 / 3-8-10）。
+ * 3-8-3 / 3-8-4 / 3-8-5 / 3-8-6 / 3-8-8 / 3-8-9 / 3-8-10 / 3-8-11）。
  *
  * Renderer 側で git ドメインの IPC を呼ぶ唯一の場所になる
  * （WorkspaceFolderProvider が workspace-folder ドメインに対して果たしている役と同じ）。
@@ -86,6 +87,17 @@ import {
  * （見えているのは面が開いている間だけなのに）。`.git` を見張るようになった
  * Session 3-8-8 でも同じで、`git:changed` からブランチを数え直すことはしない ──
  * **面を開いたときに必ず取り直す**方が、届く合図の数に依らず新しいものが出る。
+ *
+ * ## 履歴は「開いている間だけ」追いつく（Session 3-8-11）
+ *
+ * 履歴も `repository` には入れない（保存のたびに `git log` で 100 件を読む
+ * ことになる）。ただしブランチの一覧とは契機が1つ違い、**開いている間は
+ * `git:changed` を購読する** ── ブランチを選ぶ面は開いて選んで閉じるまでが
+ * 一瞬だが、履歴は開いたまま端末で `git commit` することがあり、そのとき
+ * 出たままの一覧は「さっき積んだ commit が無い」という形で嘘をつく。
+ *
+ * 購読するのは `git:changed` だけで、`files:changed` には乗らない ──
+ * 作業ツリーをいくら書き換えても、履歴は1行も変わらない。
  *
  * ## 状態をパネルの中で持つ
  *
@@ -221,6 +233,22 @@ export interface GitRepositoryController {
   /** 一覧を取り直す（面を開いたときに呼ぶ）。 */
   readonly refreshBranches: () => void
   /**
+   * commit の履歴（Session 3-8-11）。
+   *
+   * ブランチの一覧と同じく**リポジトリの状態とは別に持つ** ── `repository` の
+   * 中に入れると、ファイルを保存するたびに `git log` で 100 件を読み直すことに
+   * なる（shared/git/history.ts）。
+   *
+   * 閉じている間は `historyOpen` が false で、その間は一度も取りに行かない。
+   */
+  readonly history: GitCommitHistoryState
+  /** 履歴の面が開いているか（開いている間だけ `git:changed` で追いつく）。 */
+  readonly historyOpen: boolean
+  /** 履歴を開く（開いた瞬間に取りに行く）。 */
+  readonly openHistory: () => void
+  /** 履歴を閉じる（飛んでいる問い合わせの答えは捨てる）。 */
+  readonly closeHistory: () => void
+  /**
    * 別のローカルブランチへ切り替える（Session 3-8-6）。
    *
    * 結末を返さない ── 通ったかどうかは**画面そのもの**に出る（バーの
@@ -325,6 +353,30 @@ export function useGitRepository(): GitRepositoryController {
    * もう片方を捨てさせる形にはしない。
    */
   const branchRequestRef = useRef(0)
+
+  /**
+   * commit の履歴（Session 3-8-11）。
+   *
+   * ブランチの一覧と同じく**閉じている間は誰も見ていない**が、そちらと違って
+   * 開いている間は追いつく必要がある（下の useEffect）── 履歴を出したまま
+   * 端末で `git commit` することがあり、そのとき出たままの一覧は
+   * 「さっき積んだ commit が無い」という形で嘘をつく。
+   */
+  const [history, setHistory] = useState<GitCommitHistoryState>(INITIAL_GIT_COMMIT_HISTORY)
+
+  /**
+   * 履歴の面が開いているか。
+   *
+   * state と ref の両方に持つ ── 描き直すために state が要り、
+   * **イベントの購読の中から今の値を読む**ために ref が要る（購読を
+   * 開閉のたびに張り直さずに済む）。
+   */
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const historyOpenRef = useRef(historyOpen)
+  historyOpenRef.current = historyOpen
+
+  /** 履歴の問い合わせの通し番号（一覧・差分と同じ理由で別に持つ）。 */
+  const historyRequestRef = useRef(0)
 
   /**
    * GitHub CLI の状態（Session 3-8-10）。
@@ -443,6 +495,16 @@ export function useGitRepository(): GitRepositoryController {
     diffRequestRef.current += 1
     setDiffRequest(null)
     setDiff(null)
+    /*
+      履歴も閉じる（Session 3-8-11）。
+
+      差分と同じ理由で、閉じないと**別のリポジトリの commit が、前の
+      リポジトリの面に出たまま**残る。通し番号も進めて、飛んでいる
+      問い合わせの答えを捨てる。
+    */
+    historyRequestRef.current += 1
+    setHistoryOpen(false)
+    setHistory(INITIAL_GIT_COMMIT_HISTORY)
     void load()
   }, [workspaceStatus, workspaceId, load])
 
@@ -557,6 +619,126 @@ export function useGitRepository(): GitRepositoryController {
   const requestBranches = useCallback((): void => {
     void refreshBranches()
   }, [refreshBranches])
+
+  /**
+   * commit の履歴を取り直す（Session 3-8-11）。
+   *
+   * 経路はブランチの一覧（`refreshBranches`）とまったく同じ ── 通し番号で
+   * 追い越しを捨て、`workspaceId` で行き違いを捨てる。
+   *
+   * `quiet` が付くのは、開いている間に `.git` が変わって取り直すときになる。
+   * そのとき `loading` へ戻さないのは、**出ている一覧が一瞬消える**ため ──
+   * 端末で `git commit` するたびに面が白くなると、読んでいた場所を見失う。
+   * 開いた瞬間の1回だけは `loading` から始める（前の中身が一瞬見えるより
+   * 「取得しています…」の方が読みやすい）。
+   */
+  const refreshHistory = useCallback(
+    async (options?: { readonly quiet?: boolean }): Promise<void> => {
+      const requestId = historyRequestRef.current + 1
+      historyRequestRef.current = requestId
+
+      if (options?.quiet !== true) {
+        setHistory(INITIAL_GIT_COMMIT_HISTORY)
+      }
+
+      const result = await fluvix.git.listCommits()
+
+      // 追い越された（開き直した／閉じた）。新しい方の答えが来る。
+      if (historyRequestRef.current !== requestId) {
+        return
+      }
+
+      if (!result.ok) {
+        console.warn('[git] 履歴を取得できませんでした。', result.error)
+        setHistory({ status: 'failed', commits: [], truncated: false })
+        return
+      }
+
+      // 問い合わせている間に Workspace が切り替わっていたら捨てる（`load` と同じ）。
+      if (result.data.workspaceId !== workspaceIdRef.current) {
+        return
+      }
+
+      const listing = result.data.history
+
+      setHistory(
+        listing.status === 'ready'
+          ? { status: 'ready', commits: listing.commits, truncated: listing.truncated }
+          : { status: listing.status, commits: [], truncated: false }
+      )
+    },
+    []
+  )
+
+  const openHistory = useCallback((): void => {
+    setHistoryOpen(true)
+    void refreshHistory()
+  }, [refreshHistory])
+
+  const closeHistory = useCallback((): void => {
+    // 飛んでいる問い合わせの答えを捨てる（閉じた後に中身が入れ替わらないように）。
+    historyRequestRef.current += 1
+    setHistoryOpen(false)
+  }, [])
+
+  /*
+    履歴が開いている間だけ、`.git` の変化に追いつく（Session 3-8-11）。
+
+    ## `git:changed` だけを購読する
+
+    `files:changed` には乗らない ── 作業ツリーのファイルをいくら書き換えても、
+    履歴は1行も変わらない。上のリポジトリ状態の読み直しが2つを合流させて
+    いるのとは、そこが違う。
+
+    ## 開いている間だけ
+
+    閉じている間は購読そのものを張らない（この useEffect が `historyOpen` を
+    依存に持つ）── ブランチの一覧が「開いた瞬間に1回だけ」なのに対し、
+    履歴は開いたまま端末で `git commit` することがある。かといって
+    閉じている間まで追い続けると、誰も見ていない一覧のために
+    `git log` を動かし続けることになる。
+
+    ## 束ねてから1回だけ
+
+    間（`CHANGE_SETTLE_MS`）も上と同じにしてある。`git commit` 1回で
+    `.git` の中は複数回変わり、押し寄せるたびに `git log` を起動すると
+    プロセスの起動が変化に追いつかない。
+  */
+  useEffect(() => {
+    if (!historyOpen || workspaceId === null) {
+      return
+    }
+
+    let settle: ReturnType<typeof setTimeout> | null = null
+
+    const unsubscribe = fluvix.git.onChanged((event) => {
+      // 切り替えと行き違った通知は捨てる（イベントには対応関係が無い）。
+      if (event.workspaceId !== workspaceId) {
+        return
+      }
+
+      if (settle !== null) {
+        clearTimeout(settle)
+      }
+
+      settle = setTimeout(() => {
+        settle = null
+
+        // 閉じた直後に発火した最後の1回を捨てる。
+        if (historyOpenRef.current) {
+          void refreshHistory({ quiet: true })
+        }
+      }, CHANGE_SETTLE_MS)
+    })
+
+    return () => {
+      if (settle !== null) {
+        clearTimeout(settle)
+      }
+
+      unsubscribe()
+    }
+  }, [historyOpen, workspaceId, refreshHistory])
 
   /**
    * 1回分の操作（Session 3-8-3）。
@@ -919,6 +1101,10 @@ export function useGitRepository(): GitRepositoryController {
     commitAndPush,
     branches,
     refreshBranches: requestBranches,
+    history,
+    historyOpen,
+    openHistory,
+    closeHistory,
     switchBranch,
     createBranch,
     githubStatus,

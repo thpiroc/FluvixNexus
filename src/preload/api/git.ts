@@ -36,6 +36,12 @@ import { subscribeIpcEvent } from '../ipc/subscribe'
  * Preload で確かめない理由は Files と同じで、**Preload は Renderer と同じ側から
  * 差し替えられうる**前提に立つため。ここでの検証は境界にならない。
  *
+ * ## Session 3-8-11 で足した `listCommits` も、要求は `void`
+ *
+ * 履歴の要求には rev も件数も絞り込みも載らない ── 一覧（`listBranches`）と
+ * まったく同じ形で、Renderer が言えるのは「今の HEAD からさかのぼって」だけに
+ * なる（shared/ipc/contracts/git.ts）。
+ *
  * ## Session 3-8-10 で足した `init` も、渡す値が1つも無い
  *
  * 初期化の要求は `void` ── どこを初期化するかも初期ブランチ名も渡せない。
@@ -59,6 +65,7 @@ export const gitApi: GitApi = {
   pull: () => invokeIpc(IPC_CHANNELS.GIT_PULL),
   commitAndPush: (request) => invokeIpc(IPC_CHANNELS.GIT_COMMIT_AND_PUSH, request),
   listBranches: () => invokeIpc(IPC_CHANNELS.GIT_LIST_BRANCHES),
+  listCommits: () => invokeIpc(IPC_CHANNELS.GIT_LIST_COMMITS),
   switchBranch: (request) => invokeIpc(IPC_CHANNELS.GIT_SWITCH_BRANCH, request),
   createBranch: (request) => invokeIpc(IPC_CHANNELS.GIT_CREATE_BRANCH, request),
   getFileDiff: (request) => invokeIpc(IPC_CHANNELS.GIT_GET_FILE_DIFF, request),

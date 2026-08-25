@@ -1,5 +1,6 @@
 import type {
   GitBranchListing,
+  GitCommitHistory,
   GitDiffGroup,
   GitDiscardTarget,
   GitFileDiff,
@@ -177,6 +178,34 @@ export interface ListGitBranchesResponse {
   readonly workspaceId: string | null
   /** ローカルブランチの一覧、またはそれを出せない理由（shared/git/branch.ts）。 */
   readonly listing: GitBranchListing
+}
+
+/**
+ * commit の履歴の応答（Session 3-8-11）。
+ *
+ * ## 一覧を `git:get-repository` に相乗りさせていない
+ *
+ * 理由は `ListGitBranchesResponse` とまったく同じで、**見られている時間が違う。**
+ * 変更ファイルの一覧はパネルが開いている間ずっと出ているが、履歴は
+ * 利用者が履歴を開いている間だけになる ── 相乗りさせると、ファイルを
+ * 保存するたびに `git log` で 100 件を読み直すことになる。
+ *
+ * ## ブランチの一覧と違い、開いている間は追いつく
+ *
+ * ブランチの一覧は「開いた瞬間に取り直して、閉じるまでそのまま」だった
+ * （面が開いているのは一瞬のため）。履歴は開いたまま端末で `git commit` する
+ * ことがあり、そのとき出たままの一覧は**さっき積んだ commit が無い**という
+ * 形で嘘をつく。したがって履歴は `git:changed`（Session 3-8-8）を
+ * **開いている間だけ**購読する（renderer/src/git/useGitRepository.ts）。
+ *
+ * 購読するのは `git:changed` だけで、`files:changed` には乗らない ──
+ * 作業ツリーのファイルをいくら書き換えても、履歴は1行も変わらない。
+ */
+export interface ListGitCommitsResponse {
+  /** どの Workspace について答えたか。未選択なら null（他の応答と同じ理由）。 */
+  readonly workspaceId: string | null
+  /** commit の一覧、またはそれを出せない理由（shared/git/history.ts）。 */
+  readonly history: GitCommitHistory
 }
 
 /**
@@ -443,6 +472,34 @@ export interface GitIpcContract {
   'git:list-branches': {
     request: void
     response: ListGitBranchesResponse
+  }
+  /**
+   * commit の履歴を尋ねる（Session 3-8-11）。
+   *
+   * ## 要求は `void` のまま
+   *
+   * **rev も件数も並べ替えも絞り込みも、渡す欄そのものが無い。**
+   * 出てくるのは常に「今の HEAD からさかのぼった 100 件」だけになる
+   * （shared/git/history.ts）。
+   *
+   * ここは欄を作りたくなる場所にあたる ── 別のブランチの履歴を見る・
+   * 特定のファイルの履歴だけを見る・作者で絞る。どれも `git log` に
+   * 値を渡す形になり、その値は rev（`HEAD~5`）でも pathspec でも
+   * `--author=<正規表現>` でもありうる。3-8-1 で決めたとおり、
+   * **危ないものを弾くのではなく渡せる欄そのものを作らない。**
+   *
+   * 見ているブランチを変える手立ては既にある（上のバーで切り替える）──
+   * 切り替えれば、履歴もそのブランチのものになる。
+   *
+   * ## 読み取りだが、別の1本にしてある
+   *
+   * `git:list-branches` と同じ理由で、`git:get-repository` に相乗りさせない
+   * （`ListGitCommitsResponse`）。書き込みの口も持たない ── revert も
+   * cherry-pick も reset も amend も、この面から動かせるものは1つも無い。
+   */
+  'git:list-commits': {
+    request: void
+    response: ListGitCommitsResponse
   }
   /**
    * 別のローカルブランチへ切り替える（Session 3-8-6）。

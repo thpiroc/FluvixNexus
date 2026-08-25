@@ -29,6 +29,9 @@ export type { GitBranchNameProblem } from './branchName'
 export { GIT_LOCAL_BRANCH_LIMIT } from './branch'
 export type { GitBranchListing, GitLocalBranch } from './branch'
 
+export { GIT_COMMIT_HISTORY_LIMIT } from './history'
+export type { GitCommitHistory, GitCommitSummary } from './history'
+
 export type {
   GitDiscardTarget,
   GitOperationFailure,

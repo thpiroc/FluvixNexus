@@ -1,7 +1,7 @@
 # 開発ガイド
 
-> 対象: Session 3-8-10（`git init` と GitHub への公開）完了時点
-> 最終更新: 2026-08-23
+> 対象: Session 3-8-11（Git のコミット履歴）完了時点
+> 最終更新: 2026-08-25
 
 ---
 
@@ -117,9 +117,9 @@ Vitest を使い、**Electron に依存しない純粋なロジック**だけを
 
 Files の検証（`main/files/workspacePath.ts`）は Electron にも fs にも依存しない形に切り出してある。symlink による脱出だけはパス文字列では判断できないため、realpath を取ってから同じ関数へ通す側（`readWorkspaceDirectory.ts` / `readWorkspaceFile.ts` / `mutateWorkspaceEntry.ts`）が担う。
 
-#### 例外: 実ディスクを触るテスト（Session 3-5.1 / 3-6-2 / 3-6-4 / 3-6-5 / 3-8-2 / 3-8-3 / 3-8-4 / 3-8-5 / 3-8-6 / 3-8-9 / 3-8-10）
+#### 例外: 実ディスクを触るテスト（Session 3-5.1 / 3-6-2 / 3-6-4 / 3-6-5 / 3-8-2 / 3-8-3 / 3-8-4 / 3-8-5 / 3-8-6 / 3-8-9 / 3-8-10 / 3-8-11）
 
-「純粋なロジックだけを対象にする」方針に対する例外が13つある ── `mutateWorkspaceEntry.test.ts`（作成 / 改名 / 移動 / 削除）、`copyTree.test.ts`（再帰コピー）、`searchWorkspaceFiles.test.ts`（Workspace 全体の走査）、`searchWorkspaceFileContents.test.ts`（全文検索の走査）、`gitStatusRepository.test.ts`（本物の git の出力）、`gitStageRepository.test.ts`（本物の git への Stage / Unstage）、`gitCommitRepository.test.ts`（本物の git への Commit）、`gitSyncRepository.test.ts`（本物の git への Push / Pull）、`gitBranchRepository.test.ts`（本物の git へのブランチ操作）、`gitDiffRepository.test.ts`（本物の git から読む差分）、`gitDiscardRepository.test.ts`（本物の git に対する破棄）、`gitInitRepository.test.ts`（本物の git での初期化）、`publishRepository.test.ts`（本物の git での公開の一連）。確かめたいのがパスの文字列処理ではなく **「実際にそこに在るものを操作できるか」** だからで、モックしたファイルシステムでは何も確かめられない ── 判定と実体がずれることこそが Session 3-5.1 で直した不具合の中身だった。`aux.ts` や末尾に空白を持つ名前を Windows がどう扱うかは実装ではなく OS が決めるため、写しを相手にするとその答えを自分で書くことになる。
+「純粋なロジックだけを対象にする」方針に対する例外が14ある ── `mutateWorkspaceEntry.test.ts`（作成 / 改名 / 移動 / 削除）、`copyTree.test.ts`（再帰コピー）、`searchWorkspaceFiles.test.ts`（Workspace 全体の走査）、`searchWorkspaceFileContents.test.ts`（全文検索の走査）、`gitStatusRepository.test.ts`（本物の git の出力）、`gitStageRepository.test.ts`（本物の git への Stage / Unstage）、`gitCommitRepository.test.ts`（本物の git への Commit）、`gitSyncRepository.test.ts`（本物の git への Push / Pull）、`gitBranchRepository.test.ts`（本物の git へのブランチ操作）、`gitDiffRepository.test.ts`（本物の git から読む差分）、`gitDiscardRepository.test.ts`（本物の git に対する破棄）、`gitInitRepository.test.ts`（本物の git での初期化）、`publishRepository.test.ts`（本物の git での公開の一連）、`gitHistoryRepository.test.ts`（本物の git から読む履歴）。確かめたいのがパスの文字列処理ではなく **「実際にそこに在るものを操作できるか」** だからで、モックしたファイルシステムでは何も確かめられない ── 判定と実体がずれることこそが Session 3-5.1 で直した不具合の中身だった。`aux.ts` や末尾に空白を持つ名前を Windows がどう扱うかは実装ではなく OS が決めるため、写しを相手にするとその答えを自分で書くことになる。
 
 どれも一時フォルダを Workspace root に見立てる。走査（検索）のテストでは、深い階層・大量ファイル・除外フォルダ・**外を指すジャンクション**を実際に作って、リンクの中へ潜っていないことを「指し先の中身が結果に出ていないこと」で確かめる ── 「潜らないつもり」を実物で確かめるため。上限（件数 / 深さ / 走査数）は引数で差し替えて小さくし、時間の上限だけは `now` を差し替えて固定する（実時間に依存させると、速いマシンでは通り遅いマシンでは落ちるテストになる）。
 
@@ -206,6 +206,17 @@ Files の検証（`main/files/workspacePath.ts`）は Electron にも fs にも�
 5. **remote が既にあれば作り直さず、続きの Push だけを行う**こと（`origin` を上書きしない）
 
 gh そのものの振る舞い（引数・出力の読み方・失敗の文言）は、この塊の外で純粋なテストとして固定してある ── 逆に言えば、**gh を実際に動かすテストは1つも無い。** ネットワークと利用者のアカウントに触れるものは、production 実機での確認（§4）に回している。
+
+**履歴（Session 3-8-11）で実物に確かめさせるのは、「git が実際に何を返すか」になる。** `gitOutput.test.ts` が固定するのは「この文字列をこう読む」までで、**git が本当にその文字列を出すのか**は誰も確かめていない ── 書式（`%h%x00%an%x00%at%x00%P%x00%s`）をどう解釈するかを決めるのは実装ではなく git だからで、写しを相手にするとその答えを自分で書くことになる。実物で見ているのは次の6つ。
+
+1. **commit が1つも無いリポジトリで、失敗にならない**こと（`git log` はそこで非0で終わる ── 空の `ready` として返るのは、動かす前に HEAD を確かめているため）
+2. 要約に空白・記号・日本語・**空**が入っても、名乗りや日時の欄がずれないこと
+3. マージ commit の親が **2** として返ること（`%P`）
+4. 日時が**リポジトリの設定に振り回されない**こと（`log.date` を立てても `%at` は epoch のまま）
+5. 上限（100）で切られ、切られたことが `truncated` で分かること
+6. **rev を渡していない**こと ── ブランチを切り替えると、履歴もそちらのものになる
+
+5 だけは commit を 101 件積む必要があり、ブランチ（`update-ref --stdin`）のように1回の git へまとめる手立てが commit には無い ── `--allow-empty` を回数ぶん動かすため、**その1件だけ待ち時間の上限を延ばしてある**（約6秒かかる）。
 
 **ごみ箱だけは差し替える。** `shell.trashItem` を本物で呼ぶと、実行するたびにごみ箱が汚れる ── `mutateWorkspaceEntry.test.ts` と同じく、**呼ばれた絶対パスを記録して実体を消す**偽物を置く。記録が残るので「ごみ箱を通ったこと」自体もそのまま確かめられる（`git clean` に切り替わっていれば記録が空になる）。
 
@@ -948,6 +959,26 @@ Session 3-8-10（`git init` と GitHub への公開）では、**production ビ�
 - **gh が入っていない PC は、確かめる相手として都合がよい。** 「入っていないときに何が出るか」はいちばん多くの人が最初に通る道で、しかも単体テストでは文言までしか確かめられない ── 実機なら「押せないこと」と「winget の1行が選べる形で出ていること」まで見られる。gh が入っている側（ログイン済み / 未ログイン / 実際に公開する）は**手で確かめるしかない**（下記）。
 - **`git init` の結果は、画面ではなく実 git とファイルに訊く。** 「一覧が出た」だけでは、`.gitignore` を置いていないことも commit を作っていないことも言えない ── このセッションで守っているものの多くは**やっていないこと**なので、`existsSync` と `git rev-parse` の側で測る。
 - **公開の入口が消えることは、Renderer の外から作った状態で測れる。** `git remote add` を Node 側から叩いてパネルの更新ボタンを押せば、`hasRemote` が状態に載っていることと、画面がそれで切り替わることが1回で確かめられる。
+
+Session 3-8-11（コミット履歴）では、**production ビルド版 27項目、全項目 PASS。** 相手は 104 件の commit を積んだリポジトリ1つ（マージ commit・空メッセージの commit・author date が 2020 年の commit・未 commit の変更を仕込んである）と、`git init` しただけのリポジトリ1つになる。1回目の起動で「開く → 読む → 追いつく → 閉じる」を、2回目の起動で「commit が1つも無いとき」を通している。
+
+- ① 入口: 上のバーに「履歴」が出ること、その文字が「履歴」であること、他の Git 操作に関わらず押せること
+- ② 一覧: 面が開くこと、**100 件だけ**並ぶこと、見出しの件数が 100 であること、**切れていることを言う**こと、先頭が最新（マージ commit）であること
+- ③ 1行の中身: マージに「マージ」と出ること、**マージでない行には出ない**こと、100 行すべてに author 名が出ること、短縮 hash が**実 git の `rev-parse --short` と一致する**こと
+- ④ 日時: 本文が相対（「たった今」）であること、`title` が `2026/08/25 20:30` の形であること、**author date が 2020 年の commit が「6 年前」**と出てその `title` が `2020/01/02 03:04` であること
+- ⑤ 空メッセージ: 空欄の行にせず「（メッセージなし）」と出ること
+- ⑥ 追従: 開いている間に**端末を介さず外から積んだ commit が、押さずに先頭へ出る**こと、そのとき一覧が空にならず 100 件のままであること、閉じている間に積んだ commit も**開き直せば出る**こと
+- ⑦ 閉じ方: Esc で閉じること、閉じると**元の変更一覧がそのまま在る**こと、`×` でも閉じること
+- ⑧ commit が無いリポジトリ: 「まだ commit がありません」と出ること（失敗にしない）、行が1つも出ないこと
+- ⑨ 回帰: 未 commit の変更が一覧に出たままであること、console エラー / pageerror なし
+
+確認の要領（この回で分かったもの）:
+
+- **`.fx-git__commit` は Commit メッセージの欄が既に使っている。** 履歴の行に同じ class を付けたところ、パネル下部の入力欄にまで枠線が付いた（`fx-git__commit-entry` に改めた）。**確認スクリプトのセレクタが「1件」を返したこと**でそれに気づけた ── 面の中だけを数えるより、`document.querySelectorAll` で全体を数えて食い違いを見る方が、この種の取り違えは早く出る。
+- **行が並ぶのを `waitForSelector` で待たない。** 履歴は先に面だけを出して「取得しています…」から始まるため、行が1つも無い瞬間がある ── `waitForFunction` で**件数**（`length >= 100`）を待つこと。1度これで「1件しか無い」を測った。
+- **上限を超えた先の commit は、確かめる材料に使えない。** 日時の確認用に「2020 年の commit」を履歴のいちばん古い側へ置いたところ、100 件で切られて画面に出なかった ── 古い日時を確かめたいなら、**新しい側の commit の author date を過去にする**（`GIT_AUTHOR_DATE` だけを渡せば、並び順は commit date のままになる）。
+- **「開いている間だけ追いつく」は、閉じている間に積んで測る。** 閉じたまま commit を積み、開き直したときにそれが出れば「覚えた一覧を出していない」ことが言える。開いている間の追従（押さずに出る）と対にして初めて、どちらの側も確かめたことになる。
+- 確認用のリポジトリは 3-8-7 以降と同じく `os.tmpdir()` に `git init` から作り、`workspace-folder.json` を書き換えて**起動時の復元**で開かせる。終わったら `{"schemaVersion":1,"lastWorkspace":null}` に戻し、リポジトリを消す。
 
 ---
 

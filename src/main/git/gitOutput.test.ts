@@ -3,6 +3,7 @@ import {
   isSameRepositoryPath,
   normalizeRepositoryPath,
   readBranchName,
+  readCommitHistory,
   readLocalBranches,
   readRepositoryRoot,
   readShortCommit
@@ -200,5 +201,161 @@ describe('readLocalBranches', () => {
     const reading = readLocalBranches(output(` ${nul}feature/a-b`), 10)
 
     expect(reading.branches).toEqual([{ name: 'feature/a-b', current: false }])
+  })
+})
+
+/**
+ * commit の履歴（Session 3-8-11）。
+ *
+ * 読む相手は `log --format=%h%x00%an%x00%at%x00%P%x00%s` の出力で、
+ * 1行が `abc1234<NUL>Name<NUL>1756100000<NUL>parent…<NUL>要約` になる。
+ *
+ * ここで固定しているのは4つ。
+ *
+ *   - **要約に何が入っていても、区切りを取り違えない**（NUL で切る）
+ *   - **親の数からマージが分かる**（`%P` を数える／空を数えない）
+ *   - **上限で切り、切ったことを言う**（黙って捨てない）
+ *   - **読めない行だけを落とす**（履歴そのものは失敗にしない）
+ */
+describe('readCommitHistory', () => {
+  /** 区切りの NUL（テスト側でも見えない文字を直接書かない）。 */
+  const nul = String.fromCharCode(0)
+
+  /** 1件ぶんの行を組み立てる。 */
+  function line(options: {
+    readonly hash?: string
+    readonly author?: string
+    readonly at?: string
+    readonly parents?: string
+    readonly subject?: string
+  }): string {
+    const hash = options.hash ?? 'abc1234'
+    const author = options.author ?? 'Piroshi'
+    const at = options.at ?? '1756100000'
+    const parents = options.parents ?? 'f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0'
+    const subject = options.subject ?? '要約'
+
+    return `${hash}${nul}${author}${nul}${at}${nul}${parents}${nul}${subject}`
+  }
+
+  /** git の出力を組み立てる（末尾の改行まで本物と同じ形にする）。 */
+  function output(...lines: readonly string[]): string {
+    return `${lines.join('\n')}\n`
+  }
+
+  it('1件を、そのまま画面に渡せる形へ読む', () => {
+    const reading = readCommitHistory(output(line({})), 10)
+
+    expect(reading.commits).toEqual([
+      {
+        shortHash: 'abc1234',
+        authorName: 'Piroshi',
+        // epoch 秒 → ミリ秒（shared/git/history.ts が持つのはミリ秒）。
+        authoredAt: 1_756_100_000_000,
+        parentCount: 1,
+        subject: '要約'
+      }
+    ])
+    expect(reading.truncated).toBe(false)
+  })
+
+  it('git が返した順（新しい順）をそのまま保つ', () => {
+    // 並べ替えを足さない（読む順を決めるのは git の側）。
+    const reading = readCommitHistory(
+      output(line({ hash: 'aaaa111' }), line({ hash: 'bbbb222' })),
+      10
+    )
+
+    expect(reading.commits.map((commit) => commit.shortHash)).toEqual(['aaaa111', 'bbbb222'])
+  })
+
+  it('要約に空白・記号・NUL 以外の何が入っていても、そのまま読む', () => {
+    /*
+      区切りを NUL にしてある理由そのもの。空白やタブで切る実装だと、
+      要約の途中で列がずれる（`%s` は commit メッセージの1行目そのもの）。
+    */
+    const subject = 'fix: A | B  --force  タブ\tと 記号 %s %h'
+    const reading = readCommitHistory(output(line({ subject })), 10)
+
+    expect(reading.commits[0]?.subject).toBe(subject)
+  })
+
+  it('要約が空でも落とさない', () => {
+    // `--allow-empty-message` で作られた commit。捨てるとその1件だけ順番が飛ぶ。
+    const reading = readCommitHistory(output(line({ subject: '' })), 10)
+
+    expect(reading.commits).toHaveLength(1)
+    expect(reading.commits[0]?.subject).toBe('')
+  })
+
+  it('親が2つならマージとして数える', () => {
+    const reading = readCommitHistory(
+      output(
+        line({
+          parents:
+            'f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0 0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f'
+        })
+      ),
+      10
+    )
+
+    expect(reading.commits[0]?.parentCount).toBe(2)
+  })
+
+  it('親が無い（履歴の最初）行を 0 として読む', () => {
+    // `%P` は空文字になる。空文字を1件と数えない。
+    const reading = readCommitHistory(output(line({ parents: '' })), 10)
+
+    expect(reading.commits[0]?.parentCount).toBe(0)
+  })
+
+  it('1件も無ければ空（失敗にしない）', () => {
+    expect(readCommitHistory('', 10)).toEqual({ commits: [], truncated: false })
+  })
+
+  it('上限で切り、切ったことを truncated で伝える', () => {
+    // git には上限より1つ多く求めてある（`--max-count=limit + 1`）。
+    const lines = ['aaaa111', 'bbbb222', 'cccc333', 'dddd444'].map((hash) => line({ hash }))
+    const reading = readCommitHistory(output(...lines), 3)
+
+    expect(reading.commits.map((commit) => commit.shortHash)).toEqual([
+      'aaaa111',
+      'bbbb222',
+      'cccc333'
+    ])
+    expect(reading.truncated).toBe(true)
+  })
+
+  it('ちょうど上限のときは切れていない', () => {
+    const lines = ['aaaa111', 'bbbb222', 'cccc333'].map((hash) => line({ hash }))
+    const reading = readCommitHistory(output(...lines), 3)
+
+    expect(reading.commits).toHaveLength(3)
+    expect(reading.truncated).toBe(false)
+  })
+
+  it('読めない行だけを落とす', () => {
+    /*
+      1行が読めないことで、他の 99 件を見る手立てまで消さない。
+      落とすのは「欄が足りない」「hash の形ではない」「日時が数ではない」の3つ。
+    */
+    const reading = readCommitHistory(
+      output(
+        '欄の足りない行',
+        line({ hash: 'warning: ...' }),
+        line({ hash: 'eeee555', at: 'いつか' }),
+        line({ hash: 'ffff666' })
+      ),
+      10
+    )
+
+    expect(reading.commits.map((commit) => commit.shortHash)).toEqual(['ffff666'])
+  })
+
+  it('名乗りが空でも落とさない', () => {
+    const reading = readCommitHistory(output(line({ author: '' })), 10)
+
+    expect(reading.commits).toHaveLength(1)
+    expect(reading.commits[0]?.authorName).toBe('')
   })
 })

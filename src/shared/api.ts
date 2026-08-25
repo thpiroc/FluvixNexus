@@ -475,6 +475,21 @@ export interface GitApi {
    */
   readonly listBranches: () => IpcInvokeResult<'git:list-branches'>
   /**
+   * commit の履歴を尋ねる（Session 3-8-11）。
+   *
+   * **引数が無い。** rev も件数も並べ替えも絞り込みも渡せず、返るのは常に
+   * 「今の HEAD からさかのぼった 100 件」になる（shared/git/history.ts）。
+   * 別のブランチの履歴を見る手立ては、上のバーでそのブランチへ切り替えること
+   * そのものになる。
+   *
+   * 呼ぶのは**履歴を開いたとき**と、開いている間に `.git` が変わったとき
+   * （`onChanged`）の2つだけ。ファイルの保存（`files.onChanged`）では
+   * 呼ばない ── 作業ツリーをいくら書き換えても履歴は1行も変わらない。
+   *
+   * commit が1つも無いリポジトリでは、失敗ではなく**空の一覧**として返る。
+   */
+  readonly listCommits: () => IpcInvokeResult<'git:list-commits'>
+  /**
    * 別のローカルブランチへ切り替える（Session 3-8-6）。
    *
    * 渡せるのは名前だけで、`--force` / `--merge` / start point の欄は無い

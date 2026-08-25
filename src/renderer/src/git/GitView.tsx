@@ -6,6 +6,7 @@ import { useWorkspaceFolder } from '../workspaceFolder/context'
 import { GitBranchMenu } from './GitBranchMenu'
 import { GitDiffOverlay } from './GitDiffOverlay'
 import { GitDiscardConfirm } from './GitDiscardConfirm'
+import { GitHistoryOverlay } from './GitHistoryOverlay'
 import { GitHubPublishForm } from './GitHubPublishForm'
 import { GitInitConfirm } from './GitInitConfirm'
 import { DiffIcon, DiscardIcon, StageIcon, UnstageIcon } from './GitIcons'
@@ -43,7 +44,8 @@ import { describeGitRepositoryNotice } from './gitRepositoryMessage'
 import { useGitRepository } from './useGitRepository'
 
 /**
- * Git パネルの中身（Session 3-8-1 / 3-8-2 / 3-8-3 / 3-8-4 / 3-8-5 / 3-8-6 / 3-8-9 / 3-8-10）。
+ * Git パネルの中身（Session 3-8-1 / 3-8-2 / 3-8-3 / 3-8-4 / 3-8-5 / 3-8-6 / 3-8-9 /
+ * 3-8-10 / 3-8-11）。
  *
  * ## 出しているのは DESIGN.md §3 の「①変更確認 → ②コミットメッセージ → ③Commit & Push」
  *
@@ -148,6 +150,10 @@ export function GitView(): JSX.Element {
     commitAndPush,
     branches,
     refreshBranches,
+    history,
+    historyOpen,
+    openHistory,
+    closeHistory,
     switchBranch,
     createBranch,
     githubStatus,
@@ -454,6 +460,27 @@ export function GitView(): JSX.Element {
             {upstream.text}
           </span>
         )}
+        {/*
+          履歴（Session 3-8-11）。
+
+          置き場所は**上のバー**にする。「足すのは下へ」（DESIGN.md 設計判断 2）が
+          効くのは①〜③の一続き（変更 → メッセージ → Commit / Push）の上での話で、
+          履歴はその流れの上に無い ── ブランチと同じく**その流れをどこで
+          行っているか**の側にあたる（GitBranchMenu.tsx と同じ判断）。
+          下に積むと、Commit 欄と Push の間に「読むだけのもの」が挟まる。
+
+          **押せなくする条件を持たない。** 他の Git 操作が動いていても、
+          何も書き換えない読み取りは邪魔にならない（差分ボタンと同じ）。
+        */}
+        <button
+          type="button"
+          className="fx-git__history-open"
+          onClick={openHistory}
+          title="コミット履歴を見る"
+          aria-label="コミット履歴を見る"
+        >
+          履歴
+        </button>
         <button
           type="button"
           className="fx-git__refresh"
@@ -597,6 +624,17 @@ export function GitView(): JSX.Element {
       {diffRequest === null ? null : (
         <GitDiffOverlay request={diffRequest} diff={diff} onClose={closeDiff} />
       )}
+      {/*
+        履歴（Session 3-8-11）。
+
+        差分と**同じ場所に、同じ閉じ方で**重ねる（GitHistoryOverlay.tsx）──
+        出る場所が操作ごとに違うと、閉じ方も別々に覚えることになる。
+
+        どちらの面もパネルを覆う（上のバーごと隠す）ので、**2つが同時に
+        開くことはない** ── 履歴が出ている間は押せる行が無く、差分が出ている
+        間は上のバーの「履歴」も隠れている。
+      */}
+      {historyOpen ? <GitHistoryOverlay history={history} onClose={closeHistory} /> : null}
       {/*
         破棄の確認（Session 3-8-9）。
 

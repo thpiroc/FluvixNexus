@@ -1270,3 +1270,215 @@
   border-color: var(--fx-color-border);
   cursor: default;
 }
+
+/* ------------------------------------------ 履歴（Session 3-8-11） */
+
+/*
+ * 履歴を開くボタン（上のバー）。
+ *
+ * 見た目は ⟳ と同じ形にして、バーの上の押せるものを揃える（記号ではなく
+ * 文字なので、幅だけが違う）。ブランチ名のように枠を持たせないのは、
+ * ここがいちばん目立つ場所になると、その下の一覧より先に目に入るため。
+ */
+.fx-git__history-open {
+  flex: 0 0 auto;
+  padding: 0 var(--fx-space-2);
+  color: var(--fx-color-text-muted);
+  background: none;
+  border: none;
+  font: inherit;
+  line-height: var(--fx-bar-height);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.fx-git__history-open:hover {
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-git__history-open:focus-visible {
+  outline: 1px solid var(--fx-color-border-strong);
+  outline-offset: -1px;
+}
+
+/*
+ * 面そのもの。
+ *
+ * 大きさも重なりも差分の面（`.fx-git__diff-overlay`）とまったく同じにしてある
+ * ── 同じ場所に出て同じ閉じ方をするものが、違う大きさで出る理由が無い。
+ */
+.fx-git__history-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--fx-color-surface);
+}
+
+/* 面の上のバー（差分の面と同じ高さ・同じ並び）。 */
+.fx-git__history-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--fx-space-2);
+  padding: var(--fx-space-2) var(--fx-space-3);
+  border-bottom: 1px solid var(--fx-color-border);
+}
+
+.fx-git__history-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fx-color-text-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 件数（変更の一覧の見出しと同じ扱い）。 */
+.fx-git__history-count {
+  flex: 0 0 auto;
+  color: var(--fx-color-text-faint);
+}
+
+/* 閉じる（Esc でも閉じる）。差分の `×` と同じ形。 */
+.fx-git__history-close {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 20px;
+  padding: 0;
+  color: var(--fx-color-text-muted);
+  background: none;
+  border: none;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.fx-git__history-close:hover {
+  color: var(--fx-color-text-strong);
+}
+
+.fx-git__history-close:focus-visible {
+  outline: 1px solid var(--fx-color-border-strong);
+  outline-offset: -1px;
+}
+
+/* 一覧の器。伸びるのはここだけで、下の断りは常に見えるところに在る。 */
+.fx-git__history-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* 一覧の代わりに出す一言（取得中・失敗・1件も無い）。 */
+.fx-git__history-notice {
+  margin: 0;
+  padding: var(--fx-space-2) var(--fx-space-3);
+  color: var(--fx-color-text-muted);
+  line-height: 1.5;
+}
+
+/* 履歴が切れていることの断り（一覧の下）。 */
+.fx-git__history-truncated {
+  flex: none;
+  margin: 0;
+  padding: var(--fx-space-1) var(--fx-space-3);
+  border-top: 1px solid var(--fx-color-border);
+  color: var(--fx-color-text-faint);
+  font-size: var(--fx-font-size-sm);
+  line-height: 1.5;
+}
+
+.fx-git__commits {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/*
+ * commit 1件。
+ *
+ * 2段にしてある ── 上に要約、下に「誰が・いつ・どれ」。1行に詰めると、
+ * 長い要約が名乗りと日時を押し出して、縦に読めなくなる。
+ *
+ * 押せる行ではないので、hover の色も変えない（押せそうに見せない）。
+ *
+ * **`.fx-git__commit` という名前は使えない。** そちらは Commit メッセージの欄
+ * （`GitCommitForm`）が既に持っていて、同じ名前で書くとそちらの見た目まで
+ * 変わる（実際に1度そうなった ── パネルの下の入力欄に線が増えた）。
+ */
+.fx-git__commit-entry {
+  padding: var(--fx-space-1) var(--fx-space-3);
+  border-bottom: 1px solid var(--fx-color-border);
+}
+
+.fx-git__commit-line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--fx-space-2);
+  min-width: 0;
+}
+
+/*
+ * マージであることの印。
+ *
+ * 色ではなく言葉で出す（記号に意味を持たせない）。枠を付けてあるのは、
+ * 要約の一部として読まれないようにするため。
+ */
+.fx-git__commit-merge {
+  flex: 0 0 auto;
+  padding: 0 var(--fx-space-1);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  color: var(--fx-color-text-faint);
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-git__commit-subject {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fx-color-text-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* メッセージが空の commit（薄くして、書かれた要約と見分けが付くようにする）。 */
+.fx-git__commit-subject[data-empty='true'] {
+  color: var(--fx-color-text-faint);
+}
+
+.fx-git__commit-meta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--fx-space-2);
+  min-width: 0;
+  color: var(--fx-color-text-faint);
+  font-size: var(--fx-font-size-sm);
+}
+
+/* 名乗りだけが縮む（日時と hash は欠けると意味を失う）。 */
+.fx-git__commit-author {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fx-git__commit-time {
+  flex: 0 0 auto;
+}
+
+/* 短い hash は等幅で出す（他の commit と桁を見比べるため）。 */
+.fx-git__commit-hash {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-family: ui-monospace, Consolas, monospace;
+}

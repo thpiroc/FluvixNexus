@@ -694,6 +694,75 @@ export function createBranch(name: string): GitCommand {
   }
 }
 
+/* --------------------------------------- 履歴（Session 3-8-11） */
+
+/**
+ * commit の履歴を尋ねる（Session 3-8-11）。
+ *
+ * ## 外から来た値が1つも無い
+ *
+ * ブランチ名（3-8-6）と pathspec（3-8-3）でようやく外来の値を引数に載せたが、
+ * ここでは**また1つも載らない。** rev も pathspec も `--author` も渡す欄が
+ * そもそも無く（shared/ipc/contracts/git.ts）、変わるのは上限の数だけになる。
+ *
+ * 上限は `GIT_COMMIT_HISTORY_LIMIT` から来る**アプリ自身の定数**で、
+ * `--max-count=` に埋め込む唯一の値にあたる（`listLocalBranches` の
+ * `--count=` と同じ形）。
+ *
+ * ## rev を渡さない ＝ HEAD からさかのぼる
+ *
+ * 引数に rev を書かなければ、git は HEAD から辿る。`HEAD` と書いても同じだが、
+ * **書かない**方を選んでいる ── 「ここに rev を置ける」という形そのものを
+ * 残さないためになる（差分で rev を渡せる欄を作らなかったのと同じ線。
+ * docs/ARCHITECTURE.md §14.16）。
+ *
+ * commit が1つも無いリポジトリでは、このコマンドは非0で終わる ── 呼ぶ側が
+ * 先に `verifyHeadCommit` で分けておく（main/git/gitHistory.ts）。
+ *
+ * ## 区切りを NUL にする（`for-each-ref` と同じ理由）
+ *
+ * 1行が1件で、欄の区切りは NUL。`%s`（要約）には空白も `|` もタブも入りうるので、
+ * 目に見える文字を区切りにすると**その文字を含む要約で列がずれる。**
+ * 行の区切りを改行のままにしてよいのは、`%s` が commit メッセージの
+ * **1行目だけ**を返すためになる（本文は載せない。shared/git/history.ts）。
+ *
+ * 欄の並びは `%h`（短い hash）→ `%an`（名乗り）→ `%at`（epoch 秒）→
+ * `%P`（親の hash の並び）→ `%s`（要約）。**要約を最後に置く**のは、
+ * そこだけが「何が入っているか分からない値」だからで、後ろに欄を足さない限り
+ * 区切りの数え間違いが起こらない（main/git/gitOutput.ts）。
+ *
+ * ## `%at` を使い、`%ad` を使わない
+ *
+ * `%ad` の形はリポジトリの設定（`log.date`）で変わる ── PC ごとに違う形の
+ * 文字列が画面に出ることになる。`%at` は epoch 秒そのもので、設定に
+ * 左右されない（shared/git/history.ts）。
+ *
+ * ## 設定で振る舞いが変わる余地を、先に閉じておく
+ *
+ * `log.showSignature` と `log.decorate` は、**リポジトリの設定から `git log` の
+ * 動きを変えられる**2つになる。前者は署名の検証（つまり `gpg` の起動）を、
+ * 後者は ref 名の付加を促す。
+ *
+ * この `--format` に `%G?` も `%d` も入れていないため、**今のところどちらも
+ * 出力を変えない**（確かめた）。それでも打ち消してあるのは、欄を1つ足した日に
+ * 「設定次第で別のプログラムが動く」形へ静かに変わりうるためになる ──
+ * 差分で `--textconv` / `--ext-diff` を**付けない**と決めたのと同じ線で、
+ * こちらは既定ではなく設定から効くものなので**打ち消す**側になる。
+ */
+export function listCommitHistory(limit: number): GitCommand {
+  return {
+    label: 'log --format',
+    args: [
+      '-c',
+      'log.showSignature=false',
+      'log',
+      '--no-decorate',
+      `--max-count=${limit + 1}`,
+      '--format=%h%x00%an%x00%at%x00%P%x00%s'
+    ]
+  }
+}
+
 /* ------------------------------------- 差分と破棄（Session 3-8-9） */
 
 /*
