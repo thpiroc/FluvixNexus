@@ -26,6 +26,8 @@ import type {
   CommitGitChangesRequest,
   CreateGitBranchRequest,
   DiscardGitChangesRequest,
+  GetGitCommitDetailRequest,
+  GetGitCommitFileDiffRequest,
   GetGitFileDiffRequest,
   StageGitChangesRequest,
   SwitchGitBranchRequest,
@@ -489,6 +491,35 @@ export interface GitApi {
    * commit が1つも無いリポジトリでは、失敗ではなく**空の一覧**として返る。
    */
   readonly listCommits: () => IpcInvokeResult<'git:list-commits'>
+  /**
+   * commit 1件の変更ファイルを尋ねる（Session 3-8-12）。
+   *
+   * **渡せるのは履歴の行が持っていた短い hash 1つだけ。** `HEAD~5` のような
+   * rev 表記も、pathspec も、`--stat` のような整形の指定も欄が無い
+   * （shared/ipc/contracts/git.ts）── 指せるのは、既に画面に出ている行になる。
+   *
+   * マージ commit では `merge` として返る。**失敗ではなく答え**にあたり、
+   * 画面はその理由をそのまま出す（shared/git/commitDetail.ts）。
+   *
+   * 呼ぶのは履歴の行を押したときの1回だけで、`.git` の変化では呼び直さない ──
+   * 記録された commit の中身は変わらない。
+   */
+  readonly getCommitDetail: (
+    request: GetGitCommitDetailRequest
+  ) => IpcInvokeResult<'git:get-commit-detail'>
+  /**
+   * commit の中の1ファイルの差分を尋ねる（Session 3-8-12）。
+   *
+   * `getFileDiff` と同じく、返るのは patch ではなく**中身2つ**になる
+   * （左が親の tree の側、右がこの commit の tree の側）。`group` を渡さないのは、
+   * commit の差分では比べる相手が常に1組で選ぶ余地が無いため。
+   *
+   * バイナリ・2MB 超・見つからない、はどれも失敗ではなく分類として返る ──
+   * 表そのものが `getFileDiff` と共通になる（shared/git/diff.ts）。
+   */
+  readonly getCommitFileDiff: (
+    request: GetGitCommitFileDiffRequest
+  ) => IpcInvokeResult<'git:get-commit-file-diff'>
   /**
    * 別のローカルブランチへ切り替える（Session 3-8-6）。
    *

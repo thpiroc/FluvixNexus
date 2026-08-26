@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
+  GitCommitFileDiff,
+  GitCommitSummary,
   GitDiscardTarget,
   GitFileDiff,
   GitOperationFailure,
@@ -18,6 +20,7 @@ import {
   INITIAL_GIT_BRANCH_LIST,
   type GitBranchListState
 } from './gitBranches'
+import type { GitCommitDetailState } from './gitCommitDetail'
 import { INITIAL_GIT_COMMIT_HISTORY, type GitCommitHistoryState } from './gitHistory'
 import {
   GIT_COMMIT_AND_PUSH_OPERATION_KEY,
@@ -190,7 +193,7 @@ export interface GitRepositoryController {
    * （GitDiffOverlay.tsx）。
    */
   readonly diffRequest: GitDiffRequest | null
-  readonly diff: GitFileDiff | null
+  readonly diff: GitFileDiff | GitCommitFileDiff | null
   readonly openDiff: (request: GitDiffRequest) => void
   readonly closeDiff: () => void
   /**
@@ -248,6 +251,19 @@ export interface GitRepositoryController {
   readonly openHistory: () => void
   /** 履歴を閉じる（飛んでいる問い合わせの答えは捨てる）。 */
   readonly closeHistory: () => void
+  /**
+   * 開いている commit の詳細（Session 3-8-12）。
+   *
+   * 一覧を見ているときは null。**履歴とは別の状態**にしてあるのは、
+   * 開いている間の追いつき方が違うため ── 履歴は `.git` が変わるたびに
+   * 読み直すが、詳細は**一度読んだら読み直さない**（記録された commit の
+   * 中身は変わらない。`openCommitDetail`）。
+   */
+  readonly commitDetail: GitCommitDetailState | null
+  /** 履歴の行を押した（その commit の変更ファイルを取りに行く）。 */
+  readonly openCommitDetail: (commit: GitCommitSummary) => void
+  /** 詳細から履歴の一覧へ戻る。 */
+  readonly closeCommitDetail: () => void
   /**
    * 別のローカルブランチへ切り替える（Session 3-8-6）。
    *
@@ -379,6 +395,21 @@ export function useGitRepository(): GitRepositoryController {
   const historyRequestRef = useRef(0)
 
   /**
+   * 開いている commit の詳細（Session 3-8-12）。
+   *
+   * 履歴の一覧（`history`）と**別に持つ。** 相乗りさせると、`.git` が変わって
+   * 一覧を読み直すたびに、開いていた詳細まで作り直すことになる ── 記録された
+   * commit の中身は変わらないので、読み直す理由がそこには無い。
+   *
+   * 閉じているときは null。中身（`detail.detail`）が null の間は取得中で、
+   * 面は先に出しておく（差分と同じ形。GitCommitDetailView.tsx）。
+   */
+  const [commitDetail, setCommitDetail] = useState<GitCommitDetailState | null>(null)
+
+  /** 詳細の問い合わせの通し番号（一覧・履歴・差分と同じ理由で別に持つ）。 */
+  const commitDetailRequestRef = useRef(0)
+
+  /**
    * GitHub CLI の状態（Session 3-8-10）。
    *
    * ブランチの一覧とまったく同じ扱いで、**面を開くたびに取り直す。**
@@ -398,7 +429,7 @@ export function useGitRepository(): GitRepositoryController {
    * 出す形にすると、押してから面が現れるまで押したことが画面に出ない。
    */
   const [diffRequest, setDiffRequest] = useState<GitDiffRequest | null>(null)
-  const [diff, setDiff] = useState<GitFileDiff | null>(null)
+  const [diff, setDiff] = useState<GitFileDiff | GitCommitFileDiff | null>(null)
 
   /**
    * 差分の問い合わせの通し番号。
@@ -505,6 +536,15 @@ export function useGitRepository(): GitRepositoryController {
     historyRequestRef.current += 1
     setHistoryOpen(false)
     setHistory(INITIAL_GIT_COMMIT_HISTORY)
+    /*
+      開いていた commit の詳細も閉じる（Session 3-8-12）。
+
+      履歴と同じ理由になる ── 短い hash は**リポジトリごとの値**で、
+      切り替え先に同じ 7 桁が実在することもありうる。閉じないと、
+      別のリポジトリの commit をその hash のまま読みに行く形が残る。
+    */
+    commitDetailRequestRef.current += 1
+    setCommitDetail(null)
     void load()
   }, [workspaceStatus, workspaceId, load])
 
@@ -679,6 +719,67 @@ export function useGitRepository(): GitRepositoryController {
     // 飛んでいる問い合わせの答えを捨てる（閉じた後に中身が入れ替わらないように）。
     historyRequestRef.current += 1
     setHistoryOpen(false)
+    // 面ごと閉じるので、中で開いていた commit の詳細も一緒に畳む。
+    commitDetailRequestRef.current += 1
+    setCommitDetail(null)
+  }, [])
+
+  /**
+   * commit 1件の変更ファイルを取りに行く（Session 3-8-12）。
+   *
+   * ## 差分（`openDiff`）とまったく同じ形にしてある
+   *
+   * 面（ここでは履歴の面の中身）を**先に**入れ替えてから取りに行く ──
+   * 取れてから入れ替える形にすると、押してから何も起きない時間ができる。
+   * 通し番号で追い越しを捨て、`workspaceId` で行き違いを捨てるのも同じ。
+   *
+   * ## 一度読んだら読み直さない
+   *
+   * `.git` が変わっても取り直さない（履歴の一覧はそこで取り直す）──
+   * **記録された commit の中身は変わらない。** 変わりうるのは
+   * 「その commit がまだ在るか」だけで、消えていれば次に開いたときに
+   * `not-found` が出る。開いている間ずっと `diff-tree` を動かし続ける形には
+   * しない。
+   *
+   * ## `operate` を通さない
+   *
+   * 何も書き換えないため、失敗の行にも「操作中」の印にも関係が無い
+   * （差分・履歴と同じ）。理由は面の中に出す（gitCommitDetail.ts）。
+   */
+  const openCommitDetail = useCallback((commit: GitCommitSummary): void => {
+    const requestId = commitDetailRequestRef.current + 1
+    commitDetailRequestRef.current = requestId
+
+    // 先に面を入れ替える。中身が来るまでは「取得しています…」になる。
+    setCommitDetail({ commit, detail: null })
+
+    void (async () => {
+      const result = await fluvix.git.getCommitDetail({ shortHash: commit.shortHash })
+
+      // 追い越された（別の行を押した／戻った／閉じた）。新しい方の答えが来る。
+      if (commitDetailRequestRef.current !== requestId) {
+        return
+      }
+
+      if (!result.ok) {
+        console.warn('[git] コミットの変更ファイルを取得できませんでした。', result.error)
+        setCommitDetail({ commit, detail: { status: 'unavailable', reason: 'failed' } })
+        return
+      }
+
+      // 問い合わせている間に Workspace が切り替わっていたら捨てる（`load` と同じ）。
+      if (result.data.workspaceId !== workspaceIdRef.current) {
+        return
+      }
+
+      setCommitDetail({ commit, detail: result.data.detail })
+    })()
+  }, [])
+
+  const closeCommitDetail = useCallback((): void => {
+    // 飛んでいる問い合わせの答えを捨てる（戻った後に中身が入れ替わらないように）。
+    commitDetailRequestRef.current += 1
+    setCommitDetail(null)
   }, [])
 
   /*
@@ -888,10 +989,23 @@ export function useGitRepository(): GitRepositoryController {
     setDiff(null)
 
     void (async () => {
-      const result = await fluvix.git.getFileDiff({
-        group: request.group,
-        relativePath: request.change.relativePath
-      })
+      /*
+        どちらの入口から来たかで、訊く先が変わる（Session 3-8-12）。
+
+        面も、面を出す手順も、追い越しの捨て方も同じで、**別れるのはここ1箇所**に
+        なる ── 作業ツリーの1行なら group を、commit の中の1ファイルなら
+        短い hash を渡す（shared/ipc/contracts/git.ts）。
+      */
+      const result =
+        request.source === 'worktree'
+          ? await fluvix.git.getFileDiff({
+              group: request.group,
+              relativePath: request.change.relativePath
+            })
+          : await fluvix.git.getCommitFileDiff({
+              shortHash: request.commit.shortHash,
+              relativePath: request.file.relativePath
+            })
 
       // 追い越された（別の行を押した / 閉じた）。新しい方の答えが来る。
       if (diffRequestRef.current !== requestId) {
@@ -1105,6 +1219,9 @@ export function useGitRepository(): GitRepositoryController {
     historyOpen,
     openHistory,
     closeHistory,
+    commitDetail,
+    openCommitDetail,
+    closeCommitDetail,
     switchBranch,
     createBranch,
     githubStatus,

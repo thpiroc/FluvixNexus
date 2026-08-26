@@ -3,6 +3,7 @@ import {
   isSameRepositoryPath,
   normalizeRepositoryPath,
   readBranchName,
+  readCommitFileChanges,
   readCommitHistory,
   readLocalBranches,
   readRepositoryRoot,
@@ -357,5 +358,154 @@ describe('readCommitHistory', () => {
 
     expect(reading.commits).toHaveLength(1)
     expect(reading.commits[0]?.authorName).toBe('')
+  })
+})
+
+/**
+ * `diff-tree --raw --no-abbrev -r -z` の読み取り（Session 3-8-12）。
+ *
+ * ここで固定するのは「この塊をこう読む」まで。**git が本当にこの形を出すのか**は
+ * 実物に確かめさせる（gitCommitDetailRepository.test.ts）── 出力の形を決めるのは
+ * 実装ではなく git だからで、写しを相手にするとその答えを自分で書くことになる。
+ */
+describe('readCommitFileChanges', () => {
+  const OLD = 'a'.repeat(40)
+  const NEW = 'b'.repeat(40)
+  const NONE = '0'.repeat(40)
+
+  /** `-z` の1件（位置は1つ、rename / copy では2つ）。 */
+  function record(header: string, ...paths: readonly string[]): string {
+    return `${header}\0${paths.join('\0')}\0`
+  }
+
+  it('種類の文字を、変更ファイルの一覧と同じ語へ写す', () => {
+    const reading = readCommitFileChanges(
+      [
+        record(`:000000 100644 ${NONE} ${NEW} A`, 'added.txt'),
+        record(`:100644 100644 ${OLD} ${NEW} M`, 'modified.txt'),
+        record(`:100644 000000 ${OLD} ${NONE} D`, 'deleted.txt'),
+        record(`:100644 100755 ${OLD} ${NEW} T`, 'typed.txt')
+      ].join(''),
+      100
+    )
+
+    expect(reading.files.map((file) => file.kind)).toEqual([
+      'added',
+      'modified',
+      'deleted',
+      'type-changed'
+    ])
+    expect(reading.truncated).toBe(false)
+  })
+
+  it('rename / copy では位置を2つ読む（元 → 先）', () => {
+    const reading = readCommitFileChanges(
+      [
+        record(`:100644 100644 ${OLD} ${OLD} R100`, 'src/old.ts', 'src/new.ts'),
+        record(`:100644 100644 ${OLD} ${NEW} C085`, 'src/base.ts', 'src/copy.ts')
+      ].join(''),
+      100
+    )
+
+    expect(reading.files).toEqual([
+      {
+        relativePath: 'src/new.ts',
+        kind: 'renamed',
+        originalPath: 'src/old.ts',
+        originalMode: '100644',
+        modifiedMode: '100644',
+        originalObject: OLD,
+        modifiedObject: OLD
+      },
+      {
+        relativePath: 'src/copy.ts',
+        kind: 'copied',
+        originalPath: 'src/base.ts',
+        originalMode: '100644',
+        modifiedMode: '100644',
+        originalObject: OLD,
+        modifiedObject: NEW
+      }
+    ])
+  })
+
+  it('相手が居ない側（40 桁の 0）を null にする', () => {
+    const reading = readCommitFileChanges(
+      [
+        record(`:000000 100644 ${NONE} ${NEW} A`, 'added.txt'),
+        record(`:100644 000000 ${OLD} ${NONE} D`, 'deleted.txt')
+      ].join(''),
+      100
+    )
+
+    expect(reading.files[0]?.originalObject).toBeNull()
+    expect(reading.files[0]?.modifiedObject).toBe(NEW)
+    expect(reading.files[1]?.originalObject).toBe(OLD)
+    expect(reading.files[1]?.modifiedObject).toBeNull()
+  })
+
+  it('submodule（mode 160000）も一覧からは落とさない', () => {
+    const reading = readCommitFileChanges(record(`:000000 160000 ${NONE} ${NEW} A`, 'sub'), 100)
+
+    expect(reading.files).toHaveLength(1)
+    expect(reading.files[0]?.modifiedMode).toBe('160000')
+  })
+
+  it('位置に改行や空白が入っていても1件を取り違えない', () => {
+    const reading = readCommitFileChanges(
+      [
+        record(`:100644 100644 ${OLD} ${NEW} M`, 'a b/c\nd.txt'),
+        record(`:100644 100644 ${OLD} ${NEW} M`, 'next.txt')
+      ].join(''),
+      100
+    )
+
+    expect(reading.files.map((file) => file.relativePath)).toEqual(['a b/c\nd.txt', 'next.txt'])
+  })
+
+  it('読めない塊は落として、その先を読み続ける', () => {
+    const reading = readCommitFileChanges(
+      [
+        'warning: ...\0',
+        record(`:100644 100644 ${OLD} ${NEW} U`, 'unmerged.txt'),
+        record(`:100644 100644 ${OLD} ${NEW} M`, 'ok.txt')
+      ].join(''),
+      100
+    )
+
+    expect(reading.files.map((file) => file.relativePath)).toEqual(['ok.txt'])
+  })
+
+  it('rename なのに先の位置が無い塊を落とす', () => {
+    const reading = readCommitFileChanges(`:100644 100644 ${OLD} ${OLD} R100\0only.txt\0`, 100)
+
+    expect(reading.files).toEqual([])
+  })
+
+  it('上限で切り、切ったことを伝える', () => {
+    const output = Array.from({ length: 7 }, (_, index) =>
+      record(`:100644 100644 ${OLD} ${NEW} M`, `file-${index}.txt`)
+    ).join('')
+
+    const reading = readCommitFileChanges(output, 5)
+
+    expect(reading.files).toHaveLength(5)
+    expect(reading.truncated).toBe(true)
+    expect(reading.files.at(-1)?.relativePath).toBe('file-4.txt')
+  })
+
+  it('ちょうど上限のときは切らない', () => {
+    const output = Array.from({ length: 5 }, (_, index) =>
+      record(`:100644 100644 ${OLD} ${NEW} M`, `file-${index}.txt`)
+    ).join('')
+
+    const reading = readCommitFileChanges(output, 5)
+
+    expect(reading.files).toHaveLength(5)
+    expect(reading.truncated).toBe(false)
+  })
+
+  it('何も変わっていない出力（マージ commit）は空になる', () => {
+    expect(readCommitFileChanges('', 100)).toEqual({ files: [], truncated: false })
   })
 })

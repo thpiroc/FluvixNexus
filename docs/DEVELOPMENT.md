@@ -1,7 +1,7 @@
 # 開発ガイド
 
-> 対象: Session 3-8-11（Git のコミット履歴）完了時点
-> 最終更新: 2026-08-25
+> 対象: Session 3-8-12（Git のコミット詳細と差分）完了時点
+> 最終更新: 2026-08-26
 
 ---
 
@@ -117,9 +117,9 @@ Vitest を使い、**Electron に依存しない純粋なロジック**だけを
 
 Files の検証（`main/files/workspacePath.ts`）は Electron にも fs にも依存しない形に切り出してある。symlink による脱出だけはパス文字列では判断できないため、realpath を取ってから同じ関数へ通す側（`readWorkspaceDirectory.ts` / `readWorkspaceFile.ts` / `mutateWorkspaceEntry.ts`）が担う。
 
-#### 例外: 実ディスクを触るテスト（Session 3-5.1 / 3-6-2 / 3-6-4 / 3-6-5 / 3-8-2 / 3-8-3 / 3-8-4 / 3-8-5 / 3-8-6 / 3-8-9 / 3-8-10 / 3-8-11）
+#### 例外: 実ディスクを触るテスト（Session 3-5.1 / 3-6-2 / 3-6-4 / 3-6-5 / 3-8-2 / 3-8-3 / 3-8-4 / 3-8-5 / 3-8-6 / 3-8-9 / 3-8-10 / 3-8-11 / 3-8-12）
 
-「純粋なロジックだけを対象にする」方針に対する例外が14ある ── `mutateWorkspaceEntry.test.ts`（作成 / 改名 / 移動 / 削除）、`copyTree.test.ts`（再帰コピー）、`searchWorkspaceFiles.test.ts`（Workspace 全体の走査）、`searchWorkspaceFileContents.test.ts`（全文検索の走査）、`gitStatusRepository.test.ts`（本物の git の出力）、`gitStageRepository.test.ts`（本物の git への Stage / Unstage）、`gitCommitRepository.test.ts`（本物の git への Commit）、`gitSyncRepository.test.ts`（本物の git への Push / Pull）、`gitBranchRepository.test.ts`（本物の git へのブランチ操作）、`gitDiffRepository.test.ts`（本物の git から読む差分）、`gitDiscardRepository.test.ts`（本物の git に対する破棄）、`gitInitRepository.test.ts`（本物の git での初期化）、`publishRepository.test.ts`（本物の git での公開の一連）、`gitHistoryRepository.test.ts`（本物の git から読む履歴）。確かめたいのがパスの文字列処理ではなく **「実際にそこに在るものを操作できるか」** だからで、モックしたファイルシステムでは何も確かめられない ── 判定と実体がずれることこそが Session 3-5.1 で直した不具合の中身だった。`aux.ts` や末尾に空白を持つ名前を Windows がどう扱うかは実装ではなく OS が決めるため、写しを相手にするとその答えを自分で書くことになる。
+「純粋なロジックだけを対象にする」方針に対する例外が15ある ── `mutateWorkspaceEntry.test.ts`（作成 / 改名 / 移動 / 削除）、`copyTree.test.ts`（再帰コピー）、`searchWorkspaceFiles.test.ts`（Workspace 全体の走査）、`searchWorkspaceFileContents.test.ts`（全文検索の走査）、`gitStatusRepository.test.ts`（本物の git の出力）、`gitStageRepository.test.ts`（本物の git への Stage / Unstage）、`gitCommitRepository.test.ts`（本物の git への Commit）、`gitSyncRepository.test.ts`（本物の git への Push / Pull）、`gitBranchRepository.test.ts`（本物の git へのブランチ操作）、`gitDiffRepository.test.ts`（本物の git から読む差分）、`gitDiscardRepository.test.ts`（本物の git に対する破棄）、`gitInitRepository.test.ts`（本物の git での初期化）、`publishRepository.test.ts`（本物の git での公開の一連）、`gitHistoryRepository.test.ts`（本物の git から読む履歴）、`gitCommitDetailRepository.test.ts`（本物の git から読む commit 1件の中身）。確かめたいのがパスの文字列処理ではなく **「実際にそこに在るものを操作できるか」** だからで、モックしたファイルシステムでは何も確かめられない ── 判定と実体がずれることこそが Session 3-5.1 で直した不具合の中身だった。`aux.ts` や末尾に空白を持つ名前を Windows がどう扱うかは実装ではなく OS が決めるため、写しを相手にするとその答えを自分で書くことになる。
 
 どれも一時フォルダを Workspace root に見立てる。走査（検索）のテストでは、深い階層・大量ファイル・除外フォルダ・**外を指すジャンクション**を実際に作って、リンクの中へ潜っていないことを「指し先の中身が結果に出ていないこと」で確かめる ── 「潜らないつもり」を実物で確かめるため。上限（件数 / 深さ / 走査数）は引数で差し替えて小さくし、時間の上限だけは `now` を差し替えて固定する（実時間に依存させると、速いマシンでは通り遅いマシンでは落ちるテストになる）。
 
@@ -217,6 +217,18 @@ gh そのものの振る舞い（引数・出力の読み方・失敗の文言�
 6. **rev を渡していない**こと ── ブランチを切り替えると、履歴もそちらのものになる
 
 5 だけは commit を 101 件積む必要があり、ブランチ（`update-ref --stdin`）のように1回の git へまとめる手立てが commit には無い ── `--allow-empty` を回数ぶん動かすため、**その1件だけ待ち時間の上限を延ばしてある**（約6秒かかる）。
+
+**commit 1件の中身（Session 3-8-12）でも同じ形を採る。** `gitOutput.test.ts`（`readCommitFileChanges`）が固定するのは「この塊をこう読む」までで、**git が本当にその形を出すのか**は誰も確かめていない ── `--raw` の欄の並びも、`-z` の区切り方も、`--find-renames` が rename を1件に畳むことも、決めるのは実装ではなく git になる。実物で見ているのは次の7つ。
+
+1. `--raw` の1件から**両側の object 名**が取れること（差分がそこから読める ── 省略されていたら `cat-file` に渡せない）
+2. `--find-renames` で rename が**1件**として返ること（付けなければ「消えた＋足された」の2件に割れる）
+3. `--root` で、**履歴のいちばん最初の commit** が全部追加として返ること（付けなければ何も出力されない）
+4. マージ commit が `merge` として返ること ── `diff-tree` は**何も出さずに 0 で終わる**ので、親の数で分けていなければ「変更が1件も無い commit」に見える
+5. 短い hash を渡して commit が**解けること**と、解けないとき・rev 表記が来たときに `not-found` になること
+6. 上限（500）で切られ、切られたことが `truncated` で分かること
+7. submodule（mode 160000）が**一覧には出て、差分では `unsupported-target`** になること
+
+6 は 503 件のファイルを作る必要があり、**その1件だけ待ち時間の上限を延ばしてある**（30 秒）。7 は `update-index --cacheinfo 160000,...` で gitlink を仕込む ── 本物の submodule を用意すると clone が要り、ネットワークに触れる。
 
 **ごみ箱だけは差し替える。** `shell.trashItem` を本物で呼ぶと、実行するたびにごみ箱が汚れる ── `mutateWorkspaceEntry.test.ts` と同じく、**呼ばれた絶対パスを記録して実体を消す**偽物を置く。記録が残るので「ごみ箱を通ったこと」自体もそのまま確かめられる（`git clean` に切り替わっていれば記録が空になる）。
 
@@ -979,6 +991,26 @@ Session 3-8-11（コミット履歴）では、**production ビルド版 27項�
 - **上限を超えた先の commit は、確かめる材料に使えない。** 日時の確認用に「2020 年の commit」を履歴のいちばん古い側へ置いたところ、100 件で切られて画面に出なかった ── 古い日時を確かめたいなら、**新しい側の commit の author date を過去にする**（`GIT_AUTHOR_DATE` だけを渡せば、並び順は commit date のままになる）。
 - **「開いている間だけ追いつく」は、閉じている間に積んで測る。** 閉じたまま commit を積み、開き直したときにそれが出れば「覚えた一覧を出していない」ことが言える。開いている間の追従（押さずに出る）と対にして初めて、どちらの側も確かめたことになる。
 - 確認用のリポジトリは 3-8-7 以降と同じく `os.tmpdir()` に `git init` から作り、`workspace-folder.json` を書き換えて**起動時の復元**で開かせる。終わったら `{"schemaVersion":1,"lastWorkspace":null}` に戻し、リポジトリを消す。
+
+Session 3-8-12（コミットの詳細と差分）では、**production ビルド版 21項目、全項目 PASS。** 相手は 8 件の commit を積んだリポジトリ1つ（履歴のいちばん最初・追加/変更/削除がそろった1件・rename・空メッセージ・バイナリ・520 件を足した1件・マージ commit・未 commit の変更を仕込んである）になる。1回の起動で「開く → 1件を開く → 差分を見る → Esc で1段ずつ戻る → 閉じる」を通している。
+
+- ① 履歴の行: マージ以外が `button` になっていること、**マージだけ `button` にならない**こと（`data-openable="false"`）
+- ② マージの断り: 押せない理由が UI に出ること、その文が「決まらない」と言っていること、**一覧につき1つだけ**であること（行ごとに並ばない）
+- ③ 変更ファイル: 追加 / 変更 / 削除が**変更ファイルの一覧と同じ記号**（A / M / D）で出ること、見出しに要約・名乗り・hash が出ること
+- ④ rename: 1件として出ること、`src/a.ts から` が並ぶこと
+- ⑤ 差分: 左右のラベルが「親のコミット / このコミット」であること、面にその commit の短い hash が出ること、**親の中身とこの commit の中身が両方並ぶ**こと
+- ⑥ **Esc（この回の重点）**: 1回目で**差分だけが閉じ、詳細がそのまま残る**こと、2回目で履歴の一覧へ戻ること、3回目で面が閉じること
+- ⑦ 戻る道: `←` で履歴の一覧へ戻れること
+- ⑧ 端の commit: 要約が空の commit も開けること、上限で **500 件**に切られること、切れていることを言うこと
+- ⑨ 出せないもの: バイナリが「バイナリのため差分を表示できません。」として出ること（失敗に丸めない）
+- ⑩ 回帰: **作業ツリーの差分（3-8-9）が今も開く**こと、その帯が「ステージ済み（index）/ 作業ツリー」のままであること、そこに commit の hash が出ないこと
+
+確認の要領（この回で分かったもの）:
+
+- **Esc の二重発火は、面を1枚ずつ数えて測る。** 「閉じたか」ではなく `[data-testid="git-diff"]` と `[data-testid="git-history"]` の**個数と `data-view`** を1回の Esc ごとに読む ── 「差分が閉じた」だけを見ると、その下の面まで一緒に閉じたことに気づけない。実装側は下の面が**購読そのものを張らない**形にしてあり（`suspended`）、`stopPropagation` では止まらない（同じ `window` に付いた2つの購読はどちらも呼ばれる）。
+- **Monaco は空白を `&nbsp;` で描く。** 差分の中身を `textContent` で突き合わせると、`alpha v1` が `alpha v1` になっていて一致しない ── 比べる前に `replace(/ /g, ' ')` で均すこと。1度これで「中身が出ていない」を測った（アプリ側は正しく出ていた）。
+- **押せない行は、`button` の有無で測る。** `disabled` を見に行くと、そもそも `button` を置いていない設計との食い違いが出ない ── `querySelector('.fx-git__commit-button') !== null` と `data-openable` の両方を読むと、どちらの側が崩れても分かる。
+- **上限は「切ったこと」と「切った件数」の両方を見る。** 520 件を積んだ commit で、画面の行が 500 であることと、断りに `500` と書かれていることを別々に確かめる ── 片方だけだと、切り方と言い方のどちらがずれたのか分からない。
 
 ---
 

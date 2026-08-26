@@ -15,6 +15,10 @@
  * 3-8-9（差分と破棄）で足した2つは、どちらも**下ではなく上に重なる**。
  * 差分はパネルの中だけを覆い（一覧は差し替えず、閉じればそのまま戻る）、
  * 破棄の確認はウィンドウ全体を覆う（答えるまで他のことをさせない。§12.6）。
+ *
+ * 3-8-11（履歴）は差分とまったく同じ器で重なり、3-8-12（commit 1件の中身）は
+ * **その履歴の面の中で入れ替わる** ── 重なりを3枚にしないためで、
+ * 差分だけがその上にもう1枚重なる（GitHistoryOverlay.tsx）。
  */
 
 .fx-git {
@@ -831,6 +835,23 @@
   white-space: nowrap;
 }
 
+/*
+ * どの commit の中の差分か（Session 3-8-12）。
+ *
+ * 履歴の行の hash とまったく同じ形（等幅・薄い）で、置く場所も同じ**右端**に
+ * してある ── 押した行がそのまま上に来たように見える方が、
+ * どれを見ているかを言葉で読み直さずに済む。
+ *
+ * `margin-left: auto` を付けないのは、`×` がその右に来るため
+ * （場所の欄が伸びて、この2つを右へ押す）。
+ */
+.fx-git__diff-commit {
+  flex: 0 0 auto;
+  color: var(--fx-color-text-faint);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: var(--fx-font-size-sm);
+}
+
 /* 閉じる（Esc でも閉じる）。⟳ と同じ形にして、バーの上の押せるものを揃える。 */
 .fx-git__diff-close {
   display: flex;
@@ -1343,6 +1364,38 @@
   color: var(--fx-color-text-faint);
 }
 
+/*
+ * 履歴の一覧へ戻る（Session 3-8-12）。
+ *
+ * `×`（閉じる）と**反対の端**に置く ── 同じ側に並べると、1段戻るつもりで
+ * 面ごと閉じることが起きる（GitHistoryOverlay.tsx）。形そのものは `×` と
+ * 揃えてあるので、バーの上の押せるものが2種類の大きさで並ばない。
+ */
+.fx-git__history-back {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 20px;
+  padding: 0;
+  color: var(--fx-color-text-muted);
+  background: none;
+  border: none;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.fx-git__history-back:hover {
+  color: var(--fx-color-text-strong);
+}
+
+.fx-git__history-back:focus-visible {
+  outline: 1px solid var(--fx-color-border-strong);
+  outline-offset: -1px;
+}
+
 /* 閉じる（Esc でも閉じる）。差分の `×` と同じ形。 */
 .fx-git__history-close {
   display: flex;
@@ -1395,6 +1448,23 @@
   line-height: 1.5;
 }
 
+/*
+ * 押せない行がある理由の断り（Session 3-8-12）。
+ *
+ * 切れていることの断りと**同じ場所・同じ見た目**にしてある ── どちらも
+ * 「一覧そのものではないが、一覧について言っておくこと」で、置き場所が
+ * 分かれると読む場所が2つになる。マージの行が1つも無ければ出ない。
+ */
+.fx-git__history-note {
+  flex: none;
+  margin: 0;
+  padding: var(--fx-space-1) var(--fx-space-3);
+  border-top: 1px solid var(--fx-color-border);
+  color: var(--fx-color-text-faint);
+  font-size: var(--fx-font-size-sm);
+  line-height: 1.5;
+}
+
 .fx-git__commits {
   margin: 0;
   padding: 0;
@@ -1407,15 +1477,48 @@
  * 2段にしてある ── 上に要約、下に「誰が・いつ・どれ」。1行に詰めると、
  * 長い要約が名乗りと日時を押し出して、縦に読めなくなる。
  *
- * 押せる行ではないので、hover の色も変えない（押せそうに見せない）。
- *
  * **`.fx-git__commit` という名前は使えない。** そちらは Commit メッセージの欄
  * （`GitCommitForm`）が既に持っていて、同じ名前で書くとそちらの見た目まで
  * 変わる（実際に1度そうなった ── パネルの下の入力欄に線が増えた）。
+ *
+ * Session 3-8-12 から、押せる行と押せない行が混ざる（マージ commit だけが
+ * 押せない）。**押せる行だけが hover で色を変える** ── 押せないものが
+ * 押せそうに見えることが無い。
  */
 .fx-git__commit-entry {
-  padding: var(--fx-space-1) var(--fx-space-3);
   border-bottom: 1px solid var(--fx-color-border);
+}
+
+/* 押せない行（マージ）。`button` が無いので、こちらが余白を持つ。 */
+.fx-git__commit-entry[data-openable='false'] {
+  padding: var(--fx-space-1) var(--fx-space-3);
+}
+
+/*
+ * 押せる行（Session 3-8-12）。
+ *
+ * 余白を `button` の側に持たせてあるのは、**行のどこを押しても開く**ように
+ * するため ── `li` に余白を置くと、その分だけ押せない縁ができる。
+ */
+.fx-git__commit-button {
+  display: block;
+  width: 100%;
+  padding: var(--fx-space-1) var(--fx-space-3);
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.fx-git__commit-button:hover {
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-git__commit-button:focus-visible {
+  outline: 1px solid var(--fx-color-border-strong);
+  outline-offset: -1px;
 }
 
 .fx-git__commit-line {
@@ -1481,4 +1584,93 @@
   flex: 0 0 auto;
   margin-left: auto;
   font-family: ui-monospace, Consolas, monospace;
+}
+
+/* ------------------------------------------------ commit 1件の中身（Session 3-8-12） */
+
+/*
+ * 開いた commit の名乗り（面の上のバーの下）。
+ *
+ * 履歴の行と**同じ2段**（上に要約、下に「誰が・いつ・どれ」）にしてある ──
+ * 押した行がそのまま上に来たように見える方が、どれを開いたかを言葉で
+ * 読み直さずに済む。違うのは日時だけで、こちらは相対ではなく絶対を出す
+ * （1件だけを見ているとき、「3 日前」より「いつだったか」の方が要る）。
+ */
+.fx-git__commit-detail-head {
+  flex: none;
+  padding: var(--fx-space-2) var(--fx-space-3);
+  border-bottom: 1px solid var(--fx-color-border);
+}
+
+.fx-git__commit-detail-subject {
+  overflow: hidden;
+  color: var(--fx-color-text-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* メッセージが空の commit（履歴の行と同じ扱い）。 */
+.fx-git__commit-detail-subject[data-empty='true'] {
+  color: var(--fx-color-text-faint);
+}
+
+.fx-git__commit-files {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/*
+ * 変更ファイル1件。
+ *
+ * 変更ファイルの一覧（`.fx-git__change`）と同じ見え方にしてある ── 記号の幅も、
+ * 名前と場所の並びも、hover の色も同じで、**同じファイルが面によって
+ * 違う形で並ばない。**
+ */
+.fx-git__commit-file {
+  border-bottom: 1px solid var(--fx-color-border);
+}
+
+.fx-git__commit-file-button {
+  display: flex;
+  align-items: baseline;
+  gap: var(--fx-space-2);
+  width: 100%;
+  padding: var(--fx-space-1) var(--fx-space-3);
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.fx-git__commit-file-button:hover {
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-git__commit-file-button:focus-visible {
+  outline: 1px solid var(--fx-color-border-strong);
+  outline-offset: -1px;
+}
+
+/* 名前。長くても場所（右）を押し出さない。 */
+.fx-git__commit-file-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fx-color-text-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 場所（フォルダ）と、rename の元の位置。名前より先に縮む。 */
+.fx-git__commit-file-location {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fx-color-text-faint);
+  font-size: var(--fx-font-size-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

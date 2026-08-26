@@ -42,6 +42,16 @@ import { subscribeIpcEvent } from '../ipc/subscribe'
  * まったく同じ形で、Renderer が言えるのは「今の HEAD からさかのぼって」だけに
  * なる（shared/ipc/contracts/git.ts）。
  *
+ * ## Session 3-8-12 で rev が1つ載っても、線は動かない
+ *
+ * commit 1件の詳細（`getCommitDetail`）と、その中の差分（`getCommitFileDiff`）で、
+ * 初めて rev が境界を渡る。それでも**ここは素通しの経路のまま**になる ──
+ * 16進 4〜40 桁であることを確かめるのは Main のハンドラ
+ * （`normalizeGitCommitHash`）で、`--end-of-options` の後ろに置くのは
+ * Main の表になる（main/git/gitCommands.ts）。Preload で確かめない理由は
+ * Files / ブランチ名と同じで、**Preload は Renderer と同じ側から差し替えられうる**
+ * 前提に立つため。
+ *
  * ## Session 3-8-10 で足した `init` も、渡す値が1つも無い
  *
  * 初期化の要求は `void` ── どこを初期化するかも初期ブランチ名も渡せない。
@@ -66,6 +76,8 @@ export const gitApi: GitApi = {
   commitAndPush: (request) => invokeIpc(IPC_CHANNELS.GIT_COMMIT_AND_PUSH, request),
   listBranches: () => invokeIpc(IPC_CHANNELS.GIT_LIST_BRANCHES),
   listCommits: () => invokeIpc(IPC_CHANNELS.GIT_LIST_COMMITS),
+  getCommitDetail: (request) => invokeIpc(IPC_CHANNELS.GIT_GET_COMMIT_DETAIL, request),
+  getCommitFileDiff: (request) => invokeIpc(IPC_CHANNELS.GIT_GET_COMMIT_FILE_DIFF, request),
   switchBranch: (request) => invokeIpc(IPC_CHANNELS.GIT_SWITCH_BRANCH, request),
   createBranch: (request) => invokeIpc(IPC_CHANNELS.GIT_CREATE_BRANCH, request),
   getFileDiff: (request) => invokeIpc(IPC_CHANNELS.GIT_GET_FILE_DIFF, request),

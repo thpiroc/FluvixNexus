@@ -1,6 +1,6 @@
 import type { JSX, KeyboardEvent } from 'react'
 import { useCallback, useMemo, useState } from 'react'
-import type { GitDiscardTarget, GitFileChange } from '@shared/git'
+import type { GitCommitFileChange, GitDiscardTarget, GitFileChange } from '@shared/git'
 import { useEditorContext } from '../editor/context'
 import { useWorkspaceFolder } from '../workspaceFolder/context'
 import { GitBranchMenu } from './GitBranchMenu'
@@ -154,6 +154,9 @@ export function GitView(): JSX.Element {
     historyOpen,
     openHistory,
     closeHistory,
+    commitDetail,
+    openCommitDetail,
+    closeCommitDetail,
     switchBranch,
     createBranch,
     githubStatus,
@@ -252,9 +255,28 @@ export function GitView(): JSX.Element {
         return
       }
 
-      openDiff({ group, change })
+      openDiff({ source: 'worktree', group, change })
     },
     [openDiff]
+  )
+
+  /*
+    commit の中の1ファイルの差分（Session 3-8-12）。
+
+    開く面は変更ファイルの一覧から開くものと**同じ**で、渡す要求の形だけが
+    違う（gitDiff.ts の `GitDiffRequest`）── 開いている commit を一緒に
+    持ち回るのは、見出しに短い hash を出すためと、中身を訊く先を決めるため
+    になる。
+  */
+  const showCommitFileDiff = useCallback(
+    (file: GitCommitFileChange): void => {
+      if (commitDetail === null) {
+        return
+      }
+
+      openDiff({ source: 'commit', commit: commitDetail.commit, file })
+    },
+    [commitDetail, openDiff]
   )
 
   const askDiscard = useCallback((groupId: GitChangeGroup['id'], change: GitFileChange): void => {
@@ -615,26 +637,50 @@ export function GitView(): JSX.Element {
         />
       )}
       {/*
-        差分（Session 3-8-9）。
-
-        一覧の**上に重ねる**。面ごと差し替えると、閉じたときにどこを見ていたか
-        （スクロール位置・開いていたグループ）が失われる（GitDiffOverlay.tsx）。
-        パネルの中に収まるので、他のパネルの上には出ない。
-      */}
-      {diffRequest === null ? null : (
-        <GitDiffOverlay request={diffRequest} diff={diff} onClose={closeDiff} />
-      )}
-      {/*
-        履歴（Session 3-8-11）。
+        履歴（Session 3-8-11 / 3-8-12）。
 
         差分と**同じ場所に、同じ閉じ方で**重ねる（GitHistoryOverlay.tsx）──
         出る場所が操作ごとに違うと、閉じ方も別々に覚えることになる。
 
-        どちらの面もパネルを覆う（上のバーごと隠す）ので、**2つが同時に
-        開くことはない** ── 履歴が出ている間は押せる行が無く、差分が出ている
-        間は上のバーの「履歴」も隠れている。
+        ## 3-8-12 で、2つが同時に開くようになった
+
+        3-8-11 の時点では、履歴が出ている間に押せる行が1つも無かったため、
+        差分と履歴が重なることは無かった。3-8-12 で履歴の中から差分を開けるように
+        なり、**差分が履歴の上に重なる**。
+
+        そのとき困るのが Esc で、どちらの面も `window` で待っているため、
+        放っておくと1回の Esc で2枚とも閉じる（同じ `window` に付いた2つの購読は、
+        `stopPropagation` を挟んでもどちらも呼ばれる）。上に居る方だけが効くよう、
+        **下の面には「今は上に何か重なっている」を渡す**（`suspended`）──
+        受け取った側は購読そのものを張らない（GitHistoryOverlay.tsx）。
+
+        重なりの順は DOM の並びで決まるので、差分をこの後ろに置いてある。
       */}
-      {historyOpen ? <GitHistoryOverlay history={history} onClose={closeHistory} /> : null}
+      {historyOpen ? (
+        <GitHistoryOverlay
+          history={history}
+          detail={commitDetail}
+          suspended={diffRequest !== null}
+          onOpenCommit={openCommitDetail}
+          onCloseCommit={closeCommitDetail}
+          onOpenFile={showCommitFileDiff}
+          onClose={closeHistory}
+        />
+      ) : null}
+      {/*
+        差分（Session 3-8-9 / 3-8-12）。
+
+        一覧の**上に重ねる**。面ごと差し替えると、閉じたときにどこを見ていたか
+        （スクロール位置・開いていたグループ）が失われる（GitDiffOverlay.tsx）。
+        パネルの中に収まるので、他のパネルの上には出ない。
+
+        履歴の**後ろ**に置いてあるのは、重なりの順を DOM の並びで決めるため
+        （どちらも `z-index: 20`。git.css）── commit の中の差分は、
+        履歴の面の上に出る必要がある。
+      */}
+      {diffRequest === null ? null : (
+        <GitDiffOverlay request={diffRequest} diff={diff} onClose={closeDiff} />
+      )}
       {/*
         破棄の確認（Session 3-8-9）。
 

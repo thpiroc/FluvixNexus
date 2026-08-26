@@ -32,6 +32,15 @@ export type { GitBranchListing, GitLocalBranch } from './branch'
 export { GIT_COMMIT_HISTORY_LIMIT } from './history'
 export type { GitCommitHistory, GitCommitSummary } from './history'
 
+export { GIT_COMMIT_FILE_LIMIT } from './commitDetail'
+export type {
+  GitCommitChangeKind,
+  GitCommitDetail,
+  GitCommitDetailUnavailableReason,
+  GitCommitFileChange,
+  GitCommitFileDiff
+} from './commitDetail'
+
 export type {
   GitDiscardTarget,
   GitOperationFailure,

@@ -45,6 +45,8 @@ export const IPC_CHANNELS = {
   GIT_COMMIT_AND_PUSH: 'git:commit-and-push',
   GIT_LIST_BRANCHES: 'git:list-branches',
   GIT_LIST_COMMITS: 'git:list-commits',
+  GIT_GET_COMMIT_DETAIL: 'git:get-commit-detail',
+  GIT_GET_COMMIT_FILE_DIFF: 'git:get-commit-file-diff',
   GIT_SWITCH_BRANCH: 'git:switch-branch',
   GIT_CREATE_BRANCH: 'git:create-branch',
   GIT_GET_FILE_DIFF: 'git:get-file-diff',

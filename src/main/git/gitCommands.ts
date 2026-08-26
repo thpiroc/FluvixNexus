@@ -763,6 +763,143 @@ export function listCommitHistory(limit: number): GitCommand {
   }
 }
 
+/* --------------------------------- commit 1件の詳細（Session 3-8-12） */
+
+/*
+ * ## ここで初めて、外から来た rev が引数に載る
+ *
+ * 3-8-11 まで、rev が引数に載ったことは一度も無かった（`listCommitHistory` は
+ * rev を**書かない**ことで HEAD から辿らせている）。commit 1件を開くには
+ * どれを開くかを言うしかないため、下の2本では短い hash が引数に載る。
+ *
+ * ブランチ名（3-8-6）で守った2つを、そのまま守る形にしてある。
+ *
+ *   1. 値は必ず**独立した1つの引数**（`<hash>:<path>` のような組み立てを作らない）
+ *   2. `--end-of-options` の後ろに置く（オプションとして読ませない）
+ *
+ * さらに形そのものを 16進 4〜40 桁に限ってある（main/git/gitCommitHash.ts）──
+ * 先頭が `-` になりようがないので、1 と 2 のどちらかが外れた日にも破れない
+ * （pathspec に `--` と `--literal-pathspecs` を両方掛けているのと同じ構え）。
+ *
+ * ## どちらも読み取りしかしない
+ *
+ * `show --no-patch` と `diff-tree` の2本で、リポジトリは1バイトも変わらない。
+ * revert も cherry-pick も reset も、この表に行そのものが無い。
+ */
+
+/**
+ * commit 1件の名乗りを訊く（Session 3-8-12）。
+ *
+ * ## `--format` は `listCommitHistory` とまったく同じ
+ *
+ * 欄も並びも同じにしてあるので、読む関数も同じ1つになる
+ * （main/git/gitOutput.ts の `readCommitRecord`）── 同じ commit が、
+ * 一覧では読めて詳細では読めない、という食い違いが起こらない。
+ *
+ * `-c log.showSignature=false` と `--no-decorate` を付ける理由も同じで、
+ * **リポジトリの設定から `git show` の動きを変えられる**2つを先に閉じておく
+ * （前者は `gpg` の起動を促す）。
+ *
+ * ## `--no-patch` が要る
+ *
+ * `git show` は既定で patch まで出す。commit 1件が数万行あることは普通に
+ * あり、その全文を受け取ってから捨てることになる ── 変更ファイルの一覧は
+ * 下の `diff-tree` が別に答えるので、ここでは1行だけあればよい。
+ *
+ * ## 相手が commit でなければ、読めない出力が返る
+ *
+ * 16進の並びは blob にも tree にも当たりうる（`%h` から来る値しか
+ * 画面には出ないが、境界の外から来た値として素直に信じない）。その場合
+ * `git show` は**中身をそのまま出して 0 で終わる** ── `--format` は効かない。
+ * 読む側は欄の数と hash の形を確かめるので、それは「読めなかった」として
+ * `not-found` に落ちる（main/git/gitCommitDetail.ts）。
+ */
+export function showCommitSummary(hash: string): GitCommand {
+  return {
+    label: 'show --no-patch',
+    args: [
+      '-c',
+      'log.showSignature=false',
+      'show',
+      '--no-patch',
+      '--no-decorate',
+      '--format=%h%x00%an%x00%at%x00%P%x00%s',
+      END_OF_OPTIONS,
+      hash,
+      '--'
+    ]
+  }
+}
+
+/**
+ * commit 1件で変わったファイルを訊く（Session 3-8-12）。
+ *
+ * ## `git show --name-status` ではなく `diff-tree --raw`
+ *
+ * `--name-status` が返すのは種類と位置だけで、**中身を取りに行くための
+ * object 名が載らない。** 載らないと、差分の側で `<hash>^:<path>` を
+ * 組み立てるか、`ls-tree` をもう2回動かすことになる ── 前者は
+ * 3-8-9 で作らないと決めた形（位置が revision 表記の一部として読まれる余地）に
+ * あたる。
+ *
+ * `--raw` は1行に**両側の mode と object 名**まで載せてくる。
+ *
+ * ```
+ * :100644 100644 <前の object> <後の object> M<NUL>path<NUL>
+ * :100644 100644 <前の object> <後の object> R100<NUL>元<NUL>先<NUL>
+ * ```
+ *
+ * つまり差分の2段目に載る引数は、**git 自身がこの1回で答えた object 名**に
+ * なる（3-8-9 の `ls-files --stage` / `ls-tree` と同じ性質）。位置は
+ * 最後まで pathspec のままで、revision 表記に混ぜられることが無い。
+ *
+ * ## 付けている指定
+ *
+ * | 指定              | なぜ                                                                    |
+ * | ----------------- | ----------------------------------------------------------------------- |
+ * | `--no-commit-id`  | commit の hash の行を出さない（欲しいのは変更の行だけ）                 |
+ * | `--no-abbrev`     | object 名を省略させない。**省略されると `cat-file` に渡せない**         |
+ * | `-r`              | フォルダで畳まず、ファイル1件ずつ出す                                   |
+ * | `-z`              | 位置に改行が入っていても1件を取り違えない（`status` と同じ理由）        |
+ * | `--find-renames`  | rename を1件として出す。plumbing の既定は「消えた＋足された」の2件になる |
+ * | `--root`          | 親を持たない commit（履歴の1つめ）を、全部が追加された差分として出す     |
+ * | `--no-textconv`   | 設定に書かれた**任意のプログラム**を起こさせない（3-8-9 と同じ線）      |
+ * | `--no-ext-diff`   | 同上（外部 diff プログラム）                                            |
+ *
+ * `--find-renames` を**明示している**のは、rename 検出の既定が設定
+ * （`diff.renames`）で変わるためになる ── 付けておけば、PC ごとに
+ * 「rename が1件に見えたり2件に見えたり」しない。
+ *
+ * ## マージ commit では何も出力しない
+ *
+ * `-m` も `-c` も `--cc` も渡していないので、親が2つ以上ある commit では
+ * git は**何も出さずに 0 で終わる。** その空を「変更が無い commit」として
+ * 出すと嘘になるため、呼ぶ側が先に親の数で分ける（main/git/gitCommitDetail.ts）。
+ * 出させる指定を足さないのは、どちらの親と比べるかをアプリが決めない
+ * という判断そのものになる（shared/git/commitDetail.ts）。
+ */
+export function showCommitFileChanges(hash: string): GitCommand {
+  return {
+    label: 'diff-tree --raw',
+    args: [
+      LITERAL_PATHSPECS,
+      'diff-tree',
+      '--no-commit-id',
+      '--raw',
+      '--no-abbrev',
+      '-r',
+      '-z',
+      '--find-renames',
+      '--root',
+      '--no-textconv',
+      '--no-ext-diff',
+      END_OF_OPTIONS,
+      hash,
+      '--'
+    ]
+  }
+}
+
 /* ------------------------------------- 差分と破棄（Session 3-8-9） */
 
 /*

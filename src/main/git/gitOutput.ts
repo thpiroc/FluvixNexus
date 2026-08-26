@@ -1,5 +1,5 @@
 import type { PlatformId } from '@shared/api'
-import type { GitCommitSummary, GitLocalBranch } from '@shared/git'
+import type { GitCommitChangeKind, GitCommitSummary, GitLocalBranch } from '@shared/git'
 
 /**
  * git の出力を読む（Electron / fs / child_process 非依存・テスト対象）。
@@ -13,7 +13,8 @@ import type { GitCommitSummary, GitLocalBranch } from '@shared/git'
  *   - `rev-parse --show-toplevel` が返したパスは、今の Workspace root と同じ場所か
  *   - HEAD はブランチの上に居るか、それとも特定の commit を指しているか
  *   - `for-each-ref` が返した行は、どのローカルブランチか（Session 3-8-6）
- *   - `log` が返した行は、どの commit か（Session 3-8-11）
+ *   - `log` / `show --no-patch` が返した行は、どの commit か（Session 3-8-11 / 3-8-12）
+ *   - `diff-tree --raw` が返した塊は、どのファイルがどう変わったか（Session 3-8-12）
  *
  * 1つめが Session 3-8-1 の核心にあたる。**Workspace root がリポジトリ root で
  * ないときは Git 操作を行わない**（設計判断 10）ため、「同じ場所か」の判断を
@@ -156,25 +157,9 @@ export function readCommitHistory(
   let truncated = false
 
   for (const line of stdout.split('\n')) {
-    const fields = splitFields(line, 4)
+    const commit = readCommitRecord(line)
 
-    if (fields === null) {
-      continue
-    }
-
-    const [shortHash, authorName, authoredAt, parents, subject] = fields
-
-    /*
-      hash の形を確かめる。**確かめずに通すと、想定と違う出力（警告・ヒント）が
-      そのまま「commit」として画面に並ぶ**（`readShortCommit` と同じ理由）。
-    */
-    if (!/^[0-9a-f]{4,40}$/i.test(shortHash)) {
-      continue
-    }
-
-    const seconds = Number.parseInt(authoredAt, 10)
-
-    if (!Number.isSafeInteger(seconds)) {
+    if (commit === null) {
       continue
     }
 
@@ -184,18 +169,217 @@ export function readCommitHistory(
       break
     }
 
-    commits.push({
-      shortHash,
-      authorName,
-      // epoch 秒 → ミリ秒（shared/git/history.ts が持つのはミリ秒）。
-      authoredAt: seconds * 1000,
-      // 親が無い（履歴のいちばん最初）と空文字になるため、空の要素を数えない。
-      parentCount: parents.split(' ').filter((parent) => parent.length > 0).length,
-      subject
-    })
+    commits.push(commit)
   }
 
   return { commits, truncated }
+}
+
+/**
+ * `%h%x00%an%x00%at%x00%P%x00%s` の1行を読む（Session 3-8-11 / 3-8-12）。
+ *
+ * 履歴（`log`）と commit 1件の名乗り（`show --no-patch`）が**同じ関数を通る**。
+ * 書式が同じなら読み方も1つでよく、2つ置くと同じ commit が
+ * 「一覧では読めるのに詳細では読めない」形が生まれる。
+ *
+ * 読めなければ null。確かめるのは3つだけになる。
+ *
+ *   欄の数     … 区切りが4つ揃っているか
+ *   hash の形  … 16進の並びか（`readShortCommit` と同じ理由）
+ *   日時       … 数として読めるか
+ *
+ * **要約と名乗りは空を許す**（`--allow-empty-message` の commit が実在する）。
+ * 3-8-12 では、この検査が「相手が commit でなかった」ことの受け皿も兼ねる ──
+ * blob を指す hash に `git show` を動かすと**中身がそのまま出て 0 で終わる**ため、
+ * 欄も hash の形も揃わず、ここで null になる（main/git/gitCommands.ts）。
+ */
+export function readCommitRecord(line: string): GitCommitSummary | null {
+  const fields = splitFields(line, 4)
+
+  if (fields === null) {
+    return null
+  }
+
+  const [shortHash, authorName, authoredAt, parents, subject] = fields
+
+  /*
+    hash の形を確かめる。**確かめずに通すと、想定と違う出力（警告・ヒント）が
+    そのまま「commit」として画面に並ぶ**（`readShortCommit` と同じ理由）。
+  */
+  if (!/^[0-9a-f]{4,40}$/i.test(shortHash)) {
+    return null
+  }
+
+  const seconds = Number.parseInt(authoredAt, 10)
+
+  if (!Number.isSafeInteger(seconds)) {
+    return null
+  }
+
+  return {
+    shortHash,
+    authorName,
+    // epoch 秒 → ミリ秒（shared/git/history.ts が持つのはミリ秒）。
+    authoredAt: seconds * 1000,
+    // 親が無い（履歴のいちばん最初）と空文字になるため、空の要素を数えない。
+    parentCount: parents.split(' ').filter((parent) => parent.length > 0).length,
+    subject
+  }
+}
+
+/**
+ * `diff-tree --raw --no-abbrev -r -z` の出力を読む（Session 3-8-12）。
+ *
+ * 1件が2つ（rename / copy では3つ）の NUL 区切りの塊で出てくる。
+ *
+ * ```
+ * :<前の mode> <後の mode> <前の object> <後の object> <状態><NUL><位置><NUL>
+ * :100644 100644 <前の object> <後の object> R100<NUL><元の位置><NUL><先の位置><NUL>
+ * ```
+ *
+ * ## 状態の文字を、既にある語へ写す
+ *
+ * `A` / `M` / `D` / `R` / `C` / `T` を `GitCommitChangeKind` へ写す
+ * （shared/git/commitDetail.ts）。新しい語を作らないので、画面は変更ファイルの
+ * 一覧とまったく同じ記号・同じ読み上げ名を使える。
+ *
+ * `U`（未解決）と `X`（不明）は落とす ── どちらも記録された commit の
+ * tree の差分には現れない。
+ *
+ * ## object 名を一緒に返す
+ *
+ * 差分（`readGitCommitFileDiff`）が使うのはここで返した object 名だけで、
+ * `<hash>:<path>` のような引数を組み立てる経路をどこにも作らない
+ * （main/git/gitCommands.ts）。**追加の前側・削除の後側は 40 桁の 0** で
+ * 返るため、それを「比べる相手が居ない」として null にしておく ──
+ * 0 の並びも16進として通ってしまうので、ここで落とさないと
+ * `cat-file` に渡る（渡れば失敗するが、渡せる形を残す意味が無い）。
+ *
+ * ## mode 160000（submodule）も、そのまま返す
+ *
+ * ここでは落とさない。**一覧には出す**（その commit で submodule が
+ * 動いたことは事実）が、中身は blob ではないので差分は出せない ──
+ * その判断は差分の側で行う（main/git/gitCommitDetail.ts）。一覧から
+ * 消すと、`git show --stat` に出る件数と画面の件数が食い違う。
+ *
+ * ## 読めない塊は落とす（失敗にしない）
+ *
+ * 形の合わない塊は捨てて先へ進む。1件が読めないことを一覧全体の失敗にすると、
+ * **他のファイルを見る手立てまで消える**（`readCommitHistory` と同じ判断）。
+ * 位置が1つ足りない rename では、その1件だけが落ちる。
+ *
+ * ## 上限を「読んだ側」で切る
+ *
+ * git 側には上限を渡していない ── `diff-tree` に「何件まで」を言う指定が
+ * 無いためになる（`log` の `--max-count` にあたるものが無い）。したがって
+ * ここで `limit` 件に切り、**切ったかどうか**を一緒に返す。
+ */
+export function readCommitFileChanges(
+  stdout: string,
+  limit: number
+): {
+  readonly files: readonly GitCommitFileEntry[]
+  readonly truncated: boolean
+} {
+  const files: GitCommitFileEntry[] = []
+  const records = stdout.split('\0')
+  let truncated = false
+  let index = 0
+
+  while (index < records.length) {
+    const header = RAW_HEADER.exec(records[index])
+
+    if (header === null) {
+      index += 1
+      continue
+    }
+
+    const kind = COMMIT_CHANGE_KINDS[header[5]]
+    // rename / copy は「元の位置」と「先の位置」の2つを続けて出す。
+    const moved = kind === 'renamed' || kind === 'copied'
+    const originalPath = moved ? nonEmptyRecord(records[index + 1]) : null
+    const relativePath = nonEmptyRecord(records[index + (moved ? 2 : 1)])
+
+    index += moved ? 3 : 2
+
+    if (kind === undefined || relativePath === null) {
+      continue
+    }
+
+    // rename / copy なのに元の位置が読めない（塊が足りない）。その1件だけ落とす。
+    if (moved && originalPath === null) {
+      continue
+    }
+
+    if (files.length >= limit) {
+      truncated = true
+      // 数え続けても件数は返さない（切れたことだけを伝える）。読み終える必要が無い。
+      break
+    }
+
+    files.push({
+      relativePath,
+      kind,
+      originalPath,
+      originalMode: header[1],
+      modifiedMode: header[2],
+      originalObject: toObjectName(header[3]),
+      modifiedObject: toObjectName(header[4])
+    })
+  }
+
+  return { files, truncated }
+}
+
+/**
+ * `--raw` の1件のうち、位置より前の部分。
+ *
+ * 状態の文字には数字が続くことがある（`R100` / `C085` ＝ 類似度）。
+ * **数字は読まない** ── 画面に出るのは「移動」「複製」という語だけで、
+ * 何 % 似ているかは出さない（出すと、その数字の意味を説明する場所が要る）。
+ */
+const RAW_HEADER = /^:(\d{6}) (\d{6}) ([0-9a-f]{40,64}) ([0-9a-f]{40,64}) ([A-Z])\d*$/
+
+/** `--raw` の状態の文字 → 既にある語（shared/git/commitDetail.ts）。 */
+const COMMIT_CHANGE_KINDS: Readonly<Record<string, GitCommitChangeKind | undefined>> = {
+  A: 'added',
+  C: 'copied',
+  D: 'deleted',
+  M: 'modified',
+  R: 'renamed',
+  T: 'type-changed'
+}
+
+/** 位置の塊。出力の末尾で欠けている／空なら null（読めない1件として落とす）。 */
+function nonEmptyRecord(value: string | undefined): string | null {
+  return value === undefined || value.length === 0 ? null : value
+}
+
+/** 40 桁の 0 は「その側に相手が居ない」（追加の前側・削除の後側）。 */
+function toObjectName(value: string): string | null {
+  return /^0+$/.test(value) ? null : value
+}
+
+/**
+ * commit の中の1ファイル。
+ *
+ * `GitCommitFileChange`（shared/git/commitDetail.ts）に **Main の中でだけ使う
+ * 4つ**を足した形になる ── mode 2つと object 名2つで、どれも画面に出ない。
+ * IPC の向こうへ渡さないのは 3-8-11 の「画面に出ないものは載せない」と
+ * 同じ判断で、500 件ぶんの 40 桁を誰も読まないまま運ぶ意味が無い。
+ */
+export interface GitCommitFileEntry {
+  readonly relativePath: string
+  readonly kind: GitCommitChangeKind
+  readonly originalPath: string | null
+  /** 前側の mode（`160000` は submodule）。 */
+  readonly originalMode: string
+  /** 後側の mode（同上）。 */
+  readonly modifiedMode: string
+  /** 前側の object 名。追加では null。 */
+  readonly originalObject: string | null
+  /** 後側の object 名。削除では null。 */
+  readonly modifiedObject: string | null
 }
 
 /**

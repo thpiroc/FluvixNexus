@@ -2,10 +2,12 @@ import type { GitChangeKind, GitFileChange } from '@shared/git'
 import { describe, expect, it } from 'vitest'
 import {
   canDiffGitChange,
+  describeGitCommitDiffSides,
   describeGitDiffSides,
   describeGitDiffTitle,
   describeGitDiffUnavailable,
-  toGitDiffGroup
+  toGitDiffGroup,
+  toGitDiffSubject
 } from './gitDiff'
 
 /**
@@ -147,5 +149,61 @@ describe('describeGitDiffUnavailable', () => {
       expect(text.length, reason).toBeGreaterThan(0)
       expect(text, reason).toMatch(/[。）]$/)
     }
+  })
+})
+
+/**
+ * commit の中の差分（Session 3-8-12）。
+ *
+ * 固定したいのは2つ。**入口が2つになっても見出しの出し方は1つ**であること
+ * （`describeGitDiffSubject` を通す）と、左右のラベルが
+ * 「HEAD / index / 作業ツリー」ではなく**commit の言葉**になっていることになる。
+ */
+describe('toGitDiffSubject', () => {
+  it('作業ツリーの1行では、その行そのものを返す', () => {
+    const row = change({ kind: 'modified' })
+
+    expect(toGitDiffSubject({ source: 'worktree', group: 'unstaged', change: row })).toBe(row)
+  })
+
+  it('commit の中の1ファイルでも、同じ3つが揃う', () => {
+    const file = {
+      relativePath: 'src/new.ts',
+      kind: 'renamed',
+      originalPath: 'src/old.ts'
+    } as const
+
+    const subject = toGitDiffSubject({
+      source: 'commit',
+      commit: {
+        shortHash: 'abc1234',
+        subject: '直した',
+        authorName: '名前',
+        authoredAt: 0,
+        parentCount: 1
+      },
+      file
+    })
+
+    expect(subject).toEqual(file)
+    // 見出しの出し方は入口によらず1つ（作業ツリーの1行と同じ関数を通る）。
+    expect(describeGitDiffTitle(subject)).toEqual({ name: 'new.ts', location: 'src/old.ts から' })
+  })
+})
+
+describe('describeGitCommitDiffSides', () => {
+  it('比べる相手を commit の言葉で出す（index も作業ツリーも出さない）', () => {
+    expect(describeGitCommitDiffSides('modified')).toEqual({
+      original: '親のコミット',
+      modified: 'このコミット'
+    })
+  })
+
+  it('追加では、左が「無い」ことをそのまま書く', () => {
+    expect(describeGitCommitDiffSides('added').original).toBe('まだありません')
+  })
+
+  it('削除では、右が「無い」ことをそのまま書く', () => {
+    expect(describeGitCommitDiffSides('deleted').modified).toBe('削除されています')
   })
 })

@@ -7,6 +7,8 @@ import {
 } from '@shared/git'
 import {
   IPC_CHANNELS,
+  type GetGitCommitDetailResponse,
+  type GetGitCommitFileDiffResponse,
   type GetGitFileDiffResponse,
   type GetGitRepositoryResponse,
   type GitOperationResponse,
@@ -15,6 +17,8 @@ import {
 } from '@shared/ipc'
 import { applyGitCreateBranch, applyGitSwitchBranch, listGitBranches } from '../../git/gitBranches'
 import { applyGitCommit } from '../../git/gitCommit'
+import { readGitCommitDetail, readGitCommitFileDiff } from '../../git/gitCommitDetail'
+import { normalizeGitCommitHash } from '../../git/gitCommitHash'
 import { readGitFileDiff } from '../../git/gitDiff'
 import { applyGitDiscard } from '../../git/gitDiscard'
 import { listGitCommits } from '../../git/gitHistory'
@@ -28,7 +32,7 @@ import { handleIpc } from '../registry'
 
 /**
  * git ドメインのハンドラ（Session 3-8-1 / 3-8-3 / 3-8-4 / 3-8-5 / 3-8-6 / 3-8-9 /
- * 3-8-10 / 3-8-11）。
+ * 3-8-10 / 3-8-11 / 3-8-12）。
  *
  * ## 3-8-1 では確かめる値が無かった
  *
@@ -227,6 +231,32 @@ function discardTargetField(request: unknown): GitDiscardTarget {
   return { group, relativePath: pathspecField(target) }
 }
 
+/**
+ * 開く commit の短い hash（Session 3-8-12）。
+ *
+ * 通すのは `normalizeGitCommitHash`（main/git/gitCommitHash.ts）で、
+ * **16進 4〜40 桁だけ**になる ── `HEAD~5` も `main@{1}` も `:/要約` も
+ * `<hash>:<path>` も、ここを通らない。pathspec / Commit メッセージ /
+ * ブランチ名と同じく、**ここを通らない文字列が git の引数になることは無い。**
+ *
+ * ブランチ名と違い、Renderer 側に同じ関数を置いていない ── 利用者が
+ * hash を打ち込む欄がそもそも無く、渡るのは履歴の行がそのまま持っていた
+ * 文字列だけになる（打てる欄が無いので、入力中に確かめる相手も居ない）。
+ *
+ * 通せない値を INVALID_REQUEST にするのは他の値と同じ扱いで、Renderer 側の
+ * 不具合にあたる。逆に、**利用者に起こること**（その commit がもう解けない・
+ * マージ commit だった）は失敗にせず、応答の `detail` に分類として載る。
+ */
+function commitHashField(request: unknown): string {
+  const hash = normalizeGitCommitHash(field(request, 'shortHash'))
+
+  if (hash === null) {
+    throw invalidRequest('the commit hash is missing or not a short git object name.')
+  }
+
+  return hash
+}
+
 function branchNameField(request: unknown): string {
   const name = normalizeGitBranchName(field(request, 'name'))
 
@@ -321,6 +351,37 @@ export function registerGitHandlers(): void {
   handleIpc(IPC_CHANNELS.GIT_LIST_COMMITS, async (): Promise<ListGitCommitsResponse> => {
     return await listGitCommits()
   })
+
+  /*
+    commit 1件の詳細と、その中の1ファイルの差分（Session 3-8-12）。
+
+    **3-8-11 まで `void` だった履歴の系統に、初めて値が1つ載る。** 載るのは
+    履歴の行が持っていた短い hash だけで、確かめるのは形（16進 4〜40 桁）に
+    なる ── `HEAD~5` も pathspec も `--stat` も欄そのものが無い。
+
+    差分の側で確かめる位置は、Stage / Unstage / 3-8-9 の差分とまったく同じ関数を
+    通る（`pathspecField`）── 4つめの入口で違う規則が効くと、
+    そこからだけ通る位置が生まれる。
+
+    書き込みの口はここでも1つも足していない。動く git は `show --no-patch` /
+    `diff-tree` / `cat-file` の3種で、どれも読み取りになる。
+  */
+  handleIpc(
+    IPC_CHANNELS.GIT_GET_COMMIT_DETAIL,
+    async (request): Promise<GetGitCommitDetailResponse> => {
+      return await readGitCommitDetail({ shortHash: commitHashField(request) })
+    }
+  )
+
+  handleIpc(
+    IPC_CHANNELS.GIT_GET_COMMIT_FILE_DIFF,
+    async (request): Promise<GetGitCommitFileDiffResponse> => {
+      return await readGitCommitFileDiff({
+        shortHash: commitHashField(request),
+        relativePath: pathspecField(request)
+      })
+    }
+  )
 
   /*
     ブランチの切り替え / 作成（Session 3-8-6）。

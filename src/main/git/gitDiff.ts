@@ -1,15 +1,15 @@
-import { FILES_BINARY_SNIFF_BYTES, FILES_FILE_MAX_BYTES } from '@shared/files'
 import type { GitDiffGroup, GitFileDiff, GitFileChange } from '@shared/git'
 import { readWorkspaceFile } from '../files/readWorkspaceFile'
-import { createLogger } from '../logger'
 import { getCurrentWorkspaceFolder } from '../workspaceFolder/currentWorkspaceFolder'
+import { readHeadBlobEntry, readIndexBlobEntry } from './gitBlob'
+import { showHeadBlob, showIndexBlob } from './gitCommands'
 import {
-  isGitObjectName,
-  readBlobByteLength,
-  readHeadBlobEntry,
-  readIndexBlobEntry
-} from './gitBlob'
-import { showBlobContent, showBlobSize, showHeadBlob, showIndexBlob } from './gitCommands'
+  EMPTY_GIT_DIFF_SIDE,
+  normalizeGitLineEndings,
+  readGitBlobSide,
+  toGitRunFailureReason,
+  type GitDiffSideOutcome
+} from './gitDiffSide'
 import { normalizeGitPathspec } from './gitPathspec'
 import { runGitExclusively } from './gitQueue'
 import { hasGitHeadCommit, readGitRepositoryOutcome } from './gitRepository'
@@ -57,8 +57,6 @@ import { runGit } from './runGit'
  * 大きいものを開けると、「Git パネルからは見えるのに、Editor では開けない」が
  * 起きる ── そのファイルを直しに行く先が無い。
  */
-
-const log = createLogger('git')
 
 /** 出せなかった理由だけを返す（この関数の外に成功の形は無い）。 */
 function unavailable(
@@ -154,15 +152,17 @@ async function buildDiff(
 
 /* ------------------------------------------------------------------ 左（変更の前） */
 
-type SideOutcome =
-  | { readonly status: 'ok'; readonly content: string }
-  | {
-      readonly status: 'unavailable'
-      readonly reason: Extract<GitFileDiff, { status: 'unavailable' }>['reason']
-    }
+/*
+  片側を object から読む処理は gitDiffSide.ts に切り出してある（Session 3-8-12）。
+
+  commit の中の tree が**4つめの相手**として増えたため、上限・バイナリの判定・
+  改行の均しを2箇所に置かない形にした ── ここに残るのは
+  「**どちらの側に何を出すか**」という、作業ツリーと index に固有の判断だけになる。
+*/
+type SideOutcome = GitDiffSideOutcome
 
 /** 比べる相手が居ない側（追加 / 未追跡 / 初回 commit 前 / 削除の右）。 */
-const EMPTY_SIDE: SideOutcome = { status: 'ok', content: '' }
+const EMPTY_SIDE = EMPTY_GIT_DIFF_SIDE
 
 async function readOriginalSide(
   group: GitDiffGroup,
@@ -239,7 +239,7 @@ async function readIndexSide(path: string): Promise<SideOutcome> {
   const listed = await runGit(showIndexBlob([path]))
 
   if (listed.status !== 'completed') {
-    return { status: 'unavailable', reason: toRunFailureReason(listed.status) }
+    return { status: 'unavailable', reason: toGitRunFailureReason(listed.status) }
   }
 
   if (listed.exitCode !== 0) {
@@ -256,14 +256,14 @@ async function readIndexSide(path: string): Promise<SideOutcome> {
     return { status: 'unavailable', reason: 'not-found' }
   }
 
-  return await readBlob(entry.object)
+  return await readGitBlobSide(entry.object)
 }
 
 async function readHeadSide(path: string): Promise<SideOutcome> {
   const listed = await runGit(showHeadBlob([path]))
 
   if (listed.status !== 'completed') {
-    return { status: 'unavailable', reason: toRunFailureReason(listed.status) }
+    return { status: 'unavailable', reason: toGitRunFailureReason(listed.status) }
   }
 
   if (listed.exitCode !== 0) {
@@ -277,60 +277,7 @@ async function readHeadSide(path: string): Promise<SideOutcome> {
     返ってきた場合など（他の経路で HEAD が動いた）にここへ来る。
     **失敗にせず空に倒す** ── 「HEAD には無かった」は差分として正しく出せる。
   */
-  return entry === null ? EMPTY_SIDE : await readBlob(entry.object)
-}
-
-/**
- * object の中身を読む。
- *
- * **大きさを先に訊く。** 上限を超えるものを `cat-file blob` で読むと、
- * 読み切ってから捨てることになる（main/files/readWorkspaceFile.ts と同じ順序）。
- */
-async function readBlob(object: string): Promise<SideOutcome> {
-  /*
-    git 自身が答えた object 名しか来ないが、引数に載る直前でもう一度確かめる
-    （3-8-3 で pathspec に二重の備えを置いたのと同じ形。gitBlob.ts）。
-  */
-  if (!isGitObjectName(object)) {
-    log.warn('git returned an object name that could not be used as an argument.')
-    return { status: 'unavailable', reason: 'unreadable' }
-  }
-
-  const sized = await runGit(showBlobSize(object))
-
-  if (sized.status !== 'completed') {
-    return { status: 'unavailable', reason: toRunFailureReason(sized.status) }
-  }
-
-  if (sized.exitCode !== 0) {
-    return { status: 'unavailable', reason: 'failed' }
-  }
-
-  const byteLength = readBlobByteLength(sized.stdout)
-
-  if (byteLength === null) {
-    return { status: 'unavailable', reason: 'unreadable' }
-  }
-
-  if (byteLength > FILES_FILE_MAX_BYTES) {
-    return { status: 'unavailable', reason: 'too-large' }
-  }
-
-  const read = await runGit(showBlobContent(object))
-
-  if (read.status !== 'completed') {
-    return { status: 'unavailable', reason: toRunFailureReason(read.status) }
-  }
-
-  if (read.exitCode !== 0) {
-    return { status: 'unavailable', reason: 'failed' }
-  }
-
-  if (looksBinaryText(read.stdout)) {
-    return { status: 'unavailable', reason: 'binary' }
-  }
-
-  return { status: 'ok', content: normalizeLineEndings(read.stdout) }
+  return entry === null ? EMPTY_SIDE : await readGitBlobSide(entry.object)
 }
 
 /**
@@ -383,44 +330,5 @@ async function readWorktreeSide(path: string): Promise<SideOutcome> {
   // fileStatus が 'ok' なら中身は必ず在る。型の上で残る null は落としておく。
   return outcome.content === null
     ? { status: 'unavailable', reason: 'unreadable' }
-    : { status: 'ok', content: normalizeLineEndings(outcome.content) }
-}
-
-/* ------------------------------------------------------------------------------ 共通 */
-
-function toRunFailureReason(
-  status: 'no-workspace' | 'git-unavailable' | 'failed'
-): Extract<GitFileDiff, { status: 'unavailable' }>['reason'] {
-  return status === 'failed' ? 'failed' : 'not-ready'
-}
-
-/**
- * blob をバイナリとみなすか。
- *
- * 判断の基準は files ドメインとまったく同じ（先頭 `FILES_BINARY_SNIFF_BYTES` に
- * NUL があるか。main/files/fileContent.ts）。違うのは見る対象だけで、
- * こちらは git の標準出力を UTF-8 として読んだ後の文字列にあたる ──
- * **NUL は復号を通っても NUL のまま残る**ため、同じ判断がそのまま当たる。
- *
- * バイト数ではなく文字数で見ているぶん、マルチバイト文字が続くと実際より
- * 手前までしか見ないことになるが、**先頭に NUL を持たないバイナリを
- * テキストとして出す**のは git 自身も同じ（git も先頭の一部だけを見る）。
- */
-function looksBinaryText(content: string): boolean {
-  return content.slice(0, FILES_BINARY_SNIFF_BYTES).includes('\0')
-}
-
-/**
- * 改行を LF に均す。
- *
- * Windows の git は checkout のときに改行を CRLF へ直す（`core.autocrlf`）。
- * index の中身（LF）と作業ツリーの中身（CRLF）をそのまま並べると、
- * **1行も書き換えていないファイルが全行変更として出る。**
- *
- * git 自身は正規化した後の中身で「変わったかどうか」を決めているので、
- * 一覧に出ている判断と揃えるにはこちらも均した中身で見せる必要がある
- * （理由の全文は shared/git/diff.ts）。
- */
-function normalizeLineEndings(content: string): string {
-  return content.replace(/\r\n/g, '\n')
+    : { status: 'ok', content: normalizeGitLineEndings(outcome.content) }
 }

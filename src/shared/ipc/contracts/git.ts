@@ -1,5 +1,7 @@
 import type {
   GitBranchListing,
+  GitCommitDetail,
+  GitCommitFileDiff,
   GitCommitHistory,
   GitDiffGroup,
   GitDiscardTarget,
@@ -206,6 +208,64 @@ export interface ListGitCommitsResponse {
   readonly workspaceId: string | null
   /** commit の一覧、またはそれを出せない理由（shared/git/history.ts）。 */
   readonly history: GitCommitHistory
+}
+
+/**
+ * commit 1件の詳細を尋ねる要求（Session 3-8-12）。
+ *
+ * ## 3-8-11 まで無かった「rev の欄」が、ここで初めて1つだけ開く
+ *
+ * 履歴（`git:list-commits`）は要求が `void` で、rev を渡せる欄そのものが
+ * 無かった。詳細では**どの commit かを言わなければ始まらない**ため、
+ * 欄が1つ開く ── ただし開くのはここまでで、次の3つは変えていない。
+ *
+ *   1. 載るのは**短い hash（`%h`）だけ**。`HEAD~5` も `main@{1}` も
+ *      `:/要約` も通らない（形は 16進 4〜40 桁に限る。main/git/gitCommitHash.ts）
+ *   2. その値は `--end-of-options` の後ろの**独立した1つの引数**として渡る。
+ *      `<hash>:<path>` のような組み立ては1つも作らない（main/git/gitCommands.ts）
+ *   3. 動かす git は `show --no-patch` と `diff-tree` の2本だけで、
+ *      **どちらも読み取り**にあたる。revert も reset も cherry-pick も無い
+ *
+ * つまり「rev を渡せる欄」ではなく、**履歴に出した行を指すための欄**になる。
+ * 履歴に出ていない commit を指す手立ては、この欄からは作れない ── 打ち込む
+ * 場所が無く、渡せるのは一覧の行が持っていた文字列だけになる。
+ */
+export interface GetGitCommitDetailRequest {
+  /** 履歴の行が持っている短い hash（`GitCommitSummary.shortHash`）。 */
+  readonly shortHash: string
+}
+
+export interface GetGitCommitDetailResponse {
+  /** どの Workspace について答えたか。未選択なら null（他の応答と同じ理由）。 */
+  readonly workspaceId: string | null
+  /** 変更ファイルの一覧、またはそれを出せない理由（shared/git/commitDetail.ts）。 */
+  readonly detail: GitCommitDetail
+}
+
+/**
+ * commit の中の1ファイルの差分を尋ねる要求（Session 3-8-12）。
+ *
+ * 載る値は2つ（短い hash と位置1つ）で、どちらも**既に画面に出ているもの**に
+ * なる ── hash は履歴の行が、位置は詳細の行が持っていた文字列にあたる。
+ *
+ * `group` が無いのが `GetGitFileDiffRequest` との違いになる。commit の差分で
+ * 比べる相手は常に1組（親の tree と、この commit の tree）で、
+ * 「どの段を見るか」という選択がそもそも存在しない（shared/git/commitDetail.ts）。
+ *
+ * 位置は最後まで **pathspec のまま**渡る。`<hash>:<path>` という1つの引数に
+ * 組み立てないのは 3-8-9 と同じ判断で、組み立てると位置が revision 表記の
+ * 一部として読まれる余地が生まれる（main/git/gitCommands.ts）。
+ */
+export interface GetGitCommitFileDiffRequest {
+  readonly shortHash: string
+  readonly relativePath: string
+}
+
+export interface GetGitCommitFileDiffResponse {
+  /** どの Workspace について答えたか。未選択なら null（他の応答と同じ理由）。 */
+  readonly workspaceId: string | null
+  /** 中身2つ、またはそれを出せない理由（shared/git/commitDetail.ts）。 */
+  readonly diff: GitCommitFileDiff
 }
 
 /**
@@ -500,6 +560,43 @@ export interface GitIpcContract {
   'git:list-commits': {
     request: void
     response: ListGitCommitsResponse
+  }
+  /**
+   * commit 1件の変更ファイルを尋ねる（Session 3-8-12）。
+   *
+   * ## 履歴と別の1本にしてある
+   *
+   * `git:list-commits` に相乗りさせると、100 件ぶんの変更ファイルを
+   * 毎回読むことになる ── 開かれるのはそのうち1件で、しかも開くかどうかは
+   * 利用者が決める。`git:list-branches` を `git:get-repository` から
+   * 分けたのとまったく同じ判断で、**見られている時間が違う。**
+   *
+   * ## マージ commit は「失敗」ではなく「答え」として返る
+   *
+   * 親が2つ以上ある commit では、どちらの親と比べるかが決まらない
+   * （shared/git/commitDetail.ts）。応答の `detail.reason` に `merge` が載り、
+   * 画面はその理由をそのまま出す ── `IpcResult` の失敗に丸めると、
+   * 「取得できませんでした」という別の意味になる。
+   */
+  'git:get-commit-detail': {
+    request: GetGitCommitDetailRequest
+    response: GetGitCommitDetailResponse
+  }
+  /**
+   * commit の中の1ファイルの差分を尋ねる（Session 3-8-12）。
+   *
+   * `git:get-file-diff` と別の1本にしてある。**同じチャンネルに
+   * 「作業ツリーの差分」と「commit の差分」を同居させない** ── 前者は
+   * `group`（今の作業ツリーのどの段か）で相手が決まり、後者は rev で決まる。
+   * 1本にすると、要求の中で片方だけが意味を持つ欄が2つ並び、
+   * いつか group を付けたまま rev が効く（あるいはその逆）が起こる。
+   *
+   * 返るのは patch ではなく**中身2つ**で、そこは 3-8-9 と同じになる
+   * （shared/git/commitDetail.ts）。
+   */
+  'git:get-commit-file-diff': {
+    request: GetGitCommitFileDiffRequest
+    response: GetGitCommitFileDiffResponse
   }
   /**
    * 別のローカルブランチへ切り替える（Session 3-8-6）。

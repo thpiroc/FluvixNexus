@@ -1,6 +1,8 @@
 import { splitRelativePath } from '@shared/files'
 import type {
   GitChangeKind,
+  GitCommitFileChange,
+  GitCommitSummary,
   GitDiffGroup,
   GitDiffUnavailableReason,
   GitFileChange
@@ -25,17 +27,54 @@ import type { GitChangeGroup } from './gitChanges'
 /**
  * 今どの行の差分を見ているか。
  *
- * 位置だけでなく**その行そのもの**（`GitFileChange`）を持つ。理由は2つ。
+ * 位置だけでなく**その行そのもの**を持つ。理由は2つ。
  *
  *   - 見出しに出すもの（種類の記号・rename の元の位置）が、位置だけでは決まらない
  *   - 一覧が読み直されても、**開いた瞬間に押した行**を出し続けられる ──
  *     位置だけを持って毎回引き直すと、その行が消えた瞬間に見出しが消える
  *     （差分の中身の側は「見つかりませんでした」と言えばよく、
  *     見出しまで一緒に消える必要は無い）
+ *
+ * ## Session 3-8-12 で、押される場所が2つになった
+ *
+ * 3-8-9 まで、差分を開く行は変更ファイルの一覧にしか無かった。3-8-12 で
+ * **commit 1件の詳細**が2つめの入口になる ── 面（GitDiffOverlay.tsx）は
+ * 同じものを使い、要求の方を union にしてある。
+ *
+ * `group` を optional にして1つの形に畳まないのは、畳んだ日から
+ * 「group が無い差分」を面の側が毎回確かめることになるため。`source` で
+ * 分けてあれば、**どちらの入口から来たかで見出しも左右のラベルも一度に決まる。**
  */
-export interface GitDiffRequest {
-  readonly group: GitDiffGroup
-  readonly change: GitFileChange
+export type GitDiffRequest =
+  | {
+      /** 作業ツリー / index の1行（Session 3-8-9）。 */
+      readonly source: 'worktree'
+      readonly group: GitDiffGroup
+      readonly change: GitFileChange
+    }
+  | {
+      /** commit 1件の中の1ファイル（Session 3-8-12）。 */
+      readonly source: 'commit'
+      /** 開いている commit（見出しに短い hash を出す）。 */
+      readonly commit: GitCommitSummary
+      readonly file: GitCommitFileChange
+    }
+
+/** 面の見出しと本文が使う、入口によらない形。 */
+export interface GitDiffSubject {
+  readonly relativePath: string
+  readonly originalPath: string | null
+  readonly kind: GitChangeKind
+}
+
+/**
+ * 要求から「どのファイルの、どんな変更か」を取り出す。
+ *
+ * 面の側で `source` を見分ける場所を**1つに集める**ためにある ── 見出し・
+ * 記号・Monaco へ渡す位置は、どちらの入口でも同じ3つで決まる。
+ */
+export function toGitDiffSubject(request: GitDiffRequest): GitDiffSubject {
+  return request.source === 'worktree' ? request.change : request.file
 }
 
 /* --------------------------------------------------- どの行の差分を見られるか */
@@ -99,13 +138,38 @@ export function describeGitDiffSides(group: GitDiffGroup, kind: GitChangeKind): 
 }
 
 /**
+ * commit の中の差分で、左右に何を出しているかを言葉にする（Session 3-8-12）。
+ *
+ * 作業ツリーの側（上）と違い、**選ぶ余地が無い** ── 比べる相手は常に
+ * 「親の commit」と「このコミット」の1組になる（shared/git/commitDetail.ts）。
+ * それでも言葉にして出すのは、上と同じ場所に同じ形の帯があることで
+ * 「今どちらとどちらを見ているか」を毎回読めるようにするため。
+ *
+ * 追加と削除では片側が「無い」ことをそのまま書く ── 空の欄を見せておいて
+ * 「親のコミット」と名乗ると、中身が空のファイルと見分けが付かない。
+ *
+ * 履歴のいちばん最初の commit では親が居ないが、そこでは全ファイルが
+ * `added` として返るため（`--root`。main/git/gitCommands.ts）、
+ * 左は「まだありません」になり、親を名乗らずに済む。
+ */
+export function describeGitCommitDiffSides(kind: GitChangeKind): GitDiffSides {
+  return {
+    original: kind === 'added' ? 'まだありません' : '親のコミット',
+    modified: kind === 'deleted' ? '削除されています' : 'このコミット'
+  }
+}
+
+/**
  * 面の見出し（どのファイルの、どの側の差分か）。
  *
  * ファイル名と場所を分けるのは一覧の行とまったく同じ（gitChanges.ts の
  * `describeGitChangeRow`）── 同じファイルを指しているのに、面と行で
  * 違う名前が出ることを避ける。
+ *
+ * 受け取るのが `GitDiffSubject`（gitDiff.ts の上）なので、作業ツリーの1行でも
+ * commit の中の1ファイルでも**同じ関数が同じ名前を出す。**
  */
-export function describeGitDiffTitle(change: GitFileChange): {
+export function describeGitDiffTitle(change: GitDiffSubject): {
   readonly name: string
   readonly location: string | null
 } {
@@ -139,7 +203,7 @@ export function describeGitDiffUnavailable(reason: GitDiffUnavailableReason): st
       return 'この変更は見つかりませんでした。一覧が新しくなっている可能性があります。'
 
     case 'unsupported-target':
-      return 'この行は差分を出せません（フォルダにはファイルの差分がありません）。'
+      return 'この行は差分を出せません（フォルダや submodule にはファイルの差分がありません）。'
 
     case 'binary':
       return 'バイナリのため差分を表示できません。'
