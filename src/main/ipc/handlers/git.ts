@@ -15,7 +15,13 @@ import {
   type ListGitBranchesResponse,
   type ListGitCommitsResponse
 } from '@shared/ipc'
-import { applyGitCreateBranch, applyGitSwitchBranch, listGitBranches } from '../../git/gitBranches'
+import {
+  applyGitCreateBranch,
+  applyGitDeleteBranch,
+  applyGitRenameBranch,
+  applyGitSwitchBranch,
+  listGitBranches
+} from '../../git/gitBranches'
 import { applyGitCommit } from '../../git/gitCommit'
 import { readGitCommitDetail, readGitCommitFileDiff } from '../../git/gitCommitDetail'
 import { normalizeGitCommitHash } from '../../git/gitCommitHash'
@@ -268,6 +274,30 @@ function branchNameField(request: unknown): string {
 }
 
 /**
+ * rename の行き先の名前（Session 3-8-14）。
+ *
+ * 通すのは `branchNameField` とまったく同じ `normalizeGitBranchName` で、
+ * **欄の名前だけが違う。** 別の関数にしてあるのは読む欄が違うからで、
+ * 規則を分けているわけではない ── 分けると「元の名前としては通るが
+ * 新しい名前としては通らない（あるいはその逆）」形が生まれ、
+ * git の引数に載る2つの値に別々の備えが掛かることになる。
+ *
+ * ここを通った2つだけが、`--end-of-options` の後ろに並ぶ
+ * （main/git/gitCommands.ts）。
+ */
+function branchNewNameField(request: unknown): string {
+  const name = normalizeGitBranchName(field(request, 'newName'))
+
+  if (name === null) {
+    throw invalidRequest(
+      'the new branch name is empty, too long, or not usable as a git branch name.'
+    )
+  }
+
+  return name
+}
+
+/**
  * 新しいブランチの始点（Session 3-8-13）。
  *
  * 通すのは `commitHashField` とまったく同じ `normalizeGitCommitHash` で、
@@ -440,6 +470,29 @@ export function registerGitHandlers(): void {
   */
   handleIpc(IPC_CHANNELS.GIT_CREATE_BRANCH, async (request): Promise<GitOperationResponse> => {
     return await applyGitCreateBranch(branchNameField(request), branchStartPointField(request))
+  })
+
+  /*
+    削除と rename（Session 3-8-14）。
+
+    どちらも動かすのは `git branch` で、切り替え / 作成（`git switch`）とは
+    別のコマンドになる ── それでも**ここで確かめる値は名前だけ**で、
+    通す関数も 3-8-6 から1つも変わらない。
+
+    削除の要求に `--force`（`-D`）の欄は無く、rename の要求に `-M` の欄も無い。
+    「確認したか」の欄も無い ── 確認を通した証を引数に載せると、
+    載せなければ確認を飛ばせる形になる（shared/ipc/contracts/git.ts）。
+
+    rename だけが**1つの要求で2つの外来の値**を運ぶ。2つとも同じ
+    `normalizeGitBranchName` を通る（`branchNameField` / `branchNewNameField`）──
+    入口を2つに分けると、片方からだけ通る名前が生まれる。
+  */
+  handleIpc(IPC_CHANNELS.GIT_DELETE_BRANCH, async (request): Promise<GitOperationResponse> => {
+    return await applyGitDeleteBranch(branchNameField(request))
+  })
+
+  handleIpc(IPC_CHANNELS.GIT_RENAME_BRANCH, async (request): Promise<GitOperationResponse> => {
+    return await applyGitRenameBranch(branchNameField(request), branchNewNameField(request))
   })
 
   /*

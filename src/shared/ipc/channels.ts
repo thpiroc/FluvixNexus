@@ -49,6 +49,8 @@ export const IPC_CHANNELS = {
   GIT_GET_COMMIT_FILE_DIFF: 'git:get-commit-file-diff',
   GIT_SWITCH_BRANCH: 'git:switch-branch',
   GIT_CREATE_BRANCH: 'git:create-branch',
+  GIT_DELETE_BRANCH: 'git:delete-branch',
+  GIT_RENAME_BRANCH: 'git:rename-branch',
   GIT_GET_FILE_DIFF: 'git:get-file-diff',
   GIT_DISCARD: 'git:discard',
   GITHUB_GET_STATUS: 'github:get-status',

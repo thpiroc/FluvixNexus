@@ -6,10 +6,20 @@ import type {
 } from '@shared/git'
 import { GIT_LOCAL_BRANCH_LIMIT } from '@shared/git'
 import { createLogger } from '../logger'
-import { createBranch, listLocalBranches, switchBranch, type GitCommand } from './gitCommands'
+import {
+  createBranch,
+  deleteBranch,
+  listExactBranch,
+  listLocalBranches,
+  renameBranch,
+  switchBranch,
+  type GitCommand
+} from './gitCommands'
 import {
   classifyGitBranchFailure,
   classifyGitCreateBranchFailure,
+  classifyGitDeleteBranchFailure,
+  classifyGitRenameBranchFailure,
   summarizeGitStderr
 } from './gitFailure'
 import {
@@ -23,7 +33,14 @@ import { readGitRepositoryOutcome } from './gitRepository'
 import { GIT_CHECKOUT_TIMEOUT_MS, runGit } from './runGit'
 
 /**
- * ブランチの一覧 / 切り替え / 作成（Session 3-8-6）。
+ * ブランチの一覧 / 切り替え / 作成（Session 3-8-6）と、削除 / rename（Session 3-8-14）。
+ *
+ * ## 3-8-14 で、動かす git が2種類になった
+ *
+ * 3-8-13 までここが動かしていたのは `git switch` だけで、どれも
+ * **作業ツリーを書き換える**操作だった。削除と rename が動かすのは
+ * `git branch` で、書き換えるのは ref 1つになる ── 待ち時間の上限も、
+ * 失敗の分類の表も、そこで分かれる（`runBranchCommand` / `runBranchRefCommand`）。
  *
  * 部品の分担は Stage / Unstage（gitStage.ts）・Commit（gitCommit.ts）・
  * Push / Pull（gitSync.ts）とまったく同じで、ここが持つのは噛み合わせだけになる。
@@ -260,7 +277,212 @@ export async function applyGitCreateBranch(
   })
 }
 
+/* ------------------------------------------------------------------ 削除（3-8-14） */
+
+/**
+ * ローカルブランチを1つ削除する（Session 3-8-14）。
+ *
+ * ## 作業ツリーに触らない、最初のブランチ操作
+ *
+ * 切り替えも作成も `git switch` で作業ツリーを書き換えたが、これは
+ * `refs/heads/<name>` という ref を1つ消すだけになる ── 押した人の書きかけにも
+ * index にも何も起こらない。したがって待ち時間の上限は既定のまま
+ * （`GIT_CHECKOUT_TIMEOUT_MS` を使わない。gitCommands.ts）。
+ *
+ * ## 事前に分かるのは1つだけ
+ *
+ *   今そこに居るブランチ … 分かる（`head`）。git を動かさずに返す
+ *   マージ済みか         … **分からない。** 基準（HEAD か追跡先）を持つのは git で、
+ *                          一覧にも載せていない（shared/git/branch.ts）
+ *   そのブランチがあるか … 分からない。押すまでの間に消えていることがある
+ *
+ * 切り替えで `nothing-to-do` と `unresolved-conflicts` を先に分けたのと同じ形で、
+ * **押す前に分かることは git を動かす前に分ける**（§14.14）。競合が残っていても
+ * ブランチは消せるので、そちらは見ない ── 切り替えと同じ表を当てない理由になる。
+ */
+export async function applyGitDeleteBranch(name: string): Promise<GitOperationResult> {
+  return await runGitExclusively(async () => {
+    const before = await readGitRepositoryOutcome()
+
+    if (before.repository.status !== 'ready') {
+      return notReadyGitOperation(before)
+    }
+
+    /*
+      今そこに居るブランチは消せない。git も同じことを言うが（`used by
+      worktree at ...`）、**押す前に分かることを git に聞かない** ── 画面の側でも
+      その行の ✕ は押せないようにしてあり、ここはその二重の備えにあたる
+      （pathspec とブランチ名を「形」と「置き方」の両方で守っているのと同じ構え）。
+
+      detached HEAD のときは head.kind が 'branch' ではないので、ここは通らない ──
+      どのブランチもチェックアウトされていないため、実際どれでも消せる。
+    */
+    if (before.repository.head.kind === 'branch' && before.repository.head.name === name) {
+      return await finishGitOperation(before.workspaceId, {
+        status: 'failed',
+        reason: 'branch-checked-out'
+      })
+    }
+
+    const outcome = await runBranchRefCommand(deleteBranch(name), classifyGitDeleteBranchFailure)
+
+    return await finishGitOperation(before.workspaceId, outcome)
+  })
+}
+
+/* ----------------------------------------------------------------- rename（3-8-14） */
+
+/**
+ * ローカルブランチの名前を変える（Session 3-8-14）。
+ *
+ * ## 失われるものが1つも無い操作
+ *
+ * 変わるのは ref の名前だけで、commit も作業ツリーも index も動かない ──
+ * **今そこに居るブランチでも改名でき**、その場合は git が HEAD を追随させる
+ * （未コミットの変更もそのまま残る。実物で確かめてある）。したがって確認は
+ * 挟まず、削除と違って「戻せない」側の操作でもない。
+ *
+ * ## 大文字小文字だけを変える改名を通すための1回
+ *
+ * Windows（と既定の macOS）では `refs/heads/feature` と `refs/heads/Feature` が
+ * 同じファイルになるため、素の `--move` は
+ * `a branch named 'Feature' already exists` で断る。だがそのとき「既にある」と
+ * 指されているのは**改名しようとしているブランチ自身**で、別のブランチではない。
+ *
+ * そこだけは `--force` を立てて通す。ただし `--force` は本来
+ * 「相手を消して名前を奪う」ものなので、**立てる前に相手が自分自身であることを
+ * 確かめる** ── 綴りが大文字小文字だけ違い、かつ**完全に同じ綴りの
+ * ブランチが実在しない**、の2つが揃ったときだけになる。
+ *
+ * 2つめを確かめるのに `show-ref --verify` は使えない（ファイルシステム越しの
+ * 参照なので大文字小文字を区別しない。gitCommands.ts）── 保管されている名前を
+ * 突き合わせる `branch --list` を1回だけ動かす。
+ *
+ * 大文字小文字を区別するファイルシステムでは `feature` と `Feature` が
+ * 同時に在りうるが、そのときこの確認が当たって `--force` は立たない ──
+ * git が `branch-exists` として断り、相手のブランチは消えない。
+ */
+export async function applyGitRenameBranch(
+  name: string,
+  newName: string
+): Promise<GitOperationResult> {
+  return await runGitExclusively(async () => {
+    const before = await readGitRepositoryOutcome()
+
+    if (before.repository.status !== 'ready') {
+      return notReadyGitOperation(before)
+    }
+
+    /*
+      同じ名前を打った。git は成功として終わるが、何も起きていないのに
+      「変更しました」と出ることになる ── 切り替えで今のブランチを選んだときと
+      同じ判断で、押した意味が無かったことはそう伝える。
+
+      画面の側でも押せないようにしてあるが、ここでも見る（二重の備え）。
+    */
+    if (name === newName) {
+      return await finishGitOperation(before.workspaceId, {
+        status: 'failed',
+        reason: 'nothing-to-do'
+      })
+    }
+
+    const force = await needsForceForCaseOnlyRename(name, newName)
+
+    const outcome = await runBranchRefCommand(
+      renameBranch(name, newName, force),
+      classifyGitRenameBranchFailure
+    )
+
+    return await finishGitOperation(before.workspaceId, outcome)
+  })
+}
+
+/**
+ * 「相手は自分自身」と言い切れるときだけ true（Session 3-8-14）。
+ *
+ * 条件は2つで、**どちらも満たさなければ `--force` は立たない。**
+ *
+ *   1. 綴りが大文字小文字だけ違う（`feature` → `Feature`）
+ *   2. 行き先の綴りちょうどのブランチが**実在しない**
+ *
+ * 1つめが外れていれば、行き先は明らかに別の名前になる ── そこに何かが
+ * 在れば本物の衝突で、git に断ってもらう。
+ *
+ * 2つめを確かめられなかったとき（git が動かなかった・非0で終わった）は
+ * **false に倒す。** 分からないまま `--force` を立てると、確かめられなかった
+ * 一回だけ他人のブランチを消しうる ── 倒しておけば、最悪でも
+ * 「大文字小文字だけの改名が断られる」で済む。
+ */
+async function needsForceForCaseOnlyRename(name: string, newName: string): Promise<boolean> {
+  if (name.toLowerCase() !== newName.toLowerCase()) {
+    return false
+  }
+
+  const outcome = await runGit(listExactBranch(newName))
+
+  if (outcome.status !== 'completed' || outcome.exitCode !== 0) {
+    return false
+  }
+
+  // 空 ＝ その綴りちょうどのブランチは無い ＝ git が指しているのは改名元自身。
+  return outcome.stdout.trim().length === 0
+}
+
 /* ------------------------------------------------------------------------ 共通 */
+
+/**
+ * `git branch` を1回動かして、結末に翻訳する（Session 3-8-14）。
+ *
+ * ## `runBranchCommand` と分けてある
+ *
+ * 待ち時間の上限が違うため。あちら（`switch`）は**作業ツリーを実際に
+ * 書き換える**ので2分を掛けているが、こちらが書き換えるのは ref 1つで、
+ * ファイル数もウイルス対策ソフトもネットワークドライブも効かない
+ * （`post-checkout` hook も走らない）── 即答するはずの操作に2分を掛けると、
+ * 本当に返ってこなくなった場合の逃げ道がその分だけ遠くなる。
+ *
+ * 分類の関数は必ず呼ぶ側が渡す。削除と rename では起こりうることが
+ * 重ならず、既定を1つ決めると「渡し忘れた側が、起こりえない分類を返す」形が
+ * 残るためになる（`runBranchCommand` の既定を 3-8-13 で残したのとは逆の判断で、
+ * あちらは3つの入口のうち2つが同じ表を使っていた）。
+ */
+async function runBranchRefCommand(
+  command: GitCommand,
+  classify: (stderr: string) => GitOperationFailureReason
+): Promise<GitOperationOutcome> {
+  const outcome = await runGit(command)
+
+  switch (outcome.status) {
+    case 'no-workspace':
+    case 'git-unavailable':
+      return { status: 'failed', reason: 'not-ready' }
+
+    case 'failed':
+      return { status: 'failed', reason: outcome.reason === 'timeout' ? 'timeout' : 'unknown' }
+
+    case 'completed':
+      break
+  }
+
+  if (outcome.exitCode !== 0) {
+    return { status: 'failed', reason: classify(outcome.stderr) }
+  }
+
+  /*
+    削除が通ったときの `Deleted branch x (was <hash>)` は stdout に出る。
+    **消した ref がどの commit を指していたか**は、後から reflog を見に行く前の
+    唯一の手掛かりになる ── Renderer へは渡さない（分類だけが境界を越える）が、
+    ログには残す。
+  */
+  const trailing = outcome.stdout.trim()
+
+  if (trailing.length > 0) {
+    log.info(`git ${command.label}: ${summarizeGitStderr(trailing)}`)
+  }
+
+  return { status: 'applied' }
+}
 
 /**
  * `git switch` を1回動かして、結末に翻訳する。

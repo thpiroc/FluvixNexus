@@ -620,6 +620,132 @@ const START_POINT_NOT_FOUND_NEEDLES: readonly string[] = [
 ]
 
 /**
+ * ブランチの削除（`git branch --delete`）の失敗（Session 3-8-14）。
+ *
+ * ## 切り替え / 作成と表を分ける
+ *
+ * 動かしているコマンドが違う（`switch` ではなく `branch`）以上、返ってくる
+ * 言い方も違う ── `classifyGitBranchFailure` を通すと、削除では起こりえない
+ * 分類（`local-changes-blocked` など）が結果に混ざる形を残すことになる。
+ * Commit / Push / fetch / merge / 始点つきの作成で表を分けてあるのと同じ形。
+ *
+ * ## `not fully merged` を先に見る
+ *
+ * ここがこの関数の要点で、**`-D` を持たないという判断が文言として現れる
+ * ところ**にあたる（shared/git/operation.ts の `branch-not-merged`）。
+ */
+export function classifyGitDeleteBranchFailure(stderr: string): GitOperationFailureReason {
+  const text = stderr.toLowerCase()
+
+  if (text.includes('index.lock')) {
+    return 'index-locked'
+  }
+
+  if (BRANCH_NOT_MERGED_NEEDLES.some((needle) => text.includes(needle))) {
+    return 'branch-not-merged'
+  }
+
+  if (BRANCH_CHECKED_OUT_NEEDLES.some((needle) => text.includes(needle))) {
+    return 'branch-checked-out'
+  }
+
+  if (DELETE_BRANCH_NOT_FOUND_NEEDLES.some((needle) => text.includes(needle))) {
+    return 'branch-not-found'
+  }
+
+  if (text.includes('permission denied') || text.includes('access is denied')) {
+    return 'permission-denied'
+  }
+
+  return 'unknown'
+}
+
+/**
+ * そのブランチにしか無い commit がある。
+ *
+ * git は続けて `hint:` の行で `-D` を案内するが、**その案内は Renderer へ
+ * 渡らない**（生の stderr は境界を越えない。§14.6）── アプリが `-D` を
+ * 持たない以上、画面に出すのは「マージするか、端末で行う」になる
+ * （renderer/src/git/gitChanges.ts）。
+ */
+const BRANCH_NOT_MERGED_NEEDLES: readonly string[] = ['not fully merged']
+
+/**
+ * 今チェックアウトされているので消せない。
+ *
+ * 大半は**ここへ来る前に**事前判定で分かれる（main/git/gitBranches.ts）──
+ * ここへ落ちるのは別の worktree で使われている場合になる（§14.15 のとおり
+ * 対象外の構成だが、**そこで断られたことは正しく伝える**）。
+ *
+ * git は絶対パスを添えて断る（`used by worktree at 'C:/...'`）が、
+ * 渡るのは分類だけなので、その道筋が画面に出ることは無い。
+ */
+const BRANCH_CHECKED_OUT_NEEDLES: readonly string[] = [
+  'used by worktree',
+  'checked out at',
+  'cannot delete branch'
+]
+
+/**
+ * 消そうとしたブランチが無い。
+ *
+ * 一覧を開いてから ✕ を押すまでの間に、他の経路（端末・別のウィンドウ）で
+ * 消えた場合にあたる。`BRANCH_NOT_FOUND_NEEDLES`（切り替え側）と
+ * **書き写して分けてある** ── あちらが読むのは `switch` の言い方で、
+ * こちらは `branch` の言い方になる。片方に言い方が増えた日に、
+ * もう片方の分類まで黙って動く形にしない（3-8-13 と同じ判断）。
+ */
+const DELETE_BRANCH_NOT_FOUND_NEEDLES: readonly string[] = ['not found', 'no branch named']
+
+/**
+ * ブランチの rename（`git branch --move`）の失敗（Session 3-8-14）。
+ *
+ * ## 削除と表を分ける
+ *
+ * 同じ `git branch` だが、起こりうることが重ならない ── rename に
+ * 「マージ済みか」は関係が無く、削除に「行き先の名前が既にある」は無い。
+ * 1つの表にまとめると、どちらでも起こりえない分類を互いに持ち込むことになる。
+ *
+ * ## `already exists` が指すのは「別の既にあるブランチ」だけ
+ *
+ * 大文字小文字だけを変える改名でも git は同じ文言で断るが、**その1件は
+ * ここへ来ない** ── 呼ぶ側が先に「完全に同じ綴りの ref があるか」を
+ * 確かめ、無ければ `--force` を立てて通すため（main/git/gitBranches.ts）。
+ * つまりここへ落ちる `already exists` は、必ず本物の衝突になる。
+ */
+export function classifyGitRenameBranchFailure(stderr: string): GitOperationFailureReason {
+  const text = stderr.toLowerCase()
+
+  if (text.includes('index.lock')) {
+    return 'index-locked'
+  }
+
+  if (BRANCH_EXISTS_NEEDLES.some((needle) => text.includes(needle))) {
+    return 'branch-exists'
+  }
+
+  if (RENAME_BRANCH_NOT_FOUND_NEEDLES.some((needle) => text.includes(needle))) {
+    return 'branch-not-found'
+  }
+
+  if (text.includes('permission denied') || text.includes('access is denied')) {
+    return 'permission-denied'
+  }
+
+  return 'unknown'
+}
+
+/**
+ * 改名しようとしたブランチが無い。
+ *
+ * `git branch -m` の言い方は `fatal: no branch named 'x'` で、削除
+ * （`error: branch 'x' not found`）とも切り替え（`invalid reference`）とも違う。
+ * 3つとも表を分けてあるのは、**同じ言葉が別のものを指す余地**を
+ * 作らないためになる。
+ */
+const RENAME_BRANCH_NOT_FOUND_NEEDLES: readonly string[] = ['no branch named', 'not found']
+
+/**
  * stderr が「ここはリポジトリではない」と言っているか。
  *
  * 失敗の分類とは別の関数にしてある ── これは失敗ではなく、

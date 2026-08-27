@@ -1,10 +1,13 @@
 import { GIT_BRANCH_NAME_MAX_LENGTH, type GitBranchNameProblem } from '@shared/git'
 import { describe, expect, it } from 'vitest'
 import {
+  describeGitBranchDeleteWarning,
   describeGitBranchList,
   describeGitBranchNameProblem,
   describeGitBranchTruncation,
   toGitBranchCreateReadiness,
+  toGitBranchDeleteReadiness,
+  toGitBranchRenameReadiness,
   toGitBranchSwitchReadiness,
   toGitCommitBranchReadiness,
   type GitBranchListState
@@ -243,6 +246,157 @@ describe('toGitCommitBranchReadiness', () => {
   */
   it('始点として受け取るのは hash だけ（マージかどうかを見ない）', () => {
     expect(toGitCommitBranchReadiness('feature/x', '9136d41', false).enabled).toBe(true)
+  })
+})
+
+/**
+ * 削除できるか（Session 3-8-14）。
+ *
+ * ここで固定したいのは、**行そのものと ✕ で判断が違う**ことになる ──
+ * 行は今のブランチでも押せる（押しても何も起きない）が、✕ は押せない
+ * （押しても絶対に通らない）。
+ */
+describe('toGitBranchDeleteReadiness', () => {
+  it('今そこに居るブランチは削除できない', () => {
+    const readiness = toGitBranchDeleteReadiness({ name: 'main', current: true }, false)
+
+    expect(readiness.enabled).toBe(false)
+    // 待っても押せるようにはならないので、理由をその場に書く。
+    expect(readiness.note).toContain('チェックアウト')
+  })
+
+  /*
+    行の側（切り替え）とは判断が違う ── 同じブランチについて、
+    片方は押せて片方は押せない。この対比そのものが 3-8-14 の決めごとになる。
+  */
+  it('同じ行でも、切り替えの側は押せる', () => {
+    const branch = { name: 'main', current: true }
+
+    expect(toGitBranchSwitchReadiness(branch, false).enabled).toBe(true)
+    expect(toGitBranchDeleteReadiness(branch, false).enabled).toBe(false)
+  })
+
+  it('今そこに居ないブランチは削除できる', () => {
+    const readiness = toGitBranchDeleteReadiness({ name: 'feature/x', current: false }, false)
+
+    expect(readiness.enabled).toBe(true)
+    expect(readiness.note).toContain('feature/x')
+  })
+
+  /*
+    マージ済みかどうかは**ここでは見ない**（一覧に載っていない）── 押せる状態で
+    出し、断るのは git になる。ここで薄くすると、消せるはずのブランチまで
+    押せなくなる。
+  */
+  it('マージ済みかどうかで押せる / 押せないを変えない', () => {
+    expect(toGitBranchDeleteReadiness({ name: 'unmerged', current: false }, false).enabled).toBe(
+      true
+    )
+  })
+
+  it('他の Git 操作が動いている間は押せない', () => {
+    expect(toGitBranchDeleteReadiness({ name: 'feature/x', current: false }, true).enabled).toBe(
+      false
+    )
+  })
+})
+
+/**
+ * 削除の確認の文言（Session 3-8-14）。
+ *
+ * **盛らない**ことを固定する ── `-d` が通るのはマージ済みのときだけなので、
+ * 「コミットが失われます」と書くと嘘になり、本当に失われる場面（破棄）の
+ * 警告まで軽く読まれることになる。
+ */
+describe('describeGitBranchDeleteWarning', () => {
+  const warning = describeGitBranchDeleteWarning({ name: 'feature/x', current: false })
+
+  it('どのブランチのことかを名指しする', () => {
+    expect(warning.message).toContain('feature/x')
+  })
+
+  it('コミットが失われるとは言わない', () => {
+    expect(warning.message).not.toContain('コミットが失われ')
+    expect(warning.note).not.toContain('コミットが失われ')
+  })
+
+  it('通らないことがあると断ってある', () => {
+    // 「押せば必ず消える」と読ませない ── 未マージなら git が中止する。
+    expect(warning.note).toContain('中止')
+  })
+
+  it('押すボタンの言葉がある', () => {
+    expect(warning.confirmLabel.length).toBeGreaterThan(0)
+  })
+})
+
+/**
+ * 改名できるか（Session 3-8-14）。
+ *
+ * 名前の形の規則は作成の欄とまったく同じ関数（shared）を通る ── ここで
+ * 固定したいのは**それ以外の2つ**になる。
+ *
+ *   - 開いた直後（今の名前のまま）は押せない
+ *   - 大文字小文字だけの違いは、画面の都合では止めない
+ */
+describe('toGitBranchRenameReadiness', () => {
+  const branch = { name: 'feature/x', current: false }
+
+  it('開いた直後（今の名前のまま）は押せない', () => {
+    const readiness = toGitBranchRenameReadiness(branch, 'feature/x', false)
+
+    expect(readiness.enabled).toBe(false)
+    // 「間違い」ではなく「まだ打っていない」として言う。
+    expect(readiness.note).toContain('新しい名前')
+  })
+
+  it('空のときは、名前の規則を説教しない', () => {
+    const readiness = toGitBranchRenameReadiness(branch, '', false)
+
+    expect(readiness.enabled).toBe(false)
+    expect(readiness.note).toContain('feature/x')
+  })
+
+  it('形が通らない名前は理由を出す', () => {
+    const readiness = toGitBranchRenameReadiness(branch, 'bad name', false)
+
+    expect(readiness.enabled).toBe(false)
+    expect(readiness.note).toBe(describeGitBranchNameProblem('invalid-characters'))
+  })
+
+  it('長すぎる名前も止める（作成の欄と同じ規則）', () => {
+    const tooLong = 'a'.repeat(GIT_BRANCH_NAME_MAX_LENGTH + 1)
+
+    expect(toGitBranchRenameReadiness(branch, tooLong, false).enabled).toBe(false)
+  })
+
+  /*
+    `feature/x` → `Feature/X` は Git 側で通せる（Main が相手は自分自身だと
+    確かめたうえで通す）── ここで弾くと、通せる改名が画面の都合だけで
+    押せなくなる。
+  */
+  it('大文字小文字だけの違いは押せる', () => {
+    const readiness = toGitBranchRenameReadiness(branch, 'Feature/X', false)
+
+    expect(readiness.enabled).toBe(true)
+  })
+
+  it('通る名前は、何が起きるかを両方の名前で言う', () => {
+    const readiness = toGitBranchRenameReadiness(branch, 'feature/y', false)
+
+    expect(readiness.enabled).toBe(true)
+    expect(readiness.note).toContain('feature/x')
+    expect(readiness.note).toContain('feature/y')
+  })
+
+  it('前後の空白は落としてから判断する（作成の欄と同じ）', () => {
+    expect(toGitBranchRenameReadiness(branch, '  feature/y  ', false).enabled).toBe(true)
+    // 落とした結果が今の名前と同じなら、押せない側になる。
+    expect(toGitBranchRenameReadiness(branch, '  feature/x  ', false).enabled).toBe(false)
+  })
+
+  it('他の Git 操作が動いている間は押せない', () => {
+    expect(toGitBranchRenameReadiness(branch, 'feature/y', true).enabled).toBe(false)
   })
 })
 

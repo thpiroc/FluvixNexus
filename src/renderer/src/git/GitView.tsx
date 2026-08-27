@@ -160,6 +160,8 @@ export function GitView(): JSX.Element {
     switchBranch,
     createBranch,
     createBranchFromCommit,
+    deleteBranch,
+    renameBranch,
     githubStatus,
     refreshGitHubStatus,
     publishToGitHub
@@ -477,6 +479,8 @@ export function GitView(): JSX.Element {
           onOpen={refreshBranches}
           onSwitch={switchBranch}
           onCreate={createBranch}
+          onDelete={deleteBranch}
+          onRename={renameBranch}
         />
         {upstream === null ? null : (
           <span className="fx-git__upstream" title={upstream.title}>

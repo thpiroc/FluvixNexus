@@ -18,6 +18,8 @@ import {
   GIT_CREATE_BRANCH_OPERATION_KEY,
   GIT_SWITCH_BRANCH_OPERATION_KEY,
   INITIAL_GIT_BRANCH_LIST,
+  GIT_DELETE_BRANCH_OPERATION_KEY,
+  GIT_RENAME_BRANCH_OPERATION_KEY,
   type GitBranchListState
 } from './gitBranches'
 import type { GitCommitDetailState } from './gitCommitDetail'
@@ -308,6 +310,39 @@ export interface GitRepositoryController {
     shortHash: string,
     name: string
   ) => Promise<GitOperationOutcome | null>
+  /**
+   * ローカルブランチを削除する（Session 3-8-14）。
+   *
+   * ## 結末を返す（`switchBranch` とは違う）
+   *
+   * 理由は `createBranchFromCommit` と同じで、**押した場所の近くに理由を
+   * 出す必要がある**ため ── ブランチの面はパネルを覆っており、下に出ている
+   * `failure` は読めない（GitBranchMenu.tsx）。切り替えが結末を返さないのは、
+   * 通ったことが画面そのもの（バーの名前）に出るからだった。
+   *
+   * ## 通ったら一覧を取り直す
+   *
+   * 削除は**面を閉じない**（溜まった枝を続けて片付けられるようにするため）。
+   * したがって、消えた行が一覧から消えるところまでをここで行う ──
+   * 応答に載るのは操作後の**リポジトリの状態**で、ブランチの一覧はそこに
+   * 含まれない（3-8-6 からの分担。shared/git/branch.ts）。
+   *
+   * §14.14 の「開いた瞬間だけ取り直す」に、ここで
+   * 「**通った操作の後にも取り直す**」が1つ足される ── `git:changed` に
+   * 相乗りさせない（誰も見ていない一覧を数え直さない）という判断は
+   * そのままで、取り直すのは自分が変えたと分かっている1回だけになる。
+   */
+  readonly deleteBranch: (name: string) => Promise<GitOperationOutcome | null>
+  /**
+   * ローカルブランチの名前を変える（Session 3-8-14）。
+   *
+   * 削除と同じく結末を返し、通ったら一覧を取り直す。**面は閉じない** ──
+   * 改名した行がその場で新しい名前になるところまでを見せる。
+   *
+   * 今そこに居るブランチを改名した場合は、応答に載る状態で
+   * 上のバーの表示も一緒に変わる（HEAD は git が追随させる）。
+   */
+  readonly renameBranch: (name: string, newName: string) => Promise<GitOperationOutcome | null>
   /**
    * GitHub CLI が使える状態か（Session 3-8-10）。
    *
@@ -1174,6 +1209,55 @@ export function useGitRepository(): GitRepositoryController {
   )
 
   /*
+    削除 / rename（Session 3-8-14）。
+
+    ## 経路は他の書き込み操作とまったく同じ
+
+    `operate` を通り、二重の要求は目印で止まり、応答に載っている操作後の状態を
+    そのまま使う。`git branch` を動かす初めての操作だが、**Renderer から見ると
+    そこは何も変わらない** ── どの git が動くかは Main の中の話になる。
+
+    ## 通ったときだけ一覧を取り直す
+
+    どちらも面を閉じないため、ここで取り直さないと消えた行・古い名前が
+    残ったままになる。失敗のときに取り直さないのは、**理由を読む前に
+    一覧が入れ替わらないようにする**ため ── 押した行がその場に残っていないと、
+    出ている理由がどれについてのものか分からなくなる。
+
+    `refreshBranches` は通し番号で追い越しを弾く（一覧の取得と同じ仕組み）ので、
+    ここから呼んでも面を開いた側の取得と混ざらない。
+  */
+  const deleteBranch = useCallback(
+    async (name: string): Promise<GitOperationOutcome | null> => {
+      const outcome = await operate(GIT_DELETE_BRANCH_OPERATION_KEY, () =>
+        fluvix.git.deleteBranch({ name })
+      )
+
+      if (outcome?.status === 'applied') {
+        void refreshBranches()
+      }
+
+      return outcome
+    },
+    [operate, refreshBranches]
+  )
+
+  const renameBranch = useCallback(
+    async (name: string, newName: string): Promise<GitOperationOutcome | null> => {
+      const outcome = await operate(GIT_RENAME_BRANCH_OPERATION_KEY, () =>
+        fluvix.git.renameBranch({ name, newName })
+      )
+
+      if (outcome?.status === 'applied') {
+        void refreshBranches()
+      }
+
+      return outcome
+    },
+    [operate, refreshBranches]
+  )
+
+  /*
     初期化（Session 3-8-10）。
 
     経路は他の書き込み操作とまったく同じ（`operate`）で、要求に載せる値が
@@ -1280,6 +1364,8 @@ export function useGitRepository(): GitRepositoryController {
     switchBranch,
     createBranch,
     createBranchFromCommit,
+    deleteBranch,
+    renameBranch,
     githubStatus,
     refreshGitHubStatus: requestGitHubStatus,
     publishToGitHub

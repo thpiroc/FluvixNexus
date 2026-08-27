@@ -167,13 +167,213 @@
   overflow-y: auto;
 }
 
-/* 一覧の行。並べ方は menu.css の `.fx-menu__item` をそのまま使う。 */
+/*
+ * 一覧の1行と、その下に開くもの（Session 3-8-14）。
+ *
+ * 3-8-6 の行はボタン1つだったが、削除と rename が加わって
+ * 「行」と「その下に開くもの」を束ねる器が要るようになった。
+ */
+.fx-git__branch-entry {
+  display: flex;
+  flex-direction: column;
+}
+
+/*
+ * 一覧の行。並べ方は menu.css の `.fx-menu__item` をそのまま使う。
+ *
+ * 3-8-14 で `<button>` から `<div>` になった ── 中に ✎ と ✕ が並ぶため
+ * （ボタンの中にボタンは置けない）。押せる場所は3つに分かれ、
+ * いちばん広いところ（`.fx-git__branch-switch`）が切り替えになる。
+ */
 .fx-git__branch-item {
+  display: flex;
+  align-items: center;
   width: 100%;
 }
 
 .fx-git__branch-item[data-current='true'] {
   color: var(--fx-color-text-strong);
+}
+
+/* 行の大半を占める切り替え。狭くなるのは ✎ / ✕ のぶんだけ。 */
+.fx-git__branch-switch {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/*
+ * 行の右端に付く操作（✎ / ✕）。
+ *
+ * 大きさと色は履歴の行の `.fx-git__commit-branch` と揃えてある ── 同じ
+ * パネルの中で「行の右端に付く操作」の形が2つに割れないようにするため。
+ *
+ * **常に出しておく**（hover で現れる形にしない）。現れる形にすると、
+ * 一覧を目で追っているだけの人には操作があること自体が伝わらず、
+ * キーボードで辿る人には順番だけが増える。
+ */
+.fx-git__branch-action {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  color: var(--fx-color-text-faint);
+  background: none;
+  border: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.fx-git__branch-item:hover .fx-git__branch-action:not(:disabled) {
+  color: var(--fx-color-text-muted);
+}
+
+.fx-git__branch-action:hover:not(:disabled) {
+  color: var(--fx-color-text-strong);
+}
+
+.fx-git__branch-action[data-action='delete']:hover:not(:disabled) {
+  color: var(--fx-color-danger);
+}
+
+.fx-git__branch-action:focus-visible {
+  outline: 1px solid var(--fx-color-border-strong);
+  outline-offset: -1px;
+}
+
+/*
+ * 今のブランチの ✕（押せない）。
+ *
+ * 薄くするだけで**場所は残す** ── 消すと、行ごとにボタンの数が変わって
+ * 名前の右端の位置が揃わなくなる（履歴の行と同じ判断）。
+ */
+.fx-git__branch-action:disabled {
+  color: var(--fx-color-text-faint);
+  opacity: 0.4;
+  cursor: default;
+}
+
+/*
+ * 行の下に開くもの（削除の確認 / 名前の入力欄。Session 3-8-14）。
+ *
+ * 地を1段沈めてあるのは、一覧の行と**同じ高さに見えない**ようにするため ──
+ * 縦に読んでいる途中で、欄がブランチの1件として読まれると混ざる
+ * （履歴の面の欄と同じ形）。
+ */
+.fx-git__branch-confirm,
+.fx-git__branch-rename {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-1);
+  padding: var(--fx-space-2) var(--fx-space-3);
+  border-top: 1px solid var(--fx-color-border);
+  border-bottom: 1px solid var(--fx-color-border);
+  background: var(--fx-color-surface-sunken);
+}
+
+.fx-git__branch-confirm-message {
+  margin: 0;
+  color: var(--fx-color-text-strong);
+  line-height: 1.5;
+}
+
+/* 何が起きるかの補足。本文より一段弱くする（破棄の確認と同じ並び）。 */
+.fx-git__branch-confirm-note {
+  margin: 0;
+  color: var(--fx-color-text-muted);
+  font-size: var(--fx-font-size-sm);
+  line-height: 1.5;
+}
+
+/*
+ * 選択肢の並び。
+ *
+ * 「やめる」を左、「削除」を右に置く ── `GitDiscardConfirm` /
+ * `DeleteConfirm` とまったく同じ並びで、器が違っても押す位置は変えない。
+ */
+.fx-git__branch-confirm-actions {
+  display: flex;
+  gap: var(--fx-space-2);
+  justify-content: flex-end;
+  margin-top: var(--fx-space-1);
+}
+
+.fx-git__branch-confirm-button {
+  padding: var(--fx-space-1) var(--fx-space-3);
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface-raised);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.fx-git__branch-confirm-button:hover:not(:disabled) {
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-git__branch-confirm-button:focus-visible {
+  outline: 1px solid var(--fx-color-border-strong);
+  outline-offset: 1px;
+}
+
+.fx-git__branch-confirm-button:disabled {
+  color: var(--fx-color-text-faint);
+  cursor: default;
+}
+
+/* 消す側であることを色でも言う（破棄の確認と同じ）。 */
+.fx-git__branch-confirm-button[data-variant='danger'] {
+  color: var(--fx-color-danger);
+  border-color: var(--fx-color-danger);
+}
+
+.fx-git__branch-rename-row {
+  display: flex;
+  align-items: center;
+  gap: var(--fx-space-2);
+}
+
+/* やめる（Esc と同じことをする）。履歴の面の欄と同じ形にしてある。 */
+.fx-git__branch-rename-cancel {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  color: var(--fx-color-text-muted);
+  background: none;
+  border: none;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.fx-git__branch-rename-cancel:hover {
+  color: var(--fx-color-text-strong);
+}
+
+.fx-git__branch-rename-cancel:focus-visible {
+  outline: 1px solid var(--fx-color-border-strong);
+  outline-offset: -1px;
+}
+
+/*
+ * 通らなかった理由（Session 3-8-14）。
+ *
+ * パネル本体の `.fx-git__operation-error` と**同じ色**にしてある ── 同じ
+ * 種類のこと（1回の操作が通らなかった）を、出る場所が違うだけで別の色に
+ * しない。押した場所のすぐ下に出すのは 3-8-3 からの形になる。
+ */
+.fx-git__branch-failure {
+  margin: var(--fx-space-1) 0 0;
+  color: var(--fx-color-danger);
+  font-size: var(--fx-font-size-sm);
+  line-height: 1.5;
 }
 
 /* 長いブランチ名で面を押し広げない。 */

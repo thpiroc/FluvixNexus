@@ -9,11 +9,12 @@ import type { GitActionReadiness } from './gitChanges'
  * 文言」を持つのと同じ立ち位置で、こちらは**ブランチを選ぶ面の中身**を持つ。
  * GitBranchMenu.tsx に残るのは配置だけになる。
  *
- * ## ここで決めているのは3つ
+ * ## ここで決めているのは4つ（Session 3-8-14 で1つ増えた）
  *
  *   1. 開いた面に何と出すか（読み込み中・失敗・1件も無い・切れている）
  *   2. 行を押せるか、押すと何が起きるか
  *   3. 打った名前でブランチを作れるか、作れないならなぜか
+ *   4. その行を削除 / 改名できるか、できないならなぜか（3-8-14）
  *
  * 3 の判断は shared の関数（`findGitBranchNameProblem`）に委ねてある ──
  * Main が受け取った後に通すのと**同じ関数**で、ここが持つのは文言だけになる
@@ -41,6 +42,16 @@ import type { GitActionReadiness } from './gitChanges'
  */
 export const GIT_SWITCH_BRANCH_OPERATION_KEY = 'switch-branch'
 export const GIT_CREATE_BRANCH_OPERATION_KEY = 'create-branch'
+/**
+ * 削除 / rename の目印（Session 3-8-14）。
+ *
+ * ここも対象を名前に含めない。含めると「別のブランチの削除なら並べて
+ * 始めてよい」ことになるが、面の中で開ける欄は**一度に1つ**なので、
+ * そもそも2つ目を押せる場面が無い ── 名前を混ぜると、目印が
+ * 「押せるかどうか」の役に立たなくなるだけになる。
+ */
+export const GIT_DELETE_BRANCH_OPERATION_KEY = 'delete-branch'
+export const GIT_RENAME_BRANCH_OPERATION_KEY = 'rename-branch'
 
 /**
  * 一覧の今の姿（フックが持つ形）。
@@ -204,6 +215,117 @@ export function toGitCommitBranchReadiness(
   }
 
   return { enabled: !operating, note: `${shortHash} から ${prepared} を作って切り替えます。` }
+}
+
+/**
+ * その行のブランチを削除できるか（Session 3-8-14）。
+ *
+ * ## 今そこに居るブランチだけは押せない
+ *
+ * 一覧の行そのもの（切り替え）は今のブランチでも押せるようにしてある
+ * （§14.14 ── 押しても git は動かず `nothing-to-do` で返る）が、
+ * **✕ はそうしない。** 違いは「押しても何も起きない」か
+ * 「押しても**絶対に**通らない」かにあたる ── チェックアウト中のブランチは
+ * git が必ず断るもので、待っても押せるようにはならない。
+ *
+ * 破棄で「止まっている場合は押せる場所を出さない」としたのと同じ判断だが、
+ * こちらは**行そのものは押せる**（切り替えられる）ので、消すのではなく
+ * 押せない状態にして理由を添える ── 消すと、行ごとにボタンの数が変わって
+ * 一覧の見た目が揃わなくなる。
+ *
+ * ## マージ済みかは見ない
+ *
+ * 一覧に載っていない（shared/git/branch.ts）し、載せると開くたびに
+ * git へ聞くことが増える。基準（HEAD か追跡先か）を持つのは git で、
+ * 断られたら `branch-not-merged` として理由が返る。
+ */
+export function toGitBranchDeleteReadiness(
+  branch: GitLocalBranch,
+  operating: boolean
+): GitActionReadiness {
+  if (branch.current) {
+    return {
+      enabled: false,
+      note: `${branch.name} は現在チェックアウトされているため削除できません。`
+    }
+  }
+
+  return { enabled: !operating, note: `${branch.name} を削除します。` }
+}
+
+/**
+ * 削除の確認に出す文言（Session 3-8-14）。
+ *
+ * ## 何が失われるかを、盛らずに書く
+ *
+ * `git branch -d` が通るのは「HEAD か追跡先にマージ済み」のときだけなので、
+ * **成功した削除で commit が到達不能になることは無い。** それを
+ * 「コミットが失われます」と書くと、破棄（§14.16）と同じ重さの警告になり、
+ * 本当に失われる場面（未追跡ファイルの破棄）の警告まで軽く読まれることになる。
+ *
+ * 実際に消えるのは**枝の名前とその reflog** で、書くのはそこまでにする。
+ *
+ * ## それでも確認は挟む
+ *
+ * 押す場所が一覧の行の上（切り替えるつもりで当たる距離）にあり、
+ * 消えた名前を戻すには hash を探すことになるため ── Git で確認を挟む
+ * 2つめがこれになる（1つめは破棄）。
+ */
+export function describeGitBranchDeleteWarning(branch: GitLocalBranch): {
+  readonly message: string
+  readonly note: string
+  readonly confirmLabel: string
+} {
+  return {
+    message: `ブランチ「${branch.name}」を削除しますか？`,
+    note: 'このブランチにしか無いコミットがある場合、Git が削除を中止します。取り消しはできません。',
+    confirmLabel: '削除'
+  }
+}
+
+/**
+ * 打った名前へ改名できるか（Session 3-8-14）。
+ *
+ * ## 作成の欄と同じ規則を通す
+ *
+ * 名前の形は `findGitBranchNameProblem`（shared）── Main が受け取った後に
+ * 通すのとまったく同じ関数で、ここが持つのは文言だけになる。作成と別の
+ * 関数にしてあるのは、**何が起きるかの言い方が違う**ためで、そこは
+ * `toGitCommitBranchReadiness` を分けたのと同じ判断にあたる。
+ *
+ * ## 同じ名前は押せない
+ *
+ * 押しても git は動かず `nothing-to-do` で返る（Main 側でも見ている）。
+ * 欄の初期値が今の名前なので、**開いた直後は必ずこの状態になる** ──
+ * だから理由は「間違い」ではなく「新しい名前を入力してください」と書く。
+ *
+ * ## 大文字小文字だけの違いは、ここでは止めない
+ *
+ * `feature` → `Feature` は Git 側で通せる（main/git/gitBranches.ts が
+ * 相手が自分自身であることを確かめたうえで通す）。ここで弾くと、
+ * 通せる改名が画面の都合だけで押せなくなる。
+ */
+export function toGitBranchRenameReadiness(
+  branch: GitLocalBranch,
+  newName: string,
+  operating: boolean
+): GitActionReadiness {
+  const prepared = prepareGitBranchName(newName)
+  const problem = findGitBranchNameProblem(prepared)
+
+  if (problem === 'empty') {
+    return { enabled: false, note: `${branch.name} の新しい名前を入力してください。` }
+  }
+
+  if (problem !== null) {
+    return { enabled: false, note: describeGitBranchNameProblem(problem) }
+  }
+
+  if (prepared === branch.name) {
+    return { enabled: false, note: '新しい名前を入力してください。' }
+  }
+
+  return { enabled: !operating, note: `${branch.name} を ${prepared} に変更します。` }
 }
 
 /**

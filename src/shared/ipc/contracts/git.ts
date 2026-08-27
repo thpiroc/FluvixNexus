@@ -359,6 +359,71 @@ export interface CreateGitBranchRequest {
 }
 
 /**
+ * ローカルブランチを削除する要求（Session 3-8-14）。
+ *
+ * ## 載るのは名前1つだけ
+ *
+ * `SwitchGitBranchRequest` と形は同じだが、**別の型にしてある** ── 3-8-6 で
+ * 切り替えと作成を分けたのと同じ理由で、片方に欄を足した日にもう片方まで
+ * 黙って広がらないようにするため。
+ *
+ * ## `--force`（`-D`）の欄は無い
+ *
+ * 動かすのは `git branch --delete` の1本だけで、強制削除に落ちる道が
+ * **要求の形として存在しない。** 未マージのブランチは git が断り
+ * （`branch-not-merged`）、アプリはその判断を上書きする手段を持たない ──
+ * `--force` push（3-8-5）・`switch --force`（3-8-6）・`branch --force`（3-8-13）で
+ * 通してきた線をそのまま延ばしたものになる。
+ *
+ * 削除は Git 機能で2つめの「戻せない操作」にあたるため、押す前に確認を挟む
+ * （§12.6 / renderer/src/git/GitBranchMenu.tsx）。ただし確認は Renderer の
+ * 中の話で、**この要求には「確認したか」の欄は無い** ── 確認を通した証を
+ * 引数に載せると、載せなければ確認を飛ばせる形になる。
+ */
+export interface DeleteGitBranchRequest {
+  /** 削除するローカルブランチ名。 */
+  readonly name: string
+}
+
+/**
+ * ローカルブランチの名前を変える要求（Session 3-8-14）。
+ *
+ * ## 1つの要求に外来の値が2つ載る、初めての形
+ *
+ * ここまで境界を渡ってきた値は、必ず1要求に1つだった（pathspec 1つ・
+ * メッセージ1つ・ブランチ名1つ・hash 1つ）。rename だけは
+ * **「どれを」と「何に」**の2つが同時に要る ── どちらも
+ * `normalizeGitBranchName` を通し、`--end-of-options` の後ろに
+ * 独立した引数として並ぶ（main/git/gitCommands.ts）。
+ *
+ * 2つに同じ規則を掛けるのは、入口を分けると「元の名前としては通るが
+ * 新しい名前としては通らない」形が生まれるため ── `commitHashField` と
+ * `branchStartPointField` が同じ関数を通しているのと同じ判断になる。
+ *
+ * ## 元の名前も要求に載せる（「今のブランチ」に頼らない）
+ *
+ * git は `git branch -m <新名>` の1引数形も受け取る（今のブランチを改名する）が、
+ * **その形は使わない。** 使うと「どの枝を改名するのか」が要求に書かれず、
+ * 押してから git が動くまでの間に HEAD が変わっていた場合、
+ * **画面で選んだのとは別のブランチが改名される。**
+ * 一覧の行から押す操作である以上、対象は要求が名指しする。
+ *
+ * ## remote 側は動かない
+ *
+ * 変わるのは手元の ref だけで、追跡先（`branch.<名前>.merge`）は
+ * **古い remote 側の名前を指したまま残る** ── つまり rename の後に Push すると、
+ * 送り先は改名前の名前の remote branch になる。追跡先を付け替える欄は
+ * 作っていない（remote を指せる欄を作らない、という 3-8-5 からの線）。
+ * remote branch の削除・改名も対象外で、そちらは端末で行う（§14.18）。
+ */
+export interface RenameGitBranchRequest {
+  /** 改名するローカルブランチ名（一覧の行が持っていたもの）。 */
+  readonly name: string
+  /** 新しい名前。 */
+  readonly newName: string
+}
+
+/**
  * 1行の差分を尋ねる要求（Session 3-8-9）。
  *
  * ## 載るのは「どの行か」だけ
@@ -659,6 +724,53 @@ export interface GitIpcContract {
    */
   'git:create-branch': {
     request: CreateGitBranchRequest
+    response: GitOperationResponse
+  }
+  /**
+   * ローカルブランチを削除する（Session 3-8-14）。
+   *
+   * ## 切り替え / 作成と別の1本にしてある
+   *
+   * 「操作ごとに1本ずつ」の決めごとどおりだが、ここでは理由がもう1つある ──
+   * 動かす git が違う。切り替えも作成も `git switch` で**作業ツリーを
+   * 書き換える**操作だったが、削除は `git branch --delete` で
+   * **ref を1つ消すだけ**にあたる。押した人の書きかけには何も起こらない。
+   *
+   * ## 失われるのは名前と reflog
+   *
+   * `-d` が通るのは「HEAD か追跡先にマージ済み」のときだけなので、
+   * 成功した削除で commit が到達不能になることは無い。それでも確認を挟むのは、
+   * **枝の名前とその reflog が消える**ためと、押す場所が一覧の行の上
+   * （切り替えるつもりで当たる距離）にあるためになる（§12.6）。
+   *
+   * 応答は他の書き込み操作と同じ `GitOperationResponse` で、削除後の状態が
+   * 丸ごと載る ── ただし**ブランチの一覧はそこに載らない**（3-8-6 からの分担）。
+   * 面は開いたままなので、Renderer が通った後に取り直す
+   * （renderer/src/git/useGitRepository.ts）。
+   */
+  'git:delete-branch': {
+    request: DeleteGitBranchRequest
+    response: GitOperationResponse
+  }
+  /**
+   * ローカルブランチの名前を変える（Session 3-8-14）。
+   *
+   * 削除と同じ `git branch` だが、**別の1本**にしてある。1本にして
+   * 「新しい名前があれば改名、無ければ削除」のような区別を引数に持たせると、
+   * いつか片方の意味でもう片方が動く ── `git:stage` と `git:unstage` を
+   * 分けてあるのと同じ判断になる。
+   *
+   * 削除と違い、**失われるものが1つも無い**（ref の名前が変わるだけで、
+   * commit も作業ツリーも index も動かない）。したがって確認は挟まず、
+   * 入力欄から直接動く ── 確認を出すこと自体が目的ではない（§12.6）。
+   *
+   * 今そこに居るブランチも改名できる。git は HEAD を追随させ、
+   * 未コミットの変更もそのまま残る（実物で確かめてある。
+   * main/git/gitBranchRepository.test.ts）── 応答に載る状態で
+   * 上のバーの表示がそのまま新しい名前に変わる。
+   */
+  'git:rename-branch': {
+    request: RenameGitBranchRequest
     response: GitOperationResponse
   }
   /**

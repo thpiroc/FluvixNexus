@@ -11,7 +11,8 @@ import { createGitEnvironment } from './gitEnvironment'
 import { resolveGitExecutable } from './gitExecutable'
 
 /**
- * 本物の git に対するブランチの一覧 / 切り替え / 作成の検証（Session 3-8-6 / 3-8-13）。
+ * 本物の git に対するブランチの一覧 / 切り替え / 作成 / 削除 / rename の検証
+ * （Session 3-8-6 / 3-8-13 / 3-8-14）。
  *
  * ## ここで固定したいのは「失われないこと」
  *
@@ -39,9 +40,24 @@ import { resolveGitExecutable } from './gitExecutable'
  *   - 始点が解けないときに `commit-not-found`（`branch-not-found` ではない）
  *   - 断られたときに**ブランチも作られない**（`switch --create` が1回で行う）
  *
+ * ## Session 3-8-14 で、作業ツリーに触らない2つが加わった
+ *
+ * 削除と rename が動かすのは `git branch` で、書き換えるのは ref 1つになる ──
+ * したがって固定したいことが**裏返る。** 3-8-6 / 3-8-13 で確かめたのが
+ * 「書きかけが失われないこと」だったのに対し、こちらは
+ * **断られたときに1つも消えていない / 動いていないこと**にあたる。
+ *
+ *   - 未マージのブランチは断られ、**ref も指す先もそのまま残る**（`-D` を持たない）
+ *   - 今チェックアウトしているブランチは、git を動かす前に断る
+ *   - 行き先が実在する rename は断り、**相手のブランチが1文字も動かない**（`-M` を渡さない）
+ *   - 大文字小文字だけの改名は**通る**（`--force` の使いどころが1点であること）
+ *   - 削除も rename も、未コミットの変更を消さない
+ *   - rename の後、追跡先は古い remote 側の名前を指したまま残る（対象外にした判断）
+ *
  * ## 本番の経路をそのまま通す
  *
- * 呼ぶのは `listGitBranches` / `applyGitSwitchBranch` / `applyGitCreateBranch` で、
+ * 呼ぶのは `listGitBranches` / `applyGitSwitchBranch` / `applyGitCreateBranch` /
+ * `applyGitDeleteBranch` / `applyGitRenameBranch` で、
  * その下の runGit / gitCommands / gitQueue / gitFailure / gitOutput はすべて
  * 本番のものが動く。差し替えるのは2つだけ（electron の logger と、現在の Workspace）。
  *
@@ -67,8 +83,13 @@ vi.mock('../workspaceFolder/currentWorkspaceFolder', () => ({
   getCurrentWorkspaceFolder: (): WorkspaceFolder | null => workspace
 }))
 
-const { listGitBranches, applyGitSwitchBranch, applyGitCreateBranch } =
-  await import('./gitBranches')
+const {
+  listGitBranches,
+  applyGitSwitchBranch,
+  applyGitCreateBranch,
+  applyGitDeleteBranch,
+  applyGitRenameBranch
+} = await import('./gitBranches')
 
 /** 指定した場所で git を1回動かす（テスト自身の準備・確認用）。 */
 function gitIn(cwd: string, ...args: readonly string[]): string {
@@ -648,6 +669,328 @@ describeWithGit('applyGitSwitchBranch', () => {
     workspace = null
 
     const result = await applyGitSwitchBranch('main')
+
+    expect(result.outcome).toEqual({ status: 'failed', reason: 'not-ready' })
+  })
+})
+
+/**
+ * 削除（Session 3-8-14）。
+ *
+ * ## ここで固定したいのは「消えないこと」
+ *
+ * 切り替えのときに固定したかったのが「書きかけが失われないこと」だったのに対し、
+ * 削除で固定したいのは**断られたときに1つも消えていないこと**になる ──
+ * 分類の文言（gitFailure.test.ts）だけでは、`branch-not-merged` が返ったときに
+ * ref が残っているかどうかを何も言わない。
+ *
+ * `-D` を持たないという判断が意味を持つのは、まさにそこにあたる。
+ */
+describeWithGit('applyGitDeleteBranch', () => {
+  it('マージ済みのブランチを消す', async () => {
+    commit('a.txt', 'a\n', 'first')
+    git('branch', 'merged')
+
+    const result = await applyGitDeleteBranch('merged')
+
+    expect(result.outcome).toEqual({ status: 'applied' })
+    expect(localBranchNames()).toEqual(['main'])
+  })
+
+  /*
+    追跡先にマージ済みなら、HEAD にマージされていなくても `-d` は通る ──
+    「今の枝にマージ済みか」ではないことを、実物に対して記録しておく
+    （アプリはこの基準を持たず、git に委ねている）。
+  */
+  it('HEAD ではなく追跡先にマージ済みでも消せる', async () => {
+    commit('a.txt', 'a\n', 'first')
+    git('remote', 'add', 'origin', remotePath)
+    git('switch', '--quiet', '--create', 'topic')
+    commit('b.txt', 'b\n', 'second')
+    git('push', '--quiet', '--set-upstream', 'origin', 'topic')
+    git('switch', '--quiet', 'main')
+
+    // main には topic の commit が入っていない。
+    expect(git('branch', '--merged').includes('topic')).toBe(false)
+
+    const result = await applyGitDeleteBranch('topic')
+
+    expect(result.outcome).toEqual({ status: 'applied' })
+    expect(localBranchNames()).toEqual(['main'])
+  })
+
+  /**
+   * そこにしか無い commit があるブランチは消せない。
+   *
+   * **断りの文が出たことは、ref が残っていることを何も言わない。**
+   * `for-each-ref` で名前が在ることまで確かめる。
+   */
+  it('未マージのブランチは断り、ref も消さない', async () => {
+    commit('a.txt', 'a\n', 'first')
+    git('switch', '--quiet', '--create', 'unmerged')
+    commit('b.txt', 'b\n', 'second')
+    const unmergedHead = git('rev-parse', 'unmerged').trim()
+    git('switch', '--quiet', 'main')
+
+    const result = await applyGitDeleteBranch('unmerged')
+
+    expect(result.outcome).toEqual({ status: 'failed', reason: 'branch-not-merged' })
+    expect(localBranchNames()).toContain('unmerged')
+    // 指している先も1文字も動いていない。
+    expect(git('rev-parse', 'unmerged').trim()).toBe(unmergedHead)
+  })
+
+  /**
+   * 今そこに居るブランチは消せない。
+   *
+   * ここは**git を動かす前に**返る（gitBranches.ts の事前判定）── 画面の側でも
+   * ✕ は押せないようにしてあり、これはその二重の備えにあたる。
+   */
+  it('今チェックアウトしているブランチは断る', async () => {
+    commit('a.txt', 'a\n', 'first')
+
+    const result = await applyGitDeleteBranch('main')
+
+    expect(result.outcome).toEqual({ status: 'failed', reason: 'branch-checked-out' })
+    expect(localBranchNames()).toEqual(['main'])
+    expect(headOf(result.repository)).toEqual({ kind: 'branch', name: 'main' })
+  })
+
+  it('無いブランチを消そうとしたら branch-not-found', async () => {
+    commit('a.txt', 'a\n', 'first')
+
+    const result = await applyGitDeleteBranch('nope')
+
+    expect(result.outcome).toEqual({ status: 'failed', reason: 'branch-not-found' })
+    expect(localBranchNames()).toEqual(['main'])
+  })
+
+  /**
+   * 作業ツリーに触らない。
+   *
+   * 切り替えと違って**書きかけがあっても断られない**し、消えもしない ──
+   * だから確認で「未保存の変更があります」とは言わない（言うと嘘になる）。
+   */
+  it('未コミットの変更があっても消せて、その変更は残る', async () => {
+    commit('a.txt', 'a\n', 'first')
+    git('branch', 'merged')
+    writeFile('a.txt', 'work in progress\n')
+    writeFile('untracked.txt', 'untracked\n')
+
+    const result = await applyGitDeleteBranch('merged')
+
+    expect(result.outcome).toEqual({ status: 'applied' })
+    expect(readFile('a.txt')).toBe('work in progress\n')
+    expect(readFile('untracked.txt')).toBe('untracked\n')
+  })
+
+  /*
+    競合が残っている状態でも、ブランチの削除そのものは通る ── 切り替えの
+    事前判定（`unresolved-conflicts`）をこちらに当てていないことの裏返しになる。
+  */
+  it('競合が残っていても、関係の無いブランチは消せる', async () => {
+    commit('a.txt', 'a\n', 'first')
+    git('branch', 'merged')
+    git('switch', '--quiet', '--create', 'feature/x')
+    commit('a.txt', 'from feature\n', 'feature')
+    git('switch', '--quiet', 'main')
+    commit('a.txt', 'from main\n', 'main change')
+
+    try {
+      git('merge', 'feature/x')
+    } catch {
+      // 競合は想定どおり。
+    }
+
+    const result = await applyGitDeleteBranch('merged')
+
+    expect(result.outcome).toEqual({ status: 'applied' })
+  })
+
+  it('Workspace が開かれていなければ not-ready', async () => {
+    workspace = null
+
+    const result = await applyGitDeleteBranch('main')
+
+    expect(result.outcome).toEqual({ status: 'failed', reason: 'not-ready' })
+  })
+})
+
+/**
+ * rename（Session 3-8-14）。
+ *
+ * ## ここで固定したいのは3つ
+ *
+ *   - **失われるものが無い**（今のブランチを改名しても、書きかけが残る）
+ *   - 行き先が実在するときは**相手のブランチが1文字も動かない**
+ *   - 大文字小文字だけの改名が**通る**（`--force` の使いどころが1点であること）
+ */
+describeWithGit('applyGitRenameBranch', () => {
+  it('他のブランチの名前を変える（HEAD は動かない）', async () => {
+    commit('a.txt', 'a\n', 'first')
+    git('branch', 'old-name')
+    const target = git('rev-parse', 'old-name').trim()
+
+    const result = await applyGitRenameBranch('old-name', 'new-name')
+
+    expect(result.outcome).toEqual({ status: 'applied' })
+    expect(localBranchNames()).toEqual(['main', 'new-name'])
+    // 指している commit は同じ（付け替えではなく改名）。
+    expect(git('rev-parse', 'new-name').trim()).toBe(target)
+    expect(headOf(result.repository)).toEqual({ kind: 'branch', name: 'main' })
+  })
+
+  /**
+   * 今そこに居るブランチも改名できる。
+   *
+   * git が HEAD を追随させ、**作業ツリーには何も起こらない** ── 応答に載る
+   * 状態で、上のバーの表示がそのまま新しい名前に変わる。
+   */
+  it('今のブランチを改名すると HEAD が追随し、書きかけも残る', async () => {
+    commit('a.txt', 'a\n', 'first')
+    writeFile('a.txt', 'work in progress\n')
+    writeFile('untracked.txt', 'untracked\n')
+
+    const result = await applyGitRenameBranch('main', 'primary')
+
+    expect(result.outcome).toEqual({ status: 'applied' })
+    expect(headOf(result.repository)).toEqual({ kind: 'branch', name: 'primary' })
+    expect(localBranchNames()).toEqual(['primary'])
+    expect(readFile('a.txt')).toBe('work in progress\n')
+    expect(readFile('untracked.txt')).toBe('untracked\n')
+  })
+
+  /**
+   * 行き先が実在するときは断り、**相手を消さない。**
+   *
+   * `-M` を既定で渡していないことが、ここに現れる ── 渡していれば
+   * `main` が消えて `feature/x` の中身に置き換わっていた。
+   */
+  it('行き先が既にあるときは branch-exists で、どちらの ref も動かない', async () => {
+    commit('a.txt', 'a\n', 'first')
+    git('switch', '--quiet', '--create', 'feature/x')
+    commit('b.txt', 'b\n', 'second')
+    git('switch', '--quiet', 'main')
+
+    const mainHead = git('rev-parse', 'main').trim()
+    const featureHead = git('rev-parse', 'feature/x').trim()
+
+    const result = await applyGitRenameBranch('feature/x', 'main')
+
+    expect(result.outcome).toEqual({ status: 'failed', reason: 'branch-exists' })
+    expect(localBranchNames()).toEqual(['feature/x', 'main'])
+    expect(git('rev-parse', 'main').trim()).toBe(mainHead)
+    expect(git('rev-parse', 'feature/x').trim()).toBe(featureHead)
+  })
+
+  /**
+   * 大文字小文字だけを変える改名。
+   *
+   * Windows（と既定の macOS）では ref の実体が同じファイルになるため、素の
+   * `--move` は「既にある」と断る ── だがそのとき指されているのは
+   * **改名しようとしているブランチ自身**なので、`--force` を立てて通す
+   * （相手が自分自身であることを `branch --list` の完全名で確かめてある）。
+   */
+  it('大文字小文字だけを変える改名が通る', async () => {
+    commit('a.txt', 'a\n', 'first')
+    git('branch', 'feature')
+    const target = git('rev-parse', 'feature').trim()
+
+    const result = await applyGitRenameBranch('feature', 'Feature')
+
+    expect(result.outcome).toEqual({ status: 'applied' })
+    expect(localBranchNames()).toEqual(['Feature', 'main'])
+    expect(git('rev-parse', 'Feature').trim()).toBe(target)
+  })
+
+  it('今のブランチでも、大文字小文字だけを変える改名が通る', async () => {
+    commit('a.txt', 'a\n', 'first')
+
+    const result = await applyGitRenameBranch('main', 'Main')
+
+    expect(result.outcome).toEqual({ status: 'applied' })
+    expect(headOf(result.repository)).toEqual({ kind: 'branch', name: 'Main' })
+    expect(localBranchNames()).toEqual(['Main'])
+  })
+
+  /**
+   * 大文字小文字だけの違いでも、**その綴りちょうどの別のブランチが在れば断る。**
+   *
+   * 大文字小文字を区別しないファイルシステムでは2つが同時に在りえないので、
+   * この確認が効くのは区別する側（Linux / 設定した macOS）になる。
+   * どちらでも「相手を消さない」ことだけは変わらない、という形を残しておく。
+   */
+  it('同じ綴りのブランチが実在するときは、大文字違いでも断る', async () => {
+    commit('a.txt', 'a\n', 'first')
+    git('branch', 'feature')
+
+    let bothExist = true
+
+    try {
+      git('branch', 'FEATURE')
+    } catch {
+      // 大文字小文字を区別しないファイルシステム。ここでは確かめられない。
+      bothExist = false
+    }
+
+    if (!bothExist) {
+      return
+    }
+
+    const featureHead = git('rev-parse', 'refs/heads/FEATURE').trim()
+
+    const result = await applyGitRenameBranch('feature', 'FEATURE')
+
+    expect(result.outcome).toEqual({ status: 'failed', reason: 'branch-exists' })
+    expect(git('rev-parse', 'refs/heads/FEATURE').trim()).toBe(featureHead)
+  })
+
+  it('無いブランチを改名しようとしたら branch-not-found', async () => {
+    commit('a.txt', 'a\n', 'first')
+
+    const result = await applyGitRenameBranch('nope', 'other')
+
+    expect(result.outcome).toEqual({ status: 'failed', reason: 'branch-not-found' })
+    expect(localBranchNames()).toEqual(['main'])
+  })
+
+  /*
+    同じ名前を打った。git を動かさずに返る（画面の側でも押せない）。
+  */
+  it('同じ名前への改名は nothing-to-do', async () => {
+    commit('a.txt', 'a\n', 'first')
+
+    const result = await applyGitRenameBranch('main', 'main')
+
+    expect(result.outcome).toEqual({ status: 'failed', reason: 'nothing-to-do' })
+    expect(localBranchNames()).toEqual(['main'])
+  })
+
+  /**
+   * 追跡先は**付け替わらない。**
+   *
+   * `branch.<新名>.merge` は古い remote 側の名前を指したまま残る ── つまり
+   * rename の後の Push は、改名前の名前の remote branch へ向かう。
+   * 3-8-14 の対象外にした判断（remote 側は動かさない）を、実物で記録しておく
+   * ── 黙って変わった日に気づけるようにするため。
+   */
+  it('追跡先は古い remote 側の名前を指したまま残る', async () => {
+    commit('a.txt', 'a\n', 'first')
+    git('remote', 'add', 'origin', remotePath)
+    git('push', '--quiet', '--set-upstream', 'origin', 'main')
+
+    const result = await applyGitRenameBranch('main', 'primary')
+
+    expect(result.outcome).toEqual({ status: 'applied' })
+    expect(git('config', '--get', 'branch.primary.merge').trim()).toBe('refs/heads/main')
+    // remote 側の名前は1つも変わっていない。
+    expect(git('ls-remote', '--heads', 'origin').includes('refs/heads/main')).toBe(true)
+  })
+
+  it('Workspace が開かれていなければ not-ready', async () => {
+    workspace = null
+
+    const result = await applyGitRenameBranch('main', 'primary')
 
     expect(result.outcome).toEqual({ status: 'failed', reason: 'not-ready' })
   })

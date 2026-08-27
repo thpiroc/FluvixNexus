@@ -3,11 +3,13 @@ import {
   classifyGitBranchFailure,
   classifyGitCommitFailure,
   classifyGitCreateBranchFailure,
+  classifyGitDeleteBranchFailure,
   classifyGitFailure,
   classifyGitFetchFailure,
   classifyGitMergeFailure,
   classifyGitOperationFailure,
   classifyGitPushFailure,
+  classifyGitRenameBranchFailure,
   isNotARepositoryMessage,
   summarizeGitStderr
 } from './gitFailure'
@@ -558,6 +560,128 @@ describe('classifyGitCreateBranchFailure', () => {
 
   it('知らない文章は unknown に倒す', () => {
     expect(classifyGitCreateBranchFailure('error: something entirely new')).toBe('unknown')
+  })
+})
+
+/**
+ * 削除の分類（Session 3-8-14）。
+ *
+ * 文言はすべて実物の git（2.54）から採ってある ── 当てずっぽうで書くと、
+ * `-D` を持たないという判断がいちばん効く場面（`branch-not-merged`）が
+ * `unknown` に落ちて、「Git 操作に失敗しました」とだけ出ることになる。
+ */
+describe('classifyGitDeleteBranchFailure', () => {
+  it('そこにしか無い commit があることは branch-not-merged', () => {
+    const stderr = [
+      "error: the branch 'unmerged' is not fully merged",
+      "hint: If you are sure you want to delete it, run 'git branch -D unmerged'"
+    ].join('\n')
+
+    expect(classifyGitDeleteBranchFailure(stderr)).toBe('branch-not-merged')
+  })
+
+  /*
+    今チェックアウトされている場合は**大半が事前判定で分かれる**（gitBranches.ts）。
+    ここへ落ちるのは別の worktree で使われている場合になるが、git の言い方は
+    どちらも同じなので、同じ分類として読む。
+  */
+  it('チェックアウト中であることは branch-checked-out', () => {
+    const stderr = "error: cannot delete branch 'main' used by worktree at 'C:/work/repo'"
+
+    expect(classifyGitDeleteBranchFailure(stderr)).toBe('branch-checked-out')
+  })
+
+  it('消そうとしたブランチが無いことは branch-not-found', () => {
+    expect(classifyGitDeleteBranchFailure("error: branch 'nope' not found")).toBe(
+      'branch-not-found'
+    )
+  })
+
+  /*
+    切り替えの表と分けてある意味が、ここに出る ── `switch` の言い方
+    （`invalid reference`）は、削除では**起こりえない。** 通してしまうと、
+    起こりえない分類が結果に混ざる形を残すことになる。
+  */
+  it('切り替えの言い方は、削除では読まない', () => {
+    expect(classifyGitBranchFailure('fatal: invalid reference: x')).toBe('branch-not-found')
+    expect(classifyGitDeleteBranchFailure('fatal: invalid reference: x')).toBe('unknown')
+  })
+
+  /*
+    削除では作業ツリーが動かないので、この文言が返ることは無い ── 表を
+    共有していれば `local-changes-blocked` になっていたところで、
+    分けてあることが `unknown` として現れる。
+  */
+  it('書きかけの言い方も、削除では読まない', () => {
+    const stderr = 'error: Your local changes to the following files would be overwritten'
+
+    expect(classifyGitDeleteBranchFailure(stderr)).toBe('unknown')
+  })
+
+  it('index が握られていることは index-locked', () => {
+    const stderr = "fatal: Unable to create '/repo/.git/index.lock': File exists."
+
+    expect(classifyGitDeleteBranchFailure(stderr)).toBe('index-locked')
+  })
+
+  it('権限が無いことは permission-denied', () => {
+    expect(classifyGitDeleteBranchFailure('error: unable to unlink: Permission denied')).toBe(
+      'permission-denied'
+    )
+  })
+
+  it('知らない文章は unknown に倒す', () => {
+    expect(classifyGitDeleteBranchFailure('error: something entirely new')).toBe('unknown')
+  })
+})
+
+/**
+ * rename の分類（Session 3-8-14）。
+ *
+ * 削除と同じ `git branch` だが、起こりうることが重ならない ── どちらの表にも
+ * 相手側の言い方を入れていないことを、ここで固定する。
+ */
+describe('classifyGitRenameBranchFailure', () => {
+  /*
+    ここへ落ちる `already exists` は、必ず**本物の衝突**になる ── 大文字小文字
+    だけの違いは、呼ぶ側が先に確かめて `--force` で通すため（gitBranches.ts）。
+  */
+  it('行き先の名前が既にあることは branch-exists', () => {
+    expect(classifyGitRenameBranchFailure("fatal: a branch named 'main' already exists")).toBe(
+      'branch-exists'
+    )
+  })
+
+  /*
+    `git branch -m` の言い方は、削除（`branch 'x' not found`）とも
+    切り替え（`invalid reference`）とも違う。
+  */
+  it('改名元が無いことは branch-not-found', () => {
+    expect(classifyGitRenameBranchFailure("fatal: no branch named 'nope'")).toBe('branch-not-found')
+  })
+
+  it('マージ済みかどうかの言い方は、rename では読まない', () => {
+    const stderr = "error: the branch 'x' is not fully merged"
+
+    expect(classifyGitDeleteBranchFailure(stderr)).toBe('branch-not-merged')
+    expect(classifyGitRenameBranchFailure(stderr)).toBe('unknown')
+  })
+
+  it('チェックアウト中かどうかの言い方も、rename では読まない', () => {
+    const stderr = "error: cannot delete branch 'main' used by worktree at 'C:/work/repo'"
+
+    expect(classifyGitDeleteBranchFailure(stderr)).toBe('branch-checked-out')
+    expect(classifyGitRenameBranchFailure(stderr)).toBe('unknown')
+  })
+
+  it('index が握られていることは index-locked', () => {
+    const stderr = "fatal: Unable to create '/repo/.git/index.lock': File exists."
+
+    expect(classifyGitRenameBranchFailure(stderr)).toBe('index-locked')
+  })
+
+  it('知らない文章は unknown に倒す', () => {
+    expect(classifyGitRenameBranchFailure('error: something entirely new')).toBe('unknown')
   })
 })
 

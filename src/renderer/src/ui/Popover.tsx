@@ -55,6 +55,23 @@ interface PopoverProps {
    * 取り直すために要る。閉じるときには呼ばない。
    */
   readonly onOpen?: () => void
+  /**
+   * `Esc` で閉じるのを、いったん止める（Session 3-8-14）。
+   *
+   * 面の中でさらに何かが開いているとき（ブランチの行の下に出る確認 / 入力欄。
+   * GitBranchMenu.tsx）に立てる。**`Esc` は開いた順に1つずつほどく**のが
+   * アプリ共通の形で（履歴の面 → 詳細 → 欄。§14.21）、ここでも
+   * 「中の欄を畳む」が先、「面を閉じる」が後になる。
+   *
+   * 「受け取っても無視する」ではなく**購読そのものを張らない**のは、
+   * 同じ `window` に付いた2つの購読が `stopPropagation` を挟んでも
+   * どちらも呼ばれるため ── 履歴の面が上に差分が重なっている間に
+   * 使っている `suspended` とまったく同じ形になる（GitHistoryOverlay.tsx）。
+   *
+   * 外側のクリックとウィンドウの焦点喪失では**今までどおり閉じる。**
+   * どちらも「この面から離れた」という意思表示で、ほどく順の話ではない。
+   */
+  readonly escapeSuspended?: boolean
   /** 面の中身。閉じる手段を受け取る。 */
   readonly children: (close: () => void) => ReactNode
 }
@@ -67,6 +84,7 @@ export function Popover({
   panelLabel,
   panelClassName,
   onOpen,
+  escapeSuspended = false,
   children
 }: PopoverProps): JSX.Element {
   const [open, setOpen] = useState(false)
@@ -100,7 +118,12 @@ export function Popover({
     }
 
     window.addEventListener('pointerdown', handlePointerDown)
-    window.addEventListener('keydown', handleKeyDown)
+
+    // 中で何かが開いている間は、Esc を待つのをやめる（`escapeSuspended`）。
+    if (!escapeSuspended) {
+      window.addEventListener('keydown', handleKeyDown)
+    }
+
     // パネルのドラッグやウィンドウの切り替えが始まったら、開いたままにしない。
     window.addEventListener('blur', close)
 
@@ -109,7 +132,7 @@ export function Popover({
       window.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('blur', close)
     }
-  }, [open, close])
+  }, [open, close, escapeSuspended])
 
   return (
     <div className="fx-menu" ref={rootRef}>

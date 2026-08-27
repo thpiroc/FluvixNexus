@@ -322,6 +322,8 @@ describe('describeGitOperationFailure', () => {
     'diverged',
     'local-changes-blocked',
     'branch-exists',
+    'branch-not-merged',
+    'branch-checked-out',
     'branch-not-found',
     'commit-not-found',
     'unsupported-target',

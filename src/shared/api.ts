@@ -25,10 +25,12 @@ import type {
   CommitAndPushGitChangesRequest,
   CommitGitChangesRequest,
   CreateGitBranchRequest,
+  DeleteGitBranchRequest,
   DiscardGitChangesRequest,
   GetGitCommitDetailRequest,
   GetGitCommitFileDiffRequest,
   GetGitFileDiffRequest,
+  RenameGitBranchRequest,
   StageGitChangesRequest,
   SwitchGitBranchRequest,
   UnstageGitChangesRequest
@@ -541,6 +543,35 @@ export interface GitApi {
    * （shared/git/operation.ts）。
    */
   readonly createBranch: (request: CreateGitBranchRequest) => IpcInvokeResult<'git:create-branch'>
+  /**
+   * ローカルブランチを削除する（Session 3-8-14）。
+   *
+   * 渡せるのは名前だけで、**`--force`（`-D`）の欄は無い** ── そこにしか無い
+   * commit があるブランチは git が断り（`branch-not-merged`）、アプリは
+   * その判断を上書きしない（shared/git/operation.ts）。
+   *
+   * 今チェックアウトされているブランチも消せない。こちらは**読んだ状態から
+   * 分かる**ので git を動かす前に返る（`branch-checked-out`）。
+   *
+   * 作業ツリーには何も起こらない ── 消えるのは ref 1つと、その reflog になる。
+   */
+  readonly deleteBranch: (request: DeleteGitBranchRequest) => IpcInvokeResult<'git:delete-branch'>
+  /**
+   * ローカルブランチの名前を変える（Session 3-8-14）。
+   *
+   * 渡すのは「どれを」と「何に」の2つで、どちらも同じ検証
+   * （`normalizeGitBranchName`）を通る。今そこに居るブランチも改名でき、
+   * その場合は HEAD が追随する（未コミットの変更はそのまま残る）。
+   *
+   * 行き先が**別の既にあるブランチ**なら `branch-exists` として断り、
+   * 名前を奪うことはしない（`-M` の欄は無い）。大文字小文字だけを変える
+   * 改名は通る ── そのとき「既にある」と指されるのは改名しようとしている
+   * ブランチ自身だから（main/git/gitBranches.ts）。
+   *
+   * 追跡先は**付け替えない。** rename の後の Push は、改名前の名前の
+   * remote branch へ向かう（shared/ipc/contracts/git.ts）。
+   */
+  readonly renameBranch: (request: RenameGitBranchRequest) => IpcInvokeResult<'git:rename-branch'>
   /**
    * 1行の差分を尋ねる（Session 3-8-9）。
    *

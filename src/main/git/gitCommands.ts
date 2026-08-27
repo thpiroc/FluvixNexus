@@ -725,6 +725,147 @@ export function createBranch(name: string, startPoint: string | null): GitComman
   return { label: 'switch --create', args }
 }
 
+/* ------------------------------------ 削除 / rename（Session 3-8-14） */
+
+/**
+ * ローカルブランチを1つ削除する（Session 3-8-14）。
+ *
+ * ## `switch` ではなく `branch` を動かす、最初のブランチ操作
+ *
+ * 3-8-6 と 3-8-13 のブランチ操作（切り替え・作成）は、どちらも `git switch` で
+ * **作業ツリーを書き換える**ものだった。削除はそうではない ── 消えるのは
+ * `refs/heads/<name>` という ref 1つとその reflog で、作業ツリーも index も
+ * 1バイトも動かない（実物で確かめてある）。
+ *
+ * 待ち時間の上限が切り替えと違う（既定の 10 秒）のはこのためになる ──
+ * `GIT_CHECKOUT_TIMEOUT_MS` が2分なのは「ファイル数・ウイルス対策・
+ * ネットワークドライブ」が効くからで、ここにはそのどれも効かない
+ * （`post-checkout` hook も走らない）。
+ *
+ * ## `--force`（`-D`）は渡さない
+ *
+ * `-d` が断るのは「HEAD にも追跡先にもマージされていない」ブランチで、
+ * そこには**そのブランチからしか辿れない commit** がある。`-D` はそれを
+ * 到達不能にする ── 戻すには reflog から hash を探すことになり、
+ * 押し間違いの代償が釣り合わない。
+ *
+ * これは `--force` push（3-8-5）・`switch --force`（3-8-6）・
+ * `branch --force`（3-8-13）と同じ線にあたる。**危ないものを弾くのではなく、
+ * 渡せる欄そのものを作らない** ── この関数には引数が1つしか無い。
+ *
+ * ## 名前は `--end-of-options` の後ろの位置引数
+ *
+ * `switchBranch` とまったく同じ置き方になる（`--create` のような
+ * 「オプション自身の引数」ではないため、3-8-13 の言い直しはここには効かない）。
+ * `git branch -d --end-of-options <name>` が通ることは確かめてある。
+ *
+ * ## `--quiet` は渡さない
+ *
+ * 成功したときの `Deleted branch x (was <hash>)` は **stdout** に出る。
+ * 分類には使わないが、消した ref がどの commit を指していたかは
+ * ログに残しておきたい唯一の値になる（reflog を見に行く前の手掛かり）──
+ * `runBranchRefCommand` がそれをログへ落とす（main/git/gitBranches.ts）。
+ */
+export function deleteBranch(name: string): GitCommand {
+  return {
+    label: 'branch --delete',
+    args: ['branch', '--delete', END_OF_OPTIONS, name]
+  }
+}
+
+/**
+ * ローカルブランチの名前を変える（Session 3-8-14）。
+ *
+ * ## 常に2引数形にする
+ *
+ * git は `git branch -m <新名>` の1引数形も受け取る（今のブランチを改名する）が、
+ * **その形は使わない。** 使うと「どの枝を改名するのか」がコマンドに書かれず、
+ * 押してから git が動くまでの間に HEAD が変わっていた場合に
+ * **画面で選んだのとは別のブランチが改名される** ── 一覧の行から押す操作である
+ * 以上、対象は常に名指しする。今のブランチを改名するときも同じ形を通る。
+ *
+ * 位置引数が2つ並ぶのはこのアプリで初めてになるが、置き方は変わらない ──
+ * `--end-of-options` の後ろに、独立した引数として2つ。どちらも
+ * `normalizeGitBranchName` を通った形しか届かない（main/ipc/handlers/git.ts）。
+ *
+ * ## `--force`（`-M`）は「相手を消して名前を奪う」
+ *
+ * 既にある別のブランチの名前へ改名しようとしたときに、`-M` はその相手を
+ * **黙って消す。** したがって既定では渡さず、行き先が実在すれば git が
+ * `branch-exists` として断る（3-8-13 で `-C` を断ったのと同じ判断）。
+ *
+ * ## ただし、大文字小文字だけを変える改名は `-M` でしか通らない
+ *
+ * Windows（と既定の macOS）では `refs/heads/feature` と `refs/heads/Feature` が
+ * **同じファイル**になるため、`-m feature Feature` は
+ * `a branch named 'Feature' already exists` で断られる（確かめた）。
+ * このとき「既にある」と指されているのは**改名しようとしているブランチ自身**で、
+ * 別のブランチではない ── つまり `-M` が消す相手は自分自身になり、
+ * 上の危うさが当てはまらない。
+ *
+ * `force` を立てるかどうかを決めるのは呼ぶ側で、そこには条件が2つ掛かる
+ * （綴りが大文字小文字だけ違う・**完全に同じ綴りの ref が実在しない**）。
+ * 2つめを `for-each-ref` の完全名で確かめてから渡す形にしてあり、
+ * この関数が自分で判断することはしない（main/git/gitBranches.ts）。
+ */
+export function renameBranch(name: string, newName: string, force: boolean): GitCommand {
+  return {
+    label: force ? 'branch --move --force' : 'branch --move',
+    args: [
+      'branch',
+      '--move',
+      ...(force ? (['--force'] as const) : []),
+      END_OF_OPTIONS,
+      name,
+      newName
+    ]
+  }
+}
+
+/**
+ * その綴りちょうどのローカルブランチが実在するかを尋ねる（Session 3-8-14）。
+ *
+ * ## なぜ `show-ref --verify` ではないのか
+ *
+ * `git show-ref --verify refs/heads/Feature` は、`feature` しか無い Windows でも
+ * **成功を返す**（確かめた）── ref の実体がファイルで、その参照が
+ * ファイルシステム越しに行われるため。つまり「大文字小文字まで含めて
+ * 同じものがあるか」の答えには使えない。
+ *
+ * ## なぜ `for-each-ref` ではなく `branch --list` なのか
+ *
+ * `for-each-ref` のパターンは**完全な refname**（`refs/heads/<name>`）で
+ * 書く必要があり、外から来た名前に固定の接頭辞を**繋いだ1つの引数**を
+ * 作ることになる。このアプリは境界を渡った値を他の文字と繋いで引数にしない
+ * （3-8-12 で `<hash>^` や `<hash>:<path>` を作らないと決めたのと同じ線）──
+ * `branch --list` のパターンは短い名前をそのまま取るので、名前は最後まで
+ * **独立した1つの引数**のままでいられる。
+ *
+ * 一覧を読むのに `git branch` を使わない（§14.14）のは、あちらが人向けの出力で
+ * 印と字下げが混ざるためだった。ここは `--format` で欄を自分で決めているので
+ * その問題は起きない ── 読むのは「1行返ったか、空か」だけになる。
+ *
+ * 突き合わせの相手は**保管されている名前**で、loose ref（ディレクトリを
+ * 列挙して得た正式な綴り）でも packed-refs（テキストの行）でも
+ * 大文字小文字を区別する ── どちらの保管形でもそうなることを確かめてある。
+ *
+ * パターンは fnmatch として読まれるが、`*` `?` `[` `\` は名前の形の検証で
+ * 弾いてある（shared/git/branchName.ts）ため、ここへ届く名前に
+ * ワイルドカードは入らない。`--end-of-options` を挟むのも他と同じ。
+ *
+ * 出力が空なら「その綴りのブランチは無い」で、終了コードは 0 のまま
+ * （見つからないことは失敗ではない）。
+ *
+ * 使うのは rename が**大文字小文字だけの違い**だったときの1回だけになる
+ * （main/git/gitBranches.ts）── 毎回の rename で git を1回増やさない。
+ */
+export function listExactBranch(name: string): GitCommand {
+  return {
+    label: 'branch --list (exact)',
+    args: ['branch', '--list', '--format=%(refname:short)', END_OF_OPTIONS, name]
+  }
+}
+
 /* --------------------------------------- 履歴（Session 3-8-11） */
 
 /**

@@ -473,8 +473,29 @@ function describeGitOperationFailureReason(reason: GitOperationFailureReason): s
     case 'branch-exists':
       return '同じ名前のブランチが既にあります。別の名前をお試しください。'
 
+    /*
+      削除できなかった（Session 3-8-14）。
+
+      **`-D` を案内しない。** アプリはその欄を持たず（shared/git/operation.ts）、
+      持っていないものを勧めると「どこにあるのか」を探させることになる ──
+      hook に断られたときと同じ形で、行き先は Terminal パネルになる。
+    */
+    case 'branch-not-merged':
+      return 'このブランチにしか無いコミットがあるため削除できません。先にマージするか、内容を確認のうえ Terminal パネルの git branch -D をご利用ください。'
+
+    case 'branch-checked-out':
+      return 'このブランチは現在チェックアウトされているため削除できません。別のブランチへ切り替えてからお試しください。'
+
+    /*
+      Session 3-8-14 で、この分類を返す操作が3つになった（切り替え・削除・rename）。
+      「切り替え先の」と書いていた文をここで**その3つに当たる形へ直してある** ──
+      次の一手はどれも同じ「一覧を開き直す」で、そこは分けなくてよい。
+
+      分類そのものは Main 側で3つの表に分けたまま（gitFailure.ts）。同じ結末に
+      なることと、同じ言い方から読み取ることは別の話にあたる。
+    */
     case 'branch-not-found':
-      return '切り替え先のブランチが見つかりませんでした。一覧を開き直してご確認ください。'
+      return '対象のブランチが見つかりませんでした。一覧を開き直してご確認ください。'
 
     /*
       始点にした commit が解けなかった（Session 3-8-13）。
