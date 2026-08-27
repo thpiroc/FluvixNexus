@@ -7,7 +7,11 @@ import type {
 import { GIT_LOCAL_BRANCH_LIMIT } from '@shared/git'
 import { createLogger } from '../logger'
 import { createBranch, listLocalBranches, switchBranch, type GitCommand } from './gitCommands'
-import { classifyGitBranchFailure, summarizeGitStderr } from './gitFailure'
+import {
+  classifyGitBranchFailure,
+  classifyGitCreateBranchFailure,
+  summarizeGitStderr
+} from './gitFailure'
 import {
   finishGitOperation,
   notReadyGitOperation,
@@ -224,7 +228,10 @@ function findSwitchBlockingState(
  * 名前の形だけは手前（IPC ハンドラ）で確かめてある ── そこは
  * 「利用者が打った文字列」であって、リポジトリの状態ではない。
  */
-export async function applyGitCreateBranch(name: string): Promise<GitOperationResult> {
+export async function applyGitCreateBranch(
+  name: string,
+  startPoint: string | null
+): Promise<GitOperationResult> {
   return await runGitExclusively(async () => {
     const before = await readGitRepositoryOutcome()
 
@@ -232,7 +239,24 @@ export async function applyGitCreateBranch(name: string): Promise<GitOperationRe
       return notReadyGitOperation(before)
     }
 
-    return await finishGitOperation(before.workspaceId, await runBranchCommand(createBranch(name)))
+    /*
+      始点が解けるかどうかを、ここで先に確かめない（Session 3-8-13）。
+
+      3-8-12 の詳細では `show --no-patch` で先に解いているが、あちらは
+      **親の数を知る必要がある**ためで、解くこと自体が目的ではなかった。
+      こちらで欲しいのは「作れたか」だけなので、`switch --create` の結末が
+      そのまま答えになる ── 先に確かめる形にすると git を2回動かしたうえ、
+      確かめてから作るまでの間に消える余地（その1回ぶんの隙間）を
+      自分で作ることになる。
+
+      始点の有無で分類の読み方だけが変わる（gitFailure.ts）。
+    */
+    const outcome = await runBranchCommand(
+      createBranch(name, startPoint),
+      startPoint === null ? classifyGitBranchFailure : classifyGitCreateBranchFailure
+    )
+
+    return await finishGitOperation(before.workspaceId, outcome)
   })
 }
 
@@ -247,7 +271,19 @@ export async function applyGitCreateBranch(name: string): Promise<GitOperationRe
  * 待ち時間の上限が長いのは、ここで作業ツリーが実際に書き換わり、
  * `post-checkout` hook まで走りうるため（runGit.ts の `GIT_CHECKOUT_TIMEOUT_MS`）。
  */
-async function runBranchCommand(command: GitCommand): Promise<GitOperationOutcome> {
+async function runBranchCommand(
+  command: GitCommand,
+  /**
+   * 終了コードが非0だったときに stderr を読む関数（Session 3-8-13）。
+   *
+   * 切り替えと、始点を渡さない作成は `classifyGitBranchFailure`。始点を
+   * 渡した作成だけが `classifyGitCreateBranchFailure` になる ── **同じ文言が
+   * 別のものを指す**ため（gitFailure.ts）。分類そのものをこの関数の中に
+   * 書き分けないのは、どのコマンドを組み立てたかを知っているのが
+   * 呼ぶ側だからになる。
+   */
+  classify: (stderr: string) => GitOperationFailureReason = classifyGitBranchFailure
+): Promise<GitOperationOutcome> {
   const outcome = await runGit(command, { timeoutMs: GIT_CHECKOUT_TIMEOUT_MS })
 
   switch (outcome.status) {
@@ -279,5 +315,5 @@ async function runBranchCommand(command: GitCommand): Promise<GitOperationOutcom
     )
   }
 
-  return { status: 'failed', reason: classifyGitBranchFailure(outcome.stderr) }
+  return { status: 'failed', reason: classify(outcome.stderr) }
 }

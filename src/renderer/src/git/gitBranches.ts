@@ -163,6 +163,50 @@ export function toGitBranchCreateReadiness(name: string, operating: boolean): Gi
 }
 
 /**
+ * 履歴の1行から、その commit を始点にブランチを作れるか（Session 3-8-13）。
+ *
+ * ## `toGitBranchCreateReadiness` と別の関数にしてある
+ *
+ * 判断そのもの（名前の形・他の Git 操作）は同じで、違うのは**何が起きるかの
+ * 言い方**だけになる ── バーの「＋」は「今の場所から」、こちらは
+ * 「この commit から」で、そこは利用者にとってまったく別のことにあたる。
+ * 1つの関数に始点を渡して分岐させる形にしなかったのは、3-8-6 の側の文言が
+ * **始点が無いことを前提に書かれている**ためで、引数を足すと片方を直した日に
+ * もう片方の文が静かに変わる。
+ *
+ * ## マージ commit も始点にできる
+ *
+ * 3-8-12 の差分は、親が2つ以上あると「どちらと比べるか」が決まらないため
+ * 断っていた。始点にはその問いが無い ── 比べるのではなく**その1点から
+ * 始める**だけで、親がいくつあっても指す先は1つに決まる。したがって
+ * ここでマージを弾く条件は置いていない（gitCommitDetail.ts の
+ * `canOpenGitCommitDetail` とは判断が違う）。
+ *
+ * ## 空のときだけ理由を言わない
+ *
+ * 3-8-6 と同じ形。打つ前から「名前を入力してください」と出るのは、
+ * まだ何も間違えていない人に間違いを知らせることになる。
+ */
+export function toGitCommitBranchReadiness(
+  name: string,
+  shortHash: string,
+  operating: boolean
+): GitActionReadiness {
+  const prepared = prepareGitBranchName(name)
+  const problem = findGitBranchNameProblem(prepared)
+
+  if (problem === 'empty') {
+    return { enabled: false, note: `${shortHash} から新しいブランチを作って切り替えます。` }
+  }
+
+  if (problem !== null) {
+    return { enabled: false, note: describeGitBranchNameProblem(problem) }
+  }
+
+  return { enabled: !operating, note: `${shortHash} から ${prepared} を作って切り替えます。` }
+}
+
+/**
  * 名前を受け付けられない理由の一言。
  *
  * 分類そのものは shared（`GitBranchNameProblem`）が持ち、ここは文言だけを持つ。

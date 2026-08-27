@@ -89,6 +89,39 @@ export function DiffIcon(): JSX.Element {
 }
 
 /**
+ * この commit からブランチを作る（Session 3-8-13）。
+ *
+ * **1本の線から、もう1本が分かれる形**にしてある。git のグラフでいちばん
+ * よく見る絵で、「今ここから枝が生える」以外に読みようが無い ── ＋（Stage）と
+ * 見た目が近くならないのも選んだ理由になる（同じ面に並びはしないが、
+ * どちらも「足す」操作なので、絵まで似ていると意味が混ざる）。
+ *
+ * 3つの丸は上から「分かれる前」「分かれた先」「そのまま続く先」。丸を塗りに
+ * してあるのは、12px の枠で輪郭だけにすると点にしか見えないため
+ * （DiffIcon が右の紙を塗りにしてあるのと同じ理由）。
+ *
+ * 押した先で何が起きるかは、開く欄の下の1行が言う
+ * （GitCommitBranchForm.tsx）── アイコンは**そこへ行く入口**の印に留める。
+ */
+export function BranchIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false">
+      <path
+        d="M5 4.5v7M5 8h3.5a2 2 0 0 0 2-2V4.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="5" cy="3.2" r="1.5" fill="currentColor" />
+      <circle cx="5" cy="12.8" r="1.5" fill="currentColor" />
+      <circle cx="10.5" cy="3.2" r="1.5" fill="currentColor" />
+    </svg>
+  )
+}
+
+/**
  * 変更を破棄する（Session 3-8-9）。
  *
  * **戻る矢印**にしてある。ごみ箱の絵にしないのは、この操作の意味が

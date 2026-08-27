@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   classifyGitBranchFailure,
   classifyGitCommitFailure,
+  classifyGitCreateBranchFailure,
   classifyGitFailure,
   classifyGitFetchFailure,
   classifyGitMergeFailure,
@@ -486,6 +487,77 @@ describe('classifyGitBranchFailure', () => {
     const stderr = "fatal: 'feature/x' is already used by worktree at 'D:/work/other'"
 
     expect(classifyGitBranchFailure(stderr)).toBe('unknown')
+  })
+})
+
+/**
+ * 始点を渡した「作って切り替える」の分類（Session 3-8-13）。
+ *
+ * ここが決めるのは、**同じ文言をどちらの相手のこととして読むか**になる。
+ * git は「切り替え先のブランチが無い」ときも「始点の commit が解けない」ときも
+ * `invalid reference: <値>` としか言わない ── 区別できるのは、
+ * どちらのコマンドを組み立てたかを知っている側だけにあたる。
+ *
+ * 取り違えると、履歴を開き直せば済む人に「ブランチの一覧を開き直してください」と
+ * 案内することになる。
+ */
+describe('classifyGitCreateBranchFailure', () => {
+  it('始点が解けなかった（短い hash）', () => {
+    expect(classifyGitCreateBranchFailure('fatal: invalid reference: abc1234\n')).toBe(
+      'commit-not-found'
+    )
+  })
+
+  /*
+    40 桁で渡したときだけ、git の言い方が変わる（実物で確かめてある。
+    gitBranchRepository.test.ts）。`classifyGitFailure` 側の `unable to read` は
+    **権限**として読んでいるので、表を共有していない。
+  */
+  it('始点が解けなかった（40 桁）', () => {
+    const stderr = 'fatal: unable to read tree (0123456789abcdef0123456789abcdef01234567)\n'
+
+    expect(classifyGitCreateBranchFailure(stderr)).toBe('commit-not-found')
+  })
+
+  /*
+    同じ文言でも、切り替えの側では相手がブランチになる ── 2つの関数が
+    別の答えを返すことが、この分け方そのものにあたる。
+  */
+  it('切り替えの分類とは違う答えになる', () => {
+    const stderr = 'fatal: invalid reference: abc1234\n'
+
+    expect(classifyGitBranchFailure(stderr)).toBe('branch-not-found')
+    expect(classifyGitCreateBranchFailure(stderr)).toBe('commit-not-found')
+  })
+
+  /*
+    始点以外の理由は、切り替えとまったく同じに読む（委譲している）──
+    片方にだけ分類が足された日に、もう片方が unknown へ落ちない。
+  */
+  it('名前が既にあることは、始点を渡していても branch-exists', () => {
+    expect(classifyGitCreateBranchFailure("fatal: a branch named 'feature/x' already exists")).toBe(
+      'branch-exists'
+    )
+  })
+
+  it('書きかけが邪魔をしたことは local-changes-blocked', () => {
+    const stderr = [
+      'error: Your local changes to the following files would be overwritten by checkout:',
+      '\tsrc/app.ts',
+      'Please commit your changes or stash them before you switch branches.'
+    ].join('\n')
+
+    expect(classifyGitCreateBranchFailure(stderr)).toBe('local-changes-blocked')
+  })
+
+  it('index が握られていることは index-locked', () => {
+    const stderr = "fatal: Unable to create '/repo/.git/index.lock': File exists."
+
+    expect(classifyGitCreateBranchFailure(stderr)).toBe('index-locked')
+  })
+
+  it('知らない文章は unknown に倒す', () => {
+    expect(classifyGitCreateBranchFailure('error: something entirely new')).toBe('unknown')
   })
 })
 

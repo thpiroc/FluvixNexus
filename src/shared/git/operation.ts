@@ -357,6 +357,23 @@ export type GitOperationFailureReason =
    */
   | 'branch-not-found'
   /**
+   * 始点にした commit が見つからなかった（Session 3-8-13）。
+   *
+   * 履歴の行から「この commit からブランチを作る」を押すまでの間に、その commit が
+   * 解けなくなった場合にあたる（端末で `rebase` / `reset` した後に `gc` が走った・
+   * 別のリポジトリの履歴を見ていた）。
+   *
+   * `branch-not-found` と分けているのは、**指しているものが違う**ため ──
+   * あちらは「切り替え先のブランチ」で、次の一手はブランチの一覧を開き直すこと。
+   * こちらは「始点の commit」で、次の一手は履歴を開き直すことになる。
+   * git の言い分（`invalid reference: <hash>`）は同じ文でも、画面に出す言葉は
+   * 別のものになる（renderer/src/git/gitChanges.ts）。
+   *
+   * **アプリが代わりに別の始点を選ぶことはしない。** 押したのは
+   * 「この commit から」であって「どこかから」ではない。
+   */
+  | 'commit-not-found'
+  /**
    * その行は、その操作の対象にならない（Session 3-8-9）。
    *
    * 未追跡の**フォルダ1件**（`node_modules/` のように中身ごと1行で出るもの）を

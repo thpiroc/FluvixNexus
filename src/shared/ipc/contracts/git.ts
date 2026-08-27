@@ -306,20 +306,56 @@ export interface SwitchGitBranchRequest {
 }
 
 /**
- * ブランチを作って、そこへ切り替える要求（Session 3-8-6）。
+ * ブランチを作って、そこへ切り替える要求（Session 3-8-6 / 3-8-13）。
  *
- * 中身は `SwitchGitBranchRequest` と同じ（名前1つ）だが、**別の型にしてある** ──
- * 片方に欄を足したときに、もう片方まで黙って広がらないようにするため
- * （`CommitGitChangesRequest` と `CommitAndPushGitChangesRequest` を
- * 分けてあるのと同じ理由）。
+ * `SwitchGitBranchRequest` と**別の型にしてある** ── 片方に欄を足したときに、
+ * もう片方まで黙って広がらないようにするため（`CommitGitChangesRequest` と
+ * `CommitAndPushGitChangesRequest` を分けてあるのと同じ理由）。実際、
+ * 3-8-13 で欄が増えたのはこちらだけになる。
  *
- * どこから作るかは載らない。始点は常に **HEAD**（今居る場所）になる ──
- * 別の commit から始める形は、選ぶための画面（履歴）と一緒でなければ
- * 意味を持たない。
+ * ## 3-8-6 では「どこから作るか」が載らなかった
+ *
+ * 始点は常に HEAD（今居る場所）で、それは**選ぶための画面が無かった**ため
+ * だった ── rev を打ち込める欄を作れば「画面に出ていないものを指せる」ことに
+ * なり、3-8-1 からの線（渡せる欄そのものを作らない）に触れる。
+ *
+ * ## 3-8-13 で、選ぶ画面の側が先に出来上がった
+ *
+ * 履歴（3-8-11）と commit 1件の詳細（3-8-12）で、**画面に出ている行を指す**
+ * 形が確立した ── 渡るのは行が持っていた短い hash で、通る形は16進 4〜40 桁
+ * （main/git/gitCommitHash.ts）。打ち込む欄はどこにも無い。
+ *
+ * したがってここに載るのも「rev を渡せる欄」ではなく、**履歴に出した行を
+ * 指すための欄**になる。`GetGitCommitDetailRequest` / `GetGitCommitFileDiffRequest`
+ * が載せているのとまったく同じ値で、確かめる関数も同じものになる。
+ *
+ * ## 増えたのは始点だけ
+ *
+ * `git switch` が受け取れる他のものは、3-8-6 のときと同じく欄そのものを
+ * 作っていない。
+ *
+ *   載せない … `--force`（`-C`。既にある名前を別の commit へ付け替える） /
+ *              `--track` / `--detach` / `--orphan` / `--merge` / pathspec
+ *
+ * とくに `--force` を欄にしないのは、**元の枝がどこにあったかを見失わせる**ため
+ * になる ── 同じ名前があれば `branch-exists` として断り、別の名前を打ち直して
+ * もらう（shared/git/operation.ts）。
  */
 export interface CreateGitBranchRequest {
   /** 新しく作るローカルブランチ名。 */
   readonly name: string
+  /**
+   * どの commit から始めるか。**`null` なら HEAD**（今居る場所）になる。
+   *
+   * 値が入るのは履歴の行から作ったときだけで、入るのはその行が持っていた
+   * 短い hash（`GitCommitSummary.shortHash`）にあたる。
+   *
+   * `string | null` にしてあり、省略可（`?`）にしていない ── **どちらの
+   * 意味で呼んだのかを、呼ぶ側に必ず書かせる**ため。省略できる形にすると、
+   * 始点を渡し忘れた要求が「今の場所から作る」として静かに通り、
+   * 押した行とは違う場所にブランチが生える。
+   */
+  readonly startPoint: string | null
 }
 
 /**

@@ -19,6 +19,10 @@
  * 3-8-11（履歴）は差分とまったく同じ器で重なり、3-8-12（commit 1件の中身）は
  * **その履歴の面の中で入れ替わる** ── 重なりを3枚にしないためで、
  * 差分だけがその上にもう1枚重なる（GitHistoryOverlay.tsx）。
+ *
+ * 3-8-13（履歴の commit からブランチを作る）でも面は増えない ── 開くのは
+ * 押した行の**すぐ下**の欄1つで、そこに始点の commit がそのまま真上に
+ * 出ていることが「どこから作るのか」の答えになる。
  */
 
 .fx-git {
@@ -1489,21 +1493,39 @@
   border-bottom: 1px solid var(--fx-color-border);
 }
 
-/* 押せない行（マージ）。`button` が無いので、こちらが余白を持つ。 */
-.fx-git__commit-entry[data-openable='false'] {
-  padding: var(--fx-space-1) var(--fx-space-3);
+/*
+ * 行の1段目（Session 3-8-13）。
+ *
+ * 3-8-12 までは `li` の直下が行そのものだったが、3-8-13 で**下に欄が開く**ように
+ * なったため、1段目を包む器が要る ── `li` を flex にすると、開いた欄が
+ * 行の右側に並んでしまう。
+ *
+ * 変更ファイルの一覧（`.fx-git__change`）と同じ形にしてある ── 伸びる本体と、
+ * 幅を持たない右端の操作。
+ */
+.fx-git__commit-row {
+  display: flex;
+  align-items: center;
 }
 
 /*
- * 押せる行（Session 3-8-12）。
+ * 行の本体。押せる行は `button`、押せない行（マージ）は `div` になる。
+ * どちらでも同じ形になるよう、並べ方と余白はここで一度だけ決める
+ * （`.fx-git__change-open` / `.fx-git__change-static` と同じ組み方）。
  *
- * 余白を `button` の側に持たせてあるのは、**行のどこを押しても開く**ように
- * するため ── `li` に余白を置くと、その分だけ押せない縁ができる。
+ * 余白を本体の側に持たせてあるのは、**行のどこを押しても開く**ようにするため
+ * ── 器に余白を置くと、その分だけ押せない縁ができる。
  */
+.fx-git__commit-button,
+.fx-git__commit-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: var(--fx-space-1) var(--fx-space-3);
+}
+
+/* 押せる行（Session 3-8-12）。 */
 .fx-git__commit-button {
   display: block;
-  width: 100%;
-  padding: var(--fx-space-1) var(--fx-space-3);
   color: inherit;
   text-align: left;
   background: none;
@@ -1519,6 +1541,117 @@
 .fx-git__commit-button:focus-visible {
   outline: 1px solid var(--fx-color-border-strong);
   outline-offset: -1px;
+}
+
+/*
+ * この commit からブランチを作る（Session 3-8-13）。
+ *
+ * 大きさも色の当て方も、変更ファイルの行の操作（`.fx-git__change-action`）と
+ * 同じにしてある ── 同じパネルの中で「行の右端に付く操作」の形が2つに
+ * 割れないようにするため。
+ *
+ * **マージの行にも出る。** 開く方（変更ファイル）は押せなくても、始点には
+ * 「どちらの親と比べるか」という問いが無い（GitHistoryOverlay.tsx）。
+ */
+.fx-git__commit-branch {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  color: var(--fx-color-text-faint);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.fx-git__commit-entry:hover .fx-git__commit-branch:not(:disabled) {
+  color: var(--fx-color-text-muted);
+}
+
+.fx-git__commit-branch:hover:not(:disabled) {
+  color: var(--fx-color-text-strong);
+}
+
+.fx-git__commit-branch:focus-visible {
+  outline: 1px solid var(--fx-color-border-strong);
+  outline-offset: -1px;
+}
+
+/*
+ * 欄が開いている間は押せない（開き直す先が同じ場所にある）。
+ *
+ * 薄くするだけで**場所は残す** ── 消すと、押した直後に行の右端が空になり、
+ * 押せたのかどうかが分からなくなる（`.fx-git__change-action` と同じ判断）。
+ */
+.fx-git__commit-branch:disabled {
+  color: var(--fx-color-text-faint);
+  opacity: 0.4;
+  cursor: default;
+}
+
+/*
+ * ブランチを作る欄（Session 3-8-13）。
+ *
+ * 押した行の**すぐ下**に開く。面を重ねないのは 3-8-12 の「面は3枚にしない」を
+ * 保つためで、真上に始点の commit が出ていることそのものが
+ * 「どこから作るのか」の答えになる。
+ *
+ * 地を1段沈めてあるのは、一覧の行と**同じ高さに見えない**ようにするため ──
+ * 縦に読んでいる途中で、欄が commit の1件として読まれると混ざる。
+ */
+.fx-git__commit-branch-form {
+  padding: var(--fx-space-2) var(--fx-space-3);
+  border-top: 1px solid var(--fx-color-border);
+  background: var(--fx-color-surface-sunken);
+}
+
+.fx-git__commit-branch-row {
+  display: flex;
+  align-items: center;
+  gap: var(--fx-space-2);
+}
+
+/* やめる（Esc と同じことをする）。閉じる `×` と同じ形にしてある。 */
+.fx-git__commit-branch-cancel {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  color: var(--fx-color-text-muted);
+  background: none;
+  border: none;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.fx-git__commit-branch-cancel:hover {
+  color: var(--fx-color-text-strong);
+}
+
+.fx-git__commit-branch-cancel:focus-visible {
+  outline: 1px solid var(--fx-color-border-strong);
+  outline-offset: -1px;
+}
+
+/*
+ * 通らなかった理由（Session 3-8-13）。
+ *
+ * パネル本体の `.fx-git__operation-error` と**同じ色**にしてある ── 同じ
+ * 種類のこと（1回の操作が通らなかった）を、出る場所が違うだけで別の色に
+ * しない。押した場所のすぐ下に出すのは 3-8-3 からの形になる。
+ */
+.fx-git__commit-branch-failure {
+  margin: var(--fx-space-1) 0 0;
+  color: var(--fx-color-danger);
+  font-size: var(--fx-font-size-sm);
+  line-height: 1.5;
 }
 
 .fx-git__commit-line {

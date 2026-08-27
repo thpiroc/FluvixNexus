@@ -159,6 +159,7 @@ export function GitView(): JSX.Element {
     closeCommitDetail,
     switchBranch,
     createBranch,
+    createBranchFromCommit,
     githubStatus,
     refreshGitHubStatus,
     publishToGitHub
@@ -661,9 +662,16 @@ export function GitView(): JSX.Element {
           history={history}
           detail={commitDetail}
           suspended={diffRequest !== null}
+          /*
+            Session 3-8-13。この面から動かせる git に書き込みが1つ加わったので、
+            他の Git 操作と同じ目印（`operating`）がここでも要る ──
+            ブランチの面（GitBranchMenu）へ渡しているものとまったく同じ値になる。
+          */
+          operating={operating}
           onOpenCommit={openCommitDetail}
           onCloseCommit={closeCommitDetail}
           onOpenFile={showCommitFileDiff}
+          onCreateBranch={createBranchFromCommit}
           onClose={closeHistory}
         />
       ) : null}

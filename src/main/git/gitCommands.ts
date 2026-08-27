@@ -646,7 +646,7 @@ export function switchBranch(name: string): GitCommand {
 }
 
 /**
- * 今の場所から新しいブランチを作って、そこへ切り替える（Session 3-8-6）。
+ * 新しいブランチを作って、そこへ切り替える（Session 3-8-6 / 3-8-13）。
  *
  * ## 作るのと切り替えるのを1回にする
  *
@@ -656,42 +656,73 @@ export function switchBranch(name: string): GitCommand {
  * Commit を積むことになる。`switch --create` は1回で両方を行い、
  * 切り替えられなければブランチも作られない。
  *
- * ## 始点は HEAD（今居る場所）
+ * これは 3-8-13 で始点を渡せるようにした後も変わらない ── むしろそこで
+ * いちばん効く。始点を渡した切り替えは**作業ツリーの中身を書き換える**ため、
+ * 書きかけがあると git が断る（`local-changes-blocked`）。そのとき
+ * ブランチだけが残ると、「押したのに切り替わっていないブランチ」が
+ * 一覧に増える ── 実際に確かめてあり、`switch -c` は ref を作らずに終わる
+ * （main/git/gitBranchRepository.test.ts）。
  *
- * start point を渡さないので、新しいブランチは今の HEAD から始まる。
+ * ## 始点は「渡されなければ HEAD」
+ *
+ * `startPoint` が `null` なら位置引数を1つも足さない ＝ git は HEAD から作る。
+ * これが 3-8-6 からの形で、バーの「＋」から作るときはこちらになる。
+ *
  * **detached HEAD からでも作れる**のはこの形の効き目にあたる ── 今居る commit に
  * 名前が付くので、「どこにも属さない commit」から抜け出す手立てになる
  * （Push が detached で断るのとは対照的に、こちらは塞がない）。
  *
- * `--force`（`-C`）は渡さない。既にある名前を別の commit へ**付け替える**操作で、
- * 元の枝がどこにあったかを見失わせる ── 同じ名前があれば `branch-exists` として
- * 断る（shared/git/operation.ts）。
+ * ## 始点は独立した1つの引数として、`--end-of-options` の後ろに置く（3-8-13）
  *
- * `--track` / `--no-track` も渡さない。始点が HEAD（ローカル）なので既定では
- * 追跡先が付かず、付けるかどうかはリポジトリの設定（`branch.autoSetupMerge`）の
- * 領分になる ── アプリが上書きすると、その PC の決めごとを黙って外すことになる。
+ * 履歴の行から作るときだけ、短い hash がここに載る。置き方は 3-8-12 の
+ * `showCommitSummary` / `showCommitFileChanges` とまったく同じで、
+ * **`<hash>^` や `<hash>:<path>` のような組み立ては1つも作らない。**
  *
- * ## ここだけ `--end-of-options` を使わない
+ * 形の検証は `main/git/gitCommitHash.ts`（16進 4〜40 桁）が持ち、
+ * ハンドラが通す ── ここへ届く時点で `HEAD~5` も `main@{1}` も存在しない。
+ *
+ * ## `--end-of-options` の位置は「名前の後ろ」でなければならない
  *
  * 切り替え（`switchBranch`）と違い、**名前は位置引数ではない** ── `--create` が
  * 自分の引数として受け取る値になる（`git switch -c <new> [<start-point>]`）。
- * したがって `--end-of-options` を挟むと、名前が `--create` の引数ではなく
- * **始点**として読まれ、`invalid reference` で断られる（実際に確かめた）。
+ * したがって名前の**手前**に `--end-of-options` を挟むと、名前が `--create` の
+ * 引数ではなく始点として読まれ、`invalid reference` で断られる（確かめた）。
  *
- * 挟まなくても、値がオプションとして読まれることは無い。オプションの引数は
- * その次の1つを**そのまま**取るためで、`-weird` を渡すと git は
+ * 名前の**後ろ**に置く分には、始点だけがその後ろの位置引数になる（これも
+ * 一時リポジトリで確かめた）。3-8-6 の時点で「`--create` は必ず最後」と
+ * 書いていたのは位置引数が1つも無かったためで、**その後ろに置けるのは
+ * 始点だけ**、というのが 3-8-13 での言い直しになる。
+ *
+ * 名前の側は `--end-of-options` が無くてもオプションとして読まれない ──
+ * オプションの引数はその次の1つを**そのまま**取るためで、`-weird` を渡すと git は
  * 「オプションが2つ並んでいる」ではなく「`-weird` はブランチ名として不正だ」と
  * 断る（これも確かめた）。名前の側でも先頭の `-` を弾いてあり
  * （shared/git/branchName.ts）、二重の備えはここでも保たれている。
  *
- * **`--create` は必ず最後に置く。** 間に別のオプションを挟むと、そちらが
- * 名前として読まれる。
+ * ## 付けていないもの
+ *
+ * `--force`（`-C`）は渡さない。既にある名前を別の commit へ**付け替える**操作で、
+ * 元の枝がどこにあったかを見失わせる ── 同じ名前があれば `branch-exists` として
+ * 断る（shared/git/operation.ts）。始点を渡せるようになった 3-8-13 では、
+ * これを付けるといよいよ「押し間違いで枝が消える」形になる。
+ *
+ * `--track` / `--no-track` も渡さない。始点はどちらの場合もローカルの commit で、
+ * 既定では追跡先が付かない ── 付けるかどうかはリポジトリの設定
+ * （`branch.autoSetupMerge`）の領分になる。
  */
-export function createBranch(name: string): GitCommand {
-  return {
-    label: 'switch --create',
-    args: ['switch', '--quiet', '--create', name]
+export function createBranch(name: string, startPoint: string | null): GitCommand {
+  const args = ['switch', '--quiet', '--create', name]
+
+  /*
+    渡されたときだけ位置引数を足す。`null` のときに `HEAD` と**書かない**のは
+    履歴（`listCommitHistory`）と同じ判断で、「ここに rev を置ける」という形
+    そのものを残さないため ── 書かなければ git が HEAD から作る。
+  */
+  if (startPoint !== null) {
+    args.push(END_OF_OPTIONS, startPoint)
   }
+
+  return { label: 'switch --create', args }
 }
 
 /* --------------------------------------- 履歴（Session 3-8-11） */

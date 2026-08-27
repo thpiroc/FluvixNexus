@@ -476,6 +476,15 @@ function describeGitOperationFailureReason(reason: GitOperationFailureReason): s
     case 'branch-not-found':
       return '切り替え先のブランチが見つかりませんでした。一覧を開き直してご確認ください。'
 
+    /*
+      始点にした commit が解けなかった（Session 3-8-13）。
+
+      「ブランチが見つかりません」と**同じ文にしない** ── 探しに行った相手が
+      違い、開き直す先も違う（あちらはブランチの一覧、こちらは履歴）。
+    */
+    case 'commit-not-found':
+      return '指定したコミットが見つかりませんでした。履歴を開き直してご確認ください。'
+
     case 'unsupported-target':
       return 'この行はその操作の対象になりません。一覧を更新しました。'
 

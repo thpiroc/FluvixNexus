@@ -11,7 +11,7 @@ import { createGitEnvironment } from './gitEnvironment'
 import { resolveGitExecutable } from './gitExecutable'
 
 /**
- * 本物の git に対するブランチの一覧 / 切り替え / 作成の検証（Session 3-8-6）。
+ * 本物の git に対するブランチの一覧 / 切り替え / 作成の検証（Session 3-8-6 / 3-8-13）。
  *
  * ## ここで固定したいのは「失われないこと」
  *
@@ -27,6 +27,17 @@ import { resolveGitExecutable } from './gitExecutable'
  *   - 今のブランチを選んでも git を動かさない（`nothing-to-do`）
  *   - detached HEAD からでも作れて、切り替えられる
  *   - 一覧は上限で切られ、切られたことが分かる
+ *
+ * ## Session 3-8-13 で、作成に始点が1つ増えた
+ *
+ * 履歴の commit を始点にすると、作成もまた**作業ツリーの中身を書き換える**
+ * 側に回る（3-8-6 までの作成は HEAD から作るので1文字も動かなかった）。
+ * したがって確かめることが増える。
+ *
+ *   - 渡した始点の上に作られ、そこへ切り替わる（`--end-of-options` の位置）
+ *   - マージ commit と、履歴の最初の commit も始点にできる
+ *   - 始点が解けないときに `commit-not-found`（`branch-not-found` ではない）
+ *   - 断られたときに**ブランチも作られない**（`switch --create` が1回で行う）
  *
  * ## 本番の経路をそのまま通す
  *
@@ -258,7 +269,7 @@ describeWithGit('applyGitCreateBranch', () => {
   it('作って、そのまま切り替わる', async () => {
     commit('a.txt', 'a\n', 'first')
 
-    const result = await applyGitCreateBranch('feature/x')
+    const result = await applyGitCreateBranch('feature/x', null)
 
     expect(result.outcome).toEqual({ status: 'applied' })
     expect(headOf(result.repository)).toEqual({ kind: 'branch', name: 'feature/x' })
@@ -272,7 +283,7 @@ describeWithGit('applyGitCreateBranch', () => {
     commit('b.txt', 'b\n', 'second')
 
     const before = git('rev-parse', 'feature/x').trim()
-    const result = await applyGitCreateBranch('feature/x')
+    const result = await applyGitCreateBranch('feature/x', null)
 
     expect(result.outcome).toEqual({ status: 'failed', reason: 'branch-exists' })
     // 既にあるブランチは1文字も動かない（付け替えない）。
@@ -291,7 +302,7 @@ describeWithGit('applyGitCreateBranch', () => {
     commit('a.txt', 'a\n', 'first')
     git('checkout', '--quiet', '--detach', 'HEAD')
 
-    const result = await applyGitCreateBranch('rescue')
+    const result = await applyGitCreateBranch('rescue', null)
 
     expect(result.outcome).toEqual({ status: 'applied' })
     expect(headOf(result.repository)).toEqual({ kind: 'branch', name: 'rescue' })
@@ -301,11 +312,179 @@ describeWithGit('applyGitCreateBranch', () => {
     commit('a.txt', 'a\n', 'first')
     writeFile('a.txt', 'work in progress\n')
 
-    const result = await applyGitCreateBranch('feature/x')
+    const result = await applyGitCreateBranch('feature/x', null)
 
     expect(result.outcome).toEqual({ status: 'applied' })
     expect(readFile('a.txt')).toBe('work in progress\n')
     expect(readyOf(result.repository).changes.unstaged).toHaveLength(1)
+  })
+
+  /**
+   * 履歴の commit を始点にする（Session 3-8-13）。
+   *
+   * ここで実物にしか確かめられないのは「git が実際にどう受け取るか」になる ──
+   * `--end-of-options` を名前の**後ろ**に置いた形が本当に通るのか、始点が
+   * 解けなかったときに何と言うのか、断られたときに ref が残らないのかは、
+   * どれも実装ではなく git が決める。
+   */
+  describe('始点を渡す（Session 3-8-13）', () => {
+    /**
+     * `switch --create <name> --end-of-options <hash>` が通ること。
+     *
+     * 3-8-6 の時点では「`--create` は必ず最後に置く」と書いていた（位置引数が
+     * 1つも無かったため）。その後ろに置けるのは始点だけ、というのがここで
+     * 確かめている形になる ── 名前の**手前**に `--end-of-options` を挟むと、
+     * 名前が始点として読まれて `invalid reference` になる。
+     */
+    it('指した commit の上にブランチが作られ、そこへ切り替わる', async () => {
+      commit('a.txt', 'first\n', 'first')
+      const startPoint = git('rev-parse', '--short', 'HEAD').trim()
+      commit('a.txt', 'second\n', 'second')
+
+      const result = await applyGitCreateBranch('feature/from-history', startPoint)
+
+      expect(result.outcome).toEqual({ status: 'applied' })
+      expect(headOf(result.repository)).toEqual({
+        kind: 'branch',
+        name: 'feature/from-history'
+      })
+      // 新しいブランチが指しているのは、渡した始点そのもの（HEAD ではない）。
+      expect(git('rev-parse', '--short', 'feature/from-history').trim()).toBe(startPoint)
+      // 作業ツリーもそこへ戻っている（`switch` なので中身が入れ替わる）。
+      expect(readFile('a.txt')).toBe('first\n')
+    })
+
+    /**
+     * マージ commit も始点にできる（3-8-12 の差分との対比）。
+     *
+     * 差分は親が2つ以上あると「どちらと比べるか」が決まらないため断っている。
+     * 始点にはその問いが無く、**指す先は1つに決まる** ── 画面の側でも
+     * マージの行に ⑂ を出してあり（GitHistoryOverlay.tsx）、それが
+     * git の上でも本当に通ることをここで固定する。
+     */
+    it('マージ commit も始点にできる', async () => {
+      commit('a.txt', 'a\n', 'first')
+      git('switch', '--quiet', '--create', 'side')
+      commit('side.txt', 's\n', 'on side')
+      git('switch', '--quiet', 'main')
+      commit('main.txt', 'm\n', 'on main')
+      git('merge', '--quiet', '--no-ff', '-m', 'merge side', 'side')
+
+      const mergeHash = git('rev-parse', '--short', 'HEAD').trim()
+      // 親が2つあること自体を先に確かめる（`diff-tree` が黙る条件そのもの）。
+      expect(git('rev-list', '--parents', '-n', '1', 'HEAD').trim().split(/\s+/)).toHaveLength(3)
+
+      const result = await applyGitCreateBranch('from-merge', mergeHash)
+
+      expect(result.outcome).toEqual({ status: 'applied' })
+      expect(git('rev-parse', '--short', 'from-merge').trim()).toBe(mergeHash)
+    })
+
+    /** 履歴のいちばん最初の commit（親を持たない）も始点になる。 */
+    it('履歴の最初の commit も始点にできる', async () => {
+      commit('a.txt', 'a\n', 'first')
+      const rootCommit = git('rev-parse', '--short', 'HEAD').trim()
+      commit('b.txt', 'b\n', 'second')
+      commit('c.txt', 'c\n', 'third')
+
+      const result = await applyGitCreateBranch('from-root', rootCommit)
+
+      expect(result.outcome).toEqual({ status: 'applied' })
+      expect(git('rev-parse', '--short', 'from-root').trim()).toBe(rootCommit)
+      // 最初の commit まで戻っているので、後から足したものは作業ツリーに無い。
+      expect(existsSync(join(root, 'c.txt'))).toBe(false)
+    })
+
+    /**
+     * 始点が解けなかった。
+     *
+     * git の言い分は `invalid reference: <hash>` で、これは
+     * **切り替え先のブランチが無いときとまったく同じ文**になる。始点を
+     * 渡した作成だけが `commit-not-found` として読むのは、次の一手が
+     * 違うため（履歴を開き直す / ブランチの一覧を開き直す）── その
+     * 読み分けが本当に効いていることをここで固定する。
+     */
+    it('始点が見つからなければ commit-not-found で、ブランチも増えない', async () => {
+      commit('a.txt', 'a\n', 'first')
+
+      const result = await applyGitCreateBranch('feature/x', 'abcdef1')
+
+      expect(result.outcome).toEqual({ status: 'failed', reason: 'commit-not-found' })
+      expect(localBranchNames()).toEqual(['main'])
+    })
+
+    /** 40 桁で渡したときだけ、git の言い方が変わる（`unable to read tree`）。 */
+    it('40 桁の始点が見つからない場合も commit-not-found', async () => {
+      commit('a.txt', 'a\n', 'first')
+
+      const result = await applyGitCreateBranch(
+        'feature/x',
+        '0123456789abcdef0123456789abcdef01234567'
+      )
+
+      expect(result.outcome).toEqual({ status: 'failed', reason: 'commit-not-found' })
+      expect(localBranchNames()).toEqual(['main'])
+    })
+
+    /**
+     * ここが 3-8-13 でいちばん確かめたいところ。
+     *
+     * 始点を渡した切り替えは**作業ツリーの中身を書き換える**ため、書きかけが
+     * あると git が断る。そのときブランチだけが残ると、「押したのに切り替わって
+     * いないブランチ」が一覧に増える ── `switch --create` は1回で両方を
+     * 行うので、断られれば ref も作られない（そのことを実物で押さえる）。
+     *
+     * アプリ側は確認を挟まない（切り替えてよいかを決めるのは git 自身）。
+     * その判断に委ねてよいかどうかは、文言の分類では何も言えない。
+     */
+    it('書きかけが上書きされるなら断り、ブランチも作られない', async () => {
+      commit('a.txt', 'a\n', 'first')
+      const startPoint = git('rev-parse', '--short', 'HEAD').trim()
+      commit('b.txt', 'b\n', 'second')
+      // 始点には b.txt が無い ＝ 切り替えると消える。そこに書きかけを作る。
+      writeFile('b.txt', 'work in progress\n')
+
+      const result = await applyGitCreateBranch('feature/x', startPoint)
+
+      expect(result.outcome).toEqual({ status: 'failed', reason: 'local-changes-blocked' })
+      expect(localBranchNames()).toEqual(['main'])
+      // 書きかけも HEAD も1文字も動かない。
+      expect(readFile('b.txt')).toBe('work in progress\n')
+      expect(headOf(result.repository)).toEqual({ kind: 'branch', name: 'main' })
+    })
+
+    /**
+     * 始点が触らないファイルの書きかけは、そのまま付いてくる。
+     *
+     * 3-8-6 の「確認を挟まない判断が、普通の使い方を止めていないこと」と
+     * 同じ形になる ── 断られる条件を実物で確かめたなら、断られない条件も
+     * 同じだけ確かめておく必要がある。
+     */
+    it('始点が触らないファイルの書きかけは残る', async () => {
+      commit('a.txt', 'a\n', 'first')
+      const startPoint = git('rev-parse', '--short', 'HEAD').trim()
+      commit('b.txt', 'b\n', 'second')
+      writeFile('untracked.txt', 'still here\n')
+
+      const result = await applyGitCreateBranch('feature/x', startPoint)
+
+      expect(result.outcome).toEqual({ status: 'applied' })
+      expect(readFile('untracked.txt')).toBe('still here\n')
+    })
+
+    /** 名前が既にあれば、始点を渡していても上書きしない（`--force` を渡していない）。 */
+    it('同じ名前があれば、始点を渡していても断る', async () => {
+      commit('a.txt', 'a\n', 'first')
+      const startPoint = git('rev-parse', '--short', 'HEAD').trim()
+      commit('b.txt', 'b\n', 'second')
+      git('branch', 'feature/x')
+
+      const before = git('rev-parse', 'feature/x').trim()
+      const result = await applyGitCreateBranch('feature/x', startPoint)
+
+      expect(result.outcome).toEqual({ status: 'failed', reason: 'branch-exists' })
+      expect(git('rev-parse', 'feature/x').trim()).toBe(before)
+    })
   })
 })
 

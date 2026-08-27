@@ -323,6 +323,7 @@ describe('describeGitOperationFailure', () => {
     'local-changes-blocked',
     'branch-exists',
     'branch-not-found',
+    'commit-not-found',
     'unsupported-target',
     'target-busy',
     'index-locked',

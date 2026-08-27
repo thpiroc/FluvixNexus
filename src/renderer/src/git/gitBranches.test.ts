@@ -6,6 +6,7 @@ import {
   describeGitBranchTruncation,
   toGitBranchCreateReadiness,
   toGitBranchSwitchReadiness,
+  toGitCommitBranchReadiness,
   type GitBranchListState
 } from './gitBranches'
 
@@ -166,6 +167,82 @@ describe('toGitBranchCreateReadiness', () => {
   */
   it('既にある名前かどうかは、ここでは見ない', () => {
     expect(toGitBranchCreateReadiness('main', false).enabled).toBe(true)
+  })
+})
+
+/**
+ * 履歴の commit を始点にする欄（Session 3-8-13）。
+ *
+ * 判断そのものは `toGitBranchCreateReadiness` と同じ（名前の形・他の Git 操作）で、
+ * ここで固定したいのは**言い方が別のものになっている**ことになる ──
+ * バーの「＋」は「今の場所から」、こちらは「この commit から」で、
+ * 利用者にとってはまったく別のことにあたる。
+ */
+describe('toGitCommitBranchReadiness', () => {
+  it('通る名前なら押せて、始点と名前の両方を言う', () => {
+    const readiness = toGitCommitBranchReadiness('feature/x', 'a1b2c3d', false)
+
+    expect(readiness.enabled).toBe(true)
+    expect(readiness.note).toContain('feature/x')
+    // どこから作るのかが、押す前の1行に必ず出ている。
+    expect(readiness.note).toContain('a1b2c3d')
+  })
+
+  it('前後の空白は落としてから見る', () => {
+    const readiness = toGitCommitBranchReadiness('  feature/x  ', 'a1b2c3d', false)
+
+    expect(readiness.enabled).toBe(true)
+    expect(readiness.note).toContain('feature/x')
+  })
+
+  /*
+    空でも**始点だけは言う** ── 押した行の下に開いた欄で、そこが
+    「どの commit の話なのか」を黙っていると、打ち始める前に確かめる先が無くなる。
+  */
+  it('空のときは押せないが、理由ではなく何が起きるかを言う', () => {
+    const readiness = toGitCommitBranchReadiness('', 'a1b2c3d', false)
+
+    expect(readiness.enabled).toBe(false)
+    expect(readiness.note).toContain('a1b2c3d')
+    expect(readiness.note).not.toContain('入力してください')
+  })
+
+  it.each([
+    ['空白を含む', 'my branch'],
+    ['先頭の -', '-x'],
+    ['範囲の記法', 'a..b'],
+    ['予約された名前', 'HEAD'],
+    ['長すぎる', 'a'.repeat(GIT_BRANCH_NAME_MAX_LENGTH + 1)]
+  ])('%s 名前は押せず、理由が出る', (_label, name) => {
+    const readiness = toGitCommitBranchReadiness(name, 'a1b2c3d', false)
+
+    expect(readiness.enabled).toBe(false)
+    expect(readiness.note.length).toBeGreaterThan(0)
+  })
+
+  it('他の Git 操作が動いている間は押せない', () => {
+    expect(toGitCommitBranchReadiness('feature/x', 'a1b2c3d', true).enabled).toBe(false)
+  })
+
+  /*
+    3-8-6 の欄と**言い方が違う**こと。同じ文になっていると、履歴から作ったのに
+    「今の場所から」と出ることになる（押した行と違う場所に生えたように読める）。
+  */
+  it('バーの「＋」とは違う文言になっている', () => {
+    const fromHead = toGitBranchCreateReadiness('feature/x', false)
+    const fromCommit = toGitCommitBranchReadiness('feature/x', 'a1b2c3d', false)
+
+    expect(fromCommit.note).not.toBe(fromHead.note)
+  })
+
+  /*
+    マージ commit を弾く条件を持たない ── 3-8-12 の差分は「どちらの親と
+    比べるか」が決まらないため断っているが、始点にはその問いが無い。
+    ここは hash しか受け取らないので、**そもそもマージかどうかを見る手立てが
+    無い**ことが、そのまま「弾かない」ことの担保になっている。
+  */
+  it('始点として受け取るのは hash だけ（マージかどうかを見ない）', () => {
+    expect(toGitCommitBranchReadiness('feature/x', '9136d41', false).enabled).toBe(true)
   })
 })
 

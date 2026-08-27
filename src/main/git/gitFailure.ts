@@ -567,6 +567,59 @@ const BRANCH_NOT_FOUND_NEEDLES: readonly string[] = [
 ]
 
 /**
+ * 始点を渡した「作って切り替える」の失敗（Session 3-8-13）。
+ *
+ * ## 同じ文言でも、指しているものが違う
+ *
+ * `git switch <name>` が `invalid reference: x` と言うとき、見つからなかったのは
+ * **切り替え先のブランチ**になる。`git switch -c <new> <start>` が同じことを
+ * 言うとき、見つからなかったのは**始点の commit** で、次の一手が変わる
+ * （前者は「ブランチの一覧を開き直す」、後者は「履歴を開き直す」）。
+ *
+ * git の側に区別が無い以上、**どちらのコマンドを動かしたかを知っている側**が
+ * 分けるしかない ── Commit と Push と merge で分類の関数を分けてあるのと
+ * 同じ形になる。
+ *
+ * ## `unable to read tree` も同じ相手を指す
+ *
+ * 40 桁の hash を渡したときだけ、git は `invalid reference` ではなく
+ * `unable to read tree (<hash>)` と言う（確かめた）── 4〜40 桁を通す契約
+ * （main/git/gitCommitHash.ts）である以上、その言い方も届きうる。
+ * `classifyGitFailure` 側の `unable to read` は**権限**として読んでいるが、
+ * こちらは始点が解けなかった側になる ── 表を共有しないのはそのため。
+ *
+ * ## 始点を渡さなかったときは、この関数を通さない
+ *
+ * バーの「＋」から作るときは位置引数が1つも無く、`invalid reference` が
+ * 出る余地そのものが無い（main/git/gitBranches.ts）。通してしまうと、
+ * 起こりえない分類が結果に混ざる形を残すことになる。
+ */
+export function classifyGitCreateBranchFailure(stderr: string): GitOperationFailureReason {
+  const text = stderr.toLowerCase()
+
+  if (START_POINT_NOT_FOUND_NEEDLES.some((needle) => text.includes(needle))) {
+    return 'commit-not-found'
+  }
+
+  return classifyGitBranchFailure(stderr)
+}
+
+/**
+ * 始点が解けなかったときの言い方。
+ *
+ * `BRANCH_NOT_FOUND_NEEDLES` と重なるものを**書き写してある**（そちらを
+ * 参照しない）── 片方が指すのはブランチ、こちらが指すのは commit で、
+ * 同じ表から読むと「ブランチ用の言い方が増えた日に、commit 側の分類まで
+ * 黙って動く」ことになる。
+ */
+const START_POINT_NOT_FOUND_NEEDLES: readonly string[] = [
+  'invalid reference',
+  'unable to read tree',
+  'unknown revision or path not in the working tree',
+  'not a valid object name'
+]
+
+/**
  * stderr が「ここはリポジトリではない」と言っているか。
  *
  * 失敗の分類とは別の関数にしてある ── これは失敗ではなく、

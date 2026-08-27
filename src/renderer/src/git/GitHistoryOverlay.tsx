@@ -1,6 +1,8 @@
-import { useEffect, useMemo, type JSX } from 'react'
-import type { GitCommitFileChange, GitCommitSummary } from '@shared/git'
+import { useCallback, useEffect, useMemo, useState, type JSX } from 'react'
+import type { GitCommitFileChange, GitCommitSummary, GitOperationOutcome } from '@shared/git'
+import { GitCommitBranchForm } from './GitCommitBranchForm'
 import { GitCommitDetailView } from './GitCommitDetailView'
+import { BranchIcon } from './GitIcons'
 import {
   canOpenGitCommitDetail,
   describeGitMergeCommitNotice,
@@ -14,7 +16,7 @@ import {
 } from './gitHistory'
 
 /**
- * commit の履歴を、Git パネルの上に重ねて見せる面（Session 3-8-11 / 3-8-12）。
+ * commit の履歴を、Git パネルの上に重ねて見せる面（Session 3-8-11 / 3-8-12 / 3-8-13）。
  *
  * ## 差分の面（GitDiffOverlay.tsx）と同じ器にしてある
  *
@@ -59,11 +61,38 @@ import {
  * どちらも呼ばれる）。したがって、上に何か重なっている間は
  * **この面が購読そのものを張らない**形にしてある（`suspended`）。
  *
+ * ## Session 3-8-13 で、この面から初めて git が「書き込み」で動く
+ *
+ * 3-8-11 / 3-8-12 の間、この面が動かす git は `log` / `show --no-patch` /
+ * `diff-tree` / `cat-file` の4つで**全部読み取り**だった。3-8-13 で
+ * 「この commit からブランチを作る」が1つだけ加わる。
+ *
+ * 足したのが**非破壊の1つ**なのは意図してのことになる ── ref を1つ増やす
+ * だけで、失われるものが無い（revert / reset / cherry-pick はどれも
+ * 別の問いを連れてくる。docs/ARCHITECTURE.md §14.21）。
+ *
+ * それでも、この面は初めて次の3つを持つことになる。
+ *
+ *   押せない理由 … 他の Git 操作が動いている間は押せない（gitBranches.ts）
+ *   通らなかった理由 … 面の中に出す（GitCommitBranchForm.tsx）
+ *   Esc の3段目 … 欄 → 詳細 → 面（下記）
+ *
+ * ## マージの行は、押せないのに操作は持つ
+ *
+ * 3-8-12 でマージ commit を**押せない行**にしたのは、差分の相手（どちらの親か）が
+ * 決まらないためだった。始点にはその問いが無い ── 比べるのではなく
+ * その1点から始めるだけなので、**マージの行にもブランチの操作は出る。**
+ *
+ * 結果として、同じ行の中に「押せないもの（行そのもの）」と「押せるもの
+ * （⑂）」が並ぶ。並んでよいのは、押せない理由が一覧につき1つ下に出ていて
+ * （`describeGitMergeCommitNotice`）、そこに書いてあるのが
+ * 「**変更ファイルを出せない**」という限られた話だからになる。
+ *
  * ## 文言をここに書かない
  *
- * 何と出すかは gitHistory.ts / gitCommitDetail.ts（React 非依存・テスト対象）が
- * 決める。このファイルが持つのは配置だけ、という分担は GitView.tsx /
- * GitBranchMenu.tsx と同じ。
+ * 何と出すかは gitHistory.ts / gitCommitDetail.ts / gitBranches.ts
+ * （React 非依存・テスト対象）が決める。このファイルが持つのは配置だけ、
+ * という分担は GitView.tsx / GitBranchMenu.tsx と同じ。
  */
 
 interface GitHistoryOverlayProps {
@@ -77,9 +106,18 @@ interface GitHistoryOverlayProps {
    * 差分の面がこの面を覆うので、下は見えていない。
    */
   readonly suspended: boolean
+  /**
+   * 何かしらの Git 操作が動いている最中か（Session 3-8-13）。
+   *
+   * 渡す先はブランチを作る欄だけになる ── 読み取り（詳細・差分）は
+   * `operate` を通らないため、この値と関係が無い。
+   */
+  readonly operating: boolean
   readonly onOpenCommit: (commit: GitCommitSummary) => void
   readonly onCloseCommit: () => void
   readonly onOpenFile: (file: GitCommitFileChange) => void
+  /** その commit を始点にブランチを作る（Session 3-8-13）。 */
+  readonly onCreateBranch: (shortHash: string, name: string) => Promise<GitOperationOutcome | null>
   readonly onClose: () => void
 }
 
@@ -87,11 +125,44 @@ export function GitHistoryOverlay({
   history,
   detail,
   suspended,
+  operating,
   onOpenCommit,
   onCloseCommit,
   onOpenFile,
+  onCreateBranch,
   onClose
 }: GitHistoryOverlayProps): JSX.Element {
+  /*
+    どの行の下に、ブランチを作る欄が開いているか（Session 3-8-13）。
+
+    ## フックではなくこの面が持つ
+
+    書き換えるものが1つも無い**画面の状態**にあたる ── 面を閉じれば
+    一緒に消えてよく、フックに置くと閉じるたびに畳む手順が1つ増える
+    （差分と詳細がフックに在るのは、中身を IPC で取りに行くためになる）。
+
+    ## 一度に1つだけ
+
+    行ごとに欄を開けるようにすると、打ちかけの名前が複数残る ── どれを
+    作ろうとしていたのかが、押す瞬間まで決まらない。
+  */
+  const [branching, setBranching] = useState<string | null>(null)
+
+  /*
+    詳細へ入るときは畳む。一覧が消えるので、開いたままにすると
+    「見えないところに打ちかけの名前が残る」ことになる。
+  */
+  const openCommit = useCallback(
+    (commit: GitCommitSummary): void => {
+      setBranching(null)
+      onOpenCommit(commit)
+    },
+    [onOpenCommit]
+  )
+
+  const closeBranching = useCallback((): void => {
+    setBranching(null)
+  }, [])
   /*
     Esc で1段戻る。
 
@@ -113,7 +184,21 @@ export function GitHistoryOverlay({
 
       event.preventDefault()
 
-      // 詳細を見ているなら、まず一覧へ戻る（開いた順を1つずつほどく）。
+      /*
+        開いた順を1つずつほどく（Session 3-8-13 で3段目が増えた）。
+
+          ブランチを作る欄 … 欄だけを畳む
+          commit の詳細    … 一覧へ戻る
+          一覧             … 面を閉じる
+
+        欄をいちばん先に見るのは、それがいちばん後に開いたものだからになる
+        （欄は一覧の上でしか開かず、詳細と同時に立つことは無い）。
+      */
+      if (branching !== null) {
+        setBranching(null)
+        return
+      }
+
       if (detail === null) {
         onClose()
       } else {
@@ -126,7 +211,7 @@ export function GitHistoryOverlay({
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [suspended, detail, onClose, onCloseCommit])
+  }, [suspended, branching, detail, onClose, onCloseCommit])
 
   const notice = describeGitCommitHistory(history)
   const truncation = describeGitCommitTruncation(history)
@@ -202,7 +287,12 @@ export function GitHistoryOverlay({
                     key={commit.shortHash}
                     commit={commit}
                     now={now}
-                    onOpen={onOpenCommit}
+                    branching={branching === commit.shortHash}
+                    operating={operating}
+                    onOpen={openCommit}
+                    onStartBranch={setBranching}
+                    onCreateBranch={onCreateBranch}
+                    onCancelBranch={closeBranching}
                   />
                 ))}
               </ul>
@@ -233,6 +323,29 @@ export function GitHistoryOverlay({
 /**
  * commit 1件の行。
  *
+ * ## 行の中に、押せるものが2つある（Session 3-8-13）
+ *
+ * 3-8-12 までは行そのものが1つの `button` で、押す先も1つだった。3-8-13 で
+ * 「この commit からブランチを作る」が加わり、**行の中にボタンが2つ**になる ──
+ * `button` の中に `button` は置けないので、`li` の中を「本体（開く）」と
+ * 「⑂（ブランチ）」の2つに分けてある。
+ *
+ * 開く方が伸び、⑂ は右端で幅を持たない ── 縦に読むときに目に入るのは
+ * 本体の方で、⑂ はそこを狙ったときにだけ在ればよい。
+ *
+ * ## ⑂ はマージの行にも出る
+ *
+ * 開く方（変更ファイル）はマージだと押せないが、⑂ は押せる ── 始点には
+ * 「どちらの親と比べるか」という問いが無い（GitCommitBranchForm.tsx の
+ * 上に書いたとおり）。したがって `data-openable="false"` の行でも
+ * ⑂ だけは普通のボタンとして立つ。
+ *
+ * ## 欄は、押した行の下に開く
+ *
+ * 開いている間、その行は `data-branching="true"` になる。行そのものは
+ * 押せるままにしてある ── 欄を開いた後で「やっぱり中身を見たい」と
+ * 思った人の前で、行だけが薄くなる形にしない（開けば欄は畳まれる）。
+ *
  * ## 押せる行と、押せない行がある（Session 3-8-12）
  *
  * 3-8-11 では**押す先が無かった**ため、行は `li` の中の文字だけだった。
@@ -261,11 +374,22 @@ export function GitHistoryOverlay({
 function GitCommitRowView({
   commit,
   now,
-  onOpen
+  branching,
+  operating,
+  onOpen,
+  onStartBranch,
+  onCreateBranch,
+  onCancelBranch
 }: {
   readonly commit: GitCommitSummary
   readonly now: number
+  /** この行の下に、ブランチを作る欄が開いているか（Session 3-8-13）。 */
+  readonly branching: boolean
+  readonly operating: boolean
   readonly onOpen: (commit: GitCommitSummary) => void
+  readonly onStartBranch: (shortHash: string) => void
+  readonly onCreateBranch: (shortHash: string, name: string) => Promise<GitOperationOutcome | null>
+  readonly onCancelBranch: () => void
 }): JSX.Element {
   const row = describeGitCommitRow(commit, now)
   const openable = canOpenGitCommitDetail(commit)
@@ -304,19 +428,56 @@ function GitCommitRowView({
   )
 
   return (
-    <li className="fx-git__commit-entry" data-merge={row.merge} data-openable={openable}>
-      {openable ? (
+    <li
+      className="fx-git__commit-entry"
+      data-merge={row.merge}
+      data-openable={openable}
+      data-branching={branching}
+    >
+      <div className="fx-git__commit-row">
+        {openable ? (
+          <button
+            type="button"
+            className="fx-git__commit-button"
+            onClick={() => onOpen(commit)}
+            title="このコミットの変更ファイルを見る"
+          >
+            {body}
+          </button>
+        ) : (
+          <div className="fx-git__commit-body">{body}</div>
+        )}
+        {/*
+          ブランチを作る入口（Session 3-8-13）。
+
+          `title` と `aria-label` に短い hash を入れてあるのは、行の中に
+          ⑂ が 100 個並ぶため ── 読み上げでは「ブランチ」だけが 100 回
+          続くことになり、どれを押しているのかが分からない。
+
+          押せなくするのは、この欄が既に開いているときだけになる
+          （他の Git 操作が動いている間に押せないのは**作成のボタン**の側で、
+          そちらは欄を開いてから gitBranches.ts が決める）── 開くことまで
+          止めると、名前を打ち始めることすらできない待ち時間が生まれる。
+        */}
         <button
           type="button"
-          className="fx-git__commit-button"
-          onClick={() => onOpen(commit)}
-          title="このコミットの変更ファイルを見る"
+          className="fx-git__commit-branch"
+          onClick={() => onStartBranch(commit.shortHash)}
+          disabled={branching}
+          title={`${row.shortHash} からブランチを作る`}
+          aria-label={`${row.shortHash} からブランチを作る`}
         >
-          {body}
+          <BranchIcon />
         </button>
-      ) : (
-        body
-      )}
+      </div>
+      {branching ? (
+        <GitCommitBranchForm
+          shortHash={commit.shortHash}
+          operating={operating}
+          onCreate={onCreateBranch}
+          onCancel={onCancelBranch}
+        />
+      ) : null}
     </li>
   )
 }

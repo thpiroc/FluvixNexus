@@ -32,7 +32,7 @@ import { handleIpc } from '../registry'
 
 /**
  * git ドメインのハンドラ（Session 3-8-1 / 3-8-3 / 3-8-4 / 3-8-5 / 3-8-6 / 3-8-9 /
- * 3-8-10 / 3-8-11 / 3-8-12）。
+ * 3-8-10 / 3-8-11 / 3-8-12 / 3-8-13）。
  *
  * ## 3-8-1 では確かめる値が無かった
  *
@@ -267,6 +267,39 @@ function branchNameField(request: unknown): string {
   return name
 }
 
+/**
+ * 新しいブランチの始点（Session 3-8-13）。
+ *
+ * 通すのは `commitHashField` とまったく同じ `normalizeGitCommitHash` で、
+ * **入口を2つに分けない** ── 履歴の行を指す値はどの操作から届いても同じ形で、
+ * ここだけ緩めると「詳細では開けないが、ブランチの始点にはできる」hash が
+ * 生まれる。
+ *
+ * 違うのは `null` を通すことだけになる。**`null` は「値が無い」ではなく
+ * 「HEAD から作る」という答え**で、バーの「＋」から来る要求がそれにあたる
+ * （main/git/gitCommands.ts）。欄そのものが届かなかった場合も同じ側へ倒す ──
+ * 3-8-6 の時点で作られた要求（`startPoint` を持たない）が届いても、
+ * それは「今の場所から」という意味にしかなりえない。
+ *
+ * 逆に、**文字列として届いたのに形が通らない**なら断る。空文字も
+ * `HEAD~1` も `main@{1}` もここで止まり、git の引数になることは無い。
+ */
+function branchStartPointField(request: unknown): string | null {
+  const raw = field(request, 'startPoint')
+
+  if (raw === null || raw === undefined) {
+    return null
+  }
+
+  const hash = normalizeGitCommitHash(raw)
+
+  if (hash === null) {
+    throw invalidRequest('the branch start point is not a short git object name.')
+  }
+
+  return hash
+}
+
 export function registerGitHandlers(): void {
   handleIpc(IPC_CHANNELS.GIT_GET_REPOSITORY, async (): Promise<GetGitRepositoryResponse> => {
     return await describeGitRepository()
@@ -397,8 +430,16 @@ export function registerGitHandlers(): void {
     return await applyGitSwitchBranch(branchNameField(request))
   })
 
+  /*
+    作成では、3-8-13 で始点が1つ増えた（切り替えの側は 3-8-6 のまま）。
+
+    確かめる関数は commit の詳細とまったく同じ（`normalizeGitCommitHash`）で、
+    **履歴の行を指す値の入口は1つだけ**という形をここでも保つ。
+    始点が無い（＝ HEAD から作る）ことは `null` として通り、
+    「欄が足りない要求」としては断らない（上記）。
+  */
   handleIpc(IPC_CHANNELS.GIT_CREATE_BRANCH, async (request): Promise<GitOperationResponse> => {
-    return await applyGitCreateBranch(branchNameField(request))
+    return await applyGitCreateBranch(branchNameField(request), branchStartPointField(request))
   })
 
   /*

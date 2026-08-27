@@ -282,6 +282,33 @@ export interface GitRepositoryController {
    */
   readonly createBranch: (name: string) => Promise<boolean>
   /**
+   * 履歴の commit を始点に、ブランチを作って切り替える（Session 3-8-13）。
+   *
+   * ## `createBranch` と別の口にしてある
+   *
+   * 動かすチャンネルも目印も同じ（要求に始点が1つ載るだけ）だが、
+   * **呼ぶ側が要るものが違う。** バーの「＋」は「通ったか」だけで足りるのに対し、
+   * 履歴の面は**通らなかった理由をその場に出す**必要がある ── 面が
+   * パネルを覆っているため、下に出ている `failure` は読めない
+   * （GitHistoryOverlay.tsx）。
+   *
+   * したがって返すのは `GitOperationOutcome`（`operate` が返すそのもの）で、
+   * 押した1回の結末だけがそこに入る。`failure` にも同じものが載るが、
+   * あちらは**面を閉じた後**に読まれるものになる。
+   *
+   * ## 通ったら履歴の面を閉じる
+   *
+   * 作った先へ切り替わるため、開いたままの履歴は**もう別のブランチのもの**に
+   * なる（新しいブランチは始点の commit を指しており、そこから先の行は
+   * 一覧から消える）。閉じずに取り直すと、押した行より新しい行が黙って
+   * 消えることになり、「作れたのか」と「何かが失われたのか」が
+   * 同じ動きに見える。
+   */
+  readonly createBranchFromCommit: (
+    shortHash: string,
+    name: string
+  ) => Promise<GitOperationOutcome | null>
+  /**
    * GitHub CLI が使える状態か（Session 3-8-10）。
    *
    * **リポジトリの状態とは別に持つ。** `repository` の中に入れると、
@@ -1110,12 +1137,40 @@ export function useGitRepository(): GitRepositoryController {
   const createBranch = useCallback(
     async (name: string): Promise<boolean> => {
       const outcome = await operate(GIT_CREATE_BRANCH_OPERATION_KEY, () =>
-        fluvix.git.createBranch({ name })
+        fluvix.git.createBranch({ name, startPoint: null })
       )
 
       return outcome?.status === 'applied'
     },
     [operate]
+  )
+
+  /*
+    履歴の commit を始点に作る（Session 3-8-13）。
+
+    ## 目印は `createBranch` と同じ
+
+    同じ操作（作って切り替える）で、**同時に2つ走ってよいものが無い** ──
+    別の目印にすると、バーの「＋」と履歴の欄から同時に始められる形になる。
+
+    ## 通ったときだけ閉じる
+
+    失敗のときに閉じると、理由（面の中に出るもの）を読む前に消える ──
+    Commit 欄・ブランチの作成欄と同じ判断になる（GitBranchMenu.tsx）。
+  */
+  const createBranchFromCommit = useCallback(
+    async (shortHash: string, name: string): Promise<GitOperationOutcome | null> => {
+      const outcome = await operate(GIT_CREATE_BRANCH_OPERATION_KEY, () =>
+        fluvix.git.createBranch({ name, startPoint: shortHash })
+      )
+
+      if (outcome?.status === 'applied') {
+        closeHistory()
+      }
+
+      return outcome
+    },
+    [closeHistory, operate]
   )
 
   /*
@@ -1224,6 +1279,7 @@ export function useGitRepository(): GitRepositoryController {
     closeCommitDetail,
     switchBranch,
     createBranch,
+    createBranchFromCommit,
     githubStatus,
     refreshGitHubStatus: requestGitHubStatus,
     publishToGitHub
