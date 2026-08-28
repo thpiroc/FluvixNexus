@@ -7,7 +7,8 @@ import type {
   GitOperationFailure,
   GitOperationOutcome,
   GitRepositoryState,
-  GitStageTarget
+  GitStageTarget,
+  GitStashEntry
 } from '@shared/git'
 import type { GitHubRepositoryVisibility } from '@shared/github'
 import type { GitOperationResponse, IpcResult } from '@shared/ipc'
@@ -24,6 +25,13 @@ import {
 } from './gitBranches'
 import type { GitCommitDetailState } from './gitCommitDetail'
 import { INITIAL_GIT_COMMIT_HISTORY, type GitCommitHistoryState } from './gitHistory'
+import {
+  GIT_STASH_DROP_OPERATION_KEY,
+  GIT_STASH_POP_OPERATION_KEY,
+  GIT_STASH_PUSH_OPERATION_KEY,
+  INITIAL_GIT_STASH_LIST,
+  type GitStashListState
+} from './gitStash'
 import {
   GIT_COMMIT_AND_PUSH_OPERATION_KEY,
   GIT_COMMIT_OPERATION_KEY,
@@ -344,6 +352,56 @@ export interface GitRepositoryController {
    */
   readonly renameBranch: (name: string, newName: string) => Promise<GitOperationOutcome | null>
   /**
+   * 退避の一覧（Session 3-8-15）。
+   *
+   * ブランチ・履歴と同じく**リポジトリの状態とは別に持つ** ── `repository` の
+   * 中に入れると、ファイルを保存するたびに `git stash list` を1回起動する
+   * ことになる（shared/git/stash.ts）。
+   *
+   * 閉じている間は `stashOpen` が false で、その間は一度も取りに行かない。
+   */
+  readonly stashes: GitStashListState
+  /** 退避の面が開いているか（開いている間だけ `git:changed` で追いつく）。 */
+  readonly stashOpen: boolean
+  /** 退避を開く（開いた瞬間に取りに行く）。 */
+  readonly openStash: () => void
+  /** 退避を閉じる（飛んでいる問い合わせの答えは捨てる）。 */
+  readonly closeStash: () => void
+  /**
+   * 作業ツリーの変更を退避する（Session 3-8-15）。
+   *
+   * 引数が無い ── 名前も、未追跡を含めるかも、対象の位置も渡せない
+   * （shared/ipc/contracts/git.ts）。
+   *
+   * **結末を返す**のは 3-8-14 の削除 / rename と同じ理由で、押した場所の
+   * 近くに理由を出す必要があるため ── 退避の面はパネルを覆っており、
+   * 下に出ている `failure` は読めない（GitStashOverlay.tsx）。
+   */
+  readonly stashPush: () => Promise<GitOperationOutcome | null>
+  /**
+   * 退避を作業ツリーへ戻し、一覧から取り除く（Session 3-8-15）。
+   *
+   * 渡すのは一覧の行そのもの ── **位置と hash の2つが対で要る**ためになる
+   * （番号だけでは、押すまでの間にずれていたときに別の退避を戻す。
+   * shared/git/stash.ts）。行を丸ごと渡せば、2つが食い違う形が作れない。
+   *
+   * 通っても**面は閉じない** ── 3-8-13 の「履歴からブランチを作る」が
+   * 閉じたのは、作った先へ切り替わって開いたままの履歴が別のブランチのものに
+   * なるためだった。退避を戻してもどこへも移らず、一覧は1件減るだけで
+   * 正しいままになる（3-8-14 の削除と同じ側）。
+   */
+  readonly stashPop: (entry: GitStashEntry) => Promise<GitOperationOutcome | null>
+  /**
+   * 退避を捨てる（Session 3-8-15）。
+   *
+   * `stashPop` とまったく同じものを渡し、同じように結末を返す。
+   *
+   * **確認を挟むのはここではない。** 押してよいかを尋ねるのは面の側で
+   * （GitStashOverlay.tsx）、ここへ来るのは既に尋ね終えたものになる ──
+   * 破棄（3-8-9）・ブランチの削除（3-8-14）と同じ分担にしてある。
+   */
+  readonly stashDrop: (entry: GitStashEntry) => Promise<GitOperationOutcome | null>
+  /**
    * GitHub CLI が使える状態か（Session 3-8-10）。
    *
    * **リポジトリの状態とは別に持つ。** `repository` の中に入れると、
@@ -470,6 +528,32 @@ export function useGitRepository(): GitRepositoryController {
 
   /** 詳細の問い合わせの通し番号（一覧・履歴・差分と同じ理由で別に持つ）。 */
   const commitDetailRequestRef = useRef(0)
+
+  /**
+   * 退避の一覧（Session 3-8-15）。
+   *
+   * 履歴とまったく同じ扱いで、**閉じている間は誰も見ていない**が開いている間は
+   * 追いつく必要がある（下の useEffect）── 端末で `git stash` を打つことがあり、
+   * そのとき出たままの一覧は「さっき避けたものが無い」という形で嘘をつく。
+   *
+   * しかも退避では**その嘘が押し間違いに直結する** ── 番号は上から数えた位置で、
+   * 1つ増えれば全部がずれる（shared/git/stash.ts）。Main も押された瞬間に
+   * hash で確かめるが（二重の備え）、そもそも古い一覧を出さないことが先になる。
+   */
+  const [stashes, setStashes] = useState<GitStashListState>(INITIAL_GIT_STASH_LIST)
+
+  /**
+   * 退避の面が開いているか。
+   *
+   * state と ref の両方に持つ ── 描き直すために state が要り、
+   * **イベントの購読の中から今の値を読む**ために ref が要る（履歴と同じ形）。
+   */
+  const [stashOpen, setStashOpen] = useState(false)
+  const stashOpenRef = useRef(stashOpen)
+  stashOpenRef.current = stashOpen
+
+  /** 退避の問い合わせの通し番号（一覧・履歴・差分と同じ理由で別に持つ）。 */
+  const stashRequestRef = useRef(0)
 
   /**
    * GitHub CLI の状態（Session 3-8-10）。
@@ -844,6 +928,66 @@ export function useGitRepository(): GitRepositoryController {
     setCommitDetail(null)
   }, [])
 
+  /**
+   * 退避の一覧を取り直す（Session 3-8-15）。
+   *
+   * 経路は履歴（`refreshHistory`）とまったく同じ ── 通し番号で追い越しを捨て、
+   * `workspaceId` で行き違いを捨てる。
+   *
+   * `quiet` が付くのは、開いている間に `.git` が変わって取り直すときと、
+   * 自分が変えたと分かっている1回（退避 / 戻す / 捨てるが通った直後）になる。
+   * そのとき `loading` へ戻さないのは、**出ている一覧が一瞬消える**ため ──
+   * 続けて片付けているときに、押すたびに面が白くなると押す場所を見失う。
+   */
+  const refreshStashes = useCallback(
+    async (options?: { readonly quiet?: boolean }): Promise<void> => {
+      const requestId = stashRequestRef.current + 1
+      stashRequestRef.current = requestId
+
+      if (options?.quiet !== true) {
+        setStashes(INITIAL_GIT_STASH_LIST)
+      }
+
+      const result = await fluvix.git.listStashes()
+
+      // 追い越された（開き直した／閉じた）。新しい方の答えが来る。
+      if (stashRequestRef.current !== requestId) {
+        return
+      }
+
+      if (!result.ok) {
+        console.warn('[git] 退避の一覧を取得できませんでした。', result.error)
+        setStashes({ status: 'failed', entries: [], truncated: false })
+        return
+      }
+
+      // 問い合わせている間に Workspace が切り替わっていたら捨てる（`load` と同じ）。
+      if (result.data.workspaceId !== workspaceIdRef.current) {
+        return
+      }
+
+      const listing = result.data.listing
+
+      setStashes(
+        listing.status === 'ready'
+          ? { status: 'ready', entries: listing.entries, truncated: listing.truncated }
+          : { status: listing.status, entries: [], truncated: false }
+      )
+    },
+    []
+  )
+
+  const openStash = useCallback((): void => {
+    setStashOpen(true)
+    void refreshStashes()
+  }, [refreshStashes])
+
+  const closeStash = useCallback((): void => {
+    // 飛んでいる問い合わせの答えを捨てる（閉じた後に中身が入れ替わらないように）。
+    stashRequestRef.current += 1
+    setStashOpen(false)
+  }, [])
+
   /*
     履歴が開いている間だけ、`.git` の変化に追いつく（Session 3-8-11）。
 
@@ -902,6 +1046,54 @@ export function useGitRepository(): GitRepositoryController {
       unsubscribe()
     }
   }, [historyOpen, workspaceId, refreshHistory])
+
+  /*
+    退避の面が開いている間だけ、`.git` の変化に追いつく（Session 3-8-15）。
+
+    形は履歴（上）とまったく同じで、購読するのは `git:changed` だけになる ──
+    作業ツリーのファイルをいくら書き換えても、退避の一覧は1行も変わらない。
+
+    履歴より追いつく必要が強いのは、**古い一覧が押し間違いになる**ため ──
+    退避を指す番号は上から数えた位置で、端末で `git stash` を1回打たれると
+    全部が1つずつ後ろへずれる（shared/git/stash.ts）。
+
+    束ねる間（`CHANGE_SETTLE_MS`）も同じにしてある。
+  */
+  useEffect(() => {
+    if (!stashOpen || workspaceId === null) {
+      return
+    }
+
+    let settle: ReturnType<typeof setTimeout> | null = null
+
+    const unsubscribe = fluvix.git.onChanged((event) => {
+      // 切り替えと行き違った通知は捨てる（イベントには対応関係が無い）。
+      if (event.workspaceId !== workspaceId) {
+        return
+      }
+
+      if (settle !== null) {
+        clearTimeout(settle)
+      }
+
+      settle = setTimeout(() => {
+        settle = null
+
+        // 閉じた直後に発火した最後の1回を捨てる。
+        if (stashOpenRef.current) {
+          void refreshStashes({ quiet: true })
+        }
+      }, CHANGE_SETTLE_MS)
+    })
+
+    return () => {
+      if (settle !== null) {
+        clearTimeout(settle)
+      }
+
+      unsubscribe()
+    }
+  }, [stashOpen, workspaceId, refreshStashes])
 
   /**
    * 1回分の操作（Session 3-8-3）。
@@ -1258,6 +1450,72 @@ export function useGitRepository(): GitRepositoryController {
   )
 
   /*
+    退避（Session 3-8-15）。
+
+    ## 経路は他の書き込み操作とまったく同じ
+
+    `operate` を通り、二重の要求は目印で止まり、応答に載っている操作後の状態を
+    そのまま使う。3種類の git（`stash push` / `pop` / `drop`）が動くが、
+    **Renderer から見るとそこは何も変わらない** ── どの git が動くかは
+    Main の中の話になる（3-8-14 で `git branch` が増えたときと同じ）。
+
+    ## 通ったときだけ一覧を取り直す
+
+    どれも面を閉じないため、ここで取り直さないと消えた行・増えた行が
+    合わなくなる。失敗のときに取り直さないのは、**理由を読む前に一覧が
+    入れ替わらないようにする**ため（3-8-14 の削除 / rename と同じ判断）。
+
+    `quiet` を付けるのは、取り直しの間だけ面が「取得しています…」に
+    戻らないようにするため ── 続けて片付けているときに、押すたびに
+    一覧が消えると押す場所を見失う。
+
+    ## `partly-applied`（競合した pop）でも取り直す
+
+    退避は一覧に残っているが、**作業ツリーの側は変わっている** ── 取り直さない
+    理由が無く、しかも一覧をそのまま出しておく方が「残っている」ことが
+    画面で分かる（shared/git/operation.ts の `stash-apply`）。
+  */
+  const stashPush = useCallback(async (): Promise<GitOperationOutcome | null> => {
+    const outcome = await operate(GIT_STASH_PUSH_OPERATION_KEY, () => fluvix.git.stashPush())
+
+    if (outcome !== null && outcome.status !== 'failed') {
+      void refreshStashes({ quiet: true })
+    }
+
+    return outcome
+  }, [operate, refreshStashes])
+
+  const stashPop = useCallback(
+    async (entry: GitStashEntry): Promise<GitOperationOutcome | null> => {
+      const outcome = await operate(GIT_STASH_POP_OPERATION_KEY, () =>
+        fluvix.git.stashPop({ index: entry.index, shortHash: entry.shortHash })
+      )
+
+      if (outcome !== null && outcome.status !== 'failed') {
+        void refreshStashes({ quiet: true })
+      }
+
+      return outcome
+    },
+    [operate, refreshStashes]
+  )
+
+  const stashDrop = useCallback(
+    async (entry: GitStashEntry): Promise<GitOperationOutcome | null> => {
+      const outcome = await operate(GIT_STASH_DROP_OPERATION_KEY, () =>
+        fluvix.git.stashDrop({ index: entry.index, shortHash: entry.shortHash })
+      )
+
+      if (outcome !== null && outcome.status !== 'failed') {
+        void refreshStashes({ quiet: true })
+      }
+
+      return outcome
+    },
+    [operate, refreshStashes]
+  )
+
+  /*
     初期化（Session 3-8-10）。
 
     経路は他の書き込み操作とまったく同じ（`operate`）で、要求に載せる値が
@@ -1366,6 +1624,13 @@ export function useGitRepository(): GitRepositoryController {
     createBranchFromCommit,
     deleteBranch,
     renameBranch,
+    stashes,
+    stashOpen,
+    openStash,
+    closeStash,
+    stashPush,
+    stashPop,
+    stashDrop,
     githubStatus,
     refreshGitHubStatus: requestGitHubStatus,
     publishToGitHub

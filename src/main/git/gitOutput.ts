@@ -1,5 +1,10 @@
 import type { PlatformId } from '@shared/api'
-import type { GitCommitChangeKind, GitCommitSummary, GitLocalBranch } from '@shared/git'
+import type {
+  GitCommitChangeKind,
+  GitCommitSummary,
+  GitLocalBranch,
+  GitStashEntry
+} from '@shared/git'
 
 /**
  * git の出力を読む（Electron / fs / child_process 非依存・テスト対象）。
@@ -15,6 +20,8 @@ import type { GitCommitChangeKind, GitCommitSummary, GitLocalBranch } from '@sha
  *   - `for-each-ref` が返した行は、どのローカルブランチか（Session 3-8-6）
  *   - `log` / `show --no-patch` が返した行は、どの commit か（Session 3-8-11 / 3-8-12）
  *   - `diff-tree --raw` が返した塊は、どのファイルがどう変わったか（Session 3-8-12）
+ *   - `stash list` が返した行は、どの退避か（Session 3-8-15）
+ *   - `stash pop` が言っているのは「競合した」か（Session 3-8-15）
  *
  * 1つめが Session 3-8-1 の核心にあたる。**Workspace root がリポジトリ root で
  * ないときは Git 操作を行わない**（設計判断 10）ため、「同じ場所か」の判断を
@@ -380,6 +387,143 @@ export interface GitCommitFileEntry {
   readonly originalObject: string | null
   /** 後側の object 名。削除では null。 */
   readonly modifiedObject: string | null
+}
+
+/* ------------------------------------------- 退避（Session 3-8-15） */
+
+/**
+ * `stash list --format=%gd%x00%h%x00%at%x00%gs` の出力を読む（Session 3-8-15）。
+ *
+ * 1行が1件の退避で、形は
+ * `stash@{0}<NUL>abc1234<NUL>1756100000<NUL>WIP on main: 1a2b3c4 要約` になる。
+ * **区切りが NUL なのは、名乗り（`%gs`）に空白も記号も入りうる**ため
+ * （main/git/gitCommands.ts の `listStashEntries`）。
+ *
+ * ## 番号は `%gd` から読む（並び順から数えない）
+ *
+ * `git stash list` は 0 から順に並ぶので、読んだ順に数えることもできる ──
+ * だがそうすると、**読めない行を1つ落とした瞬間に、それより後ろの番号が
+ * 全部ずれる。** ずれた番号で pop / drop すると、画面に出ていないものが
+ * 消えることになる（`readLocalBranches` / `readCommitHistory` が
+ * 「読めない行は落とす」で済むのは、番号を持たないためになる）。
+ *
+ * したがって `%gd` が `stash@{N}` の形をしていない行は、番号が分からない
+ * 行として**丸ごと落とす** ── 落ちるのはその1件だけで、他の行の番号は
+ * git が言ったままになる。
+ *
+ * ## 上限を「読んだ側」で切る（`readLocalBranches` と同じ）
+ *
+ * git には上限より1つ多く求めてある（`--max-count=limit + 1`）。ここで
+ * `limit` 件に切り、**切ったかどうか**を一緒に返す。
+ *
+ * ## 名乗りが空の行は落とさない
+ *
+ * `%gs` が空になることは通常無いが、空を「読めなかった」として捨てると
+ * **その1件だけ順番が飛ぶ**（要約が空の commit を落とさないのと同じ判断）──
+ * 空をどう見せるかは画面の側が決める（renderer/src/git/gitStash.ts）。
+ */
+export function readStashEntries(
+  stdout: string,
+  limit: number
+): { readonly entries: readonly GitStashEntry[]; readonly truncated: boolean } {
+  const entries: GitStashEntry[] = []
+  let truncated = false
+
+  for (const line of stdout.split('\n')) {
+    const entry = readStashRecord(line)
+
+    if (entry === null) {
+      continue
+    }
+
+    if (entries.length >= limit) {
+      // 上限より1つ多く求めてあるので、ここへ来た時点で「まだ先がある」。
+      truncated = true
+      break
+    }
+
+    entries.push(entry)
+  }
+
+  return { entries, truncated }
+}
+
+/** `stash@{12}` から 12 を取り出すための形。 */
+const STASH_SELECTOR = /^stash@\{(\d+)\}$/
+
+/**
+ * `%gd%x00%h%x00%at%x00%gs` の1行を読む。読めなければ null。
+ *
+ * 確かめるのは4つ ── 欄の数・`stash@{N}` の形・hash の形・日時が数か。
+ * `readCommitRecord` が3つだけなのに対して1つ多いのは、こちらだけが
+ * **番号を運ぶ**ためになる（番号を取り違えると、別の退避が消える）。
+ */
+function readStashRecord(line: string): GitStashEntry | null {
+  const fields = splitFields(line, 3)
+
+  if (fields === null) {
+    return null
+  }
+
+  const [selector, shortHash, stashedAt, subject] = fields
+  const matched = STASH_SELECTOR.exec(selector)
+
+  if (matched === null) {
+    return null
+  }
+
+  const index = Number.parseInt(matched[1], 10)
+
+  if (!Number.isSafeInteger(index)) {
+    return null
+  }
+
+  /*
+    hash の形を確かめる。**確かめずに通すと、想定と違う出力（警告・ヒント）が
+    そのまま「退避」として画面に並ぶ**（`readCommitRecord` と同じ理由）。
+    ここでは押した瞬間の突き合わせにも使う値なので、なおのこと形を見る。
+  */
+  if (!/^[0-9a-f]{4,40}$/i.test(shortHash)) {
+    return null
+  }
+
+  const seconds = Number.parseInt(stashedAt, 10)
+
+  if (!Number.isSafeInteger(seconds)) {
+    return null
+  }
+
+  // epoch 秒 → ミリ秒（shared/git/stash.ts が持つのはミリ秒）。
+  return { index, shortHash, subject, stashedAt: seconds * 1000 }
+}
+
+/**
+ * `stash pop` の出力が「競合した」と言っているか（Session 3-8-15）。
+ *
+ * ## 見るのは stdout になる
+ *
+ * pop が競合したとき、git は **stderr に何も書かない** ── 知らせは
+ * stdout に出て、終了コードだけが 1 になる（実物で確かめてある）。
+ * merge の結果は失敗ではないので、そちらへ流れる。
+ *
+ * 作業ツリーが上書きされるために**何も起きなかった**場合とは、そこが
+ * はっきり分かれる ── あちらは stderr に
+ * `Your local changes to the following files would be overwritten by merge:` が
+ * 出て、stdout に `CONFLICT` は現れない。したがって呼ぶ側は
+ * **stderr の分類を先に見て、当たらなかったときだけここを見る**
+ * （main/git/gitStash.ts）。
+ *
+ * ## 英文を当てにできる理由は、失敗の分類と同じ
+ *
+ * アプリが呼ぶ git には `LC_ALL=C` を渡してある（main/git/gitEnvironment.ts）。
+ * 2つの言い方を見るのは、片方だけの版に備えるためになる ── `CONFLICT (` は
+ * 種類（content / add/add …）を伴う見出し行、`Merge conflict in` は
+ * その中身の行にあたる。
+ */
+export function readStashPopConflict(stdout: string): boolean {
+  const text = stdout.toLowerCase()
+
+  return text.includes('conflict (') || text.includes('merge conflict in')
 }
 
 /**

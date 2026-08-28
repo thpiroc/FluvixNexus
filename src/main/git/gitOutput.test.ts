@@ -7,7 +7,9 @@ import {
   readCommitHistory,
   readLocalBranches,
   readRepositoryRoot,
-  readShortCommit
+  readShortCommit,
+  readStashEntries,
+  readStashPopConflict
 } from './gitOutput'
 
 /**
@@ -507,5 +509,175 @@ describe('readCommitFileChanges', () => {
 
   it('何も変わっていない出力（マージ commit）は空になる', () => {
     expect(readCommitFileChanges('', 100)).toEqual({ files: [], truncated: false })
+  })
+})
+
+/**
+ * 退避の一覧の読み取り（Session 3-8-15）。
+ *
+ * `readLocalBranches` / `readCommitHistory` と確かめたいことがほぼ同じだが、
+ * **1つだけ性質が違う** ── こちらは行が「番号」を運ぶ。番号を取り違えると
+ * 押した人が見ていない退避が消えるため、`%gd` が読めない行は丸ごと落とす
+ * （並び順から数え直さない）ことをここで固定する。
+ */
+describe('readStashEntries', () => {
+  /** `%gd%x00%h%x00%at%x00%gs` の1行を組む。 */
+  function line(selector: string, shortHash: string, at: string, subject: string): string {
+    return [selector, shortHash, at, subject].join('\0')
+  }
+
+  it('番号・hash・日時・名乗りを読む', () => {
+    const output = [
+      line('stash@{0}', 'abc1234', '1756100000', 'WIP on main: 1a2b3c4 first'),
+      line('stash@{1}', 'def5678', '1756000000', 'WIP on feature/x: 9z8y7x6 second')
+    ].join('\n')
+
+    expect(readStashEntries(output, 100)).toEqual({
+      entries: [
+        {
+          index: 0,
+          shortHash: 'abc1234',
+          stashedAt: 1756100000 * 1000,
+          subject: 'WIP on main: 1a2b3c4 first'
+        },
+        {
+          index: 1,
+          shortHash: 'def5678',
+          stashedAt: 1756000000 * 1000,
+          subject: 'WIP on feature/x: 9z8y7x6 second'
+        }
+      ],
+      truncated: false
+    })
+  })
+
+  it('2桁以上の番号も読む', () => {
+    const output = line('stash@{12}', 'abc1234', '1756100000', 'WIP on main: x')
+
+    expect(readStashEntries(output, 100).entries[0]?.index).toBe(12)
+  })
+
+  it('名乗りに NUL 以外の何が入っていても、最後の欄として読む', () => {
+    // `%gs` には空白も `|` もコロンも入る。区切りを NUL にしてある理由そのもの。
+    const subject = 'WIP on main: 1a2b3c4 fix: a | b  c'
+    const output = line('stash@{0}', 'abc1234', '1756100000', subject)
+
+    expect(readStashEntries(output, 100).entries[0]?.subject).toBe(subject)
+  })
+
+  /**
+   * ここがこの関数の要点になる。
+   *
+   * 並び順から数えると、読めない行を1つ落とした瞬間にそれより後ろの番号が
+   * 全部ずれる ── ずれた番号で drop すると、画面に出ていない退避が消える。
+   */
+  it('番号が読めない行は落とし、他の行の番号はずらさない', () => {
+    const output = [
+      line('stash@{0}', 'abc1234', '1756100000', 'first'),
+      line('refs/stash@{1}', 'def5678', '1756000000', '接頭辞つきは読まない'),
+      line('stash@{2}', '0123abc', '1755000000', 'third')
+    ].join('\n')
+
+    const reading = readStashEntries(output, 100)
+
+    expect(reading.entries.map((entry) => entry.index)).toEqual([0, 2])
+    expect(reading.entries.map((entry) => entry.shortHash)).toEqual(['abc1234', '0123abc'])
+  })
+
+  it('欄が足りない行・hash の形をしていない行・日時が数でない行は落とす', () => {
+    const output = [
+      'stash@{0} abc1234',
+      line('stash@{1}', 'zzzzzzz', '1756100000', 'hash ではない'),
+      line('stash@{2}', 'abc1234', 'いつか', '日時が読めない'),
+      line('stash@{3}', 'abc1234', '1756100000', '読める')
+    ].join('\n')
+
+    const reading = readStashEntries(output, 100)
+
+    expect(reading.entries.map((entry) => entry.index)).toEqual([3])
+  })
+
+  it('名乗りが空の行は落とさない', () => {
+    // 空を捨てると、その1件だけ順番が飛ぶ（要約が空の commit と同じ判断）。
+    const output = line('stash@{0}', 'abc1234', '1756100000', '')
+
+    expect(readStashEntries(output, 100).entries).toEqual([
+      { index: 0, shortHash: 'abc1234', stashedAt: 1756100000 * 1000, subject: '' }
+    ])
+  })
+
+  it('上限で切り、切ったことを伝える', () => {
+    const output = Array.from({ length: 7 }, (_unused, index) =>
+      line(`stash@{${index}}`, 'abc1234', '1756100000', `entry ${index}`)
+    ).join('\n')
+
+    const reading = readStashEntries(output, 5)
+
+    expect(reading.entries).toHaveLength(5)
+    expect(reading.truncated).toBe(true)
+    expect(reading.entries.at(-1)?.index).toBe(4)
+  })
+
+  it('ちょうど上限のときは切らない', () => {
+    const output = Array.from({ length: 5 }, (_unused, index) =>
+      line(`stash@{${index}}`, 'abc1234', '1756100000', `entry ${index}`)
+    ).join('\n')
+
+    const reading = readStashEntries(output, 5)
+
+    expect(reading.entries).toHaveLength(5)
+    expect(reading.truncated).toBe(false)
+  })
+
+  it('空の出力は「1件も無い」として読む', () => {
+    expect(readStashEntries('', 100)).toEqual({ entries: [], truncated: false })
+    expect(readStashEntries('\n\n', 100)).toEqual({ entries: [], truncated: false })
+  })
+})
+
+/**
+ * `stash pop` が競合したかどうか（Session 3-8-15）。
+ *
+ * 見ているのが stdout なのは、pop の競合が **stderr に1文字も出ない**ため
+ * （実物で確かめてある。gitStashRepository.test.ts）── merge の結果は
+ * 失敗ではないので、そちらへ流れる。
+ */
+describe('readStashPopConflict', () => {
+  it('競合の見出しを読む', () => {
+    const output = [
+      'Auto-merging a.txt',
+      'CONFLICT (content): Merge conflict in a.txt',
+      'The stash entry is kept in case you need it again.'
+    ].join('\n')
+
+    expect(readStashPopConflict(output)).toBe(true)
+  })
+
+  it('add/add の競合も読む', () => {
+    expect(readStashPopConflict('CONFLICT (add/add): Merge conflict in a.txt')).toBe(true)
+  })
+
+  /**
+   * ここを取り違えてはいけない。
+   *
+   * 作業ツリーが上書きされるために**何も起きなかった**場合も、stdout には
+   * `The stash entry is kept ...` が出る ── そちらを合図にすると、
+   * 中身が戻っていないのに「戻ったが競合した」と出すことになる。
+   */
+  it('退避が残ったことだけを言っている出力は、競合として読まない', () => {
+    const output = [
+      'On branch main',
+      'Changes not staged for commit:',
+      '\tmodified:   a.txt',
+      '',
+      'The stash entry is kept in case you need it again.'
+    ].join('\n')
+
+    expect(readStashPopConflict(output)).toBe(false)
+  })
+
+  it('通ったときの出力は競合として読まない', () => {
+    expect(readStashPopConflict('')).toBe(false)
+    expect(readStashPopConflict('On branch main\nnothing to commit\n')).toBe(false)
   })
 })

@@ -30,6 +30,7 @@ import type {
   GetGitCommitDetailRequest,
   GetGitCommitFileDiffRequest,
   GetGitFileDiffRequest,
+  GitStashEntryRequest,
   RenameGitBranchRequest,
   StageGitChangesRequest,
   SwitchGitBranchRequest,
@@ -572,6 +573,51 @@ export interface GitApi {
    * remote branch へ向かう（shared/ipc/contracts/git.ts）。
    */
   readonly renameBranch: (request: RenameGitBranchRequest) => IpcInvokeResult<'git:rename-branch'>
+  /**
+   * 退避の一覧を尋ねる（Session 3-8-15）。
+   *
+   * **引数が無い。** 並べ替えも絞り込みも件数も渡せず、返るのは常に
+   * 「新しい方から上限まで」になる（shared/git/stash.ts）。退避はブランチに
+   * 属さないため、「このブランチのものだけ」という欄は在りようが無い。
+   *
+   * 呼ぶのは**退避の面を開いたとき**と、開いている間に `.git` が変わったとき
+   * （`onChanged`）の2つ ── 履歴とまったく同じ契機になる。閉じている間は
+   * 一度も取りに行かない。
+   */
+  readonly listStashes: () => IpcInvokeResult<'git:list-stashes'>
+  /**
+   * 作業ツリーの変更を退避する（Session 3-8-15）。
+   *
+   * **引数が無い。** 名前も、未追跡を含めるかも、対象の位置も渡せない
+   * （shared/ipc/contracts/git.ts）── 退避するのは常に「今の作業ツリーと
+   * index の全部」で、名乗りは git が付ける。
+   *
+   * 退避するものが無いとき（未追跡しか無い場合を含む）は git を動かさず
+   * `nothing-to-do` で返る ── `git stash push` は何も無くても **0 で終わる**
+   * ため、そのままでは「押したのに何も起きていない」を成功として返すことになる。
+   */
+  readonly stashPush: () => IpcInvokeResult<'git:stash-push'>
+  /**
+   * 指した退避を作業ツリーへ戻し、一覧から取り除く（Session 3-8-15）。
+   *
+   * 渡すのは「位置」と「その位置に居るはずの退避の hash」の2つで、
+   * **hash が合わなければ git を動かさずに断る**（`stash-not-found`）──
+   * 番号は次の瞬間には別のものを指しうる（shared/git/stash.ts）。
+   *
+   * 競合したときは `partly-applied` で返る（中身は戻っており、退避も一覧に
+   * 残っている）── `failed` に丸めると、押し直して二重に断られることになる。
+   */
+  readonly stashPop: (request: GitStashEntryRequest) => IpcInvokeResult<'git:stash-pop'>
+  /**
+   * 指した退避を捨てる（Session 3-8-15）。
+   *
+   * `stashPop` とまったく同じ2つを渡し、同じ突き合わせを通る。**戻す先が
+   * 無い操作**なので、押す前に確認を挟む（確認そのものは Renderer 側の話で、
+   * この要求に「確認したか」の欄は無い）。
+   *
+   * 一括で捨てる口（`git stash clear`）は持たない。
+   */
+  readonly stashDrop: (request: GitStashEntryRequest) => IpcInvokeResult<'git:stash-drop'>
   /**
    * 1行の差分を尋ねる（Session 3-8-9）。
    *

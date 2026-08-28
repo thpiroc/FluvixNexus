@@ -32,6 +32,9 @@ export type { GitBranchListing, GitLocalBranch } from './branch'
 export { GIT_COMMIT_HISTORY_LIMIT } from './history'
 export type { GitCommitHistory, GitCommitSummary } from './history'
 
+export { GIT_STASH_LIMIT } from './stash'
+export type { GitStashEntry, GitStashListing } from './stash'
+
 export { GIT_COMMIT_FILE_LIMIT } from './commitDetail'
 export type {
   GitCommitChangeKind,

@@ -398,6 +398,17 @@ function describeGitPartialStep(step: GitPartialOperationStep): string {
     */
     case 'github-repository':
       return 'GitHub の repository は作成されました。'
+
+    /*
+      退避を戻したら競合した（Session 3-8-15）。
+
+      **退避が残っていることを先に言う。** ここを言わないと、利用者は
+      「戻せなかった」と読んで押し直す ── 中身は既に作業ツリーへ
+      書き込まれているので、2回目は「上書きされる」として断られるだけになる
+      （shared/git/operation.ts の `stash-apply`）。
+    */
+    case 'stash-apply':
+      return '退避の内容は作業ツリーに戻りましたが、競合しました（退避は一覧に残しています）。'
   }
 }
 
@@ -432,8 +443,17 @@ function describeGitOperationFailureReason(reason: GitOperationFailureReason): s
     case 'no-remote':
       return 'このリポジトリには remote が設定されていません。「GitHub に公開」から作成するか、Terminal パネルで git remote add を実行してください。'
 
+    /*
+      Session 3-8-15 で、この分類を返す操作が2つになった（公開と、退避）。
+
+      3-8-10 では公開しか返さなかったため「先に Commit してから**公開して**
+      ください」と書けたが、退避も最初の commit の上にしか積めない
+      （main/git/gitStash.ts）── どちらでも次の一手は同じ「先に Commit する」
+      なので、そこだけを言う形へ直してある。`branch-not-found` を3つの操作に
+      当たる文へ直した（3-8-14）のと同じ判断になる。
+    */
     case 'no-commit':
-      return 'まだ Commit が1つもありません。先に Commit してから公開してください。'
+      return 'まだ Commit が1つもありません。先に Commit してからお試しください。'
 
     case 'github-cli-missing':
       return 'GitHub CLI が見つかりませんでした。インストールしてから、もう一度お試しください。'
@@ -505,6 +525,17 @@ function describeGitOperationFailureReason(reason: GitOperationFailureReason): s
     */
     case 'commit-not-found':
       return '指定したコミットが見つかりませんでした。履歴を開き直してご確認ください。'
+
+    /*
+      指した退避がそこに無かった（Session 3-8-15）。
+
+      「見つかりません」だけにしないのは、**ほとんどの場合そこに何かは在る**
+      ためになる ── 退避を1つ増やせば番号が1つずつずれ、押した位置には
+      別の退避が居る（shared/git/stash.ts）。Main はそれを hash で見分けて
+      git を動かさずに断っており、そのことが伝わる文にしてある。
+    */
+    case 'stash-not-found':
+      return '対象の退避が見つかりませんでした。一覧が変わっている可能性があります。開き直してご確認ください。'
 
     case 'unsupported-target':
       return 'この行はその操作の対象になりません。一覧を更新しました。'

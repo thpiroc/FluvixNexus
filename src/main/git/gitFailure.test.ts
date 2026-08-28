@@ -10,6 +10,9 @@ import {
   classifyGitOperationFailure,
   classifyGitPushFailure,
   classifyGitRenameBranchFailure,
+  classifyGitStashDropFailure,
+  classifyGitStashPopFailure,
+  classifyGitStashPushFailure,
   isNotARepositoryMessage,
   summarizeGitStderr
 } from './gitFailure'
@@ -695,5 +698,108 @@ describe('summarizeGitStderr', () => {
 
     expect(summary.length).toBeLessThanOrEqual(501)
     expect(summary.endsWith('…')).toBe(true)
+  })
+})
+
+/**
+ * 退避の失敗の分類（Session 3-8-15）。
+ *
+ * 文字列はどれも**実物の git（2.54）が返したもの**を写してある
+ * （gitStashRepository.test.ts が同じ状況を実際に作る）。
+ *
+ * 3つに分けてあるのは、起こりうることが重ならないため ── drop は作業ツリーに
+ * 1文字も触らないので `local-changes-blocked` が起こりえず、push に
+ * 「その退避が無い」は無い。1つの表にまとめると、互いに起こりえない分類を
+ * 持ち込むことになる（削除と rename で表を分けたのと同じ判断）。
+ */
+describe('classifyGitStashPushFailure', () => {
+  it('まだ commit が1つも無い', () => {
+    expect(classifyGitStashPushFailure('You do not have the initial commit yet')).toBe('no-commit')
+  })
+
+  it('index が握られていることは index-locked', () => {
+    const stderr = "fatal: Unable to create '/repo/.git/index.lock': File exists."
+
+    expect(classifyGitStashPushFailure(stderr)).toBe('index-locked')
+  })
+
+  it('知らない文章は unknown に倒す', () => {
+    expect(classifyGitStashPushFailure('error: could not write index')).toBe('unknown')
+  })
+})
+
+describe('classifyGitStashPopFailure', () => {
+  /**
+   * ここが pop でいちばん取り違えてはいけないところ。
+   *
+   * 上書きされるので**何も起きなかった**のと、戻ったうえで競合したのとでは、
+   * 次の一手がまるごと違う（前者は先に Commit する、後者は解決する）。
+   * 前者は stderr に出るので、この表が当てる。
+   */
+  it('作業ツリーが上書きされるため断られた', () => {
+    const stderr = [
+      'error: Your local changes to the following files would be overwritten by merge:',
+      '\ta.txt',
+      'Please commit your changes or stash them before you merge.',
+      'Aborting'
+    ].join('\n')
+
+    expect(classifyGitStashPopFailure(stderr)).toBe('local-changes-blocked')
+  })
+
+  it('退避が1件も無い', () => {
+    expect(classifyGitStashPopFailure('error: stash@{0} is not a valid reference')).toBe(
+      'stash-not-found'
+    )
+  })
+
+  it('範囲を超えた位置を指した', () => {
+    expect(classifyGitStashPopFailure("fatal: log for 'stash' only has 1 entries")).toBe(
+      'stash-not-found'
+    )
+  })
+
+  it('index が握られていることは index-locked', () => {
+    const stderr = "fatal: Unable to create '/repo/.git/index.lock': File exists."
+
+    expect(classifyGitStashPopFailure(stderr)).toBe('index-locked')
+  })
+
+  /**
+   * 競合したとき、git は stderr に1文字も書かない（実物で確かめてある）──
+   * したがってこの表からは `unknown` が返り、呼ぶ側が stdout を見て
+   * `partly-applied` へ倒す（main/git/gitStash.ts）。
+   */
+  it('競合したときは stderr が空になり、この表では分からない', () => {
+    expect(classifyGitStashPopFailure('')).toBe('unknown')
+  })
+})
+
+describe('classifyGitStashDropFailure', () => {
+  it('退避が1件も無い', () => {
+    expect(classifyGitStashDropFailure('error: stash@{0} is not a valid reference')).toBe(
+      'stash-not-found'
+    )
+  })
+
+  it('範囲を超えた位置を指した', () => {
+    expect(classifyGitStashDropFailure("fatal: log for 'stash' only has 2 entries")).toBe(
+      'stash-not-found'
+    )
+  })
+
+  /**
+   * drop は作業ツリーに触らないので、上書きの言い方は読まない ──
+   * 読んでしまうと、起こりえない分類が結果に混ざる形を残すことになる。
+   */
+  it('作業ツリーが上書きされるという言い方は、drop では読まない', () => {
+    const stderr = 'error: Your local changes to the following files would be overwritten by merge:'
+
+    expect(classifyGitStashPopFailure(stderr)).toBe('local-changes-blocked')
+    expect(classifyGitStashDropFailure(stderr)).toBe('unknown')
+  })
+
+  it('知らない文章は unknown に倒す', () => {
+    expect(classifyGitStashDropFailure('error: something entirely new')).toBe('unknown')
   })
 })

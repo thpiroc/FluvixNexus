@@ -9,6 +9,7 @@ import { GitDiscardConfirm } from './GitDiscardConfirm'
 import { GitHistoryOverlay } from './GitHistoryOverlay'
 import { GitHubPublishForm } from './GitHubPublishForm'
 import { GitInitConfirm } from './GitInitConfirm'
+import { GitStashOverlay } from './GitStashOverlay'
 import { DiffIcon, DiscardIcon, StageIcon, UnstageIcon } from './GitIcons'
 import {
   canDiscardGitChange,
@@ -39,6 +40,7 @@ import {
   type GitRowAction
 } from './gitChanges'
 import { canDiffGitChange, toGitDiffGroup } from './gitDiff'
+import { GIT_STASH_PUSH_OPERATION_KEY, toGitStashPushReadiness } from './gitStash'
 import { GITHUB_PUBLISH_OPERATION_KEY } from './githubPublish'
 import { describeGitRepositoryNotice } from './gitRepositoryMessage'
 import { useGitRepository } from './useGitRepository'
@@ -162,6 +164,13 @@ export function GitView(): JSX.Element {
     createBranchFromCommit,
     deleteBranch,
     renameBranch,
+    stashes,
+    stashOpen,
+    openStash,
+    closeStash,
+    stashPush,
+    stashPop,
+    stashDrop,
     githubStatus,
     refreshGitHubStatus,
     publishToGitHub
@@ -508,6 +517,27 @@ export function GitView(): JSX.Element {
         >
           履歴
         </button>
+        {/*
+          退避（Session 3-8-15）。
+
+          置き場所は履歴の**隣**にする。どちらも「①〜③の一続きの上に無い
+          もの」で、開くのは面になる ── 下に積むと、Commit 欄と Push の間に
+          「今の作業ではないもの」が挟まる（DESIGN.md 設計判断 2 が効くのは
+          ①変更 → ②メッセージ → ③Commit / Push の並びの上での話になる）。
+
+          **押せなくする条件を持たない。** 一覧を開くこと自体は読み取りで、
+          他の Git 操作が動いていても邪魔にならない（履歴と同じ）── 押せない
+          のは面の中の「作業ツリーを退避」の側で、そちらは gitStash.ts が決める。
+        */}
+        <button
+          type="button"
+          className="fx-git__stash-open"
+          onClick={openStash}
+          title="退避（stash）を見る"
+          aria-label="退避を見る"
+        >
+          退避
+        </button>
         <button
           type="button"
           className="fx-git__refresh"
@@ -677,6 +707,31 @@ export function GitView(): JSX.Element {
           onOpenFile={showCommitFileDiff}
           onCreateBranch={createBranchFromCommit}
           onClose={closeHistory}
+        />
+      ) : null}
+      {/*
+        退避（Session 3-8-15）。
+
+        履歴と**同じ場所に、同じ閉じ方で**重ねる（GitStashOverlay.tsx）。
+        2つが同時に開くことは起こりえない ── 面はバーごと覆うので、
+        どちらかが開いている間はもう一方のボタンを押せる場所が無い。
+        したがって履歴が差分に対して持っている `suspended` は要らない。
+
+        差分の**手前**に置いてあるのは、重なりの順を DOM の並びで決めるため
+        （どちらも `z-index: 20`。git.css）── ただし退避の面からは差分を
+        開けないので、実際に重なることは無い（退避の中身を見る口は
+        置いていない。docs/ARCHITECTURE.md §14.23）。
+      */}
+      {stashOpen ? (
+        <GitStashOverlay
+          list={stashes}
+          operating={operating}
+          pushing={pending.has(GIT_STASH_PUSH_OPERATION_KEY)}
+          pushReadiness={toGitStashPushReadiness(repository.changes, operating)}
+          onPush={stashPush}
+          onPop={stashPop}
+          onDrop={stashDrop}
+          onClose={closeStash}
         />
       ) : null}
       {/*

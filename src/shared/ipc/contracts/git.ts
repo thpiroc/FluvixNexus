@@ -9,6 +9,7 @@ import type {
   GitOperationOutcome,
   GitRepositoryState,
   GitStageTarget,
+  GitStashListing,
   GitUnstageTarget
 } from '../../git'
 
@@ -424,6 +425,77 @@ export interface RenameGitBranchRequest {
 }
 
 /**
+ * 退避の一覧の応答（Session 3-8-15）。
+ *
+ * ## 相乗りさせていないのは、これで3つめ
+ *
+ * ブランチ（`ListGitBranchesResponse`）・履歴（`ListGitCommitsResponse`）と
+ * まったく同じ理由で、`git:get-repository` に載せない ── **見られている時間が
+ * 違う。** 変更ファイルの一覧はパネルが開いている間ずっと出ているが、
+ * 退避の一覧は面を開いている間だけになる。相乗りさせると、ファイルを
+ * 保存するたびに `git stash list` を1回起動することになる。
+ *
+ * ## 開いている間は追いつく（履歴と同じ側）
+ *
+ * ブランチの一覧は「開いた瞬間に取り直して、閉じるまでそのまま」だったが、
+ * 退避はそうしない ── 端末で `git stash` を打つことがあり、そのとき
+ * 出たままの一覧は「さっき避けたものが無い」という形で嘘をつく。
+ * しかも退避では**その嘘が押し間違いに直結する**（番号がずれる。
+ * shared/git/stash.ts）ため、履歴よりさらに追いつく必要が強い。
+ */
+export interface ListGitStashesResponse {
+  /** どの Workspace について答えたか。未選択なら null（他の応答と同じ理由）。 */
+  readonly workspaceId: string | null
+  /** 退避の一覧、またはそれを出せない理由（shared/git/stash.ts）。 */
+  readonly listing: GitStashListing
+}
+
+/**
+ * 指した退避を1件だけ相手にする要求（Session 3-8-15）。
+ *
+ * ## 1つの要求で「位置」と「同一性」を運ぶ、初めての形
+ *
+ * 3-8-14 の rename は1要求に2つの値（元の名前と新しい名前）を運んだが、
+ * どちらも**指す先が違うもの**だった。こちらの2つは**同じ1件を指している** ──
+ * `index` が「どこに居るか」、`shortHash` が「それは何か」になる。
+ *
+ * 分けているのは、`index` が動くためになる（shared/git/stash.ts）。一覧を
+ * 出してから押すまでの間に端末で `git stash` を1回打たれると、`stash@{1}` は
+ * 別の退避を指す ── **番号だけの要求は、その瞬間に嘘になる。**
+ *
+ * Main は git を動かす前に `stash@{index}` を解いて `shortHash` と
+ * 突き合わせ、違えば `stash-not-found` として断る（main/git/gitStash.ts）。
+ * 3-8-14 が `--force` を立てる前に「相手は自分自身か」を確かめたのと同じ構えで、
+ * **戻せない操作の直前にもう一度だけ確かめる**ことになる。
+ *
+ * ## pop と drop で同じ型を使う
+ *
+ * 指し方がまったく同じで、片方にだけ足したくなる欄が無いため
+ * （`--index` も `-q` も欄そのものを作っていない）。チャンネルは
+ * 「操作ごとに1本ずつ」の決めごとどおり分けてある ── 1本にして
+ * 「捨てるかどうか」を引数に持たせると、いつか片方の意味でもう片方が動く。
+ */
+export interface GitStashEntryRequest {
+  /**
+   * `stash@{N}` の N。
+   *
+   * 数で渡す ── 文字列（`stash@{1}`）で渡すと、境界を越えた文字列を
+   * そのまま git の ref として読ませることになる。整数なら、ハンドラが
+   * 「0 以上・上限未満の安全な整数か」だけを見れば済み、`stash@{...}` の形を
+   * 組み立てるのは Main の表（main/git/gitCommands.ts）に閉じる。
+   */
+  readonly index: number
+  /**
+   * その位置に居るはずの退避の短い hash（一覧の行が持っていたもの）。
+   *
+   * 通る形は commit の詳細・ブランチの始点とまったく同じ 16進 4〜40 桁で、
+   * 確かめる関数も同じ `normalizeGitCommitHash` になる ── **退避も commit** で、
+   * 「画面に出ている行を指すための欄」という性格も変わらない（§14.20）。
+   */
+  readonly shortHash: string
+}
+
+/**
  * 1行の差分を尋ねる要求（Session 3-8-9）。
  *
  * ## 載るのは「どの行か」だけ
@@ -771,6 +843,94 @@ export interface GitIpcContract {
    */
   'git:rename-branch': {
     request: RenameGitBranchRequest
+    response: GitOperationResponse
+  }
+  /**
+   * 退避の一覧を尋ねる（Session 3-8-15）。
+   *
+   * 要求は `void` ── どのブランチのものを、いくつ、という指定は1つも載らない
+   * （`git:list-branches` / `git:list-commits` と同じ形）。返るのは常に
+   * 「今の Workspace の退避を、新しい方から上限まで」になる。
+   *
+   * **退避はブランチに属さない。** `refs/stash` は1つで、どのブランチで
+   * 避けたものも同じ列に並ぶ ── したがって「このブランチの退避だけ」という
+   * 欄は、作らないのではなく**在りようが無い**ことになる。
+   */
+  'git:list-stashes': {
+    request: void
+    response: ListGitStashesResponse
+  }
+  /**
+   * 作業ツリーの変更を退避する（Session 3-8-15）。
+   *
+   * ## 要求は `void`
+   *
+   * **名前（`-m`）も、何を含めるか（`-u` / `-a`）も、対象の位置（pathspec）も
+   * 渡す欄が無い。** 退避するのは常に「今の作業ツリーと index の全部」で、
+   * 名乗りは git が付ける（`WIP on <branch>: ...`）── 3-8-10 で初期ブランチ名を
+   * 素の `git init` に任せたのと同じ線になる。
+   *
+   * とくに `-u`（未追跡も含める）を渡さないのは、3-8-9 の判断と繋がっている ──
+   * あちらは「未追跡のフォルダ1件の破棄」を、1行に見えて中身が数万件に
+   * なりうるとして断った。退避も同じ形で作業ツリーから消す操作にあたる。
+   *
+   * ## 確認を挟まない
+   *
+   * 破棄（3-8-9）とブランチの削除（3-8-14）に確認が要るのは、**戻す先が
+   * 無い**ためだった。退避は戻す先そのもの ── 押した内容は一覧に残り、
+   * その場で pop できる（§12.6 の「確認を出すこと自体が目的ではない」）。
+   */
+  'git:stash-push': {
+    request: void
+    response: GitOperationResponse
+  }
+  /**
+   * 指した退避を作業ツリーへ戻し、一覧から取り除く（Session 3-8-15）。
+   *
+   * ## `apply`（残したまま戻す）の口は持たない
+   *
+   * 「戻す」の入口を2つにしない ── 押した後に一覧へ残るかどうかが
+   * ボタン次第で変わると、**どちらを押したかを覚えていないと今の状態が
+   * 分からない。** 戻さずに残しておきたいなら、そもそも押さなければよい。
+   *
+   * ## `--index` は渡さない
+   *
+   * 退避したときに index に載っていたものは、戻ると **unstaged** として並ぶ
+   * （実物で確かめてある）。段まで復元する `--index` は競合したときの
+   * 振る舞いが増えるだけで、Stage は一覧の `＋` を押せば1回で戻せる。
+   *
+   * ## 競合したら `partly-applied` で返る
+   *
+   * `pop` は merge なので、中身が作業ツリーへ**書き込まれたうえで**競合しうる。
+   * そのとき git は退避を捨てず、一覧に残す ── 結末は `failed` ではなく
+   * `partly-applied`（`completed: 'stash-apply'`）になる
+   * （shared/git/operation.ts）。
+   */
+  'git:stash-pop': {
+    request: GitStashEntryRequest
+    response: GitOperationResponse
+  }
+  /**
+   * 指した退避を捨てる（Session 3-8-15）。
+   *
+   * ## Git で確認を挟む、3つめ
+   *
+   * 1つめは破棄（3-8-9）、2つめはブランチの削除（3-8-14）。ここで消えるのは
+   * **作業ツリーに戻していない中身**そのもので、3つの中でいちばん重い ──
+   * 削除は「マージ済みのブランチ」しか通らないので commit は残るが、
+   * 捨てた退避の中身はどのブランチからも辿れない。
+   *
+   * それでも `IpcResult` の失敗にせず結末として返すのは他と同じで、
+   * 確認は Renderer の中の話になる ── **要求に「確認したか」の欄は無い**
+   * （3-8-14 と同じ判断。載せると、載せなければ確認を飛ばせる形になる）。
+   *
+   * ## 一括で捨てる口（`clear`）は無い
+   *
+   * 渡せるのは1件で、複数を渡せる欄は作らない（Stage の「任意の複数」・
+   * ブランチの一括削除と同じ線）。
+   */
+  'git:stash-drop': {
+    request: GitStashEntryRequest
     response: GitOperationResponse
   }
   /**

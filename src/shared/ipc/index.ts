@@ -93,8 +93,10 @@ export type {
   GetGitRepositoryResponse,
   GitIpcContract,
   GitOperationResponse,
+  GitStashEntryRequest,
   ListGitBranchesResponse,
   ListGitCommitsResponse,
+  ListGitStashesResponse,
   StageGitChangesRequest,
   SwitchGitBranchRequest,
   UnstageGitChangesRequest

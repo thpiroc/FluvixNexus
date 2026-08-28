@@ -745,6 +745,148 @@ export function classifyGitRenameBranchFailure(stderr: string): GitOperationFail
  */
 const RENAME_BRANCH_NOT_FOUND_NEEDLES: readonly string[] = ['no branch named', 'not found']
 
+/* ------------------------------------------- 退避（Session 3-8-15） */
+
+/**
+ * 退避（`git stash push`）の失敗の分類（Session 3-8-15）。
+ *
+ * ## 表を分ける理由は 3-8-14 と同じ
+ *
+ * 動かしているコマンドが違う以上、返ってくる言い方も違う ── ブランチ用の表を
+ * 通すと、退避では起こりえない分類（`branch-exists` など）が結果に混ざる
+ * 形を残すことになる。
+ *
+ * ## ここへ落ちるものは、ほとんど残っていない
+ *
+ * 退避できない理由の大半は**動かす前に分かる**（競合が残っている・
+ * 退避するものが無い・commit が1つも無い）ので、呼ぶ側が先に分けてある
+ * （main/git/gitStash.ts）。それでも `no-commit` を見るのは、
+ * `hasGitHeadCommit` が答えを出せなかった（null）ときにここへ来るためで、
+ * pathspec に `--` と `--literal-pathspecs` を両方掛けているのと同じ
+ * 二重の備えにあたる。
+ */
+export function classifyGitStashPushFailure(stderr: string): GitOperationFailureReason {
+  const text = stderr.toLowerCase()
+
+  if (text.includes('index.lock')) {
+    return 'index-locked'
+  }
+
+  if (NO_INITIAL_COMMIT_NEEDLES.some((needle) => text.includes(needle))) {
+    return 'no-commit'
+  }
+
+  if (text.includes('permission denied') || text.includes('access is denied')) {
+    return 'permission-denied'
+  }
+
+  return 'unknown'
+}
+
+/**
+ * まだ1つも commit が無い。
+ *
+ * `git stash push` の言い方は `You do not have the initial commit yet` で、
+ * 公開（`publishRepository.ts`）が同じ分類を返すときとは経路が違う ──
+ * 同じ結末に落ちることと、同じ表から読むことは別の話になる（3-8-14 で
+ * 「見つからない」の表を3つに分けたのと同じ判断）。
+ */
+const NO_INITIAL_COMMIT_NEEDLES: readonly string[] = ['do not have the initial commit']
+
+/**
+ * 退避を戻す（`git stash pop`）の失敗の分類（Session 3-8-15）。
+ *
+ * ## 競合はここへ来ない
+ *
+ * pop が競合したときの知らせは **stdout に出て、stderr は空になる**
+ * （実物で確かめてある。main/git/gitOutput.ts の `readStashPopConflict`）。
+ * しかもそれは失敗ではなく**途中まで通った**結末にあたるため、
+ * 分類ではなく `partly-applied` として組み立てる ── 呼ぶ側が
+ * 「stderr の分類が当たらず、stdout が競合と言っている」ときだけ
+ * そちらへ倒す（main/git/gitStash.ts）。
+ *
+ * ## 順番に意味がある
+ *
+ * | 見る順 | 断り方                                   | 分類                    | 次の一手                 |
+ * | ------ | ---------------------------------------- | ----------------------- | ------------------------ |
+ * | 1      | `index.lock`                             | `index-locked`          | 相手を終えてやり直す     |
+ * | 2      | 作業ツリーが上書きされる                 | `local-changes-blocked` | Commit するか避けておく  |
+ * | 3      | その退避が無い / 範囲外                  | `stash-not-found`       | 一覧を開き直す           |
+ *
+ * **2 を 3 より先に見る。** git は上書きを断るときにも退避の名前に触れる
+ * ことがあり、順番を逆にすると「退避が見つからない」と案内してしまう ──
+ * 直す場所がまったく違う（3-8-6 が `local-changes-blocked` を
+ * `branch-not-found` より先に見ているのと同じ形）。
+ */
+export function classifyGitStashPopFailure(stderr: string): GitOperationFailureReason {
+  const text = stderr.toLowerCase()
+
+  if (text.includes('index.lock')) {
+    return 'index-locked'
+  }
+
+  if (LOCAL_CHANGES_NEEDLES.some((needle) => text.includes(needle))) {
+    return 'local-changes-blocked'
+  }
+
+  if (STASH_NOT_FOUND_NEEDLES.some((needle) => text.includes(needle))) {
+    return 'stash-not-found'
+  }
+
+  if (text.includes('permission denied') || text.includes('access is denied')) {
+    return 'permission-denied'
+  }
+
+  return 'unknown'
+}
+
+/**
+ * 退避を捨てる（`git stash drop`）の失敗の分類（Session 3-8-15）。
+ *
+ * pop と表を分けてあるのは、**起こりうることが重ならない**ため ──
+ * drop は作業ツリーに1文字も触らないので、`local-changes-blocked` は
+ * 起こりえない（削除と rename で表を分けたのと同じ判断。§14.22）。
+ *
+ * 大半は**ここへ来る前に**分かれる ── 押した瞬間に位置を解いて hash と
+ * 突き合わせてあり（main/git/gitStash.ts）、そこで合わなければ git は
+ * 動かない。ここへ落ちるのは、その突き合わせと drop の間に消えた場合になる。
+ */
+export function classifyGitStashDropFailure(stderr: string): GitOperationFailureReason {
+  const text = stderr.toLowerCase()
+
+  if (text.includes('index.lock')) {
+    return 'index-locked'
+  }
+
+  if (STASH_NOT_FOUND_NEEDLES.some((needle) => text.includes(needle))) {
+    return 'stash-not-found'
+  }
+
+  if (text.includes('permission denied') || text.includes('access is denied')) {
+    return 'permission-denied'
+  }
+
+  return 'unknown'
+}
+
+/**
+ * 指した退避が、もうそこに無い。
+ *
+ * git の言い方は2通りあり、**どちらも実物で確かめてある。**
+ *
+ *   退避が1件も無い … `error: stash@{0} is not a valid reference`（終了コード 1）
+ *   範囲を超えた    … `fatal: log for 'stash' only has 1 entries`（終了コード 128）
+ *
+ * ブランチや commit の「見つからない」の表と**書き写して分けてある** ──
+ * 片方に言い方が増えた日に、もう片方の分類まで黙って動く形にしない
+ * （3-8-13 / 3-8-14 と同じ判断）。
+ */
+const STASH_NOT_FOUND_NEEDLES: readonly string[] = [
+  'is not a valid reference',
+  "log for 'stash' only has",
+  'no stash entries found'
+]
+
 /**
  * stderr が「ここはリポジトリではない」と言っているか。
  *

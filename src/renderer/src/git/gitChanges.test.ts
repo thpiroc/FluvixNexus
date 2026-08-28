@@ -326,6 +326,8 @@ describe('describeGitOperationFailure', () => {
     'branch-checked-out',
     'branch-not-found',
     'commit-not-found',
+    'stash-not-found',
+    'no-commit',
     'unsupported-target',
     'target-busy',
     'index-locked',
@@ -379,6 +381,36 @@ describe('describeGitOperationFailure', () => {
       expect(partly).not.toBe(failed)
       // 理由そのものは同じものを使う（2箇所に文言を書かない）。
       expect(partly).toContain(failed)
+    })
+  })
+
+  /**
+   * Session 3-8-15 で3つめの `partly-applied` が増えた。
+   *
+   * ここで取り違えてはいけないのは、**退避が残っていること**になる ──
+   * 「戻せなかった」と読ませると押し直され、中身は既に作業ツリーへ
+   * 書き込まれているので、2回目は「上書きされる」として断られるだけになる。
+   */
+  describe('partly-applied（退避は戻ったが競合した）', () => {
+    it('退避が一覧に残っていることを先に伝える', () => {
+      const message = describeGitOperationFailure({
+        status: 'partly-applied',
+        completed: 'stash-apply',
+        reason: 'unresolved-conflicts'
+      })
+
+      expect(message.indexOf('退避の内容は作業ツリーに戻りました')).toBe(0)
+      expect(message).toContain('退避は一覧に残しています')
+    })
+
+    it('Commit の前半とは違う文言になる', () => {
+      const stash = describeGitOperationFailure({
+        status: 'partly-applied',
+        completed: 'stash-apply',
+        reason: 'unresolved-conflicts'
+      })
+
+      expect(stash).not.toContain('Commit は完了')
     })
   })
 })

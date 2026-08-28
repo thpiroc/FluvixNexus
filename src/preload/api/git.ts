@@ -52,6 +52,15 @@ import { subscribeIpcEvent } from '../ipc/subscribe'
  * Files / ブランチ名と同じで、**Preload は Renderer と同じ側から差し替えられうる**
  * 前提に立つため。
  *
+ * ## Session 3-8-15 で初めて「数」が載っても、線は動かない
+ *
+ * 退避を戻す / 捨てる（`stashPop` / `stashDrop`）の要求には、位置（`stash@{N}`
+ * の N）が数として載る ── ここまで境界を渡ってきた値は全部文字列だった。
+ * それでも**ここは素通しの経路のまま**になる。数の範囲を確かめるのは
+ * Main のハンドラで、`stash@{N}` を組み立てるのも Main の表になる
+ * （main/git/gitCommands.ts）。一覧（`listStashes`）と退避（`stashPush`）は
+ * 要求が `void` に戻る。
+ *
  * ## Session 3-8-10 で足した `init` も、渡す値が1つも無い
  *
  * 初期化の要求は `void` ── どこを初期化するかも初期ブランチ名も渡せない。
@@ -82,6 +91,10 @@ export const gitApi: GitApi = {
   createBranch: (request) => invokeIpc(IPC_CHANNELS.GIT_CREATE_BRANCH, request),
   deleteBranch: (request) => invokeIpc(IPC_CHANNELS.GIT_DELETE_BRANCH, request),
   renameBranch: (request) => invokeIpc(IPC_CHANNELS.GIT_RENAME_BRANCH, request),
+  listStashes: () => invokeIpc(IPC_CHANNELS.GIT_LIST_STASHES),
+  stashPush: () => invokeIpc(IPC_CHANNELS.GIT_STASH_PUSH),
+  stashPop: (request) => invokeIpc(IPC_CHANNELS.GIT_STASH_POP, request),
+  stashDrop: (request) => invokeIpc(IPC_CHANNELS.GIT_STASH_DROP, request),
   getFileDiff: (request) => invokeIpc(IPC_CHANNELS.GIT_GET_FILE_DIFF, request),
   discard: (request) => invokeIpc(IPC_CHANNELS.GIT_DISCARD, request),
   onChanged: (listener) => subscribeIpcEvent(IPC_EVENT_CHANNELS.GIT_CHANGED, listener)

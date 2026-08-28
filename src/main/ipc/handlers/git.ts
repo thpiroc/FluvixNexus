@@ -5,6 +5,7 @@ import {
   type GitDiscardTarget,
   type GitStageTarget
 } from '@shared/git'
+import { GIT_STASH_LIMIT } from '@shared/git'
 import {
   IPC_CHANNELS,
   type GetGitCommitDetailResponse,
@@ -13,7 +14,8 @@ import {
   type GetGitRepositoryResponse,
   type GitOperationResponse,
   type ListGitBranchesResponse,
-  type ListGitCommitsResponse
+  type ListGitCommitsResponse,
+  type ListGitStashesResponse
 } from '@shared/ipc'
 import {
   applyGitCreateBranch,
@@ -32,6 +34,12 @@ import { applyGitInit } from '../../git/gitInit'
 import { normalizeGitPathspec } from '../../git/gitPathspec'
 import { describeGitRepository } from '../../git/gitRepository'
 import { applyGitStage, applyGitUnstage } from '../../git/gitStage'
+import {
+  applyGitStashDrop,
+  applyGitStashPop,
+  applyGitStashPush,
+  listGitStashes
+} from '../../git/gitStash'
 import { applyGitCommitAndPush, applyGitPull, applyGitPush } from '../../git/gitSync'
 import { invalidRequest } from '../errors'
 import { handleIpc } from '../registry'
@@ -330,6 +338,49 @@ function branchStartPointField(request: unknown): string | null {
   return hash
 }
 
+/**
+ * 退避1件の位置（Session 3-8-15）。
+ *
+ * ## ここだけ、数を確かめる
+ *
+ * ここまで確かめてきたのは全部**文字列の形**だった（pathspec・メッセージ・
+ * ブランチ名・hash）。退避の位置は数で届く ── `stash@{N}` を組み立てるのは
+ * Main の表で（main/git/gitCommands.ts）、その N がここを通る。
+ *
+ * 見るのは3つ。
+ *
+ *   数であること   … 文字列の `'0'` も、`NaN` も通さない
+ *   安全な整数     … 小数も、桁あふれした数も通さない
+ *   0 以上・上限未満 … 一覧に出せる範囲（`GIT_STASH_LIMIT`）を超えた位置は、
+ *                      そもそも画面に出ていない
+ *
+ * この3つを通れば、`stash@{N}` に**10進の数字以外の文字が入る余地が無い** ──
+ * それが「値を他の文字と繋いで引数にしない」という線（§14.20）に対して、
+ * ここだけ組み立てを許している根拠になる。
+ *
+ * ## 位置だけでは足りない
+ *
+ * `stash@{1}` は名前ではなく上から数えた位置で、次の瞬間には別のものを
+ * 指しうる（shared/git/stash.ts）── したがって要求には hash も載り、
+ * Main が押された瞬間に突き合わせる（main/git/gitStash.ts）。
+ * ここで確かめるのは形だけで、**そこに何が居るかは確かめない**（それは
+ * リポジトリの中身を見ないと決まらない、という 3-8-6 からの分担のまま）。
+ */
+function stashIndexField(request: unknown): number {
+  const index = field(request, 'index')
+
+  if (
+    typeof index !== 'number' ||
+    !Number.isSafeInteger(index) ||
+    index < 0 ||
+    index >= GIT_STASH_LIMIT
+  ) {
+    throw invalidRequest('the stash index is missing or not a listable position.')
+  }
+
+  return index
+}
+
 export function registerGitHandlers(): void {
   handleIpc(IPC_CHANNELS.GIT_GET_REPOSITORY, async (): Promise<GetGitRepositoryResponse> => {
     return await describeGitRepository()
@@ -493,6 +544,43 @@ export function registerGitHandlers(): void {
 
   handleIpc(IPC_CHANNELS.GIT_RENAME_BRANCH, async (request): Promise<GitOperationResponse> => {
     return await applyGitRenameBranch(branchNameField(request), branchNewNameField(request))
+  })
+
+  /*
+    退避（Session 3-8-15）。
+
+    一覧の要求は `void` ── 並べ替えも絞り込みも件数も届かないため、
+    ここで確かめるべき値そのものが無い（`git:list-branches` /
+    `git:list-commits` と同じ形）。退避そのものの要求も `void` で、
+    名前（`-m`）も `-u` も pathspec も欄を作っていない。
+
+    値が載るのは pop / drop の2本だけで、載るのは**位置と hash の2つ**になる。
+    hash を通すのは commit の詳細・ブランチの始点とまったく同じ
+    `commitHashField`（`normalizeGitCommitHash`）── **退避も commit** で、
+    入口を分けると「詳細では開けないが、退避としては指せる」hash が生まれる。
+
+    位置の側は初めて**数**を確かめる欄になる（`stashIndexField`）。
+    その2つを突き合わせるのは Main の domain で、ここは形だけを見る ──
+    「そこに何が居るか」はリポジトリの中身を見ないと決まらない
+    （3-8-6 からの分担のまま）。
+
+    drop の要求に「確認したか」の欄は無い ── 確認を通した証を引数に載せると、
+    載せなければ確認を飛ばせる形になる（3-8-14 と同じ）。
+  */
+  handleIpc(IPC_CHANNELS.GIT_LIST_STASHES, async (): Promise<ListGitStashesResponse> => {
+    return await listGitStashes()
+  })
+
+  handleIpc(IPC_CHANNELS.GIT_STASH_PUSH, async (): Promise<GitOperationResponse> => {
+    return await applyGitStashPush()
+  })
+
+  handleIpc(IPC_CHANNELS.GIT_STASH_POP, async (request): Promise<GitOperationResponse> => {
+    return await applyGitStashPop(stashIndexField(request), commitHashField(request))
+  })
+
+  handleIpc(IPC_CHANNELS.GIT_STASH_DROP, async (request): Promise<GitOperationResponse> => {
+    return await applyGitStashDrop(stashIndexField(request), commitHashField(request))
   })
 
   /*

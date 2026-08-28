@@ -2007,3 +2007,385 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ------------------------------------------- 退避（Session 3-8-15） */
+
+/*
+ * バーの「退避」（履歴の隣）。
+ *
+ * 形は `.fx-git__history-open` とまったく同じにしてある ── 隣り合う2つが
+ * 違う大きさで並ぶ理由が無い。
+ */
+.fx-git__stash-open {
+  flex: 0 0 auto;
+  padding: 0 var(--fx-space-2);
+  color: var(--fx-color-text-muted);
+  background: none;
+  border: none;
+  font: inherit;
+  line-height: var(--fx-bar-height);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.fx-git__stash-open:hover {
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-git__stash-open:focus-visible {
+  outline: 1px solid var(--fx-color-border-strong);
+  outline-offset: -1px;
+}
+
+/*
+ * 面そのもの。
+ *
+ * 大きさも重なりも履歴・差分の面とまったく同じにしてある ── 同じ場所に出て
+ * 同じ閉じ方をするものが、違う大きさで出る理由が無い。
+ */
+.fx-git__stash-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--fx-color-surface);
+}
+
+/* 面の上のバー（履歴・差分の面と同じ高さ・同じ並び）。 */
+.fx-git__stash-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--fx-space-2);
+  padding: var(--fx-space-2) var(--fx-space-3);
+  border-bottom: 1px solid var(--fx-color-border);
+}
+
+.fx-git__stash-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fx-color-text-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 件数（履歴・変更の一覧の見出しと同じ扱い）。 */
+.fx-git__stash-count {
+  flex: 0 0 auto;
+  color: var(--fx-color-text-faint);
+}
+
+/* 閉じる（Esc でも閉じる）。履歴の × と同じ形。 */
+.fx-git__stash-close {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 20px;
+  padding: 0;
+  color: var(--fx-color-text-muted);
+  background: none;
+  border: none;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.fx-git__stash-close:hover {
+  color: var(--fx-color-text-strong);
+}
+
+.fx-git__stash-close:focus-visible {
+  outline: 1px solid var(--fx-color-border-strong);
+  outline-offset: -1px;
+}
+
+/* 一覧の器。伸びるのはここだけで、下の「退避する」は常に見えるところに在る。 */
+.fx-git__stash-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* 一覧の代わりに出す一言（取得中・失敗・1件も無い）。 */
+.fx-git__stash-notice {
+  margin: 0;
+  padding: var(--fx-space-2) var(--fx-space-3);
+  color: var(--fx-color-text-muted);
+  line-height: 1.5;
+}
+
+/* 一覧が切れていることの断り（一覧の下）。履歴と同じ見た目。 */
+.fx-git__stash-truncated {
+  flex: none;
+  margin: 0;
+  padding: var(--fx-space-1) var(--fx-space-3);
+  border-top: 1px solid var(--fx-color-border);
+  color: var(--fx-color-text-faint);
+  font-size: var(--fx-font-size-sm);
+  line-height: 1.5;
+}
+
+.fx-git__stashes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/*
+ * 退避1件。
+ *
+ * 行そのものは押せない（開く先が無い）ので、履歴の行と違って hover で
+ * 色を変えない ── 押せないものが押せそうに見えることが無い。
+ */
+.fx-git__stash-entry {
+  border-bottom: 1px solid var(--fx-color-border);
+}
+
+.fx-git__stash-row {
+  display: flex;
+  align-items: center;
+  gap: var(--fx-space-2);
+  padding: var(--fx-space-1) var(--fx-space-2) var(--fx-space-1) var(--fx-space-3);
+}
+
+/*
+ * 名乗りと日時。
+ *
+ * 履歴の行と違って1段にしてある ── 出すものが2つしか無く、2段にすると
+ * 行の高さだけが増える。
+ */
+.fx-git__stash-main {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: baseline;
+  gap: var(--fx-space-2);
+  min-width: 0;
+}
+
+.fx-git__stash-subject {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fx-color-text-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 名乗りが空だった行（薄くして、読み込みに失敗した行と見分ける）。 */
+.fx-git__stash-subject[data-empty='true'] {
+  color: var(--fx-color-text-faint);
+}
+
+.fx-git__stash-time {
+  flex: 0 0 auto;
+  color: var(--fx-color-text-faint);
+  font-size: var(--fx-font-size-sm);
+  white-space: nowrap;
+}
+
+/*
+ * 戻す。
+ *
+ * この面へ来た理由そのものなので、記号ではなく言葉にしてある ──
+ * 隣の ✕ とは形も大きさも違ってよい（押してよいものと、押してはいけない
+ * ものを同じ形にしない）。
+ */
+.fx-git__stash-pop {
+  flex: 0 0 auto;
+  padding: 0 var(--fx-space-2);
+  color: var(--fx-color-text-muted);
+  background: none;
+  border: 1px solid var(--fx-color-border);
+  border-radius: 3px;
+  font: inherit;
+  font-size: var(--fx-font-size-sm);
+  line-height: 20px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.fx-git__stash-pop:hover:not(:disabled) {
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-git__stash-pop:focus-visible {
+  outline: 1px solid var(--fx-color-border-strong);
+  outline-offset: 1px;
+}
+
+.fx-git__stash-pop:disabled {
+  color: var(--fx-color-text-faint);
+  opacity: 0.6;
+  cursor: default;
+}
+
+/*
+ * 捨てる（✕）。
+ *
+ * 大きさと色はブランチの一覧の `.fx-git__branch-action` と揃えてある ──
+ * 同じパネルの中で「行の右端に付く操作」の形が2つに割れないようにするため。
+ */
+.fx-git__stash-action {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  color: var(--fx-color-text-faint);
+  background: none;
+  border: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.fx-git__stash-row:hover .fx-git__stash-action:not(:disabled) {
+  color: var(--fx-color-text-muted);
+}
+
+.fx-git__stash-action:hover:not(:disabled) {
+  color: var(--fx-color-danger);
+}
+
+.fx-git__stash-action:focus-visible {
+  outline: 1px solid var(--fx-color-border-strong);
+  outline-offset: -1px;
+}
+
+.fx-git__stash-action:disabled {
+  color: var(--fx-color-text-faint);
+  opacity: 0.4;
+  cursor: default;
+}
+
+/*
+ * 行の下に開く「捨てる」の確認。
+ *
+ * 地を1段沈めてあるのは、一覧の行と**同じ高さに見えない**ようにするため ──
+ * 縦に読んでいる途中で、確認が退避の1件として読まれると混ざる
+ * （ブランチの面の確認と同じ形）。
+ */
+.fx-git__stash-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-1);
+  padding: var(--fx-space-2) var(--fx-space-3);
+  border-top: 1px solid var(--fx-color-border);
+  background: var(--fx-color-surface-sunken);
+}
+
+.fx-git__stash-confirm-message {
+  margin: 0;
+  color: var(--fx-color-text-strong);
+  line-height: 1.5;
+}
+
+.fx-git__stash-confirm-note {
+  margin: 0;
+  color: var(--fx-color-text-muted);
+  font-size: var(--fx-font-size-sm);
+  line-height: 1.5;
+}
+
+/* 「やめる」を左、「捨てる」を右（破棄・ブランチの削除とまったく同じ並び）。 */
+.fx-git__stash-confirm-actions {
+  display: flex;
+  gap: var(--fx-space-2);
+  justify-content: flex-end;
+  margin-top: var(--fx-space-1);
+}
+
+.fx-git__stash-confirm-button {
+  padding: var(--fx-space-1) var(--fx-space-3);
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface-raised);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.fx-git__stash-confirm-button:hover:not(:disabled) {
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-git__stash-confirm-button:focus-visible {
+  outline: 1px solid var(--fx-color-border-strong);
+  outline-offset: 1px;
+}
+
+.fx-git__stash-confirm-button:disabled {
+  color: var(--fx-color-text-faint);
+  cursor: default;
+}
+
+/* 消す側であることを色でも言う（破棄・ブランチの削除と同じ）。 */
+.fx-git__stash-confirm-button[data-variant='danger'] {
+  color: var(--fx-color-danger);
+  border-color: var(--fx-color-danger);
+}
+
+/*
+ * 新しく避ける（面の下）。
+ *
+ * ブランチの面が一覧の下に作成欄を置いたのと同じ位置になる ── 一覧が
+ * 伸びてもここは縮まない。
+ */
+.fx-git__stash-push {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: var(--fx-space-1);
+  padding: var(--fx-space-2) var(--fx-space-3);
+  border-top: 1px solid var(--fx-color-border);
+}
+
+.fx-git__stash-push-button {
+  padding: var(--fx-space-1) var(--fx-space-3);
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface-raised);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.fx-git__stash-push-button:hover:not(:disabled) {
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-git__stash-push-button:focus-visible {
+  outline: 1px solid var(--fx-color-border-strong);
+  outline-offset: 1px;
+}
+
+.fx-git__stash-push-button:disabled {
+  color: var(--fx-color-text-faint);
+  cursor: default;
+}
+
+/* 押すと何が起きるか / なぜ押せないか（ボタンの下）。 */
+.fx-git__stash-push-note {
+  margin: 0;
+  color: var(--fx-color-text-muted);
+  font-size: var(--fx-font-size-sm);
+  line-height: 1.5;
+}
+
+/* 押した1回の結末（面の中だけに出す）。 */
+.fx-git__stash-failure {
+  flex: none;
+  margin: 0;
+  padding: var(--fx-space-1) var(--fx-space-3);
+  color: var(--fx-color-danger);
+  font-size: var(--fx-font-size-sm);
+  line-height: 1.5;
+}

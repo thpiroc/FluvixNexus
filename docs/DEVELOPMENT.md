@@ -1,6 +1,6 @@
 # 開発ガイド
 
-> 対象: Session 3-8-14（ブランチの削除 / rename）完了時点
+> 対象: Session 3-8-15（退避 / stash）完了時点
 > 最終更新: 2026-08-27
 
 ---
@@ -63,10 +63,10 @@ Vitest を使い、**Electron に依存しない純粋なロジック**だけを
 - `src/main/platform/executablePath.test.ts` — **PATH の辿り方**（相対の項目を使わないこと・前の項目が勝つこと・ドライブ相対を絶対と見なさないこと。Terminal と Git が共有する）
 - `src/main/git/gitExecutable.test.ts` — **git 本体の解決**（名前だけに落とさないこと・PATH に無い Git for Windows を既定のインストール先から見つけること・**環境変数が相対を指しても使わないこと**）
 - `src/main/git/gitEnvironment.test.ts` — **git へ渡す環境変数**（入力待ちを起こさないこと・読み取りでロックを取らないこと・**利用者自身の `GIT_*` を消さないこと**）
-- `src/main/git/gitOutput.test.ts` — **git の出力の読み取り**（区切り文字 / 大小 / 末尾の違いを吸収すること・**サブフォルダを root と混同しないこと**・16進でない commit を読まないこと・ブランチの一覧を印から読むこと・**上限で切ったことを伝える**こと・読めない行だけを落とすこと）
+- `src/main/git/gitOutput.test.ts` — **git の出力の読み取り**（区切り文字 / 大小 / 末尾の違いを吸収すること・**サブフォルダを root と混同しないこと**・16進でない commit を読まないこと・ブランチの一覧を印から読むこと・**上限で切ったことを伝える**こと・読めない行だけを落とすこと・**退避では番号が読めない行を丸ごと落とし、他の行の番号をずらさない**こと（並び順から数えると、1行落ちただけで別の退避を指すことになる）・**pop の競合を stdout から見分け、「退避が残った」だけを言う出力を競合と読み違えない**こと）
 - `src/main/git/gitStatusOutput.test.ts` — **`status --porcelain=v2 -z` の読み取り**（staged / unstaged / untracked / rename / copy / 削除 / 衝突・**日本語 / 空白 / 引用符 / 改行を含む名前**・upstream と ahead / behind・**知らない形を途中まで読んだ結果として返さないこと**・Workspace の外を指す path を受け付けないこと）
 - `src/main/git/gitStatusRepository.test.ts` — **本物の git に対する読み取り**（一時リポジトリを作って実際に `git status` を動かす。下記のとおりここも実ディスクを使う）
-- `src/main/git/gitFailure.test.ts` — **stderr の分類**（所有者・作業ツリー・権限を見分けること・**知らない文章を近い分類へ寄せないこと**・「リポジトリではない」を失敗の表に入れないこと・書き込み操作の分類では `index.lock` を pathspec より先に採ること・**Commit では終わり方の形で hook を見分けること**（`fatal:` 無しの 1 は hook）・hook の出力に混ざった `permission denied` を git の権限エラーにしないこと・**ブランチでは作業ツリーの理由を「見つからない」より先に採ること**（断り方に名前が入る）・worktree の断りを「同じ名前がある」と読み違えないこと・**始点を渡した作成だけが `invalid reference` を「commit が無い」として読むこと**（切り替えでは「ブランチが無い」── git は同じ文しか言わないので、分けられるのはどちらのコマンドを組み立てたかを知っている側だけ）・40 桁のときの `unable to read tree` も同じ側へ倒すこと）
+- `src/main/git/gitFailure.test.ts` — **stderr の分類**（所有者・作業ツリー・権限を見分けること・**知らない文章を近い分類へ寄せないこと**・「リポジトリではない」を失敗の表に入れないこと・書き込み操作の分類では `index.lock` を pathspec より先に採ること・**Commit では終わり方の形で hook を見分けること**（`fatal:` 無しの 1 は hook）・hook の出力に混ざった `permission denied` を git の権限エラーにしないこと・**ブランチでは作業ツリーの理由を「見つからない」より先に採ること**（断り方に名前が入る）・worktree の断りを「同じ名前がある」と読み違えないこと・**始点を渡した作成だけが `invalid reference` を「commit が無い」として読むこと**（切り替えでは「ブランチが無い」── git は同じ文しか言わないので、分けられるのはどちらのコマンドを組み立てたかを知っている側だけ）・40 桁のときの `unable to read tree` も同じ側へ倒すこと・**退避では3つの表を分けること**（drop は作業ツリーに触らないので「上書きされる」を読まない・pop の競合は stderr が空なのでこの表からは分からない））
 - `src/main/git/gitPathspec.test.ts` — **pathspec として通してよい形か**（日本語 / 空白 / 引用符 / 先頭 `-` / glob に見える名前を**通す**こと・絶対パス / `..` / 空文字 / `:` の魔法 / `.git` の中 / 制御文字を**弾く**こと・Windows の上限を超えないよう分けても1件も落とさないこと）
 - `src/main/git/gitQueue.test.ts` — **走るのは常に1本**（前が終わるまで次を始めないこと・積んだ順に走ること・**失敗した仕事の後ろも走る**こと）
 - `src/main/git/gitStageRepository.test.ts` — **本物の git に対する Stage / Unstage**（一時リポジトリを作って実際に `git add` / `reset` / `rm --cached` を動かす。下記の実ディスクの例外）
@@ -110,6 +110,7 @@ Vitest を使い、**Electron に依存しない純粋なロジック**だけを
 - `src/renderer/src/terminal/terminalSettings.test.ts` — **Terminal の見え方の保存形式との往復**（範囲の外は読むときも書くときも丸めること・**読めない値だけが既定へ落ちること**）
 - `src/renderer/src/git/gitChanges.test.ts` — **変更ファイルの一覧の見せ方と、行に置く操作**（グループの順と空のグループを出さないこと・件数・**開けないもの（削除 / フォルダ）を押せる形にしないこと**・rename で元の位置を出すこと・upstream が無いことと同期していることを同じ表示にしないこと・**操作をグループから決めること**（競合には置かない / ステージ済みに「すべて Unstage」を置かない）・同じファイルの Stage と Unstage が同じ目印になること・失敗の理由すべてに文言があること・**Commit が押せる条件3つ**（ステージ済み / メッセージ / 他の Git 操作）と、押せない理由の一言・空欄には理由を出さないこと・残り文字数を上限に近づくまで出さないこと）
 - `src/renderer/src/git/gitBranches.test.ts` — **ブランチを選ぶ面の中身**（**今のブランチも押せる**こと（印だけが違う）・他の Git 操作が動いている間は押せないこと・取得中に「ありません」と出さないこと・**切れていることを黙って隠さない**こと・空欄には理由ではなく何が起きるかを出すこと・**既にある名前かどうかを Renderer では見ない**こと・名前の問題すべてに違う文言があること・**履歴の行から作る欄はバーの「＋」と違う文言になる**こと（空欄でも始点だけは言う・始点として受け取るのは hash だけで、マージかどうかを見る手立てを持たないこと））
+- `src/renderer/src/git/gitStash.test.ts` — **退避の面の中身**（取得中に「ありません」と出さないこと・1件も無いときの案内が同じ面の中を指すこと・**切れていることを黙って隠さない**こと・**未追跡しか無いときは「退避する」を押せない**こと（`-u` を渡していないため押しても何も起きない）とその理由が未追跡に触れること・競合が残っている間は押せないこと・**行に出すものの中に番号が無い**こと（並び順は退避を1つ増やせば全部ずれる）・**戻す / 捨てるが作業ツリーの状態を受け取らない**こと（通るかを決めるのは git）・捨てる確認が「完全に失われる」と書かず「アプリからは取り消せません」と書くこと）
 - `src/shared/git/branchName.test.ts` — **ブランチ名の規則**（空 / 上限の境界と超過 / 空白 / 制御文字 / `~^:?*[]` / `"<>|` を**弾く**こと・`..` / `@{` / `/` の位置 / `.lock` 終わり / **先頭の `-`** / `HEAD` を弾くこと・日本語や `feature/x` を**通す**こと・前後の空白だけを落とし**中の空白は落とさない**こと・文字列でない値を弾くこと）
 - `src/shared/git/commitMessage.test.ts` — **Commit メッセージの規則**（空 / 空白だけ / 上限の境界と超過 / NUL と制御文字を**弾く**こと・改行 / タブ / 日本語 / 引用符 / `#` を**通す**こと・CRLF を LF へ揃えること・前後の空白を落としても途中の空行は残すこと・文字列でない値を弾くこと）
 - `src/renderer/src/git/gitRepositoryMessage.test.ts` — **Git パネルの文言**（どの状態にも次の一手が書かれていること・**git の生の英文が UI に漏れていないこと**・detached をブランチ名として出さないこと）
@@ -117,9 +118,9 @@ Vitest を使い、**Electron に依存しない純粋なロジック**だけを
 
 Files の検証（`main/files/workspacePath.ts`）は Electron にも fs にも依存しない形に切り出してある。symlink による脱出だけはパス文字列では判断できないため、realpath を取ってから同じ関数へ通す側（`readWorkspaceDirectory.ts` / `readWorkspaceFile.ts` / `mutateWorkspaceEntry.ts`）が担う。
 
-#### 例外: 実ディスクを触るテスト（Session 3-5.1 / 3-6-2 / 3-6-4 / 3-6-5 / 3-8-2 / 3-8-3 / 3-8-4 / 3-8-5 / 3-8-6 / 3-8-9 / 3-8-10 / 3-8-11 / 3-8-12 / 3-8-13 / 3-8-14）
+#### 例外: 実ディスクを触るテスト（Session 3-5.1 / 3-6-2 / 3-6-4 / 3-6-5 / 3-8-2 / 3-8-3 / 3-8-4 / 3-8-5 / 3-8-6 / 3-8-9 / 3-8-10 / 3-8-11 / 3-8-12 / 3-8-13 / 3-8-14 / 3-8-15）
 
-「純粋なロジックだけを対象にする」方針に対する例外が15ある ── `mutateWorkspaceEntry.test.ts`（作成 / 改名 / 移動 / 削除）、`copyTree.test.ts`（再帰コピー）、`searchWorkspaceFiles.test.ts`（Workspace 全体の走査）、`searchWorkspaceFileContents.test.ts`（全文検索の走査）、`gitStatusRepository.test.ts`（本物の git の出力）、`gitStageRepository.test.ts`（本物の git への Stage / Unstage）、`gitCommitRepository.test.ts`（本物の git への Commit）、`gitSyncRepository.test.ts`（本物の git への Push / Pull）、`gitBranchRepository.test.ts`（本物の git へのブランチ操作）、`gitDiffRepository.test.ts`（本物の git から読む差分）、`gitDiscardRepository.test.ts`（本物の git に対する破棄）、`gitInitRepository.test.ts`（本物の git での初期化）、`publishRepository.test.ts`（本物の git での公開の一連）、`gitHistoryRepository.test.ts`（本物の git から読む履歴）、`gitCommitDetailRepository.test.ts`（本物の git から読む commit 1件の中身）。確かめたいのがパスの文字列処理ではなく **「実際にそこに在るものを操作できるか」** だからで、モックしたファイルシステムでは何も確かめられない ── 判定と実体がずれることこそが Session 3-5.1 で直した不具合の中身だった。`aux.ts` や末尾に空白を持つ名前を Windows がどう扱うかは実装ではなく OS が決めるため、写しを相手にするとその答えを自分で書くことになる。
+「純粋なロジックだけを対象にする」方針に対する例外が16ある ── `mutateWorkspaceEntry.test.ts`（作成 / 改名 / 移動 / 削除）、`copyTree.test.ts`（再帰コピー）、`searchWorkspaceFiles.test.ts`（Workspace 全体の走査）、`searchWorkspaceFileContents.test.ts`（全文検索の走査）、`gitStatusRepository.test.ts`（本物の git の出力）、`gitStageRepository.test.ts`（本物の git への Stage / Unstage）、`gitCommitRepository.test.ts`（本物の git への Commit）、`gitSyncRepository.test.ts`（本物の git への Push / Pull）、`gitBranchRepository.test.ts`（本物の git へのブランチ操作）、`gitDiffRepository.test.ts`（本物の git から読む差分）、`gitDiscardRepository.test.ts`（本物の git に対する破棄）、`gitInitRepository.test.ts`（本物の git での初期化）、`publishRepository.test.ts`（本物の git での公開の一連）、`gitHistoryRepository.test.ts`（本物の git から読む履歴）、`gitCommitDetailRepository.test.ts`（本物の git から読む commit 1件の中身）、`gitStashRepository.test.ts`（本物の git に対する退避）。確かめたいのがパスの文字列処理ではなく **「実際にそこに在るものを操作できるか」** だからで、モックしたファイルシステムでは何も確かめられない ── 判定と実体がずれることこそが Session 3-5.1 で直した不具合の中身だった。`aux.ts` や末尾に空白を持つ名前を Windows がどう扱うかは実装ではなく OS が決めるため、写しを相手にするとその答えを自分で書くことになる。
 
 どれも一時フォルダを Workspace root に見立てる。走査（検索）のテストでは、深い階層・大量ファイル・除外フォルダ・**外を指すジャンクション**を実際に作って、リンクの中へ潜っていないことを「指し先の中身が結果に出ていないこと」で確かめる ── 「潜らないつもり」を実物で確かめるため。上限（件数 / 深さ / 走査数）は引数で差し替えて小さくし、時間の上限だけは `now` を差し替えて固定する（実時間に依存させると、速いマシンでは通り遅いマシンでは落ちるテストになる）。
 
@@ -187,6 +188,25 @@ Files の検証（`main/files/workspacePath.ts`）は Electron にも fs にも�
 4. 削除も rename も、**未コミットの変更を消さない**こと（確認の文で「未保存の変更があります」と言わない根拠）
 5. 今のブランチを改名すると **HEAD が追随する**こと
 6. rename の後、`branch.<新名>.merge` が**古い remote 側の名前**を指したまま残ること（対象外にした判断を、黙って変わった日に気づけるようにする）
+
+**Session 3-8-15 では、この塊にファイルが1つ増える**（例外は 16 になった）── `gitStashRepository.test.ts`。ここで確かめたいことは、3-8-6 / 3-8-13 の「書きかけが失われないこと」とも 3-8-14 の「断られたときに消えていないこと」とも違い、**指した1件が指したとおりであること**になる。
+
+退避を指す `stash@{N}` は名前ではなく**上から数えた位置**で、1つ避ければ全部が1つずつ後ろへずれる ── その振る舞いを決めるのは実装ではなく git で、取り違えると押した人が見ていない退避が消える（戻せない）。実物にしか確かめられないのは次の 10 個。
+
+1. 退避すると tracked の変更が HEAD の状態へ戻り、**未追跡は残る**こと（`-u` を渡していないことの実体）
+2. 未追跡しか無いときは git を動かさず `nothing-to-do` になること（`No local changes to save` は **0 で終わる**ので、終了コードからは分からない）
+3. commit が1つも無いリポジトリでは `no-commit` になり、退避も作られないこと
+4. 競合が残っている間は git を動かさずに断ること
+5. index に載せた変更が、戻ると **unstaged** になること（`--index` を渡していないことの実体）
+6. **pop が競合すると `partly-applied` になり、退避が一覧に残る**こと ── 競合の知らせは **stderr に1文字も出ず stdout に出る**ため、ここが崩れると「何も起きなかった」と出して押し直させることになる
+7. 上書きされる pop は `local-changes-blocked` で、作業ツリーも一覧も1文字も動かないこと（6 との取り違えを止める）
+8. **drop すると、それより後ろの番号が繰り上がる**こと（hash を一緒に渡す設計そのものの根拠）
+9. **番号がずれていたら、pop も drop も git を動かさずに断る**こと（突き合わせが効いていること）
+10. 退避 → ブランチ切り替え → 戻す が通ること（3-8-5 から文言だけが案内していた出口になっていること）
+
+**上限（100 件）だけは、確かめる相手を移してある。** 退避を 101 件作るには `git stash push` を 101 回呼ぶことになり、実測で 9 秒かかった ── しかも退避には ref をまとめて作る手立てが無い（同じ commit を `git stash store` で何度積んでも、`git stash list` は同じ commit を1件としか数えない。確かめた）。切り方そのものは `gitOutput.test.ts`（`readStashEntries`）が純粋な関数として固定済みなので、実物には**「git が `--max-count` を守るか」だけ**を、本番と同じ `listStashEntries()` の引数を小さい上限で通して聞いている。`git branch` を 500 回呼ばずに `update-ref --stdin` でまとめたのと同じ判断になる。
+
+この塊も `GIT_CONFIG_GLOBAL` / `GIT_CONFIG_SYSTEM` を実在しないパスへ向けてから走らせる（`stash.showIncludeUntracked` / `stash.showPatch` はどれも開発者の PC に入っていておかしくなく、確かめている振る舞いそのものを変えうる）。
 
 **`git branch --list --format=... --end-of-options <name>` が大文字小文字を区別すること**は、loose ref と packed-refs の両方で確かめてある（`git pack-refs --all` の前後で同じ問いを投げる）── `show-ref --verify` はどちらでも成功を返してしまい、この確認には使えない。
 

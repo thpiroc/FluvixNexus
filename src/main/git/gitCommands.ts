@@ -1191,6 +1191,205 @@ export function restoreWorktreePaths(paths: readonly string[]): GitCommand {
   }
 }
 
+/* ------------------------------------------- 退避（Session 3-8-15） */
+
+/**
+ * `stash@{N}` を組み立てる（Session 3-8-15）。
+ *
+ * ## ここだけは、値を他の文字と繋いで引数にする
+ *
+ * 3-8-12 で `<hash>^` も `<hash>:<path>` も作らないと決め、3-8-14 で
+ * `refs/heads/<name>` を作らないために `for-each-ref` ではなく
+ * `branch --list` を選んだ ── その線に対して、これは唯一の例外になる。
+ *
+ * 通してよいのは、**繋ぐ相手が文字列ではなく数**だからにあたる。
+ * ハンドラを通った時点で `index` は「0 以上・上限未満の安全な整数」であり
+ * （main/ipc/handlers/git.ts）、10進の数字以外の文字が入る余地が無い ──
+ * つまり、この文字列に**引数として読み替えられる形が1つも作れない。**
+ * 危ういのは「外から来た文字列を繋ぐこと」であって、繋ぐ操作そのものでは
+ * なかった、という切り分けになる。
+ *
+ * git 側に「番号だけを渡す」形は無い（`stash@{N}` が唯一の指し方）ので、
+ * 組み立てを避けるなら**退避を指す手立てそのものが無くなる。**
+ *
+ * それでも `--end-of-options` の後ろに置くのは他と同じ ── 形が固定でも、
+ * 置き方の備えを1つだけ外す理由が無い。
+ */
+function stashReference(index: number): string {
+  return `stash@{${index}}`
+}
+
+/**
+ * 退避の一覧を尋ねる（Session 3-8-15）。
+ *
+ * ## 外から来た値が1つも無い（`listCommitHistory` と同じ）
+ *
+ * 変わるのは上限の数だけで、それは `GIT_STASH_LIMIT` から来る**アプリ自身の
+ * 定数**になる。並べ替えも絞り込みも渡す欄がそもそも無い
+ * （shared/ipc/contracts/git.ts）。
+ *
+ * ## `git stash list` は `git log` を着せ替えたもの
+ *
+ * したがって `--format` も `--max-count` もそのまま効く（実物で確かめてある）。
+ * 上限より1つ多く求めるのは、**切ったかどうかを知る**ためで、
+ * `listLocalBranches` / `listCommitHistory` と同じ形になる。
+ *
+ * ## 欄の並びは `%gd` → `%h` → `%at` → `%gs`
+ *
+ *   `%gd` … `stash@{0}`。**番号の出どころはここだけ**にする（読んだ行の
+ *            並び順から数えると、読めない行を1つ落とした瞬間に全部ずれる）
+ *   `%h`  … その退避そのものの短い hash（押した瞬間の突き合わせに使う）
+ *   `%at` … epoch 秒（`%ad` は `log.date` で形が変わる。shared/git/history.ts）
+ *   `%gs` … git が付けた名乗り。**何が入っているか分からない値なので最後**に置く
+ *
+ * 区切りが NUL なのも履歴と同じ理由で、`%gs` には空白も `|` も入りうる。
+ * 行の区切りを改行のままにしてよいのは、`%gs` が1行だけを返すためになる。
+ *
+ * ## 設定で振る舞いが変わる余地を、先に閉じておく
+ *
+ * `log.showSignature` と `log.decorate` を打ち消すのは `listCommitHistory` と
+ * まったく同じ構えで、**`git log` の着せ替えである以上そのまま当てはまる。**
+ * 前者は署名の検証（`gpg` の起動）を促す。
+ */
+export function listStashEntries(limit: number): GitCommand {
+  return {
+    label: 'stash list --format',
+    args: [
+      '-c',
+      'log.showSignature=false',
+      'stash',
+      'list',
+      '--no-decorate',
+      `--max-count=${limit + 1}`,
+      '--format=%gd%x00%h%x00%at%x00%gs'
+    ]
+  }
+}
+
+/**
+ * 作業ツリーと index の変更を退避する（Session 3-8-15）。
+ *
+ * ## 位置引数も、外から来た値も1つも無い
+ *
+ * 退避するのは常に「今の作業ツリーと index の全部」で、pathspec を渡せる欄が
+ * 無い（部分退避は置いていない ── 行単位の Stage を置いていないのと同じ線）。
+ *
+ * ## 付けていないもの
+ *
+ * | 付けない                        | なぜ                                                                 |
+ * | ------------------------------- | -------------------------------------------------------------------- |
+ * | `-m <message>`                  | 名前を渡せる欄を作らない。名乗りは git が付ける（`WIP on <branch>: …`） |
+ * | `-u` / `--include-untracked`    | 未追跡を作業ツリーから消すことになる（3-8-9 の判断と衝突する）        |
+ * | `-a` / `--all`                  | `.gitignore` の対象まで巻き込む。`-u` よりさらに広い                  |
+ * | `-k` / `--keep-index`           | 「避けたのに残っている」が段によって変わる。押した結果が読めなくなる  |
+ * | `-p` / `--patch`                | 対話が始まる（端末の付いていない子プロセスでは答えられない）          |
+ * | pathspec                        | 部分退避。渡せる欄そのものを作らない                                  |
+ *
+ * ## `--quiet` を渡す
+ *
+ * 成功したときの `Saved working directory and index state ...` は、**その後に
+ * 読み直す一覧に同じことが出ている**（避けた1件が並ぶ）── 削除
+ * （`deleteBranch`）で `--quiet` を渡さなかったのは、消えた ref が指していた
+ * commit がそこにしか無かったためで、こちらにその事情は無い。
+ *
+ * ## 退避するものが無くても 0 で終わる
+ *
+ * `No local changes to save` と言って**成功として終わる**（実物で確かめてある）。
+ * したがって「何も無い」を終了コードから知ることはできず、呼ぶ側が
+ * 動かす前に分ける（main/git/gitStash.ts）。
+ */
+export function pushStashEntry(): GitCommand {
+  return { label: 'stash push', args: ['stash', 'push', '--quiet'] }
+}
+
+/**
+ * 指した退避を作業ツリーへ戻し、一覧から取り除く（Session 3-8-15）。
+ *
+ * ## `--quiet` を渡さない（この1本だけ）
+ *
+ * `stash pop` が競合したとき、git は**stderr に何も書かない** ── 競合の
+ * 知らせ（`CONFLICT (content): Merge conflict in ...`）は stdout に出て、
+ * 終了コードだけが 1 になる。そして `--quiet` を渡すと、**その行が消える**
+ * （残るのは `The stash entry is kept in case you need it again.` だけ。
+ * どちらも実物で確かめてある）。
+ *
+ * つまりここで `--quiet` を渡すと、「競合したのか、作業ツリーが上書きされる
+ * ので何も起きなかったのか」を区別する手立てが無くなる ── その2つは
+ * 利用者の次の一手がまったく違う（前者は解決する、後者は先に Commit する）。
+ *
+ * pop は `git stash` の中で唯一 merge を伴う操作で、**merge の結果は
+ * 失敗ではないので stdout に出る**、というのがこの例外の中身になる。
+ *
+ * ## `--index` は渡さない
+ *
+ * 退避したときに index に載っていたものは unstaged として戻る（実物で
+ * 確かめてある）。段まで復元すると競合時の振る舞いが増える一方、
+ * Stage は一覧の `＋` で1回で戻せる。
+ *
+ * ## 番号は独立した1つの引数として、`--end-of-options` の後ろに置く
+ *
+ * 組み立てるのは `stashReference`（上記）で、繋ぐ相手が検証済みの整数で
+ * あることがその安全の中身になる。
+ */
+export function popStashEntry(index: number): GitCommand {
+  return { label: 'stash pop', args: ['stash', 'pop', END_OF_OPTIONS, stashReference(index)] }
+}
+
+/**
+ * 指した退避を捨てる（Session 3-8-15）。
+ *
+ * ## `--quiet` は渡さない（`deleteBranch` と同じ理由）
+ *
+ * 成功したときの `Dropped stash@{0} (<完全な hash>)` は stdout に出る。
+ * 分類には使わないが、**捨てた中身がどの commit だったか**は、後から
+ * `git fsck --unreachable` で拾い直す前の唯一の手掛かりになる ──
+ * Renderer へは渡さず（分類だけが境界を越える）、ログには残す
+ * （main/git/gitStash.ts）。
+ *
+ * ## `clear`（全部捨てる）はこの表に置かない
+ *
+ * 渡せるのは1件で、複数を渡せる欄は作らない（ブランチの一括削除と同じ線）。
+ */
+export function dropStashEntry(index: number): GitCommand {
+  return { label: 'stash drop', args: ['stash', 'drop', END_OF_OPTIONS, stashReference(index)] }
+}
+
+/**
+ * その位置に居る退避の完全な hash を尋ねる（Session 3-8-15）。
+ *
+ * ## 押す直前に、もう一度だけ確かめるための1回
+ *
+ * `stash@{N}` は名前ではなく**上から数えた位置**で、退避を1つ作れば全部が
+ * 1つずつ後ろへずれる（実物で確かめてある）。一覧を出してから押すまでの間に
+ * 端末で `git stash` を1回打たれると、**画面で選んだのとは違う退避が
+ * pop / drop される。**
+ *
+ * そこで、動かす前にその位置を解いて、一覧の行が持っていた短い hash と
+ * 突き合わせる（main/git/gitStash.ts）。3-8-14 が `--force` を立てる前に
+ * 「相手は自分自身か」を `branch --list` で確かめたのと同じ構えになる。
+ *
+ * ## `--short` ではなく完全な hash を取る
+ *
+ * 短縮の桁数はリポジトリの大きさで変わる（`core.abbrev` の既定は auto）──
+ * 一覧を読んだ時点と押した時点で桁が変わりうるため、短い形どうしを
+ * 等しさで比べると、変わっていないものを「変わった」と読む。完全な hash を
+ * 取って**前方一致で見る**方が、短い hash の意味（先頭何桁か）そのものになる。
+ *
+ * 完全な hash は Main の中だけで使い、Renderer へは渡さない（§14.19）。
+ *
+ * ## 解けなければ非0で終わる
+ *
+ * 範囲外（`stash@{9}` で 1 件しか無い）は 128、退避が1件も無ければ 1 で
+ * 終わり、`--quiet` のおかげでどちらも何も出力しない（実物で確かめてある）──
+ * 呼ぶ側は「0 で終わって hash が読めたか」だけを見ればよい。
+ */
+export function showStashObject(index: number): GitCommand {
+  return {
+    label: 'rev-parse (stash)',
+    args: ['rev-parse', '--verify', '--quiet', END_OF_OPTIONS, stashReference(index)]
+  }
+}
+
 /* --------------------------------- 初期化と公開（Session 3-8-10） */
 
 /**
