@@ -14,6 +14,7 @@ import {
   countGitChanges,
   describeGitChangeKind,
   describeGitChangeRow,
+  describeGitRowAction,
   describeGitCommitMessageProblem,
   describeGitDiscardWarning,
   describeGitOperationFailure,
@@ -243,11 +244,51 @@ describe('toGitRowAction', () => {
   })
 
   /*
-    競合には操作を置かない。解決するまで Stage も Unstage も意味を持たず、
-    押せる形にすれば成立しない操作を勧めることになる。
+    競合の行には Session 3-8-18 で3つめの操作が付いた。
+
+    **Stage でも Unstage でもない**のがここの要点になる ── 動かす git は
+    同じ `git add` だが、index の3段を1段に畳む操作で意味が違う。
+    同じ名前で出すと、押した人は「後で Unstage で戻せる」と読む
+    （戻せない。main/git/gitConflict.ts）。
   */
-  it('競合の行には操作を置かない', () => {
-    expect(toGitRowAction('conflicted')).toBeNull()
+  it('競合の行には「解決済みにする」を置く（Stage ではない）', () => {
+    expect(toGitRowAction('conflicted')).toBe('resolve')
+  })
+
+  it('4つのグループが、それぞれ違う操作になる', () => {
+    const actions = (['conflicted', 'staged', 'unstaged', 'untracked'] as const).map(toGitRowAction)
+
+    expect(actions).toEqual(['resolve', 'unstage', 'stage', 'stage'])
+  })
+})
+
+describe('describeGitRowAction', () => {
+  it('どの操作にも、位置を含む名前が付く', () => {
+    const target = change('a.txt', 'modified')
+
+    for (const action of ['stage', 'unstage', 'resolve'] as const) {
+      expect(describeGitRowAction(action, target)).toContain('a.txt')
+    }
+  })
+
+  /*
+    競合の行だけは「Stage」と言わない ── 言うと、後で Unstage で戻せると
+    読まれる。戻せない（`git reset` は競合を復元しない）。
+  */
+  it('解決の名前に「Stage」が入らない', () => {
+    const note = describeGitRowAction('resolve', change('c.txt', 'conflicted'))
+
+    expect(note).not.toContain('Stage')
+    expect(note).toContain('解決済み')
+  })
+
+  it('3つとも違う言葉になる', () => {
+    const target = change('a.txt', 'modified')
+    const notes = (['stage', 'unstage', 'resolve'] as const).map((action) =>
+      describeGitRowAction(action, target)
+    )
+
+    expect(new Set(notes).size).toBe(3)
   })
 })
 
@@ -311,6 +352,7 @@ describe('describeGitOperationFailure', () => {
     'identity-missing',
     'hook-rejected',
     'unresolved-conflicts',
+    'conflict-markers-present',
     'path-not-found',
     'not-on-branch',
     'no-remote',
@@ -812,6 +854,76 @@ describe('破棄の目印', () => {
   it('別の行とはぶつからない', () => {
     expect(toGitOperationKey({ kind: 'discard', relativePath: 'a.txt' })).not.toBe(
       toGitOperationKey({ kind: 'discard', relativePath: 'b.txt' })
+    )
+  })
+})
+
+/**
+ * 競合の解決の文言（Session 3-8-18）。
+ *
+ * ここで固定したいのは、**2つの「競合」の文が別のことを言っている**ことになる。
+ *
+ *   `unresolved-conflicts`      … Commit できない。次の一手は**この操作を押すこと**
+ *   `conflict-markers-present`  … 押したが解けていない。次の一手は**エディタで直すこと**
+ *
+ * 同じ言葉に潰すと、押した人はどちらを直せばよいか分からないまま
+ * 同じボタンを押し直すことになる。
+ */
+describe('競合まわりの文言（Session 3-8-18）', () => {
+  it('Commit の断り文が、次の一手として「解決済みにする」を指す', () => {
+    const message = describeGitOperationFailure({
+      status: 'failed',
+      reason: 'unresolved-conflicts'
+    })
+
+    expect(message).toContain('解決済みにする')
+  })
+
+  /*
+    断っているのはアプリで、git ではない（git はマーカーが残ったままでも
+    通してしまう）── だから「何を直せばよいか」を具体的に書く。
+  */
+  it('マーカーが残っている断り文に、マーカーの形とエディタが書いてある', () => {
+    const message = describeGitOperationFailure({
+      status: 'failed',
+      reason: 'conflict-markers-present'
+    })
+
+    expect(message).toContain('<<<<<<<')
+    expect(message).toContain('エディタ')
+  })
+
+  it('2つの「競合」の文は別のものになる', () => {
+    const unresolved = describeGitOperationFailure({
+      status: 'failed',
+      reason: 'unresolved-conflicts'
+    })
+    const markers = describeGitOperationFailure({
+      status: 'failed',
+      reason: 'conflict-markers-present'
+    })
+
+    expect(unresolved).not.toBe(markers)
+  })
+
+  /*
+    競合の行は 3-8-2 から**エディタで開ける**（そこが解決の場所になる）──
+    3-8-18 で操作が付いても、開ける側は変えていない。
+  */
+  it('競合の行は、今も開ける', () => {
+    expect(canOpenGitChange(change('c.txt', 'conflicted'))).toBe(true)
+  })
+
+  /*
+    解決の目印は Stage / Unstage / 破棄と**同じ鍵**にしてある ──
+    押した瞬間にその行はグループを移るので、同じ位置への2回目を残さない。
+  */
+  it('解決の目印が、同じ位置の他の操作と同じ鍵になる', () => {
+    expect(toGitOperationKey({ kind: 'resolve', relativePath: 'a.txt' })).toBe(
+      toGitOperationKey({ kind: 'file', relativePath: 'a.txt' })
+    )
+    expect(toGitOperationKey({ kind: 'resolve', relativePath: 'a.txt' })).toBe(
+      toGitOperationKey({ kind: 'unstage', relativePath: 'a.txt' })
     )
   })
 })

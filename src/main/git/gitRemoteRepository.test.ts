@@ -81,7 +81,13 @@ vi.mock('../workspaceFolder/currentWorkspaceFolder', () => ({
   getCurrentWorkspaceFolder: (): WorkspaceFolder | null => workspace
 }))
 
-const { listGitRemotes, applyGitAddRemote, applyGitRemoveRemote } = await import('./gitRemotes')
+const {
+  listGitRemotes,
+  applyGitAddRemote,
+  applyGitRemoveRemote,
+  applyGitRenameRemote,
+  applyGitSetRemoteUrl
+} = await import('./gitRemotes')
 const { normalizeGitRemoteName, normalizeGitRemoteUrl } = await import('@shared/git')
 
 /** 指定した場所で git を1回動かす（テスト自身の準備・確認用）。 */
@@ -399,6 +405,330 @@ describeWithGit('applyGitAddRemote', () => {
   })
 })
 
+/**
+ * remote の URL の変更（Session 3-8-17）。
+ *
+ * ## ここで固定したいのは「何が変わらないか」
+ *
+ * 削除の塊が**何が消えるか**を固定しているのに対し、こちらは逆向きになる ──
+ * `git remote set-url` が書き換えるのは設定の1行だけで、refspec も
+ * remote-tracking ref も追跡先も動かない。**つまり画面の `↑ ↓` は
+ * 変更後も前の送り先と比べた数のまま残る** ── これが確認の文言
+ * （renderer/src/git/gitRemotes.ts）の根拠そのものにあたる。
+ */
+describeWithGit('applyGitSetRemoteUrl', () => {
+  /** 送り先を bare にして、追跡先まで作る（ネットワークへは出ない）。 */
+  async function connectAndPush(): Promise<void> {
+    commit('a.txt', 'base\n', 'first')
+    git('remote', 'add', 'origin', bare)
+    git('push', '--quiet', '--set-upstream', 'origin', 'main')
+  }
+
+  it('URL だけが変わる', async () => {
+    commit('a.txt', 'base\n', 'first')
+    git('remote', 'add', 'origin', 'https://github.com/o/old.git')
+
+    const result = await applyGitSetRemoteUrl('origin', 'https://github.com/o/new.git')
+
+    expect(result.outcome).toEqual({ status: 'applied' })
+    expect(config('remote.origin.url')).toBe('https://github.com/o/new.git')
+  })
+
+  /*
+    この塊の中心。**残るもの**を1つずつ固定する ── 削除が消す3つ
+    （設定・remote-tracking ref・追跡先）のうち、set-url が触るのは
+    設定の URL 1行だけになる。
+  */
+  it('refspec・remote-tracking ref・追跡先は1つも動かない', async () => {
+    await connectAndPush()
+
+    const result = await applyGitSetRemoteUrl('origin', 'https://github.com/o/other.git')
+
+    expect(result.outcome).toEqual({ status: 'applied' })
+    expect(config('remote.origin.fetch')).toBe('+refs/heads/*:refs/remotes/origin/*')
+    expect(remoteRefs()).toContain('refs/remotes/origin/main')
+    expect(config('branch.main.remote')).toBe('origin')
+    expect(config('branch.main.merge')).toBe('refs/heads/main')
+  })
+
+  /*
+    確認の文言が「前の送り先と比べたものになります」と書ける根拠。
+    送り先を丸ごと別のものへ変えても、`↑1` はそのまま残る。
+  */
+  it('ahead / behind は変更前と同じまま残る（前の送り先と比べた数）', async () => {
+    await connectAndPush()
+    commit('b.txt', 'more\n', 'second')
+
+    const before = readyOf((await applyGitSetRemoteUrl('origin', bare)).repository).upstream
+
+    expect(before).not.toBeNull()
+    expect(before?.ahead).toBe(1)
+
+    const after = readyOf(
+      (await applyGitSetRemoteUrl('origin', 'https://github.com/o/unrelated.git')).repository
+    ).upstream
+
+    expect(after).toEqual(before)
+  })
+
+  it('commit も作業ツリーも動かない', async () => {
+    await connectAndPush()
+
+    const log = git('log', '--format=%s').trim()
+
+    await applyGitSetRemoteUrl('origin', 'https://github.com/o/new.git')
+
+    expect(git('log', '--format=%s').trim()).toBe(log)
+    expect(git('status', '--porcelain').trim()).toBe('')
+  })
+
+  /* remote の数は増えも減りもしない ── 公開の入口は戻らない。 */
+  it('hasRemote は変わらない', async () => {
+    await connectAndPush()
+
+    const result = await applyGitSetRemoteUrl('origin', 'https://github.com/o/new.git')
+
+    expect(readyOf(result.repository).hasRemote).toBe(true)
+  })
+
+  /* 追加と同じく `--fetch` を渡していないので、届かない URL でも通る。 */
+  it('ネットワークへ出ない（届かない URL でも通る）', async () => {
+    commit('a.txt', 'base\n', 'first')
+    git('remote', 'add', 'origin', 'https://github.com/o/r.git')
+
+    const result = await applyGitSetRemoteUrl(
+      'origin',
+      'https://nonexistent.invalid/does/not/exist.git'
+    )
+
+    expect(result.outcome).toEqual({ status: 'applied' })
+    expect(remoteRefs()).toEqual([])
+  })
+
+  /*
+    同じ URL を渡しても失敗にしない（D4）── Renderer は今の URL を
+    持っていないので押す前に判定できず、Main で判定するには git を
+    1本増やすことになる。変わらない値で上書きしても壊れるものは無い。
+  */
+  it('今と同じ URL を渡しても、成功として終わる', async () => {
+    commit('a.txt', 'base\n', 'first')
+    git('remote', 'add', 'origin', 'https://github.com/o/r.git')
+
+    const result = await applyGitSetRemoteUrl('origin', 'https://github.com/o/r.git')
+
+    expect(result.outcome).toEqual({ status: 'applied' })
+    expect(config('remote.origin.url')).toBe('https://github.com/o/r.git')
+  })
+
+  /*
+    一覧を開いてから押すまでの間に、端末で消えた場合にあたる ──
+    **他の remote の URL は1文字も変わらない。**
+  */
+  it('無い remote を指すと断り、他の URL は1文字も変わらない', async () => {
+    commit('a.txt', 'base\n', 'first')
+    git('remote', 'add', 'origin', 'https://github.com/o/r.git')
+
+    const result = await applyGitSetRemoteUrl('nope', 'https://github.com/o/new.git')
+
+    expect(result.outcome).toEqual({ status: 'failed', reason: 'remote-not-found' })
+    expect(config('remote.origin.url')).toBe('https://github.com/o/r.git')
+    expect(remoteNames()).toEqual(['origin'])
+  })
+
+  it('複数あるうちの1つだけを変える', async () => {
+    commit('a.txt', 'base\n', 'first')
+    git('remote', 'add', 'origin', 'https://github.com/o/r.git')
+    git('remote', 'add', 'upstream', 'https://github.com/u/r.git')
+
+    await applyGitSetRemoteUrl('origin', 'https://github.com/o/new.git')
+
+    expect(config('remote.origin.url')).toBe('https://github.com/o/new.git')
+    expect(config('remote.upstream.url')).toBe('https://github.com/u/r.git')
+  })
+
+  /* 一覧のラベルは、変更後の URL から作り直される。 */
+  it('変えると一覧のラベルも変わる', async () => {
+    commit('a.txt', 'base\n', 'first')
+    git('remote', 'add', 'origin', 'https://github.com/o/old.git')
+
+    expect(await readRemotes()).toEqual([{ name: 'origin', label: 'github.com/o/old' }])
+
+    await applyGitSetRemoteUrl('origin', 'https://example.com/team/new.git')
+
+    expect(await readRemotes()).toEqual([{ name: 'origin', label: 'example.com/team/new' }])
+  })
+
+  it('Workspace が閉じられていれば git を動かさない', async () => {
+    workspace = null
+
+    const result = await applyGitSetRemoteUrl('origin', 'https://github.com/o/r.git')
+
+    expect(result.outcome).toEqual({ status: 'failed', reason: 'not-ready' })
+  })
+})
+
+/**
+ * remote の rename（Session 3-8-17）。
+ *
+ * ## ここで固定したいのは「全部が追随すること」と「壊れる1点」
+ *
+ * 3-8-16 は「rename は追跡先まで書き換わる ── 消して足し直すのとは別の
+ * 設計が要る」と書いていたが、実物は**易しい側に別**だった ── git が
+ * 必要なものを全部追随させるため、remove + add と違って追跡先を失わない。
+ *
+ * 唯一壊れるのが大文字小文字だけの改名で、そこは git を動かす前に断つ。
+ */
+describeWithGit('applyGitRenameRemote', () => {
+  /** 送り先を bare にして、追跡先まで作る（ネットワークへは出ない）。 */
+  async function connectAndPush(): Promise<void> {
+    commit('a.txt', 'base\n', 'first')
+    git('remote', 'add', 'origin', bare)
+    git('push', '--quiet', '--set-upstream', 'origin', 'main')
+  }
+
+  /*
+    この塊の中心。**削除が消す3つが、rename では1つも失われない。**
+    `remote.pushDefault` まで追随することも、ここで固定しておく。
+  */
+  it('設定・refspec・remote-tracking ref・追跡先・pushDefault の5つが追随する', async () => {
+    await connectAndPush()
+    git('config', 'remote.pushDefault', 'origin')
+
+    const result = await applyGitRenameRemote('origin', 'upstream')
+
+    expect(result.outcome).toEqual({ status: 'applied' })
+    expect(config('remote.upstream.url')).toBe(bare)
+    expect(config('remote.upstream.fetch')).toBe('+refs/heads/*:refs/remotes/upstream/*')
+    expect(remoteRefs()).toEqual(['refs/remotes/upstream/main'])
+    expect(config('branch.main.remote')).toBe('upstream')
+    expect(config('branch.main.merge')).toBe('refs/heads/main')
+    expect(config('remote.pushDefault')).toBe('upstream')
+
+    // 古い側は1つも残らない。
+    expect(config('remote.origin.url')).toBeNull()
+    expect(remoteNames()).toEqual(['upstream'])
+  })
+
+  /*
+    削除との決定的な違い ── 画面の `↑ ↓` が消えず、Push が
+    「初回の Push」に戻らない。
+  */
+  it('追跡先が生きたまま残り、rename の後も Push が通る', async () => {
+    await connectAndPush()
+    commit('b.txt', 'more\n', 'second')
+
+    const result = await applyGitRenameRemote('origin', 'upstream')
+
+    const upstream = readyOf(result.repository).upstream
+
+    expect(upstream).not.toBeNull()
+    expect(upstream?.name).toBe('upstream/main')
+    expect(upstream?.ahead).toBe(1)
+
+    // 追跡先が生きているので、remote 名を指さない素の push で送れる。
+    expect(() => git('push', '--quiet')).not.toThrow()
+  })
+
+  it('commit も作業ツリーも動かない', async () => {
+    await connectAndPush()
+
+    const log = git('log', '--format=%s').trim()
+
+    await applyGitRenameRemote('origin', 'upstream')
+
+    expect(git('log', '--format=%s').trim()).toBe(log)
+    expect(git('status', '--porcelain').trim()).toBe('')
+  })
+
+  it('hasRemote は変わらない（数は増えも減りもしない）', async () => {
+    await connectAndPush()
+
+    const result = await applyGitRenameRemote('origin', 'upstream')
+
+    expect(readyOf(result.repository).hasRemote).toBe(true)
+  })
+
+  it('commit が1つも無いリポジトリでも改名できる', async () => {
+    git('remote', 'add', 'origin', 'https://github.com/o/r.git')
+
+    expect((await applyGitRenameRemote('origin', 'upstream')).outcome).toEqual({
+      status: 'applied'
+    })
+    expect(remoteNames()).toEqual(['upstream'])
+  })
+
+  /*
+    行き先が既に使われている場合。**手元の remote は1つも変わらない。**
+  */
+  it('行き先が既にあると断り、どちらの remote も変わらない', async () => {
+    commit('a.txt', 'base\n', 'first')
+    git('remote', 'add', 'origin', 'https://github.com/o/r.git')
+    git('remote', 'add', 'upstream', 'https://github.com/u/r.git')
+
+    const result = await applyGitRenameRemote('origin', 'upstream')
+
+    expect(result.outcome).toEqual({ status: 'failed', reason: 'remote-exists' })
+    expect(config('remote.origin.url')).toBe('https://github.com/o/r.git')
+    expect(config('remote.upstream.url')).toBe('https://github.com/u/r.git')
+    expect(remoteNames()).toEqual(['origin', 'upstream'])
+  })
+
+  it('無い remote を改名しようとすると断り、他は1つも変わらない', async () => {
+    commit('a.txt', 'base\n', 'first')
+    git('remote', 'add', 'origin', 'https://github.com/o/r.git')
+
+    const result = await applyGitRenameRemote('nope', 'other')
+
+    expect(result.outcome).toEqual({ status: 'failed', reason: 'remote-not-found' })
+    expect(remoteNames()).toEqual(['origin'])
+  })
+
+  /*
+    同じ名前を打った。git は `already exists` と言うが、それは
+    「別のものが在る」という意味の文で、起きたこととは違う（3-8-14 と同じ）。
+  */
+  it('同じ名前なら git を動かさず nothing-to-do', async () => {
+    commit('a.txt', 'base\n', 'first')
+    git('remote', 'add', 'origin', 'https://github.com/o/r.git')
+
+    const result = await applyGitRenameRemote('origin', 'origin')
+
+    expect(result.outcome).toEqual({ status: 'failed', reason: 'nothing-to-do' })
+    expect(remoteNames()).toEqual(['origin'])
+  })
+
+  /*
+    **この塊でいちばん大事な1件。**
+
+    Windows では `refs/remotes/origin/…` と `refs/remotes/Origin/…` が
+    同じファイルになるため、git は途中まで適用したまま落ちる ──
+    こちらは git を動かす前に断つので、設定は1文字も変わらない。
+  */
+  it('大文字小文字だけの改名は、git を動かさずに断る', async () => {
+    await connectAndPush()
+
+    const result = await applyGitRenameRemote('origin', 'Origin')
+
+    expect(result.outcome).toEqual({ status: 'failed', reason: 'unsupported-target' })
+
+    // 半分だけ適用された痕跡が1つも無い。
+    expect(remoteNames()).toEqual(['origin'])
+    expect(config('remote.origin.url')).toBe(bare)
+    expect(config('remote.origin.fetch')).toBe('+refs/heads/*:refs/remotes/origin/*')
+    expect(config('remote.Origin.url')).toBeNull()
+    expect(remoteRefs()).toEqual(['refs/remotes/origin/main'])
+    expect(config('branch.main.remote')).toBe('origin')
+  })
+
+  it('Workspace が閉じられていれば git を動かさない', async () => {
+    workspace = null
+
+    const result = await applyGitRenameRemote('origin', 'upstream')
+
+    expect(result.outcome).toEqual({ status: 'failed', reason: 'not-ready' })
+  })
+})
+
 describeWithGit('applyGitRemoveRemote', () => {
   /** 送り先を bare にして、追跡先まで作る（ネットワークへは出ない）。 */
   async function connectAndPush(): Promise<void> {
@@ -550,5 +880,61 @@ describeWithGit('git が受け取る値と、こちらが受け取る値', () =>
     git('remote', 'add', 'evil', 'ext::sh -c whoami')
 
     expect(await readRemotes()).toEqual([{ name: 'evil', label: '不明な形式' }])
+  })
+
+  /*
+    3-8-17 で口が2本増えても、**git が受け取ってしまうものは同じ**になる ──
+    追加の口だけを固めても、変更と rename が素通しなら同じ穴が
+    2つめ・3つめとして開く。
+  */
+  it('git は `set-url` でも `ext::…` を受け取るが、こちらは断る', () => {
+    git('remote', 'add', 'origin', 'https://github.com/o/r.git')
+    git('remote', 'set-url', 'origin', 'ext::sh -c whoami')
+
+    expect(config('remote.origin.url')).toBe('ext::sh -c whoami')
+
+    // 同じ値が IPC の境界を通ることは無い（追加のときとまったく同じ関数）。
+    expect(normalizeGitRemoteUrl('ext::sh -c whoami')).toBeNull()
+  })
+
+  it('git は `rename` の行き先として `-x` を受け取るが、こちらは断る', () => {
+    git('remote', 'add', 'origin', 'https://github.com/o/r.git')
+    git('remote', 'rename', '--end-of-options', 'origin', '-x')
+
+    expect(remoteNames()).toContain('-x')
+
+    // その名前は、行き先としてもこちらの規則を通らない。
+    expect(normalizeGitRemoteName('-x')).toBeNull()
+  })
+
+  /*
+    **アプリが大文字小文字だけの rename を断つ理由そのもの。**
+
+    git は失敗として終わるが、そのとき既に設定は半分書き換わっている ──
+    「失敗したのでやり直せる」ではなく、1回目で壊れる。しかも stderr は
+    `.lock` / `Another git process seems to be running` と読めるため、
+    素直に分類すると「他の git を閉じてやり直せば通る」という嘘の案内になる
+    （main/git/gitFailure.ts はそこを読まない）。
+  */
+  it('git の大文字小文字だけの rename は、途中まで適用したまま落ちる', () => {
+    git('remote', 'add', 'origin', 'https://github.com/o/r.git')
+    git('config', 'user.email', 'test@example.com')
+    git('config', 'user.name', 'Fluvix Nexus Test')
+    writeFileSync(join(root, 'a.txt'), 'base\n', 'utf8')
+    git('add', '--', 'a.txt')
+    git('commit', '--quiet', '-m', 'first')
+
+    // remote-tracking ref が在る状態を作る（この ref の改名で落ちる）。
+    git('update-ref', 'refs/remotes/origin/main', 'HEAD')
+
+    expect(() => git('remote', 'rename', '--end-of-options', 'origin', 'Origin')).toThrow()
+
+    /*
+      落ちたのに、設定だけが新しい名前になっている ── refspec も
+      remote-tracking ref も古い名前を指したまま残る。
+    */
+    expect(config('remote.Origin.url')).toBe('https://github.com/o/r.git')
+    expect(config('remote.Origin.fetch')).toBe('+refs/heads/*:refs/remotes/origin/*')
+    expect(remoteRefs()).toEqual(['refs/remotes/origin/main'])
   })
 })

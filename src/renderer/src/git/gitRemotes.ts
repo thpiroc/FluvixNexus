@@ -8,19 +8,29 @@ import type { GitRemote, GitRemoteNameProblem, GitRemoteUrlProblem } from '@shar
 import type { GitActionReadiness } from './gitChanges'
 
 /**
- * remote の一覧と追加 → 画面に並べる形（React / DOM 非依存・テスト対象・
- * Session 3-8-16）。
+ * remote の一覧・追加・削除（Session 3-8-16）と、URL の変更・rename
+ * （Session 3-8-17）→ 画面に並べる形（React / DOM 非依存・テスト対象）。
  *
  * gitChanges.ts が「変更の一覧」、gitBranches.ts が「ブランチを選ぶ面」、
  * gitStash.ts が「退避の面」を持つのと同じ立ち位置で、こちらは
  * **remote の面の中身**を持つ。GitRemoteOverlay.tsx に残るのは配置だけになる。
  *
- * ## ここで決めているのは4つ
+ * ## ここで決めているのは6つ
  *
  *   1. 開いた面に何と出すか（読み込み中・失敗・1件も無い・切れている）
  *   2. 打った名前と URL で追加できるか、できないならなぜか
  *   3. その行を消せるか
  *   4. 消す前に何と尋ねるか
+ *   5. 打った URL / 名前でその行を変えられるか、できないならなぜか（3-8-17）
+ *   6. 送り先を変える前に何と尋ねるか（3-8-17）
+ *
+ * ## URL は今も片道のまま
+ *
+ * 3-8-17 で URL を打つ欄が2つめ（変更）できても、**一覧から URL が
+ * 返ってくることは無い** ── 送り先を変える確認に出るのは、行が持っている
+ * ラベルと、利用者が今その欄に打った文字列の2つになる
+ * （`describeGitRemoteSetUrlWarning`）。したがってこのファイルには今も
+ * 「URL を出す」関数が無い。
  *
  * 2 の判断は shared の関数（`findGitRemoteNameProblem` /
  * `findGitRemoteUrlProblem`）に委ねてある ── Main が受け取った後に通すのと
@@ -47,9 +57,15 @@ import type { GitActionReadiness } from './gitChanges'
  * ブランチの削除 / rename・退避と同じく、**対象を目印に含めない**（3-8-14）──
  * 面の中で開ける確認は一度に1つで、2件目を押せる場面がそもそも無い。
  * 名前を混ぜると、目印が「押せるかどうか」の役に立たなくなるだけになる。
+ *
+ * 3-8-17 で2つ増えて4つになる。**操作ごとに別の目印にしてある**のは
+ * ブランチ（切り替え / 作成 / 削除 / rename）と同じ形で、走っている操作の
+ * 名前がそのままボタンの文字（「変更しています…」）を決めるためになる。
  */
 export const GIT_ADD_REMOTE_OPERATION_KEY = 'add-remote'
 export const GIT_REMOVE_REMOTE_OPERATION_KEY = 'remove-remote'
+export const GIT_SET_REMOTE_URL_OPERATION_KEY = 'set-remote-url'
+export const GIT_RENAME_REMOTE_OPERATION_KEY = 'rename-remote'
 
 /**
  * 追加の欄に最初から入れておく名前。
@@ -181,6 +197,126 @@ export function toGitRemoteAddReadiness(
 }
 
 /**
+ * 打った URL で、その行の remote の送り先を変えられるか（Session 3-8-17）。
+ *
+ * ## 追加の欄とまったく同じ関数を通す
+ *
+ * `findGitRemoteUrlProblem` は追加の側と共有する（shared/git/remoteUrl.ts）──
+ * 分けると「追加では通らないが変更では通る URL」が生まれ、`ext::sh -c …` を
+ * 断っている根拠がその日に半分になる。Main 側も同じ関数を通す
+ * （main/ipc/handlers/git.ts）。
+ *
+ * ## 名前は見ない
+ *
+ * 変えるのは URL だけで、対象は行が名指ししている ── 追加の欄が
+ * 名前 → URL の順に見るのとは、そこが違う（打つ欄が1つしかない）。
+ *
+ * ## 「今と同じ URL か」は分からない
+ *
+ * 一覧に載るのはラベルだけで、**Renderer は今の URL を持っていない**
+ * （shared/git/remote.ts）── したがって「変わりません」を出す手立ては
+ * そもそも無い。同じ URL を渡しても git は成功として終わり、壊れるものも
+ * 失われるものも無い（shared/ipc/contracts/git.ts）。
+ *
+ * ブランチの rename が「同じ名前は押せない」を出せたのは、比べる相手
+ * （今の名前）が一覧の行に載っていたためになる ── 出せるものと出せない
+ * ものの違いは、その1点で決まる。
+ *
+ * ## 空欄では理由を言わない
+ *
+ * 追加の欄と同じ形（`toGitRemoteAddReadiness`）── 打つ前から
+ * 「入力してください」と出るのは、まだ何も間違えていない人に間違いを
+ * 知らせる形になる。ただし**何をする欄なのかは言う**（開いた直後に
+ * 空の欄だけが出ると、何を打つ場所か分からない）。
+ */
+export function toGitRemoteSetUrlReadiness(
+  remote: GitRemote,
+  url: string,
+  operating: boolean
+): GitActionReadiness {
+  const preparedUrl = prepareGitRemoteUrl(url)
+  const problem = findGitRemoteUrlProblem(preparedUrl)
+
+  if (problem === 'empty') {
+    return { enabled: false, note: `${remote.name} の新しい URL を入力してください。` }
+  }
+
+  if (problem !== null) {
+    return { enabled: false, note: describeGitRemoteUrlProblem(problem) }
+  }
+
+  /*
+    押した後に**何が起きないか**まで言う ── 通信しないことと、手元の
+    remote-tracking が前の送り先のまま残ることは、追加の欄と同じく
+    押す前に読めた方がよい。詳しくは確認の面が言う
+    （`describeGitRemoteSetUrlWarning`）。
+  */
+  return {
+    enabled: !operating,
+    note: `${remote.name} の送り先を変更します（この時点では通信しません）。`
+  }
+}
+
+/**
+ * 打った名前で、その行の remote を改名できるか（Session 3-8-17）。
+ *
+ * ## 同じ名前は押せない
+ *
+ * ブランチの rename とまったく同じ形（`toGitBranchRenameReadiness`）──
+ * 欄の初期値が今の名前なので、**開いた直後は必ずこの状態になる。**
+ * だから理由は「間違い」ではなく「新しい名前を入力してください」と書く。
+ *
+ * ## 大文字小文字だけの違いも押せない ── ブランチとはここが逆になる
+ *
+ * `origin` → `Origin` は、ブランチ（3-8-14）では通せた（git に `--force` が
+ * あり、相手が自分自身だと確かめたうえで立てている）。**`git remote rename`
+ * にその引数は無い。**
+ *
+ * そして Windows で渡すと、git は `cannot lock ref` で落ちたうえに
+ * **途中まで適用したまま**止まる ── 設定だけが新しい名前になり、refspec も
+ * remote-tracking ref も追跡先も古い名前を指したまま残る（実物で確かめて
+ * ある。main/git/gitRemoteRepository.test.ts）。つまり「押しても通らない」
+ * ではなく「押すと壊れる」で、3-8-14 でチェックアウト中のブランチの削除を
+ * 押せなくしたのより強い理由になる。
+ *
+ * 理由の文には**なぜ通らないか**まで書く ── 「使えません」だけだと、
+ * 打ち直せば通ると読まれて同じところを何度も試すことになる。
+ *
+ * Main 側でも同じ判断をする（main/git/gitRemotes.ts）── 画面が古いまま
+ * 押された1回で壊れないようにするための二重の備えで、3-8-14 の
+ * 「同じ名前を打った」と同じ形になる。
+ */
+export function toGitRemoteRenameReadiness(
+  remote: GitRemote,
+  newName: string,
+  operating: boolean
+): GitActionReadiness {
+  const prepared = prepareGitRemoteName(newName)
+  const problem = findGitRemoteNameProblem(prepared)
+
+  if (problem === 'empty') {
+    return { enabled: false, note: `${remote.name} の新しい名前を入力してください。` }
+  }
+
+  if (problem !== null) {
+    return { enabled: false, note: describeGitRemoteNameProblem(problem) }
+  }
+
+  if (prepared === remote.name) {
+    return { enabled: false, note: '新しい名前を入力してください。' }
+  }
+
+  if (prepared.toLowerCase() === remote.name.toLowerCase()) {
+    return {
+      enabled: false,
+      note: '大文字と小文字だけを変える改名は行えません（Git が途中で止まり、設定と追跡先が食い違った状態になります）。別の名前を入力してください。'
+    }
+  }
+
+  return { enabled: !operating, note: `${remote.name} を ${prepared} に変更します。` }
+}
+
+/**
  * その行の remote を消せるか。
  *
  * ## 押す前に分かる「絶対に通らない理由」が1つも無い
@@ -235,6 +371,61 @@ export function describeGitRemoteRemoveWarning(remote: GitRemote): {
     message: `リモート「${remote.name}」を削除しますか？`,
     note: 'このリモートを追跡していたブランチの追跡先も外れます。コミットは失われません。同じ URL で登録し直せます。',
     confirmLabel: '削除'
+  }
+}
+
+/**
+ * 送り先を変える前に出す文言（Session 3-8-17）。
+ *
+ * ## Git で確認を挟む、5つめ
+ *
+ * 1つめは破棄、2つめはブランチの削除、3つめは退避を捨てる、4つめは
+ * remote の削除。**この5つの中で、失われるものが1つも無いのはここだけ**に
+ * なる ── `git remote set-url` が書き換えるのは `remote.<名前>.url` の
+ * 1行だけで、commit も ref も設定も何一つ消えない。
+ *
+ * ## それでも確認するのは、変更が「見えないところ」で効くため
+ *
+ * 3-8-16 が set-url を置かなかった理由は「上書きできること」ではなく
+ * **「黙って上書きされること」**だった ── 送り先が入れ替わったことに
+ * 誰も気づかないまま、次の Push が別のところへ飛ぶ。押す前に
+ * 「今どこを指していて、これからどこを指すか」を並べれば、その理由は
+ * そのまま解ける（docs/ARCHITECTURE.md §14.25）。
+ *
+ * ## 出すのは、ラベルと**利用者が今その欄に打った URL**
+ *
+ * 前者は一覧の行が持っているもの、後者は Renderer が手元に持っている
+ * 文字列で、**どちらも新しく境界を渡ってきた値ではない** ──
+ * 3-8-16 の「URL は Renderer へ渡さない」は1文字も動いていない。
+ *
+ * ## 手元に残るものを言う
+ *
+ * 削除の確認が「何が消えるか」を言うのに対し、こちらは**何が残るか**を
+ * 言う ── `refs/remotes/<名前>/*` は前の送り先から取ってきたままで、
+ * 画面の `↑2 ↓1` はしばらく**もう別の相手と比べた数**になる
+ * （実物で確かめてある。main/git/gitRemoteRepository.test.ts）。
+ * これがこの操作でいちばん読まれにくいことにあたる。
+ *
+ * 「危険です」とは書かない ── 打ち直せば元へ戻せる（削除と違い、
+ * 戻すのに URL を覚えている必要すらない場面が多い）。**盛ると、本当に
+ * 戻せない場面の警告まで軽く読まれる**（§14.23 / §14.24 と同じ判断）。
+ */
+export function describeGitRemoteSetUrlWarning(
+  remote: GitRemote,
+  url: string
+): {
+  readonly message: string
+  readonly currentLabel: string
+  readonly nextUrl: string
+  readonly note: string
+  readonly confirmLabel: string
+} {
+  return {
+    message: `リモート「${remote.name}」の送り先を変更しますか？`,
+    currentLabel: remote.label,
+    nextUrl: prepareGitRemoteUrl(url),
+    note: '取得済みのリモート追跡情報は前の送り先のまま残るため、次の Pull まで ↑ ↓ の数は前の送り先と比べたものになります。コミットは失われません。',
+    confirmLabel: '変更'
   }
 }
 

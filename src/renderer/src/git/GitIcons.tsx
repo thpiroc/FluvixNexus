@@ -42,6 +42,33 @@ export function StageIcon(): JSX.Element {
 }
 
 /**
+ * 競合を「解決済みにする」（Session 3-8-18）。
+ *
+ * **`＋`（Stage）と違う形にしてある**のが、このアイコンの決めごとになる ──
+ * 動く git は同じ `git add` だが意味が違い（index の3段を1段に畳む）、
+ * 同じ形で出すと押した後に何が起きたのかを説明できない
+ * （main/git/gitConflict.ts）。
+ *
+ * チェックにしてあるのは「済んだことを記録する」という意味が最も近いため。
+ * 破棄（`DiscardIcon`）のような危険色は付けない ── 利用者が書いた中身は
+ * 1文字も動かない操作にあたる。
+ */
+export function ResolveIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false">
+      <path
+        d="M3.5 8.5l3 3 6-7"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+/**
  * Unstage（−）。
  *
  * ＋から縦棒を取っただけの形にしてある。**別の絵（矢印・取り消し線）にしない**のは、

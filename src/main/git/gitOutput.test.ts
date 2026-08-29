@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  countLeftoverConflictMarkers,
   isSameRepositoryPath,
   normalizeRepositoryPath,
   readBranchName,
@@ -821,5 +822,81 @@ describe('readRemoteEntries', () => {
 
     expect(reading.remotes.map((remote) => remote.name)).toEqual(['a', 'b'])
     expect(reading.truncated).toBe(false)
+  })
+})
+
+/**
+ * `git diff --check` の読み取り（Session 3-8-18）。
+ *
+ * ここで固定したいのは**終了コードでは決められない**ことになる ──
+ * `--check` は競合マーカーと空白の誤りを同じ終了コード（2）で報告するため、
+ * 読む側が言い回しで分けなければ、解決し終えたファイルが空白の誤りで断られる。
+ */
+describe('countLeftoverConflictMarkers', () => {
+  it('マーカーの行だけを数える', () => {
+    const stdout = [
+      'f.txt:2: leftover conflict marker',
+      'f.txt:4: leftover conflict marker',
+      'f.txt:6: leftover conflict marker'
+    ].join('\n')
+
+    expect(countLeftoverConflictMarkers(stdout)).toBe(3)
+  })
+
+  it('何も出ていなければ 0', () => {
+    expect(countLeftoverConflictMarkers('')).toBe(0)
+    expect(countLeftoverConflictMarkers('\n\n')).toBe(0)
+  })
+
+  /*
+    ここがこの関数の理由そのもの。行末に空白があるだけのファイルは
+    解決し終えているので、断ってはいけない（実物で確かめてある。
+    main/git/gitConflictRepository.test.ts）。
+  */
+  it('空白の誤りは数えない（終了コードは同じ 2 でも別のこと）', () => {
+    const stdout = [
+      'g.txt:2: trailing whitespace.',
+      '+OK   ',
+      'g.txt:5: space before tab in indent.'
+    ].join('\n')
+
+    expect(countLeftoverConflictMarkers(stdout)).toBe(0)
+  })
+
+  it('マーカーと空白の誤りが混ざっていても、マーカーだけを数える', () => {
+    const stdout = [
+      'g.txt:2: trailing whitespace.',
+      '+OK   ',
+      'f.txt:4: leftover conflict marker',
+      'g.txt:9: trailing whitespace.'
+    ].join('\n')
+
+    expect(countLeftoverConflictMarkers(stdout)).toBe(1)
+  })
+
+  /*
+    path には `:` も空白も日本語も入りうる ── 前から切り分けると、
+    そういう名前のファイルだけ数えられなくなる。見るのは末尾の言い回しだけ。
+  */
+  it('path に `:` や空白や日本語が入っていても数えられる', () => {
+    const stdout = [
+      'src/a b:c/メモ.txt:2: leftover conflict marker',
+      '設計 メモ/読み: 書き.md:10: leftover conflict marker'
+    ].join('\n')
+
+    expect(countLeftoverConflictMarkers(stdout)).toBe(2)
+  })
+
+  it('CRLF でも数えられる', () => {
+    expect(countLeftoverConflictMarkers('f.txt:2: leftover conflict marker\r\n')).toBe(1)
+  })
+
+  /*
+    行の途中に同じ言葉が現れても数えない（末尾だけを見る）── ファイル名が
+    `leftover conflict marker` を含む形でも、その行が報告そのものでなければ拾わない。
+  */
+  it('言い回しが末尾に無い行は数えない', () => {
+    expect(countLeftoverConflictMarkers('leftover conflict marker が残っていました')).toBe(0)
+    expect(countLeftoverConflictMarkers('+ // leftover conflict marker was here.')).toBe(0)
   })
 })

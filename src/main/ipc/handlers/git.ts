@@ -31,11 +31,18 @@ import { applyGitCommit } from '../../git/gitCommit'
 import { readGitCommitDetail, readGitCommitFileDiff } from '../../git/gitCommitDetail'
 import { normalizeGitCommitHash } from '../../git/gitCommitHash'
 import { readGitFileDiff } from '../../git/gitDiff'
+import { applyGitResolveConflict } from '../../git/gitConflict'
 import { applyGitDiscard } from '../../git/gitDiscard'
 import { listGitCommits } from '../../git/gitHistory'
 import { applyGitInit } from '../../git/gitInit'
 import { normalizeGitPathspec } from '../../git/gitPathspec'
-import { applyGitAddRemote, applyGitRemoveRemote, listGitRemotes } from '../../git/gitRemotes'
+import {
+  applyGitAddRemote,
+  applyGitRemoveRemote,
+  applyGitRenameRemote,
+  applyGitSetRemoteUrl,
+  listGitRemotes
+} from '../../git/gitRemotes'
 import { describeGitRepository } from '../../git/gitRepository'
 import { applyGitStage, applyGitUnstage } from '../../git/gitStage'
 import {
@@ -387,7 +394,8 @@ function branchStartPointField(request: unknown): string | null {
  *
  * 追加の側も削除の側も同じ関数を通す ── 入口を分けると
  * 「足せるが消せない名前」が生まれる（`branchNameField` /
- * `branchNewNameField` と同じ判断）。
+ * `branchNewNameField` と同じ判断）。3-8-17 で増えた2本（URL の変更 /
+ * rename）が指す側も、まったく同じこの関数を通る。
  */
 function remoteNameField(request: unknown): string {
   const name = normalizeGitRemoteName(field(request, 'name'))
@@ -433,6 +441,35 @@ function remoteUrlField(request: unknown): string {
   }
 
   return url
+}
+
+/**
+ * rename の行き先の remote 名（Session 3-8-17）。
+ *
+ * 通すのは `remoteNameField` とまったく同じ `normalizeGitRemoteName` で、
+ * **読む欄だけが違う**（`branchNameField` / `branchNewNameField` と同じ形）──
+ * 規則を分けると「元の名前としては通るが、新しい名前としては通らない」形が
+ * 生まれ、`--end-of-options` の後ろに並ぶ2つの値に別々の備えが掛かる。
+ *
+ * ここが要るのは形の話だけではない ── `git remote rename --end-of-options
+ * up2 -x` は git が**受け取ってしまい**、`-x` という名前の remote が
+ * 生まれる（実物で確かめた。main/git/gitRemoteRepository.test.ts）。
+ * 追加のときとまったく同じ穴が、行き先の側にも開いている。
+ *
+ * **大文字小文字だけの改名はここでは断らない。** それは2つの値の
+ * 「組み合わせ」で決まるもので、1つの値の形の話ではない ── 見るのは
+ * git を動かす直前になる（main/git/gitRemotes.ts の `applyGitRenameRemote`）。
+ */
+function remoteNewNameField(request: unknown): string {
+  const name = normalizeGitRemoteName(field(request, 'newName'))
+
+  if (name === null) {
+    throw invalidRequest(
+      'the new remote name is empty, too long, or not usable as a git remote name.'
+    )
+  }
+
+  return name
 }
 
 function stashIndexField(request: unknown): number {
@@ -653,6 +690,38 @@ export function registerGitHandlers(): void {
   })
 
   /*
+    remote の URL の変更 / rename（Session 3-8-17）。
+
+    増えたのは**登録簿に書いてある値を書き換える口**が2本で、送り先を
+    選ぶ口ではない ── `git:push` / `git:pull` の要求は今も `void` のまま
+    になる（3-8-5 の判断は 3-8-17 でも撤回していない）。
+
+    URL の変更は追加と**まったく同じ2つの関数**を通る（`remoteNameField` /
+    `remoteUrlField`）── 入口を分けると「追加では通らないが変更では通る
+    URL」が生まれ、`ext::sh -c …` を断っている根拠がその日に半分になる。
+    `git remote set-url x "ext::sh -c whoami"` も git はそのまま受け取る
+    （実物で確かめてある。main/git/gitRemoteRepository.test.ts）。
+
+    rename は名前を2つ運び、**2つとも同じ規則**を通る（`remoteNameField` /
+    `remoteNewNameField`）── 3-8-14 のブランチの rename と同じ形になる。
+
+    どちらの要求にも「確認したか」の欄は無い。URL の変更には押す前の確認が
+    あるが（Git で5つめ）、確認は Renderer の中の話で、証を引数に載せると
+    載せなければ飛ばせる形になる（3-8-14 / 3-8-15 / 3-8-16 と同じ）。
+
+    **大文字小文字だけの rename は、ここでは断らない** ── 1つの値の形の
+    話ではなく2つの値の組み合わせで決まるため、見るのは git を動かす直前に
+    なる（main/git/gitRemotes.ts）。
+  */
+  handleIpc(IPC_CHANNELS.GIT_SET_REMOTE_URL, async (request): Promise<GitOperationResponse> => {
+    return await applyGitSetRemoteUrl(remoteNameField(request), remoteUrlField(request))
+  })
+
+  handleIpc(IPC_CHANNELS.GIT_RENAME_REMOTE, async (request): Promise<GitOperationResponse> => {
+    return await applyGitRenameRemote(remoteNameField(request), remoteNewNameField(request))
+  })
+
+  /*
     退避（Session 3-8-15）。
 
     一覧の要求は `void` ── 並べ替えも絞り込みも件数も届かないため、
@@ -709,5 +778,29 @@ export function registerGitHandlers(): void {
 
   handleIpc(IPC_CHANNELS.GIT_DISCARD, async (request): Promise<GitOperationResponse> => {
     return await applyGitDiscard(discardTargetField(request))
+  })
+
+  /*
+    競合の解決（Session 3-8-18）。
+
+    載るのは位置1つだけで、確かめる関数は Stage / Unstage / 差分 / 破棄と
+    **まったく同じ**になる（`pathspecField`）── 5つめの入口で違う規則が
+    効くと、そこからだけ通る位置が生まれる。
+
+    グループは載らない ── 対象は必ず競合のグループの行で、他のグループから
+    押せる場所がそのものが無い（破棄が `group` を要求するのとは違う。
+    あちらは同じ位置が2つのグループに並びうるため）。
+
+    **`git:stage` と別の1本にしてある。** 動かす git は同じ `git add` だが、
+    こちらは index の3段を1段に畳む操作で意味が違う ── 1本にすると、
+    競合の行に出したボタンが「Stage」と名乗ることになる
+    （main/git/gitConflict.ts）。
+
+    「確認したか」の欄も、マーカーが残っているかの欄も無い ── 後者を
+    Renderer から渡せる形にすると、**渡さなければ確かめを飛ばせる**ことに
+    なる。確かめるのは Main で、押す前に git を1回動かす。
+  */
+  handleIpc(IPC_CHANNELS.GIT_RESOLVE_CONFLICT, async (request): Promise<GitOperationResponse> => {
+    return await applyGitResolveConflict(pathspecField(request))
   })
 }

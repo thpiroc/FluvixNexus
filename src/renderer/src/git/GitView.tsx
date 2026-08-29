@@ -11,13 +11,14 @@ import { GitHubPublishForm } from './GitHubPublishForm'
 import { GitInitConfirm } from './GitInitConfirm'
 import { GitRemoteOverlay } from './GitRemoteOverlay'
 import { GitStashOverlay } from './GitStashOverlay'
-import { DiffIcon, DiscardIcon, StageIcon, UnstageIcon } from './GitIcons'
+import { DiffIcon, DiscardIcon, ResolveIcon, StageIcon, UnstageIcon } from './GitIcons'
 import {
   canDiscardGitChange,
   canOpenGitChange,
   countGitChanges,
   describeGitChangeKind,
   describeGitChangeRow,
+  describeGitRowAction,
   describeGitOperationFailure,
   describeGitUpstream,
   findGitDiscardBlocker,
@@ -143,6 +144,7 @@ export function GitView(): JSX.Element {
     init,
     stage,
     unstage,
+    resolveConflict,
     discard,
     diffRequest,
     diff,
@@ -171,6 +173,8 @@ export function GitView(): JSX.Element {
     openRemotes,
     closeRemotes,
     addRemote,
+    setRemoteUrl,
+    renameRemote,
     removeRemote,
     stashes,
     stashOpen,
@@ -255,9 +259,20 @@ export function GitView(): JSX.Element {
         return
       }
 
+      /*
+        競合の解決（Session 3-8-18）。**Stage とは別の口**へ行く ── 動かす
+        git は同じ `git add` だが、index の3段を1段に畳む操作で意味が違う
+        （main/git/gitConflict.ts）。確認は挟まない（利用者が書いた中身は
+        1文字も動かない）が、マーカーが残っていれば Main が断る。
+      */
+      if (action === 'resolve') {
+        resolveConflict(change.relativePath)
+        return
+      }
+
       unstage(change.relativePath)
     },
-    [stage, unstage]
+    [stage, unstage, resolveConflict]
   )
 
   /*
@@ -804,6 +819,8 @@ export function GitView(): JSX.Element {
           operating={operating}
           adding={pending.has(GIT_ADD_REMOTE_OPERATION_KEY)}
           onAdd={addRemote}
+          onSetUrl={setRemoteUrl}
+          onRename={renameRemote}
           onRemove={removeRemote}
           onClose={closeRemotes}
         />
@@ -1069,10 +1086,7 @@ function GitChangeRow({
     操作の名前は行ごとに作る。「Stage」だけだと、読み上げでは同じ名前のボタンが
     並ぶことになり、どのファイルのものか分からない。
   */
-  const actionLabel =
-    action === 'stage'
-      ? `${change.relativePath} を Stage`
-      : `${change.relativePath} の Stage を解除`
+  const actionLabel = action === null ? '' : describeGitRowAction(action, change)
 
   /*
     差分と破棄（Session 3-8-9）。
@@ -1151,9 +1165,33 @@ function GitChangeRow({
           title={actionLabel}
           aria-label={actionLabel}
         >
-          {action === 'stage' ? <StageIcon /> : <UnstageIcon />}
+          <GitRowActionIcon action={action} />
         </button>
       )}
     </li>
   )
+}
+
+/**
+ * 行の操作の絵（Session 3-8-18）。
+ *
+ * 3つになったところで分けた ── `resolve` は `＋`（Stage）と**違う形**で
+ * なければならず（意味が違う。renderer/src/git/gitChanges.ts）、
+ * 三項演算子を重ねると「どちらでもない方」が既定になる形が残る。
+ */
+function GitRowActionIcon({
+  action
+}: {
+  readonly action: Exclude<GitRowAction, null>
+}): JSX.Element {
+  switch (action) {
+    case 'stage':
+      return <StageIcon />
+
+    case 'unstage':
+      return <UnstageIcon />
+
+    case 'resolve':
+      return <ResolveIcon />
+  }
 }

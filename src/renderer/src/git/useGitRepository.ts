@@ -29,6 +29,8 @@ import { INITIAL_GIT_COMMIT_HISTORY, type GitCommitHistoryState } from './gitHis
 import {
   GIT_ADD_REMOTE_OPERATION_KEY,
   GIT_REMOVE_REMOTE_OPERATION_KEY,
+  GIT_RENAME_REMOTE_OPERATION_KEY,
+  GIT_SET_REMOTE_URL_OPERATION_KEY,
   INITIAL_GIT_REMOTE_LIST,
   type GitRemoteListState
 } from './gitRemotes'
@@ -185,6 +187,19 @@ export interface GitRepositoryController {
   readonly stage: (target: GitStageTarget) => void
   /** index から外す（作業ツリーには触らない）。 */
   readonly unstage: (relativePath: string) => void
+  /**
+   * 競合している1件を「解決済み」として記録する（Session 3-8-18）。
+   *
+   * `stage` とは**別の口**へ行く ── 動く git は同じ `git add` だが、
+   * index の3段（base / ours / theirs）を1段に畳む操作で意味が違う
+   * （main/git/gitConflict.ts）。
+   *
+   * **確認は挟まない**（利用者が書いた中身は1文字も動かない）。ただし
+   * 競合マーカーが残っていれば Main が断る ── それは Renderer からは
+   * 分からない（作業ツリーの中身を持っていない）ので、押した後に
+   * `failure` として出る。
+   */
+  readonly resolveConflict: (relativePath: string) => void
   /**
    * 作業ツリーの変更を破棄する（Session 3-8-9）。
    *
@@ -407,6 +422,29 @@ export interface GitRepositoryController {
    * （GitRemoteOverlay.tsx）、ここへ来るのは既に尋ね終えたものになる。
    */
   readonly removeRemote: (remote: GitRemote) => Promise<GitOperationOutcome | null>
+  /**
+   * remote の送り先（URL）を変える（Session 3-8-17）。
+   *
+   * 渡すのは一覧の行と、利用者が打った URL の2つ ── **今の URL は
+   * どこにも無い**（一覧に載るのはラベルだけ。shared/git/remote.ts）ので、
+   * 打つのは常に新しい URL の全体になる。
+   *
+   * **確認を挟むのはここではない**（面の側。GitRemoteOverlay.tsx）──
+   * ここへ来るのは既に尋ね終えたものになる。削除と同じ分担にしてある。
+   */
+  readonly setRemoteUrl: (remote: GitRemote, url: string) => Promise<GitOperationOutcome | null>
+  /**
+   * remote の名前を変える（Session 3-8-17）。
+   *
+   * 確認は挟まない ── `git remote rename` は remote-tracking ref も
+   * 追跡先も `remote.pushDefault` も全部追随させるため、**失われるものが
+   * 1つも無い**（3-8-14 のブランチの rename と同じ）。
+   *
+   * 大文字小文字だけを変える改名は、押せない状態にしてある
+   * （renderer/src/git/gitRemotes.ts の `toGitRemoteRenameReadiness`）──
+   * 通すと git が途中まで適用したまま止まるため。
+   */
+  readonly renameRemote: (remote: GitRemote, newName: string) => Promise<GitOperationOutcome | null>
   /** 退避の面が開いているか（開いている間だけ `git:changed` で追いつく）。 */
   readonly stashOpen: boolean
   /** 退避を開く（開いた瞬間に取りに行く）。 */
@@ -1385,6 +1423,32 @@ export function useGitRepository(): GitRepositoryController {
   )
 
   /*
+    競合の解決（Session 3-8-18）。
+
+    経路は Stage / Unstage / 破棄とまったく同じ（`operate`）で、
+    **別の道は作っていない** ── 分かれているのは呼ぶ先だけになる
+    （`git:resolve-conflict`。動く git は同じ `git add` だが意味が違う。
+    main/git/gitConflict.ts）。
+
+    鍵も同じ（`path:<位置>`）── 解決している最中に、その同じ行へ
+    別の操作が飛ぶ形にしない。
+
+    結末を返さない（Stage / Unstage / 破棄と同じ）── 通れば行が競合の
+    グループから消えてステージ済みへ移り、断られた理由は一覧の上の
+    1行として出る（`failure`）。**マーカーが残っていた**という断りは
+    そこに出る唯一の押せない理由で、押す前には分からない
+    （作業ツリーの中身を Renderer が持っていないため）。
+  */
+  const resolveConflict = useCallback(
+    (relativePath: string): void => {
+      void operate(toGitOperationKey({ kind: 'resolve', relativePath }), () =>
+        fluvix.git.resolveConflict({ relativePath })
+      )
+    },
+    [operate]
+  )
+
+  /*
     破棄（Session 3-8-9）。
 
     経路は Stage / Unstage とまったく同じ（`operate`）で、**失われるものが
@@ -1751,6 +1815,53 @@ export function useGitRepository(): GitRepositoryController {
   )
 
   /*
+    remote の URL の変更 / rename（Session 3-8-17）。
+
+    経路は追加 / 削除とまったく同じで、**目印だけが別**になる ──
+    走っている操作の名前がそのままボタンの文字を決めるため
+    （renderer/src/git/gitRemotes.ts）。
+
+    通ったときだけ一覧を取り直すのも同じ ── URL の変更では行の**ラベル**が、
+    rename では行の**名前**が入れ替わる。どちらも一覧を取り直さないと、
+    面に古い値が出たままになる。
+
+    `repository` の側は応答が新しくしている ── ただしどちらの操作でも
+    `hasRemote` は変わらない（remote の数は増えも減りもしない）。
+    rename では追跡先が追随するため上のバーの `↑ ↓` はそのまま残り、
+    URL の変更では `↑ ↓` の数そのものが変わらない（比べる相手が
+    手元の remote-tracking ref のままのため。main/git/gitRemotes.ts）。
+  */
+  const setRemoteUrl = useCallback(
+    async (remote: GitRemote, url: string): Promise<GitOperationOutcome | null> => {
+      const outcome = await operate(GIT_SET_REMOTE_URL_OPERATION_KEY, () =>
+        fluvix.git.setRemoteUrl({ name: remote.name, url })
+      )
+
+      if (outcome?.status === 'applied') {
+        void refreshRemotes({ quiet: true })
+      }
+
+      return outcome
+    },
+    [operate, refreshRemotes]
+  )
+
+  const renameRemote = useCallback(
+    async (remote: GitRemote, newName: string): Promise<GitOperationOutcome | null> => {
+      const outcome = await operate(GIT_RENAME_REMOTE_OPERATION_KEY, () =>
+        fluvix.git.renameRemote({ name: remote.name, newName })
+      )
+
+      if (outcome?.status === 'applied') {
+        void refreshRemotes({ quiet: true })
+      }
+
+      return outcome
+    },
+    [operate, refreshRemotes]
+  )
+
+  /*
     初期化（Session 3-8-10）。
 
     経路は他の書き込み操作とまったく同じ（`operate`）で、要求に載せる値が
@@ -1836,6 +1947,7 @@ export function useGitRepository(): GitRepositoryController {
     init,
     stage,
     unstage,
+    resolveConflict,
     discard,
     diffRequest,
     diff,
@@ -1864,6 +1976,8 @@ export function useGitRepository(): GitRepositoryController {
     openRemotes,
     closeRemotes,
     addRemote,
+    setRemoteUrl,
+    renameRemote,
     removeRemote,
     stashes,
     stashOpen,

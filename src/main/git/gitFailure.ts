@@ -972,6 +972,155 @@ export function classifyGitRemoveRemoteFailure(stderr: string): GitOperationFail
  */
 const REMOTE_NOT_FOUND_NEEDLES: readonly string[] = ['no such remote']
 
+/* ------------------------------- remote の URL / 名前（Session 3-8-17） */
+
+/**
+ * remote の URL の変更（`git remote set-url`）の失敗の分類（Session 3-8-17）。
+ *
+ * ## 削除の表と分けてあるが、中身は同じ2つになる
+ *
+ * 起こりうるのは「その remote が無い」だけで、削除とそこは重なる ──
+ * それでも表を分けるのは、このファイルで4つめまで通してきた判断
+ * （3-8-14 / 3-8-15 / 3-8-16）と同じ理由になる。**読む相手のコマンドが
+ * 違えば、片方に言い方が増えた日にもう片方が黙って変わる形にしない。**
+ *
+ * ここに「既にある」（`remote-exists`）が無いのが、追加の表との違いに
+ * あたる ── `set-url` は既にあるものを相手にする操作で、
+ * 同じ URL を渡しても git は 0 で終わる（実物で確かめてある）。
+ *
+ * git の言い方は `error: No such remote 'nope'`（終了コード 2）で、
+ * 実物で確かめてある ── 削除（`No such remote:` ── コロンつき）とは
+ * **1文字違う**が、どちらも `no such remote` を含む。
+ */
+export function classifyGitSetRemoteUrlFailure(stderr: string): GitOperationFailureReason {
+  const text = stderr.toLowerCase()
+
+  if (text.includes('index.lock')) {
+    return 'index-locked'
+  }
+
+  if (SET_REMOTE_URL_NOT_FOUND_NEEDLES.some((needle) => text.includes(needle))) {
+    return 'remote-not-found'
+  }
+
+  if (text.includes('permission denied') || text.includes('access is denied')) {
+    return 'permission-denied'
+  }
+
+  return 'unknown'
+}
+
+/**
+ * URL を変えようとした remote が無い。
+ *
+ * `REMOTE_NOT_FOUND_NEEDLES`（削除の側）と**書き写して分けてある** ──
+ * 実際に git が言うのはコロンの有無だけ違う2つの文で、片方に合わせて
+ * もう片方を動かす形にしない（このファイルの他の4つと同じ）。
+ */
+const SET_REMOTE_URL_NOT_FOUND_NEEDLES: readonly string[] = ['no such remote']
+
+/**
+ * remote の rename（`git remote rename`）の失敗の分類（Session 3-8-17）。
+ *
+ * ## この表だけ、2つの分類が同居する
+ *
+ * remote の他の3つ（追加 / 削除 / URL の変更）は、起こりうることが
+ * それぞれ1つだった ── rename には**「行き先が既にある」と「元が無い」の
+ * 両方**がある（ブランチの rename と同じ形。`classifyGitRenameBranchFailure`）。
+ *
+ * git の言い方と終了コードは実物で確かめてある。
+ *
+ *   `error: remote other already exists.`  … 終了コード 3
+ *   `error: No such remote: 'nope'`        … 終了コード 2
+ *
+ * ## 「既にある」を先に見る
+ *
+ * 断り方に名前が入るため、どちらの文にも remote 名が現れる ── 順番が
+ * 効くのは、行き先の名前がたまたま `no such remote` を含んでいた場合に
+ * なる（`remoteName.ts` が空白を弾いているので実際には起こらないが、
+ * 分類の順は形の側で決めておく。3-8-14 と同じ構え）。
+ *
+ * ## `cannot lock ref` をここで読まない
+ *
+ * 大文字小文字だけの改名で git が落ちるときの stderr は
+ * `cannot lock ref … .lock: File exists` / `Another git process seems to be
+ * running` で、**素直に読むと `index-locked`（＝他の git を閉じてやり直せば
+ * 通る）という嘘の案内になる** ── 実際は何度やり直しても通らず、しかも
+ * その時点で設定は半分書き換わっている。
+ *
+ * だからここでは読まない ── **その組み合わせは git を動かす前に断つ**
+ * （main/git/gitRemotes.ts の `applyGitRenameRemote`）。ここへ来るのは
+ * 大文字小文字だけの違いではない rename だけになる。
+ *
+ * なお `index.lock` の判定はそのまま置いてある ── あちらは
+ * `.git/index.lock` を名指しする別の文で、端末で `git commit` を
+ * 開いたままにしている場合に本当に起こる。
+ */
+export function classifyGitRenameRemoteFailure(stderr: string): GitOperationFailureReason {
+  const text = stderr.toLowerCase()
+
+  if (text.includes('index.lock')) {
+    return 'index-locked'
+  }
+
+  if (RENAME_REMOTE_EXISTS_NEEDLES.some((needle) => text.includes(needle))) {
+    return 'remote-exists'
+  }
+
+  if (RENAME_REMOTE_NOT_FOUND_NEEDLES.some((needle) => text.includes(needle))) {
+    return 'remote-not-found'
+  }
+
+  if (text.includes('permission denied') || text.includes('access is denied')) {
+    return 'permission-denied'
+  }
+
+  return 'unknown'
+}
+
+/** 行き先の名前が既に使われている（`error: remote other already exists.`）。 */
+const RENAME_REMOTE_EXISTS_NEEDLES: readonly string[] = ['already exists']
+
+/** 改名しようとした remote が無い（`error: No such remote: 'nope'`）。 */
+const RENAME_REMOTE_NOT_FOUND_NEEDLES: readonly string[] = ['no such remote']
+
+/* ------------------------------------------- 競合の解決（Session 3-8-18） */
+
+/**
+ * 競合の解決（`git add`）の失敗の分類（Session 3-8-18）。
+ *
+ * ## 表を分ける理由は、これまでの5つと同じ
+ *
+ * 動かす git は Stage とまったく同じ `git add` だが、**起こりうることが
+ * 重ならない。** Stage の表（`classifyGitOperationFailure`）は
+ * 「指した path が git の知らないものになっていた」を主に読むが、こちらの
+ * 対象は必ず**index に3段で載っている**もので、その形にはならない。
+ *
+ * ## ここへ落ちるものは、ほとんど残っていない
+ *
+ * 競合マーカーは**押す前に**確かめてあり（`git diff --check`。
+ * main/git/gitConflict.ts）、対象が競合しているかも Main が読み直した状態で
+ * 確かめてある。つまり実際に起こるのは `index.lock` と権限だけで、
+ * 残りは備えになる。
+ *
+ * `conflict-markers-present` を**ここでは返さない**のは、それが git の
+ * 失敗ではなく**こちらが押す前に決めたこと**だからにあたる ── git は
+ * マーカーが残ったままの `add` を成功として通す（実物で確かめてある）。
+ */
+export function classifyGitResolveConflictFailure(stderr: string): GitOperationFailureReason {
+  const text = stderr.toLowerCase()
+
+  if (text.includes('index.lock')) {
+    return 'index-locked'
+  }
+
+  if (text.includes('permission denied') || text.includes('access is denied')) {
+    return 'permission-denied'
+  }
+
+  return 'unknown'
+}
+
 /**
  * stderr が「ここはリポジトリではない」と言っているか。
  *

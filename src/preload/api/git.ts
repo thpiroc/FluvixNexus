@@ -76,6 +76,13 @@ import { subscribeIpcEvent } from '../ipc/subscribe'
  * 一覧（`listRemotes`）は要求が `void` に戻り、**返るものにも URL は無い**
  * （名前と表示用のラベルだけ。shared/git/remote.ts）。
  *
+ * ## Session 3-8-17 で口が2本増えても、線は動かない
+ *
+ * URL の変更（`setRemoteUrl`）は追加とまったく同じ2つの値を運び、rename
+ * （`renameRemote`）は名前を2つ運ぶ ── どちらもここでは確かめず、通す規則も
+ * `--end-of-options` も Main 側にある。**3-8-16 で渡っていない種類の値は
+ * 1つも増えていない**（名前と URL の2種類のまま）。
+ *
  * ## Session 3-8-10 で足した `init` も、渡す値が1つも無い
  *
  * 初期化の要求は `void` ── どこを初期化するかも初期ブランチ名も渡せない。
@@ -108,6 +115,8 @@ export const gitApi: GitApi = {
   renameBranch: (request) => invokeIpc(IPC_CHANNELS.GIT_RENAME_BRANCH, request),
   listRemotes: () => invokeIpc(IPC_CHANNELS.GIT_LIST_REMOTES),
   addRemote: (request) => invokeIpc(IPC_CHANNELS.GIT_ADD_REMOTE, request),
+  setRemoteUrl: (request) => invokeIpc(IPC_CHANNELS.GIT_SET_REMOTE_URL, request),
+  renameRemote: (request) => invokeIpc(IPC_CHANNELS.GIT_RENAME_REMOTE, request),
   removeRemote: (request) => invokeIpc(IPC_CHANNELS.GIT_REMOVE_REMOTE, request),
   listStashes: () => invokeIpc(IPC_CHANNELS.GIT_LIST_STASHES),
   stashPush: () => invokeIpc(IPC_CHANNELS.GIT_STASH_PUSH),
@@ -115,5 +124,6 @@ export const gitApi: GitApi = {
   stashDrop: (request) => invokeIpc(IPC_CHANNELS.GIT_STASH_DROP, request),
   getFileDiff: (request) => invokeIpc(IPC_CHANNELS.GIT_GET_FILE_DIFF, request),
   discard: (request) => invokeIpc(IPC_CHANNELS.GIT_DISCARD, request),
+  resolveConflict: (request) => invokeIpc(IPC_CHANNELS.GIT_RESOLVE_CONFLICT, request),
   onChanged: (listener) => subscribeIpcEvent(IPC_EVENT_CHANNELS.GIT_CHANGED, listener)
 }

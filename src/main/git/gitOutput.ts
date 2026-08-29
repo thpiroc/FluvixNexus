@@ -736,3 +736,69 @@ function firstNonEmptyLine(value: string): string | null {
 
   return null
 }
+
+/* ------------------------------------------- 競合の解決（Session 3-8-18） */
+
+/**
+ * `git diff --check` が「競合マーカーが残っている」と言った行の数。
+ *
+ * ## 終了コードではなく、行を読む
+ *
+ * `--check` は2つのことを同じ終了コード（2）で報告する。
+ *
+ * ```
+ * f.txt:2: leftover conflict marker
+ * g.txt:2: trailing whitespace.
+ * ```
+ *
+ * 前者だけが「まだ解決し終えていない」で、後者は**行末に空白があるだけ**に
+ * なる。終了コードだけを見ると、解決し終えたファイルが空白の誤りで
+ * 断られることになる ── 押せない理由として出す文がそこで嘘になる。
+ *
+ * `-c core.whitespace=-...` で空白の検査を切る手もあるが、
+ * `.gitattributes` の `whitespace=` は**その `-c` より強い**（どちらも
+ * 実物で確かめてある。main/git/gitConflictRepository.test.ts）── つまり
+ * リポジトリ次第で誤検知が戻る。行を読む形なら、どちらの設定でも答えが変わらない。
+ *
+ * ## 英語を読んでよい根拠
+ *
+ * アプリが呼ぶ git には `LC_ALL=C` を必ず渡してある
+ * （main/git/gitEnvironment.ts）── 3-8-1 から stderr の分類が英語の
+ * 言い回しを読んでいるのと同じ足場になる。
+ *
+ * ## 何がマーカーかは、こちらで決めない
+ *
+ * `<<<<<<<` で始まる行を自分で探すと、差分の書き方を説明した Markdown の
+ * ような**正当なファイル**まで拾う。判定は git に任せ、ここはその答えを
+ * 数えるだけにしてある。
+ *
+ * ## 数を返す（真偽値ではない）
+ *
+ * 「まだ3行残っています」と言えるようにするため ── 押せない理由に数が
+ * 入ると、エディタへ戻った人が探す手がかりになる。
+ */
+export function countLeftoverConflictMarkers(stdout: string): number {
+  let found = 0
+
+  for (const line of stdout.split(/\r?\n/)) {
+    /*
+      行の形は `<path>:<行番号>: leftover conflict marker` で、path には
+      `:` も空白も入りうる（日本語のファイル名も来る）── したがって
+      前から切り分けず、**末尾の言い回しだけ**を見る。
+    */
+    if (line.trimEnd().endsWith(LEFTOVER_CONFLICT_MARKER)) {
+      found += 1
+    }
+  }
+
+  return found
+}
+
+/**
+ * `--check` が競合マーカーに対して書く言い回し。
+ *
+ * 空白の誤り（`trailing whitespace.` など）と**書き写して分けていない** ──
+ * こちらは拾う側で、あちらは拾わない側になる。増やす必要が出たときに
+ * 「拾わないもの」を列挙し始めると、知らない言い回しが黙って拾われる形になる。
+ */
+const LEFTOVER_CONFLICT_MARKER = 'leftover conflict marker'

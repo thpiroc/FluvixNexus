@@ -4,15 +4,36 @@ import { describeGitOperationFailure } from './gitChanges'
 import {
   describeGitRemoteList,
   describeGitRemoteRemoveWarning,
+  describeGitRemoteSetUrlWarning,
   describeGitRemoteTruncation,
   toGitRemoteAddReadiness,
   toGitRemoteRemoveReadiness,
+  toGitRemoteRenameReadiness,
+  toGitRemoteSetUrlReadiness,
   GIT_DEFAULT_REMOTE_NAME,
   type GitRemoteListState
 } from './gitRemotes'
 
 /**
- * remote を見る / 足す / 消す面（Session 3-8-16）。
+ * 行の下に開いているもの（Session 3-8-17）。
+ *
+ * 3-8-16 では削除の確認1つだけだったので名前（`string | null`）で足りたが、
+ * 操作が3つになったので**どれを開いているか**まで持つ ──
+ * `GitBranchMenu.tsx` が削除と rename で持っている形とまったく同じになる。
+ *
+ * 一度に開くのは1つだけ ── 同じ行で URL と名前を同時に編めるようにすると、
+ * どちらを押したのかが押した後に分からなくなる。
+ */
+type GitRemoteRowMode = 'set-url' | 'rename' | 'remove'
+
+interface GitRemoteOpenedRow {
+  readonly name: string
+  readonly mode: GitRemoteRowMode
+}
+
+/**
+ * remote を見る / 足す / 消す面（Session 3-8-16）と、
+ * 行ごとの URL の変更 / 名前の変更（Session 3-8-17）。
  *
  * ## 退避の面と同じ器にしてある
  *
@@ -39,17 +60,24 @@ import {
  * **上から順に直せる**ように、押せない理由も名前 → URL の順で出す
  * （gitRemotes.ts の `toGitRemoteAddReadiness`）。
  *
- * ## URL は面の中にしか無い
+ * ## URL は今も片道のまま（3-8-17 で欄が2つになっても）
  *
- * 打った URL は追加のときに1度 Main へ渡り、**戻ってこない** ──
- * 一覧の行に出るのは名前と表示用のラベルだけになる（shared/git/remote.ts）。
- * したがってこの面には「URL を見る」も「URL を直す」も無い
- * （変更は 3-8-16 の範囲外。docs/ARCHITECTURE.md §14.24）。
+ * 打った URL は Main へ渡り、**戻ってこない** ── 一覧の行に出るのは
+ * 名前と表示用のラベルだけになる（shared/git/remote.ts）。したがって
+ * 3-8-17 で足した「URL 変更」の欄も**空から始まる** ── 今の URL を
+ * 初期値に入れる手立てがそもそも無い。
+ *
+ * 変える相手が分からなくならないよう、欄の上には**ラベル**を出す
+ * （`GitRemoteSetUrlForm`）── これは既に一覧の行に出ているものと同じ値で、
+ * 新しく渡ってくるものは1つも無い。「URL を見る」はこの面に今も無い。
  *
  * ## `Esc` は開いた順に1つずつほどく
  *
  *   Esc（行の下が開いている） … そこだけを畳む
  *   Esc（一覧を見ている）     … 面を閉じる
+ *
+ * URL 変更の確認は**行の下の中で置き換わる**ので、段は増えない
+ * （`GitRemoteSetUrlForm`）── 別の面を重ねると `Esc` が3段になる。
  *
  * ## 文言と押せる条件をここに書かない
  *
@@ -61,6 +89,8 @@ export function GitRemoteOverlay({
   operating,
   adding,
   onAdd,
+  onSetUrl,
+  onRename,
   onRemove,
   onClose
 }: {
@@ -71,20 +101,27 @@ export function GitRemoteOverlay({
   readonly adding: boolean
   /** remote を1つ足す（結末をそのまま返す ── 理由を面の中に出すため）。 */
   readonly onAdd: (name: string, url: string) => Promise<GitOperationOutcome | null>
+  /** 送り先（URL）を変える（Session 3-8-17）。 */
+  readonly onSetUrl: (remote: GitRemote, url: string) => Promise<GitOperationOutcome | null>
+  /** 名前を変える（Session 3-8-17）。 */
+  readonly onRename: (remote: GitRemote, newName: string) => Promise<GitOperationOutcome | null>
   readonly onRemove: (remote: GitRemote) => Promise<GitOperationOutcome | null>
   readonly onClose: () => void
 }): JSX.Element {
   /*
-    どの行の下に、削除の確認が開いているか。
+    どの行の下に、何が開いているか。
 
     フックではなくこの面が持つ ── 書き換えるものが1つも無い**画面の状態**に
     あたり、面を閉じれば一緒に消えてよい（3-8-14 / 3-8-15 と同じ判断）。
 
     持つのは名前で、これは**指した先がひとりでに変わらない**値になる ──
     退避が `shortHash` を持たざるをえなかったのは番号が動くためで
-    （shared/git/stash.ts）、remote にその事情は無い。
+    （shared/git/stash.ts）、remote にその事情は無い。3-8-17 の rename で
+    名前は変わりうるが、変えた直後に一覧を取り直すので、**変わった行は
+    「消えた行」として畳まれる**（下の後片付け）── 新しい名前の行を
+    開いたままにはしない。押した操作は終わっている。
   */
-  const [removing, setRemoving] = useState<string | null>(null)
+  const [opened, setOpened] = useState<GitRemoteOpenedRow | null>(null)
 
   /*
     面の中で押した1回の結末だけを持つ。次に押したら必ず上書きする（`null` を
@@ -98,13 +135,13 @@ export function GitRemoteOverlay({
   const [url, setUrl] = useState('')
 
   const closeRow = useCallback((): void => {
-    setRemoving(null)
+    setOpened(null)
     setFailure(null)
   }, [])
 
-  const openRow = useCallback((remoteName: string): void => {
-    setRemoving(remoteName)
-    // 行を開き直したら、前の行で出ていた理由は消す（別のことについての文になる）。
+  const openRow = useCallback((row: GitRemoteOpenedRow): void => {
+    setOpened(row)
+    // 開き直したら、前に出ていた理由は消す（別のことについての文になる）。
     setFailure(null)
   }, [])
 
@@ -123,7 +160,7 @@ export function GitRemoteOverlay({
 
       event.preventDefault()
 
-      if (removing !== null) {
+      if (opened !== null) {
         closeRow()
         return
       }
@@ -136,7 +173,7 @@ export function GitRemoteOverlay({
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [removing, closeRow, onClose])
+  }, [opened, closeRow, onClose])
 
   /*
     一覧が入れ替わったときに、消えた行の下が開いたままにならないようにする
@@ -144,14 +181,14 @@ export function GitRemoteOverlay({
     開いていた行そのものが無くなることが普通に起きる。
   */
   useEffect(() => {
-    if (removing === null) {
+    if (opened === null) {
       return
     }
 
-    if (!list.remotes.some((remote) => remote.name === removing)) {
-      setRemoving(null)
+    if (!list.remotes.some((remote) => remote.name === opened.name)) {
+      setOpened(null)
     }
-  }, [list.remotes, removing])
+  }, [list.remotes, opened])
 
   const notice = describeGitRemoteList(list)
   const truncation = describeGitRemoteTruncation(list)
@@ -215,8 +252,10 @@ export function GitRemoteOverlay({
                 key={remote.name}
                 remote={remote}
                 operating={operating}
-                removing={removing === remote.name}
+                opened={opened?.name === remote.name ? opened.mode : null}
                 failure={failure}
+                onSetUrl={onSetUrl}
+                onRename={onRename}
                 onRemove={onRemove}
                 onOpenRow={openRow}
                 onCloseRow={closeRow}
@@ -287,7 +326,7 @@ export function GitRemoteOverlay({
         行の下に出せない結末（追加そのものの失敗）は、ここに出す。
         行の下に出るものと同じ文言の関数を通る（gitChanges.ts）。
       */}
-      {failure === null || removing !== null ? null : (
+      {failure === null || opened !== null ? null : (
         <p className="fx-git__remote-failure" role="alert">
           {describeGitOperationFailure(failure)}
         </p>
@@ -306,15 +345,29 @@ export function GitRemoteOverlay({
  * main/git/gitRemotes.ts）。**押せる形のものを置かない**ので、押せない理由を
  * 言う必要もない。
  *
- * 押せるのは右端の ✕ だけになる。退避の行に「戻す」が在ったような
- * 主たる操作がここに無いのは、**一覧を見に来る理由が「確かめる」だから**に
- * あたる ── 足すのは下の欄、消すのは ✕ で、行の上ですることは無い。
+ * 3-8-16 では押せるのが右端の ✕ だけだった。3-8-17 で「URL 変更」と
+ * 「名前変更」が加わり、**1行の中に操作が3つ並ぶ** ── ブランチの行
+ * （切り替え / rename / 削除）とまったく同じ形になる（GitBranchMenu.tsx）。
+ *
+ * ## 行そのものは、3つになっても押せないまま
+ *
+ * remote を「選ぶ」操作が1つも無いのは 3-8-16 から変わらない ── 増えた
+ * 2つはどちらも**その remote の中身を書き換える**もので、送り先を選ぶ
+ * ものではない（main/git/gitRemotes.ts）。
+ *
+ * ## 3つとも、押すとその場で git が動くのではなく行の下が開く
+ *
+ * 名前変更だけは確認ではなく**入力欄**が開く（失われるものが1つも無いため。
+ * 3-8-14 のブランチの rename と同じ）── URL 変更は入力欄を出したうえで、
+ * 押した後にもう一段の確認を出す（Git で5つめの確認。§14.25）。
  */
 function GitRemoteRowView({
   remote,
   operating,
-  removing,
+  opened,
   failure,
+  onSetUrl,
+  onRename,
   onRemove,
   onOpenRow,
   onCloseRow,
@@ -322,18 +375,20 @@ function GitRemoteRowView({
 }: {
   readonly remote: GitRemote
   readonly operating: boolean
-  /** この行の下に、削除の確認が開いているか。 */
-  readonly removing: boolean
+  /** この行の下に何が開いているか（何も開いていなければ null）。 */
+  readonly opened: GitRemoteRowMode | null
   readonly failure: GitOperationFailure | null
+  readonly onSetUrl: (remote: GitRemote, url: string) => Promise<GitOperationOutcome | null>
+  readonly onRename: (remote: GitRemote, newName: string) => Promise<GitOperationOutcome | null>
   readonly onRemove: (remote: GitRemote) => Promise<GitOperationOutcome | null>
-  readonly onOpenRow: (name: string) => void
+  readonly onOpenRow: (row: GitRemoteOpenedRow) => void
   readonly onCloseRow: () => void
   readonly onOutcome: (failure: GitOperationFailure | null) => void
 }): JSX.Element {
-  const readiness = toGitRemoteRemoveReadiness(remote, operating)
+  const removeReadiness = toGitRemoteRemoveReadiness(remote, operating)
 
   return (
-    <li className="fx-git__remote-entry" data-removing={removing}>
+    <li className="fx-git__remote-entry" data-opened={opened ?? undefined}>
       <div className="fx-git__remote-row">
         <div className="fx-git__remote-main">
           <span className="fx-git__remote-name">{remote.name}</span>
@@ -347,23 +402,75 @@ function GitRemoteRowView({
           </span>
         </div>
         {/*
-          ✕ は押すと**その場で git が動くのではなく行の下が開く。**
+          3つとも押すと**その場で git が動くのではなく行の下が開く。**
           `aria-expanded` を持たせてあるのはそのためで、押した結果として
           何かが現れることを、見えていない人にも同じように伝える（3-8-14 / 3-8-15 と同じ）。
+
+          並びは「変える → 変える → 消す」で、**消すのがいちばん右**になる ──
+          ブランチの行と同じ並びで、戻せない側を端に置く。
+
+          止めるのは他の Git 操作が動いている間だけで、3つとも同じ条件に
+          なる（押す前に分かる「絶対に通らない理由」は、開いた先の欄が言う ──
+          大文字小文字だけの rename はそこで押せなくなる）。
         */}
         <button
           type="button"
           className="fx-git__remote-action"
-          onClick={() => onOpenRow(remote.name)}
-          disabled={!readiness.enabled}
-          aria-expanded={removing}
-          title={readiness.note}
+          data-action="set-url"
+          onClick={() => onOpenRow({ name: remote.name, mode: 'set-url' })}
+          disabled={operating}
+          aria-expanded={opened === 'set-url'}
+          title={`${remote.name} の送り先（URL）を変更`}
+          aria-label={`${remote.name} の URL を変更`}
+        >
+          🔗
+        </button>
+        <button
+          type="button"
+          className="fx-git__remote-action"
+          data-action="rename"
+          onClick={() => onOpenRow({ name: remote.name, mode: 'rename' })}
+          disabled={operating}
+          aria-expanded={opened === 'rename'}
+          title={`${remote.name} の名前を変更`}
+          aria-label={`${remote.name} の名前を変更`}
+        >
+          ✎
+        </button>
+        <button
+          type="button"
+          className="fx-git__remote-action"
+          data-action="remove"
+          onClick={() => onOpenRow({ name: remote.name, mode: 'remove' })}
+          disabled={!removeReadiness.enabled}
+          aria-expanded={opened === 'remove'}
+          title={removeReadiness.note}
           aria-label={`${remote.name} を削除`}
         >
           ✕
         </button>
       </div>
-      {removing ? (
+      {opened === 'set-url' ? (
+        <GitRemoteSetUrlForm
+          remote={remote}
+          operating={operating}
+          failure={failure}
+          onSetUrl={onSetUrl}
+          onCancel={onCloseRow}
+          onOutcome={onOutcome}
+        />
+      ) : null}
+      {opened === 'rename' ? (
+        <GitRemoteRenameForm
+          remote={remote}
+          operating={operating}
+          failure={failure}
+          onRename={onRename}
+          onCancel={onCloseRow}
+          onOutcome={onOutcome}
+        />
+      ) : null}
+      {opened === 'remove' ? (
         <GitRemoteRemoveConfirm
           remote={remote}
           operating={operating}
@@ -374,6 +481,291 @@ function GitRemoteRowView({
         />
       ) : null}
     </li>
+  )
+}
+
+/**
+ * 行の下に開く「URL 変更」の欄と、その確認（Session 3-8-17）。
+ *
+ * ## この面で唯一、2段になる操作
+ *
+ * 打つ → 確認 → 適用の3手になる。他の操作（追加・rename）は打ったら
+ * すぐ通り、削除は確認だけで打つものが無い ── ここだけ両方在るのは、
+ * **打った値が正しくても、変更そのものを知らせる必要がある**ためになる
+ * （3-8-16 が set-url を置かなかった理由は「黙って上書きされること」だった。
+ * docs/ARCHITECTURE.md §14.25）。
+ *
+ * ## 欄は空から始まる
+ *
+ * 今の URL は Renderer に**届いていない**（一覧に載るのはラベルだけ。
+ * shared/git/remote.ts）── したがって初期値に入れる値がそもそも無い。
+ * ブランチの rename の欄が今の名前で始まるのとは、そこが違う。
+ *
+ * 代わりに、今どこを指しているかは**ラベルとして欄の上に出す** ──
+ * 打ち始める前に「何を変えようとしているか」は読める。
+ *
+ * ## 確認は同じ場所に出す
+ *
+ * 別の面を重ねない（`Esc` のほどき方が1段深くなる）── 欄のあった場所を
+ * 確認で置き換え、「やめる」で欄へ戻す。打った URL はその間ずっと
+ * 手元に残っているので、**戻って直せる。**
+ */
+function GitRemoteSetUrlForm({
+  remote,
+  operating,
+  failure,
+  onSetUrl,
+  onCancel,
+  onOutcome
+}: {
+  readonly remote: GitRemote
+  readonly operating: boolean
+  readonly failure: GitOperationFailure | null
+  readonly onSetUrl: (remote: GitRemote, url: string) => Promise<GitOperationOutcome | null>
+  readonly onCancel: () => void
+  readonly onOutcome: (failure: GitOperationFailure | null) => void
+}): JSX.Element {
+  const [url, setUrl] = useState('')
+  /** 確認まで進んでいるか（打っている段では false）。 */
+  const [confirming, setConfirming] = useState(false)
+
+  const readiness = toGitRemoteSetUrlReadiness(remote, url, operating)
+  const warning = describeGitRemoteSetUrlWarning(remote, url)
+
+  const submit = useCallback(
+    (event: FormEvent<HTMLFormElement>): void => {
+      event.preventDefault()
+
+      if (!readiness.enabled) {
+        return
+      }
+
+      // 押しても git はまだ動かない ── 次に出るのは確認になる。
+      setConfirming(true)
+      onOutcome(null)
+    },
+    [readiness.enabled, onOutcome]
+  )
+
+  const confirm = useCallback((): void => {
+    void onSetUrl(remote, url).then((outcome) => {
+      onOutcome(outcome === null || outcome.status === 'applied' ? null : outcome)
+
+      /*
+        失敗したら欄へ戻す ── 打った URL はそのまま残っているので、
+        理由を読んでから直せる（追加の欄で通ったときだけ空にするのと
+        同じ判断）。通ったときは一覧が入れ替わり、面の側の後片付けが
+        この行ごと畳む（`GitRemoteOverlay` の `useEffect`）。
+      */
+      if (outcome !== null && outcome.status !== 'applied') {
+        setConfirming(false)
+      }
+    })
+  }, [onSetUrl, onOutcome, remote, url])
+
+  if (confirming) {
+    return (
+      <div
+        className="fx-git__remote-confirm"
+        role="alertdialog"
+        aria-label="リモートの送り先を変更する確認"
+        data-testid="git-remote-set-url-confirm"
+      >
+        <p className="fx-git__remote-confirm-message">{warning.message}</p>
+        {/*
+          今どこを指していて、これからどこを指すか。**左は一覧の行が
+          持っているラベル、右は利用者が今その欄に打った文字列**で、
+          どちらも新しく境界を渡ってきた値ではない（3-8-16 の
+          「URL は Renderer へ渡さない」は動いていない）。
+        */}
+        <dl className="fx-git__remote-diff">
+          <div className="fx-git__remote-diff-row">
+            <dt className="fx-git__remote-diff-label">現在</dt>
+            <dd className="fx-git__remote-diff-value">{warning.currentLabel}</dd>
+          </div>
+          <div className="fx-git__remote-diff-row">
+            <dt className="fx-git__remote-diff-label">変更後</dt>
+            <dd className="fx-git__remote-diff-value" data-testid="git-remote-set-url-next">
+              {warning.nextUrl}
+            </dd>
+          </div>
+        </dl>
+        <p className="fx-git__remote-confirm-note">{warning.note}</p>
+        <div className="fx-git__remote-confirm-actions">
+          <button
+            type="button"
+            className="fx-git__remote-confirm-button"
+            onClick={() => setConfirming(false)}
+            // 確認を出す目的は誤操作を止めることなので、既定はこちらに置く。
+            autoFocus
+          >
+            やめる
+          </button>
+          <button
+            type="button"
+            className="fx-git__remote-confirm-button"
+            data-variant="danger"
+            data-testid="git-remote-set-url-apply"
+            disabled={operating}
+            onClick={confirm}
+          >
+            {warning.confirmLabel}
+          </button>
+        </div>
+        {failure === null ? null : (
+          <p className="fx-git__remote-failure" role="alert">
+            {describeGitOperationFailure(failure)}
+          </p>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <form className="fx-git__remote-edit" onSubmit={submit} data-testid="git-remote-set-url-form">
+      {/*
+        今どこを指しているか。欄が空から始まるので、**変える相手は
+        文として出しておく**（main/git/gitRemoteLabel.ts が作ったラベル）。
+      */}
+      <p className="fx-git__remote-edit-current">
+        現在の送り先: <span className="fx-git__remote-location">{remote.label}</span>
+      </p>
+      <input
+        type="text"
+        className="fx-git__remote-input"
+        value={url}
+        onChange={(event) => setUrl(event.target.value)}
+        placeholder="https://github.com/owner/repo.git"
+        aria-label={`${remote.name} の新しい URL`}
+        spellCheck={false}
+        autoComplete="off"
+        autoFocus
+      />
+      {/*
+        押せない理由は**ボタンの上に1行**として置く（追加の欄がボタンの左に
+        置いているのとは違う）── ここの文は「なぜ通らないか」まで書くため
+        長くなることがあり、横に並べるとパネルが狭いときにボタンが潰れる。
+      */}
+      <span className="fx-git__remote-note" role="status">
+        {readiness.note}
+      </span>
+      <div className="fx-git__remote-edit-bar">
+        <button type="button" className="fx-git__remote-edit-cancel" onClick={onCancel}>
+          やめる
+        </button>
+        <button
+          type="submit"
+          className="fx-git__remote-edit-apply"
+          disabled={!readiness.enabled}
+          title={readiness.note}
+          data-testid="git-remote-set-url-next-step"
+        >
+          確認
+        </button>
+      </div>
+      {failure === null ? null : (
+        <p className="fx-git__remote-failure" role="alert">
+          {describeGitOperationFailure(failure)}
+        </p>
+      )}
+    </form>
+  )
+}
+
+/**
+ * 行の下に開く「名前変更」の欄（Session 3-8-17）。
+ *
+ * ## 確認を挟まない
+ *
+ * `git remote rename` は remote-tracking ref も追っていたブランチの
+ * 追跡先も `remote.pushDefault` も全部追随させる ── **失われるものが
+ * 1つも無い**（main/git/gitRemotes.ts）。3-8-14 のブランチの rename と
+ * まったく同じ形で、打ったら通る。
+ *
+ * ## 欄は今の名前で始まる
+ *
+ * ブランチの rename と同じ（`GitBranchRenameForm`）── 一部だけ直したい
+ * ことが多く、開いた直後は「同じ名前」として押せない状態になる
+ * （`toGitRemoteRenameReadiness` がそう言う）。
+ *
+ * URL の欄が空から始まるのとの違いは、**比べる相手が手元にあるか**に
+ * なる ── 名前は一覧の行が持っているが、URL は持っていない。
+ */
+function GitRemoteRenameForm({
+  remote,
+  operating,
+  failure,
+  onRename,
+  onCancel,
+  onOutcome
+}: {
+  readonly remote: GitRemote
+  readonly operating: boolean
+  readonly failure: GitOperationFailure | null
+  readonly onRename: (remote: GitRemote, newName: string) => Promise<GitOperationOutcome | null>
+  readonly onCancel: () => void
+  readonly onOutcome: (failure: GitOperationFailure | null) => void
+}): JSX.Element {
+  const [newName, setNewName] = useState(remote.name)
+
+  const readiness = toGitRemoteRenameReadiness(remote, newName, operating)
+
+  const submit = useCallback(
+    (event: FormEvent<HTMLFormElement>): void => {
+      event.preventDefault()
+
+      if (!readiness.enabled) {
+        return
+      }
+
+      void onRename(remote, newName).then((outcome) => {
+        onOutcome(outcome === null || outcome.status === 'applied' ? null : outcome)
+      })
+    },
+    [readiness.enabled, newName, onOutcome, onRename, remote]
+  )
+
+  return (
+    <form className="fx-git__remote-edit" onSubmit={submit} data-testid="git-remote-rename-form">
+      <input
+        type="text"
+        className="fx-git__remote-input"
+        value={newName}
+        onChange={(event) => setNewName(event.target.value)}
+        placeholder={remote.name}
+        aria-label={`${remote.name} の新しい名前`}
+        spellCheck={false}
+        autoComplete="off"
+        autoFocus
+      />
+      {/*
+        押せない理由は**ボタンの上に1行**として置く（追加の欄がボタンの左に
+        置いているのとは違う）── ここの文は「なぜ通らないか」まで書くため
+        長くなることがあり、横に並べるとパネルが狭いときにボタンが潰れる。
+      */}
+      <span className="fx-git__remote-note" role="status">
+        {readiness.note}
+      </span>
+      <div className="fx-git__remote-edit-bar">
+        <button type="button" className="fx-git__remote-edit-cancel" onClick={onCancel}>
+          やめる
+        </button>
+        <button
+          type="submit"
+          className="fx-git__remote-edit-apply"
+          disabled={!readiness.enabled}
+          title={readiness.note}
+          data-testid="git-remote-rename-apply"
+        >
+          変更
+        </button>
+      </div>
+      {failure === null ? null : (
+        <p className="fx-git__remote-failure" role="alert">
+          {describeGitOperationFailure(failure)}
+        </p>
+      )}
+    </form>
   )
 }
 

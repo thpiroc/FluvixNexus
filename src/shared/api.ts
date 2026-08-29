@@ -34,6 +34,9 @@ import type {
   GitStashEntryRequest,
   RemoveGitRemoteRequest,
   RenameGitBranchRequest,
+  RenameGitRemoteRequest,
+  ResolveGitConflictRequest,
+  SetGitRemoteUrlRequest,
   StageGitChangesRequest,
   SwitchGitBranchRequest,
   UnstageGitChangesRequest
@@ -602,13 +605,50 @@ export interface GitApi {
    * 追跡先も付かない ── それが付くのは Push が通ったときだけ。
    *
    * 同じ名前が既にあれば `remote-exists` として返り、**上書きはしない**
-   * （URL を変える口は持たない。shared/git/operation.ts）。
+   * （URL を変えるのは別の口。`setRemoteUrl`）。
    *
    * 応答には追加後のリポジトリの状態が入っているため、呼んだ側が続けて
    * `getRepository()` を呼ぶ必要は無い ── ただし一覧は載らないので、
    * 面を開いたままなら `listRemotes()` を取り直す。
    */
   readonly addRemote: (request: AddGitRemoteRequest) => IpcInvokeResult<'git:add-remote'>
+  /**
+   * remote の URL を変える（Session 3-8-17）。
+   *
+   * 渡すのは名前と URL の2つで、**追加とまったく同じ規則**を通る
+   * （`normalizeGitRemoteName` / `normalizeGitRemoteUrl`）── 入口を分けると
+   * 「追加では通らないが変更では通る URL」が生まれる。
+   *
+   * **ネットワークへは出ない。** 変わるのは `remote.<名前>.url` の1行だけで、
+   * refspec も remote-tracking ref も追跡先も動かない ── したがって画面の
+   * `↑2 ↓1` は変更後も**前の送り先と比べた数のまま**残る
+   * （shared/ipc/contracts/git.ts）。押す前に確認を挟むのはそのためになる。
+   *
+   * 同じ URL を渡しても失敗にはならない ── 変わらない値で上書きしても、
+   * 壊れるものも失われるものも無い。
+   *
+   * 無い remote を指すと `remote-not-found` として返り、**他の remote の
+   * URL は1文字も変わらない**。
+   */
+  readonly setRemoteUrl: (request: SetGitRemoteUrlRequest) => IpcInvokeResult<'git:set-remote-url'>
+  /**
+   * remote の名前を変える（Session 3-8-17）。
+   *
+   * 渡すのは名前2つで、**どちらも同じ規則**（`normalizeGitRemoteName`）を通る。
+   *
+   * 削除 + 追加とは結果が違う ── `git remote rename` は remote-tracking ref も
+   * 追っていたブランチの追跡先も `remote.pushDefault` も全部追随させるため、
+   * **失われるものが1つも無い**（shared/ipc/contracts/git.ts）。したがって
+   * 確認は挟まない（3-8-14 のブランチの rename と同じ）。
+   *
+   * 大文字小文字だけを変える改名は**通らない** ── Windows では git が
+   * 途中まで適用したまま落ちるため、その手前で `unsupported-target` として
+   * 断る（Renderer 側でも押せない）。
+   *
+   * 行き先が既にあれば `remote-exists`、元が無ければ `remote-not-found` で、
+   * どちらの場合も**手元の remote は1つも変わらない**。
+   */
+  readonly renameRemote: (request: RenameGitRemoteRequest) => IpcInvokeResult<'git:rename-remote'>
   /**
    * remote を1つ削除する（Session 3-8-16）。
    *
@@ -693,6 +733,27 @@ export interface GitApi {
    * 続けて `getRepository()` を呼ぶ必要は無い。
    */
   readonly discard: (request: DiscardGitChangesRequest) => IpcInvokeResult<'git:discard'>
+  /**
+   * 競合している1件を「解決済み」として記録する（Session 3-8-18）。
+   *
+   * **`stage()` とは別の口**にしてある ── 動く git は同じ `git add` だが、
+   * こちらは index の3段（base / ours / theirs）を1段に畳む操作で、
+   * 意味が違う（shared/ipc/contracts/git.ts）。
+   *
+   * 渡せるのは競合しているファイル1件だけ。グループの「すべて」は無い。
+   *
+   * **作業ツリーには触らない。** 利用者がエディタで書いた解決内容は
+   * 1文字も動かず、記録されるのはその中身そのものになる。
+   *
+   * 競合マーカーが残っていれば `conflict-markers-present` として返り、
+   * **git は1回も動かない**（`git diff --check` で先に確かめる）。
+   *
+   * 取り消す口は無い ── `reset` は競合を復元せず、`checkout --merge` は
+   * 解決内容を上書きするため（3-8-18 の範囲外）。
+   */
+  readonly resolveConflict: (
+    request: ResolveGitConflictRequest
+  ) => IpcInvokeResult<'git:resolve-conflict'>
   /**
    * リポジトリの状態が変わったときに呼ばれる（Session 3-8-8）。
    *

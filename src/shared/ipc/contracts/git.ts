@@ -506,6 +506,123 @@ export interface AddGitRemoteRequest {
 }
 
 /**
+ * remote の URL を変える要求（Session 3-8-17）。
+ *
+ * ## 3-8-16 が断ったのは「上書きできること」ではなく「黙って上書きされること」
+ *
+ * `git:add-remote` は名前が既にあれば `remote-exists` で断る ── その判断は
+ * 1文字も動かない。3-8-17 が足すのは**別の口**で、押す前に
+ * 「今どこを指していて、これからどこを指すか」を見せてから適用する
+ * （renderer/src/git/GitRemoteOverlay.tsx）。危険だったのは上書きそのもの
+ * ではなく、**送り先が入れ替わったことに誰も気づかないまま Push が別の
+ * ところへ飛ぶ**ことだった（docs/ARCHITECTURE.md §14.25）。
+ *
+ * ## 載るのは `AddGitRemoteRequest` と同じ2つで、規則も同じ
+ *
+ * `name` は境界を往復する値（一覧の行が持っていたもの）、`url` は
+ * Renderer → Main へ**1回だけ流れる値**になる。通す関数も追加と同じ
+ * （`normalizeGitRemoteName` / `normalizeGitRemoteUrl`）── 入口を分けると
+ * 「追加では通らないが変更では通る URL」が生まれ、`ext::sh -c …` を
+ * 断っている根拠がその日に半分になる。
+ *
+ * ## 「確認したか」の欄は無い
+ *
+ * 3-8-14 / 3-8-15 / 3-8-16 とまったく同じ判断で、確認を通した証を引数に
+ * 載せると、載せなければ確認を飛ばせる形になる。
+ *
+ * ## 変わるのは1行だけ ── だからこそ確認が要る
+ *
+ * `git remote set-url` が書き換えるのは `remote.<名前>.url` **1行だけ**で、
+ * 次の3つは1つも動かない（実物で確かめてある。
+ * main/git/gitRemoteRepository.test.ts）。
+ *
+ *   `remote.<名前>.fetch`        … refspec はそのまま
+ *   `refs/remotes/<名前>/*`      … **前の送り先から取ってきた commit を指したまま**
+ *   `branch.*.remote` / `.merge` … 追跡先はそのまま
+ *
+ * つまり削除（`RemoveGitRemoteRequest`）とは正反対で、**失われるものが
+ * 1つも無い代わりに、古いものが残る。** 画面の `↑2 ↓1` は変更後も
+ * そのままで、それは**もう別の相手と比べた数**になる ── 確認の文言が
+ * 言うのはそこになる（renderer/src/git/gitRemotes.ts）。
+ *
+ * ## 同じ URL を渡しても、`nothing-to-do` にしない
+ *
+ * Renderer は今の URL を持たない（一覧に載るのはラベルだけ）ので、
+ * 押す前には判定できない。Main で判定するには `git remote get-url` を
+ * 1回増やすことになり、**得られるのは文言だけ**になる ── 変わらない値で
+ * 上書きしても、壊れるものも失われるものも無い。git へそのまま渡して
+ * 成功として返す（3-8-6 の「今のブランチを選んだ」＝ `nothing-to-do` とは
+ * 事情が違う。あちらは Renderer が持っている値で判定できた）。
+ */
+export interface SetGitRemoteUrlRequest {
+  /** URL を変える remote 名（一覧の行が持っていたもの）。`normalizeGitRemoteName` を通る。 */
+  readonly name: string
+  /** 新しい URL。`normalizeGitRemoteUrl` を通る（追加とまったく同じ3つの形）。 */
+  readonly url: string
+}
+
+/**
+ * remote の名前を変える要求（Session 3-8-17）。
+ *
+ * ## 1つの要求に外来の値が2つ載る、3つめの形
+ *
+ * 1つめはブランチの rename（`RenameGitBranchRequest`）、2つめは remote の
+ * 追加（`AddGitRemoteRequest`）だった。こちらは1つめと同じ側にあたる ──
+ * 「どれを」と「何に」で、**2つとも同じ規則**（`normalizeGitRemoteName`）を
+ * 通る。入口を分けると「元の名前としては通るが、新しい名前としては
+ * 通らない」形が生まれる。
+ *
+ * 行き先にも同じ規則を掛けるのは形の話だけではない ──
+ * `git remote rename --end-of-options up2 -x` は git が**受け取ってしまい**、
+ * `-x` という名前の remote が生まれる（実物で確かめてある）。追加のときと
+ * まったく同じ穴が、行き先の側にも開いている。
+ *
+ * ## 元の名前も要求に載せる
+ *
+ * `git remote rename` に1引数形は無いので git 側の事情ではないが、
+ * `RenameGitBranchRequest` と同じ形に揃えてある ── 対象は要求が名指しする。
+ *
+ * ## 削除と違い、確認を挟まない
+ *
+ * `git remote rename` は**必要なものを全部追随させる**（実物で確かめてある。
+ * main/git/gitRemoteRepository.test.ts）。
+ *
+ *   `remote.<新名>.url` / `.fetch`   … 設定ごと移り、refspec の行き先も書き換わる
+ *   `refs/remotes/<新名>/*`          … remote-tracking ref も改名される
+ *   `branch.*.remote`                … **追っていたブランチの追跡先も追随する**
+ *   `remote.pushDefault`             … 指していれば、それも追随する
+ *
+ * つまり `↑2 ↓1` は消えず、rename の後の Push もそのまま通る ──
+ * **失われるものが1つも無い。** 3-8-14 でブランチの rename に確認を
+ * 置かなかったのとまったく同じ判断になる（削除にだけ確認がある）。
+ *
+ * 3-8-16 が「消して足し直すのとは別の設計が要る」と書いたのは正しかったが、
+ * 難しい側ではなく**易しい側**に別だった ── remove + add は追跡先を失うが、
+ * rename は失わない。
+ *
+ * ## 大文字小文字だけの改名は、ここへ来ない
+ *
+ * Windows では `refs/remotes/origin/…` と `refs/remotes/Origin/…` が同じ
+ * ファイルになるため、`git remote rename origin Origin` は
+ * `cannot lock ref` で落ちる ── しかも**途中まで適用したまま**止まり、
+ * `remote.Origin.url` だけが書かれて refspec も remote-tracking ref も
+ * `branch.*.remote` も古い名前を指したままになる（実物で確かめてある）。
+ *
+ * ブランチ（3-8-14）ではそこを `--force` で通したが、
+ * **`git remote rename` に force は無い。** したがって git を動かす前に
+ * 断る ── Renderer は押せない状態にし（renderer/src/git/gitRemotes.ts）、
+ * Main も届いた値を確かめて `unsupported-target` を返す
+ * （main/git/gitRemotes.ts）。同じ問いに対して 3-8-14 と逆の答えになるのは、
+ * git が用意している逃げ道の有無がそこで分かれるためになる。
+ */
+export interface RenameGitRemoteRequest {
+  /** 改名する remote 名（一覧の行が持っていたもの）。 */
+  readonly name: string
+  /** 新しい名前。元と同じ規則（`normalizeGitRemoteName`）を通る。 */
+  readonly newName: string
+}
+
+/**
  * remote を1つ削除する要求（Session 3-8-16）。
  *
  * ## 載るのは名前だけ
@@ -664,6 +781,57 @@ export interface GetGitFileDiffResponse {
  */
 export interface DiscardGitChangesRequest {
   readonly target: GitDiscardTarget
+}
+
+/**
+ * 競合している1件を「解決済み」として記録する要求（Session 3-8-18）。
+ *
+ * ## 3-8-2 から在った競合のグループに、初めて操作が付く
+ *
+ * それまで競合の行にできたのは**エディタで開くこと**だけだった
+ * （renderer/src/git/gitChanges.ts の `canOpenGitChange` は競合を通す）──
+ * つまり利用者はアプリの中で競合を直せるのに、**直したと Git へ伝える
+ * 手段が無かった。** その間、アプリ自身は3箇所で「解決してください」と
+ * 言っていた（Commit の失敗・退避が押せない理由・pop の結末）。
+ * 3-8-18 で埋めるのはそこになる（docs/ARCHITECTURE.md §14.26）。
+ *
+ * ## 載るのは位置1つだけ
+ *
+ * `DiscardGitChangesRequest` と違い、グループは載らない ── 対象は必ず
+ * 競合のグループの行で、他のグループから押せる場所がそもそも無い。
+ * 「すべて解決済みにする」も無い（渡せるのは1件で、複数を渡せる欄は
+ * 作らない ── Stage の「任意の複数」と同じ線）。
+ *
+ * ## Stage とは別の口にしてある
+ *
+ * 動く git は同じ `git add` だが、**意味が違う。**
+ *
+ *   `git:stage`            … 作業ツリーの姿を、次の Commit の中身へ写す
+ *   `git:resolve-conflict` … **競合が解けたことを Git に伝える**（index の
+ *                            3段（base / ours / theirs）が1段に畳まれる）
+ *
+ * 1本にまとめると、競合の行に出したボタンが「Stage」と名乗ることになり、
+ * **押した後に何が起きたのかが説明できない** ── `git remote add` を動かす
+ * 口を `github:publish` と `git:add-remote` に分けてあるのと同じ判断で、
+ * **動かす git が同じでも、意味が違えば口を分ける**（§14.24）。
+ *
+ * ## 取り消す口は持たない（3-8-18 の範囲外）
+ *
+ * `git reset HEAD -- <path>` は**競合を復元しない** ── 3段が畳まれた
+ * ただの変更として残る（実物で確かめてある）。復元できるのは
+ * `git checkout --merge` だが、それは**利用者が書いた解決内容を
+ * 上書きする。** どちらも「取り消し」として出せる振る舞いではないため、
+ * 口そのものを作っていない（docs/ARCHITECTURE.md §14.26）。
+ *
+ * ## 「確認したか」の欄は無い
+ *
+ * 3-8-14 以降と同じ判断。ただしこの操作に確認は挟まない ── 失われるのは
+ * index の3段だけで、**利用者が書いた中身は1文字も動かない**（作業ツリーに
+ * 触らない）。
+ */
+export interface ResolveGitConflictRequest {
+  /** 競合しているファイルの、Workspace root からの相対位置（区切りは `/`）。 */
+  readonly relativePath: string
 }
 
 export interface GitIpcContract {
@@ -986,12 +1154,13 @@ export interface GitIpcContract {
    * `addOriginRemote` が Renderer 由来の値を1つも受け取らない、という
    * 3-8-10 の保証がそこで消える（main/git/gitCommands.ts）。
    *
-   * ## `set-url`（URL の変更）は、この口の先にも無い
+   * ## `set-url`（URL の変更）は、この口の先には無い
    *
    * `git remote add` は名前が既にあれば**失敗する。** それがここで欲しい
-   * 振る舞いになる ── 上書きすると、送り先が入れ替わったことに誰も
-   * 気づかないまま Push が別のところへ飛ぶ。変更の口は 3-8-16 の範囲外で、
-   * 消して足し直すのとは別の設計が要る（docs/ARCHITECTURE.md §14.24）。
+   * 振る舞いになる ── 足すつもりで押したら送り先が入れ替わっていた、
+   * という形を作らない。URL を変える口は 3-8-17 で**別の1本**として足した
+   * （`git:set-remote-url`）── あちらは押す前に「今どこを指していて、
+   * これからどこを指すか」を見せる（docs/ARCHITECTURE.md §14.25）。
    *
    * 応答は他の書き込み操作と同じ `GitOperationResponse` で、追加後の状態が
    * 丸ごと載る（`hasRemote` が false から true へ変わり、公開の入口が消える）──
@@ -1000,6 +1169,72 @@ export interface GitIpcContract {
    */
   'git:add-remote': {
     request: AddGitRemoteRequest
+    response: GitOperationResponse
+  }
+  /**
+   * remote の URL を変える（Session 3-8-17）。
+   *
+   * ## `git:add-remote` と**別の1本**にしてある
+   *
+   * 動かす git は同じ `git remote` だが、混ぜない ── 1本にして
+   * 「既にあれば上書き」にすると、3-8-16 が `remote-exists` で断ると
+   * 決めた振る舞いがそこで消え、**足すつもりで押したら送り先が
+   * 入れ替わっていた**が生まれる。`git:stage` と `git:unstage`、
+   * `git:delete-branch` と `git:rename-branch` を分けてあるのと同じ判断になる。
+   *
+   * ## 押す前に見せてから適用する
+   *
+   * Git で確認を挟む**5つめ**で、この5つの中でいちばん軽い ── 破棄
+   * （§14.16）→ ブランチの削除（§14.22）→ 退避を捨てる（§14.23）→
+   * remote の削除（§14.24）→ ここ。**失われるものが1つも無い**唯一の確認に
+   * あたる（`SetGitRemoteUrlRequest`）。それでも挟むのは、変更が
+   * **見えないところで効く**ため ── 変わるのは設定の1行だけで、画面の
+   * `↑2 ↓1` は前の相手と比べた数のまま残る。
+   *
+   * 確認に出すのは、一覧の行が持っているラベル（今どこを指しているか）と、
+   * 利用者がその欄に打った URL の2つになる ── **どちらも新しく境界を
+   * 渡る値ではない**（URL は Renderer が今その場で打った文字列で、
+   * Main から返ってきたものではない）。3-8-16 の
+   * 「URL は Renderer へ渡さない」は1文字も動いていない。
+   *
+   * 応答は他の書き込み操作と同じ `GitOperationResponse` で、変更後の状態が
+   * 丸ごと載る ── ただし `hasRemote` は変わらない（remote の数は増えも
+   * 減りもしない）。一覧はそこに載らないので、面が開いたままの Renderer が
+   * 通った後に取り直す（renderer/src/git/useGitRepository.ts）。
+   */
+  'git:set-remote-url': {
+    request: SetGitRemoteUrlRequest
+    response: GitOperationResponse
+  }
+  /**
+   * remote の名前を変える（Session 3-8-17）。
+   *
+   * ## 削除 + 追加ではない
+   *
+   * 結果だけ見れば同じに見えるが、**残るものが違う。**
+   * `git remote remove` は追っていたブランチの追跡先まで消すのに対し、
+   * `git remote rename` は追跡先も remote-tracking ref も
+   * `remote.pushDefault` も全部追随させる（`RenameGitRemoteRequest`）──
+   * したがって rename の後も `↑2 ↓1` は消えず、Push は
+   * 「初回の Push」に戻らない。
+   *
+   * 2つの口でできることをアプリの中で組み合わせない、という線でもある ──
+   * remove → add の2段を代わりに動かすと、途中で止まったときに
+   * **remote が1つも無いリポジトリ**が残る（3-8-10 の `git init` で
+   * 「一続きにしない」と決めたのと同じ事情）。
+   *
+   * ## 確認は挟まない
+   *
+   * 失われるものが1つも無いため（3-8-14 のブランチの rename と同じ）。
+   * 削除にだけ確認がある、という並びは remote でも変わらない。
+   *
+   * ## 一括の rename は無い
+   *
+   * 渡せるのは1件で、複数を渡せる欄は作らない（Stage の「任意の複数」・
+   * ブランチの一括削除・`stash clear`・remote の一括削除と同じ線）。
+   */
+  'git:rename-remote': {
+    request: RenameGitRemoteRequest
     response: GitOperationResponse
   }
   /**
@@ -1139,6 +1374,37 @@ export interface GitIpcContract {
    */
   'git:discard': {
     request: DiscardGitChangesRequest
+    response: GitOperationResponse
+  }
+  /**
+   * 競合している1件を「解決済み」として記録する（Session 3-8-18）。
+   *
+   * ## `git:stage` と別の1本にしてある
+   *
+   * 動かす git は同じ `git add` だが混ぜない ── 1本にすると、競合の行に
+   * 出したボタンが「Stage」と名乗ることになり、押した後に index の3段が
+   * 畳まれたことを説明できなくなる（`ResolveGitConflictRequest`）。
+   * `git:stage` / `git:unstage`、`github:publish` / `git:add-remote`、
+   * `git:add-remote` / `git:set-remote-url` を分けてあるのと同じ判断になる。
+   *
+   * ## Main は git を2回動かす
+   *
+   * 1回目は**押せるかを確かめるため**で、`git diff --check` になる ──
+   * git は競合マーカーが残ったままの `add` も、その後の Commit も通して
+   * しまい、**マーカーがそのまま履歴に残る**（実物で確かめてある）。
+   * 履歴に永久に残るものを、押し間違いで作らせない。
+   * 残っていれば `conflict-markers-present` を返し、**2回目は動かさない**
+   * （shared/git/operation.ts）。
+   *
+   * ## 応答は他の書き込み操作と同じ
+   *
+   * `GitOperationResponse` に操作後の状態が丸ごと載る ── 通れば競合の
+   * グループからその行が消え、ステージ済みへ移る。**競合が最後の1件
+   * だったなら、その時点で Commit が押せるようになる**（3-8-4 の
+   * `unresolved-conflicts` が解ける）。
+   */
+  'git:resolve-conflict': {
+    request: ResolveGitConflictRequest
     response: GitOperationResponse
   }
 }

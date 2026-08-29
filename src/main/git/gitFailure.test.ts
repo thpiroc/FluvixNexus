@@ -12,6 +12,9 @@ import {
   classifyGitPushFailure,
   classifyGitRemoveRemoteFailure,
   classifyGitRenameBranchFailure,
+  classifyGitRenameRemoteFailure,
+  classifyGitResolveConflictFailure,
+  classifyGitSetRemoteUrlFailure,
   classifyGitStashDropFailure,
   classifyGitStashPopFailure,
   classifyGitStashPushFailure,
@@ -891,5 +894,170 @@ describe('classifyGitRemoveRemoteFailure', () => {
 
   it('知らない文章は unknown に倒す', () => {
     expect(classifyGitRemoveRemoteFailure('error: something entirely new')).toBe('unknown')
+  })
+})
+
+/*
+  remote の URL の変更（Session 3-8-17）。
+
+  起こりうるのは「その remote が無い」だけで、削除とそこは重なる ──
+  それでも表を分けてあるので、追加でしか起こりえない分類は返らない。
+*/
+describe('classifyGitSetRemoteUrlFailure', () => {
+  /*
+    git の言い方は削除（`No such remote:` ── コロンつき）と1文字違う。
+    実物で確かめてある（main/git/gitRemoteRepository.test.ts）。
+  */
+  it('URL を変えようとした remote が無い（コロンの無い言い方）', () => {
+    expect(classifyGitSetRemoteUrlFailure("error: No such remote 'nope'")).toBe('remote-not-found')
+  })
+
+  it('削除と同じコロンつきの言い方も読む', () => {
+    expect(classifyGitSetRemoteUrlFailure("error: No such remote: 'nope'")).toBe('remote-not-found')
+  })
+
+  it('index.lock を先に見る', () => {
+    expect(
+      classifyGitSetRemoteUrlFailure(
+        "fatal: Unable to create 'D:/work/app/.git/index.lock': File exists."
+      )
+    ).toBe('index-locked')
+  })
+
+  it('権限', () => {
+    expect(
+      classifyGitSetRemoteUrlFailure('error: could not lock config file: Permission denied')
+    ).toBe('permission-denied')
+  })
+
+  /*
+    追加にしか起こりえないものを、この表から返さない ── `set-url` は
+    既にあるものを相手にする操作で、「既にある」は失敗の理由にならない。
+  */
+  it('「既にある」は URL の変更の表では読まない', () => {
+    expect(classifyGitSetRemoteUrlFailure('error: remote origin already exists.')).toBe('unknown')
+  })
+
+  it('知らない文章は unknown に倒す', () => {
+    expect(classifyGitSetRemoteUrlFailure('error: something entirely new')).toBe('unknown')
+  })
+})
+
+/*
+  remote の rename（Session 3-8-17）。
+
+  remote の4つの表の中で、**2つの分類が同居する唯一の表**になる
+  （ブランチの rename と同じ形）。
+*/
+describe('classifyGitRenameRemoteFailure', () => {
+  it('行き先の名前が既に使われている', () => {
+    expect(classifyGitRenameRemoteFailure('error: remote other already exists.')).toBe(
+      'remote-exists'
+    )
+  })
+
+  it('改名しようとした remote が無い', () => {
+    expect(classifyGitRenameRemoteFailure("error: No such remote: 'nope'")).toBe('remote-not-found')
+  })
+
+  it('index.lock を先に見る', () => {
+    expect(
+      classifyGitRenameRemoteFailure(
+        "fatal: Unable to create 'D:/work/app/.git/index.lock': File exists."
+      )
+    ).toBe('index-locked')
+  })
+
+  it('権限', () => {
+    expect(
+      classifyGitRenameRemoteFailure('error: could not lock config file: Permission denied')
+    ).toBe('permission-denied')
+  })
+
+  /*
+    大文字小文字だけの改名で git が言うこと。**`index-locked` に読み違えない。**
+
+    素直に読むと「他の git を閉じてやり直せば通る」という案内になるが、
+    実際は何度やり直しても通らず、しかもその時点で設定は半分書き換わって
+    いる（実物で確かめてある）── だからその組み合わせは git を動かす前に
+    断ってあり（main/git/gitRemotes.ts）、この表には落ちてこない。
+
+    それでも `unknown` に倒れることを固定しておく ── ここで
+    `index-locked` を返す形にしてしまうと、断つ側を外した日に
+    嘘の案内が黙って出ることになる。
+  */
+  it('ref のロックの失敗を index.lock と読み違えない', () => {
+    expect(
+      classifyGitRenameRemoteFailure(
+        "error: renaming remote references failed: cannot lock ref 'refs/remotes/Origin/main': " +
+          "Unable to create 'D:/work/app/.git/refs/remotes/Origin/main.lock': File exists.\n" +
+          '\nAnother git process seems to be running in this repository'
+      )
+    ).toBe('unknown')
+  })
+
+  /*
+    ブランチの rename の表と書き写して分けてある（3-8-14 と同じ判断）──
+    同じ `already exists` でも、開き直す一覧が違う。
+  */
+  it('ブランチの rename とは別の分類を返す', () => {
+    expect(classifyGitRenameBranchFailure('error: a branch named x already exists')).toBe(
+      'branch-exists'
+    )
+    expect(classifyGitRenameRemoteFailure('error: remote x already exists.')).toBe('remote-exists')
+  })
+
+  it('知らない文章は unknown に倒す', () => {
+    expect(classifyGitRenameRemoteFailure('error: something entirely new')).toBe('unknown')
+  })
+})
+
+/**
+ * 競合の解決（Session 3-8-18）。
+ *
+ * 動かす git は Stage とまったく同じ `git add` だが、起こりうることが
+ * 重ならないため表を分けてある。
+ */
+describe('classifyGitResolveConflictFailure', () => {
+  it('index が他の git に握られている', () => {
+    expect(
+      classifyGitResolveConflictFailure(
+        "fatal: Unable to create 'D:/work/app/.git/index.lock': File exists."
+      )
+    ).toBe('index-locked')
+  })
+
+  it('権限', () => {
+    expect(classifyGitResolveConflictFailure('error: open("a.txt"): Permission denied')).toBe(
+      'permission-denied'
+    )
+  })
+
+  /*
+    競合マーカーが残っていることは**git の失敗ではない** ── git は
+    マーカーが残ったままの add を成功として通す（実物で確かめてある）。
+    断っているのはアプリ側で、押す前に決まる（main/git/gitConflict.ts）。
+    したがってこの表からその分類が返ることは無い。
+  */
+  it('`conflict-markers-present` はこの表からは返らない', () => {
+    expect(classifyGitResolveConflictFailure('leftover conflict marker')).toBe('unknown')
+    expect(classifyGitResolveConflictFailure('')).toBe('unknown')
+  })
+
+  /*
+    Stage の表が読む「見つからない」は、こちらでは起こりえない ──
+    対象は必ず index に3段で載っているものになる。
+  */
+  it('pathspec の「見つからない」を読まない（Stage の表とは別）', () => {
+    expect(classifyGitOperationFailure("fatal: pathspec 'gone.txt' did not match any files")).toBe(
+      'path-not-found'
+    )
+    expect(
+      classifyGitResolveConflictFailure("fatal: pathspec 'gone.txt' did not match any files")
+    ).toBe('unknown')
+  })
+
+  it('知らない文章は unknown に倒す', () => {
+    expect(classifyGitResolveConflictFailure('error: something entirely new')).toBe('unknown')
   })
 })

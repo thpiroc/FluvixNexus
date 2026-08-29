@@ -789,6 +789,24 @@
 }
 
 /*
+ * 競合を「解決済みにする」（Session 3-8-18）。
+ *
+ * **hover しなくても見えるようにしてある**のが、他の行の操作との違いになる ──
+ * 競合の行は「次に何をすればよいか」がいちばん分かりにくい行で、
+ * その1つしか無い出口を hover で探させない（他の操作は行を指せば現れる）。
+ *
+ * 色は普通の文字の色のまま ── 破棄のような危険色は付けない。利用者が
+ * 書いた中身は1文字も動かない操作にあたる（main/git/gitConflict.ts）。
+ */
+.fx-git__change-action[data-action='resolve'] {
+  color: var(--fx-color-text-muted);
+}
+
+.fx-git__change-action[data-action='resolve']:hover:not(:disabled) {
+  color: var(--fx-color-text-strong);
+}
+
+/*
  * 処理中は押せない。
  *
  * 見た目を薄くするだけで、**場所は残す** ── 消すと、押した直後に行の右端が
@@ -2603,10 +2621,14 @@
 }
 
 /*
- * 削除（✕）。
+ * 行の操作（🔗 URL 変更 / ✎ 名前変更 / ✕ 削除）。
  *
  * 大きさと色は退避・ブランチの一覧の ✕ と揃えてある ── 同じパネルの中で
  * 「行の右端に付く操作」の形が2つに割れないようにするため。
+ *
+ * 3-8-17 で1行に3つ並んだが、**危険色（赤）に変わるのは ✕ だけ**にしてある
+ * （下記）── 戻せない側だけが色でもそう言う、というのはブランチの行と
+ * 同じ形になる。
  */
 .fx-git__remote-action {
   display: flex;
@@ -2627,7 +2649,13 @@
   color: var(--fx-color-text-muted);
 }
 
+/* 変える側は強調するだけ（戻せる操作なので、赤にしない）。 */
 .fx-git__remote-action:hover:not(:disabled) {
+  color: var(--fx-color-text-strong);
+}
+
+/* 消す側だけが赤になる（ブランチの行と同じ）。 */
+.fx-git__remote-action[data-action='remove']:hover:not(:disabled) {
   color: var(--fx-color-danger);
 }
 
@@ -2706,6 +2734,119 @@
 .fx-git__remote-confirm-button[data-variant='danger'] {
   color: var(--fx-color-danger);
   border-color: var(--fx-color-danger);
+}
+
+/*
+ * 送り先を変える確認の「現在 → 変更後」（Session 3-8-17）。
+ *
+ * この面で**2つの値を並べて見せる唯一の場所**になる ── 3-8-16 が
+ * set-url を置かなかった理由（黙って上書きされる）を解くのがここなので、
+ * 文の中に混ぜず、行として並べる。
+ *
+ * 左の見出しの幅を固定してあるのは、2つの値が**同じ左端から始まる**
+ * ようにするため ── ずれていると、見比べるのに目が左右へ動く。
+ */
+.fx-git__remote-diff {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-1);
+  margin: var(--fx-space-1) 0 0;
+}
+
+.fx-git__remote-diff-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--fx-space-2);
+  min-width: 0;
+}
+
+.fx-git__remote-diff-label {
+  flex: 0 0 auto;
+  width: 4em;
+  color: var(--fx-color-text-faint);
+  font-size: var(--fx-font-size-sm);
+}
+
+/*
+ * 値。**折り返して全部出す**（省略しない）── 打った URL のどこが
+ * 違うかを確かめるための場所で、末尾が `…` に隠れると確かめられない。
+ * 等幅にしてあるのも同じ理由（`l` と `1`、`0` と `O` を見分けられる）。
+ */
+.fx-git__remote-diff-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  color: var(--fx-color-text-strong);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: var(--fx-font-size-sm);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+/*
+ * 行の下に開く「URL 変更」「名前変更」の欄（Session 3-8-17）。
+ *
+ * 確認（`fx-git__remote-confirm`）と同じ地に沈めてある ── 行の下に
+ * 開くものは、確認でも入力欄でも同じ見え方にする（ブランチの面で
+ * 削除の確認と rename の欄を揃えてあるのと同じ）。
+ */
+.fx-git__remote-edit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-1);
+  padding: var(--fx-space-2) var(--fx-space-3);
+  border-top: 1px solid var(--fx-color-border);
+  background: var(--fx-color-surface-sunken);
+}
+
+/* 変える相手（今どこを指しているか）。欄が空から始まるので、これが手がかりになる。 */
+.fx-git__remote-edit-current {
+  margin: 0;
+  color: var(--fx-color-text-muted);
+  font-size: var(--fx-font-size-sm);
+  line-height: 1.5;
+}
+
+/*
+ * やめる → 実行（右寄せ）。
+ *
+ * 追加の欄はボタンの**左**に一言を置いているが、こちらは上の行に置く ──
+ * ここの文は「なぜ通らないか」まで書くため長くなることがあり
+ * （大文字小文字だけの改名の理由など）、横に並べるとパネルが狭いときに
+ * ボタンが潰れる。確認（`fx-git__remote-confirm-actions`）と同じ並びになる。
+ */
+.fx-git__remote-edit-bar {
+  display: flex;
+  gap: var(--fx-space-2);
+  justify-content: flex-end;
+}
+
+.fx-git__remote-edit-cancel,
+.fx-git__remote-edit-apply {
+  flex: 0 0 auto;
+  padding: var(--fx-space-1) var(--fx-space-3);
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface-raised);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.fx-git__remote-edit-cancel:hover:not(:disabled),
+.fx-git__remote-edit-apply:hover:not(:disabled) {
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-git__remote-edit-cancel:focus-visible,
+.fx-git__remote-edit-apply:focus-visible {
+  outline: 1px solid var(--fx-color-border-strong);
+  outline-offset: 1px;
+}
+
+.fx-git__remote-edit-apply:disabled {
+  color: var(--fx-color-text-faint);
+  cursor: default;
 }
 
 /*

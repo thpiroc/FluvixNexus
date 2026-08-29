@@ -1564,6 +1564,165 @@ export function removeRemote(name: string): GitCommand {
   return { label: 'remote remove', args: ['remote', 'remove', END_OF_OPTIONS, name] }
 }
 
+/* ------------------------------------- remote の URL / 名前（Session 3-8-17） */
+
+/**
+ * remote の URL を差し替える（Session 3-8-17）。
+ *
+ * ## `addRemote` と同じ2つの値を、同じ備えで渡す
+ *
+ * 名前も URL も Renderer から来る点は追加と同じで、通ってくる規則も同じ
+ * （shared/git/remoteName.ts / remoteUrl.ts）。したがって `--end-of-options`
+ * もそのまま置く ── 端末から作られた先頭が `-` の remote に対して、
+ * これが無いと名前がオプションとして読まれる（`removeRemote` と同じ事情）。
+ *
+ * **URL の側の備えは、追加より1mm も緩めない。** `git remote set-url x
+ * "ext::sh -c whoami"` も git はそのまま受け取る（実物で確かめてある。
+ * main/git/gitRemoteRepository.test.ts）── 追加の口だけを固めても、
+ * 変更の口が素通しなら**同じ穴が2つめとして開く**ことになる。
+ *
+ * ## 書き換えるのは設定の1行だけ
+ *
+ * `remote.<名前>.url` が変わり、次の3つは1つも動かない（実物で確かめてある）。
+ *
+ *   `remote.<名前>.fetch`        … refspec はそのまま
+ *   `refs/remotes/<名前>/*`      … **前の送り先から取ってきた commit を指したまま**
+ *   `branch.*.remote` / `.merge` … 追跡先はそのまま
+ *
+ * 古い remote-tracking ref を消す指定（`--prune` 相当）は**渡さない** ──
+ * ref を消す操作がここに混ざることになり、削除（`removeRemote`）との
+ * 境目が消える。残った ref は次の Pull で揃う。
+ *
+ * ## 付けていないもの
+ *
+ * | 付けない   | なぜ                                                                 |
+ * | ---------- | -------------------------------------------------------------------- |
+ * | `--push`   | push 側だけ別の URL にする指定。一覧が載せるのは fetch 側1つ（3-8-16） |
+ * | `--add`    | 1つの remote に URL を複数持たせる。一覧がその形を表せない            |
+ * | `--delete` | URL を減らす。持たせていないものを減らす欄は要らない                  |
+ */
+export function setRemoteUrl(name: string, url: string): GitCommand {
+  return { label: 'remote set-url', args: ['remote', 'set-url', END_OF_OPTIONS, name, url] }
+}
+
+/**
+ * remote の名前を変える（Session 3-8-17）。
+ *
+ * ## `renameBranch` と違い、`--force` に当たるものが無い
+ *
+ * `git branch --move` には `--force`（`-M`）があり、3-8-14 では
+ * **相手が自分自身だと確かめられた1点**（大文字小文字だけの改名）で
+ * それを立てて通した。`git remote rename` にその引数は無い。
+ *
+ * そして Windows では、大文字小文字だけの改名を渡すと git は
+ * `cannot lock ref 'refs/remotes/Origin/main'` で落ちる ── しかも
+ * **途中まで適用したまま**止まり、`remote.<新名>.url` だけが書かれて
+ * refspec も remote-tracking ref も `branch.*.remote` も古い名前を
+ * 指したままになる（実物で確かめてある。main/git/gitRemoteRepository.test.ts）。
+ *
+ * したがってその組み合わせは**ここへ来る前に断つ**（main/git/gitRemotes.ts）──
+ * この表は渡された2つをそのまま並べるだけで、良し悪しは呼び出し側が決める
+ * （`stagePaths` / `addRemote` と同じ分担）。
+ *
+ * ## `--end-of-options` は2つとも守る
+ *
+ * `git remote rename --end-of-options up2 -x` は git が**受け取ってしまう**
+ * （実物で確かめた）── 追加のときと同じで、この引数は「引数として
+ * 解釈されない」ことしか守らない。行き先の名前も
+ * `normalizeGitRemoteName` を通してある（shared/ipc/contracts/git.ts）。
+ *
+ * ## 追随するものは git に任せる
+ *
+ * 設定・refspec・remote-tracking ref・`branch.*.remote`・`remote.pushDefault`
+ * の5つを git 自身が書き換える（実物で確かめてある）── アプリが追加で
+ * `git config` を動かすことは1回も無い。**追跡先を付け替える口を持たない**
+ * という 3-8-5 からの線は、ここでも守られている（付け替えるのは git で、
+ * こちらは rename を1回頼むだけになる）。
+ */
+export function renameRemote(name: string, newName: string): GitCommand {
+  return { label: 'remote rename', args: ['remote', 'rename', END_OF_OPTIONS, name, newName] }
+}
+
+/* ------------------------------------------- 競合の解決（Session 3-8-18） */
+
+/**
+ * 競合マーカーが残っていないかを尋ねる（Session 3-8-18）。
+ *
+ * ## なぜ「押した後」ではなく「押す前」に確かめるのか
+ *
+ * git は**マーカーが残ったままの `git add` を通し、その後の Commit も通す**
+ * （実物で確かめてある。main/git/gitConflictRepository.test.ts）── つまり
+ * `<<<<<<< HEAD` の行がそのまま履歴に記録される。履歴に永久に残るものを
+ * 押し間違いで作らせないため、確かめるのは動かす前になる。
+ *
+ * 確かめ方を git に任せているのがここの要点にあたる ── マーカーの形を
+ * こちらで探すと、`<<<<<<<` で始まる行を持つ正当なファイル（差分の説明を
+ * 書いた Markdown など）まで拾いうる。**何がマーカーかを決めるのは git**で、
+ * こちらはその答えを読むだけになる。
+ *
+ * ## 終了コードだけでは足りない
+ *
+ * `--check` は競合マーカーと**空白の誤り**（行末の空白など）を同じ
+ * 終了コード 2 で報告する（実物で確かめてある）── 終了コードだけを見ると、
+ * 解決し終えたのに行末に空白があるだけのファイルが「まだ競合している」と
+ * 断られることになる。したがって読むのは**出力の行**になる
+ * （main/git/gitOutput.ts の `countLeftoverConflictMarkers`）。
+ *
+ * `-c core.whitespace=-...` で空白の検査を切る手もあり、実際そちらでも
+ * 終了コードは分かれる ── だが `.gitattributes` の `whitespace=` は
+ * **その `-c` より強い**（実物で確かめてある）ので、リポジトリ次第で
+ * 誤検知が戻ってくる。出力を読む形なら、どちらの設定でも答えが変わらない。
+ *
+ * 読む文字列が英語であることは `LC_ALL=C`（main/git/gitEnvironment.ts）が
+ * 担保している ── 3-8-1 から stderr の分類が英語を読んでいるのと同じ足場になる。
+ *
+ * ## 位置は pathspec として渡す
+ *
+ * `--` の後ろに置き、`LITERAL_PATHSPECS` も付ける（`stagePaths` と同じ）──
+ * 確かめる相手を1件に絞るためで、絞らないと**別のファイルに残っている
+ * マーカー**で押せなくなる。
+ */
+export function checkConflictMarkers(path: string): GitCommand {
+  return { label: 'diff --check', args: [LITERAL_PATHSPECS, 'diff', '--check', '--', path] }
+}
+
+/**
+ * 競合している1件を「解決済み」として記録する（Session 3-8-18）。
+ *
+ * ## `stagePaths` と書き分けてある
+ *
+ * 組み立てる引数は `git add -- <path>` で**まったく同じ**になる。それでも
+ * 別の関数にしてあるのは、3-8-16 で `addOriginRemote` と `addRemote` を
+ * 分けたのと同じ判断による ── **動かす git が同じでも、意味が違えば表も分ける。**
+ *
+ *   `stagePaths`            … 作業ツリーの姿を、次の Commit の中身へ写す
+ *   `markConflictResolved`  … index の3段（base / ours / theirs）を1段に畳む
+ *
+ * ログに出る label が違うことにも意味がある ── 後から追うときに、
+ * その `git add` が Stage だったのか解決だったのかが読み分けられる。
+ *
+ * ## 渡すのは常に1件
+ *
+ * `chunkGitPathspecs`（Stage の分割送り）が要らないのは、押した行1つしか
+ * 渡ってこないため（`restoreWorktreePaths` と同じ形）。
+ *
+ * ## 作業ツリーには触らない
+ *
+ * 記録されるのは**そのとき作業ツリーに在る中身そのもの**で、利用者が
+ * エディタで書いた解決内容は1文字も動かない。したがってこの操作で
+ * 失われるのは index の3段だけになる。
+ *
+ * ## 付けていないもの
+ *
+ * | 付けない  | なぜ                                                                  |
+ * | --------- | --------------------------------------------------------------------- |
+ * | `-u` `-A` | 作業ツリー全体が対象になる。**競合していない行まで巻き込む**（3-8-3）  |
+ * | `--force` | `.gitignore` を無視して足す。解決とは別の話                            |
+ */
+export function markConflictResolved(path: string): GitCommand {
+  return { label: 'add (resolve)', args: [LITERAL_PATHSPECS, 'add', '--', path] }
+}
+
 /**
  * 公開の初回 Push（Session 3-8-10）。
  *

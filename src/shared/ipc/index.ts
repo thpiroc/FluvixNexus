@@ -100,6 +100,9 @@ export type {
   ListGitRemotesResponse,
   ListGitStashesResponse,
   RemoveGitRemoteRequest,
+  RenameGitRemoteRequest,
+  ResolveGitConflictRequest,
+  SetGitRemoteUrlRequest,
   StageGitChangesRequest,
   SwitchGitBranchRequest,
   UnstageGitChangesRequest

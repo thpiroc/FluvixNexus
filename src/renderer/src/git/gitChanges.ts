@@ -172,11 +172,18 @@ export function describeGitChangeRow(change: GitFileChange): {
  * staged なら外す側、unstaged なら載せる側**になる。行の `kind` から決めようとすると、
  * 「どちらのグループに居るか」をもう一度どこかで見ることになる。
  *
- * 競合しているファイルには操作を置かない。解決するまで Stage も Unstage も
- * 意味を持たず（shared/git/status.ts）、押せる形にすれば
- * **成立しない操作を勧める**ことになる。
+ * 競合の行には、Session 3-8-18 で**3つめの操作**が付いた（`resolve`）。
+ * Stage / Unstage ではないのは、動かす git が同じ `git add` でも
+ * **意味が違う**ため ── あちらは作業ツリーの姿を次の Commit の中身へ写す
+ * 操作で、こちらは index の3段（base / ours / theirs）を1段に畳む操作になる
+ * （main/git/gitConflict.ts）。同じ名前で出すと、押した後に何が起きたのかを
+ * 説明できない。
+ *
+ * 3-8-17 まで競合の行に操作が無かったのは「解決するまで Stage も Unstage も
+ * 意味を持たない」ためで、その判断は動いていない ── **足したのは
+ * 「解決し終えた」と伝える operation で、Stage ではない。**
  */
-export type GitRowAction = 'stage' | 'unstage' | null
+export type GitRowAction = 'stage' | 'unstage' | 'resolve' | null
 
 export function toGitRowAction(groupId: GitChangeGroup['id']): GitRowAction {
   switch (groupId) {
@@ -188,7 +195,41 @@ export function toGitRowAction(groupId: GitChangeGroup['id']): GitRowAction {
       return 'stage'
 
     case 'conflicted':
-      return null
+      return 'resolve'
+  }
+}
+
+/**
+ * その操作を押したときに何が起きるかの一言（Session 3-8-18）。
+ *
+ * 3-8-3 から GitView.tsx の中に直に書いてあったものを、`resolve` が
+ * 増えたところでこちらへ移した ── 3つに増えると、**それぞれが違う言葉で
+ * なければならない**ことが文言そのものの決めごとになるためで、
+ * React 非依存の側で固定できる形にしておく。
+ *
+ * ## 「Stage」と言わない
+ *
+ * 解決の行だけは、動く git が同じでも別の言葉にする ── index の3段を
+ * 1段に畳む操作を「Stage」と名乗ると、押した人は
+ * **後で Unstage で戻せる**と読む。戻せない（`git reset` は競合を復元しない。
+ * main/git/gitConflict.ts）。
+ *
+ * 読み上げのために位置を含めるのは 3-8-3 のまま ── 「Stage」だけだと、
+ * 同じ名前のボタンが一覧の数だけ並ぶ。
+ */
+export function describeGitRowAction(
+  action: Exclude<GitRowAction, null>,
+  change: GitFileChange
+): string {
+  switch (action) {
+    case 'stage':
+      return `${change.relativePath} を Stage`
+
+    case 'unstage':
+      return `${change.relativePath} の Stage を解除`
+
+    case 'resolve':
+      return `${change.relativePath} の競合を解決済みにする`
   }
 }
 
@@ -223,6 +264,7 @@ export function toGitOperationKey(
     | GitStageTarget
     | { readonly kind: 'unstage'; readonly relativePath: string }
     | { readonly kind: 'discard'; readonly relativePath: string }
+    | { readonly kind: 'resolve'; readonly relativePath: string }
 ): string {
   switch (target.kind) {
     /*
@@ -232,10 +274,15 @@ export function toGitOperationKey(
       鍵を分けると「破棄している最中に、その同じ行を Stage できる」形になり、
       走っている git 2本がどちらの順で当たるかで結果が変わる。
       `operate` は同じ鍵の要求を弾く（useGitRepository.ts）。
+
+      競合の解決（Session 3-8-18）も同じ鍵に入れる ── 押した瞬間に
+      その行は競合のグループから消えてステージ済みへ移るので、
+      **同じ位置に対する2回目**が飛ぶ余地を残さない。
     */
     case 'file':
     case 'unstage':
     case 'discard':
+    case 'resolve':
       return `path:${target.relativePath}`
 
     case 'unstaged':
@@ -427,8 +474,29 @@ function describeGitOperationFailureReason(reason: GitOperationFailureReason): s
     case 'hook-rejected':
       return 'このリポジトリの Git hook が Commit を中止しました。内容はターミナルの git commit でご確認ください。'
 
+    /*
+      Session 3-8-18 で、この文の**行き先がアプリの中に出来た。**
+
+      3-8-4 から出ていた文だが、それまで「解決する」手立てはアプリの中に
+      無かった（競合の行に操作が1つも無かった）── 3-8-18 で競合の行に
+      「解決済みにする」が付いたので、次の一手をその場所として書ける。
+    */
     case 'unresolved-conflicts':
-      return '競合が解決されていないため Commit できません。'
+      return '競合が解決されていないため Commit できません。競合の行で「解決済みにする」を押してください。'
+
+    /*
+      「解決済みにする」を押したが、マーカーが残っていた（Session 3-8-18）。
+
+      `unresolved-conflicts` と**別の文にしてある** ── あちらの次の一手は
+      「この操作を押すこと」で、こちらの次の一手は「エディタでマーカーを
+      消すこと」になる。同じ言葉に潰すと、押した人はどちらを直せばよいか
+      分からないまま同じボタンを押し直す。
+
+      git はマーカーが残ったままでも通してしまう（そして履歴に残る）ので、
+      **断っているのはアプリ**だと分かるように書く。
+    */
+    case 'conflict-markers-present':
+      return '競合マーカー（<<<<<<< や >>>>>>>）がまだ残っています。エディタで開いて、残す内容だけにしてからお試しください。'
 
     case 'path-not-found':
       return '対象のファイルが見つかりませんでした。一覧を更新しました。'

@@ -2,7 +2,8 @@
  * Git の**書き込み操作**（Session 3-8-3 の Stage / Unstage、Session 3-8-4 の Commit、
  * Session 3-8-5 の Push / Pull / Commit & Push、Session 3-8-6 のブランチの
  * 切り替え / 作成、Session 3-8-9 の破棄、Session 3-8-10 の初期化と公開、
- * Session 3-8-16 の remote の追加 / 削除）。
+ * Session 3-8-16 の remote の追加 / 削除、Session 3-8-17 の remote の
+ * URL の変更 / rename、Session 3-8-18 の競合の解決）。
  *
  * ## repository.ts / status.ts との分担
  *
@@ -191,6 +192,30 @@ export type GitOperationFailureReason =
    * 出してある（shared/git/status.ts）ため、次の一手は画面の上の方にそのまま見えている。
    */
   | 'unresolved-conflicts'
+  /**
+   * 競合マーカーが作業ツリーに残っている（Session 3-8-18）。
+   *
+   * 「解決済みにする」を押したが、そのファイルにはまだ `<<<<<<<` /
+   * `=======` / `>>>>>>>` の行が残っている、という場合にあたる。
+   *
+   * ## git は通してしまう
+   *
+   * `git add` はマーカーが残っていても受け取り、その後の Commit も通る ──
+   * つまり**マーカーがそのまま履歴に記録される**（実物で確かめてある。
+   * main/git/gitConflictRepository.test.ts）。履歴に永久に残るものを、
+   * 押し間違いで作らせない。
+   *
+   * ## `unresolved-conflicts` と分けている
+   *
+   * あちらは「まだ competing なファイルが残っているので Commit できない」で、
+   * 次の一手は**この操作**になる。こちらは「その1件を解決し終えていない」で、
+   * 次の一手は**エディタでマーカーを消すこと**になる ── 同じ言葉に潰すと、
+   * 押した人はどちらを直せばよいか分からなくなる。
+   *
+   * 待っても・押し直しても変わらない（`unsupported-target` と同じ性質だが、
+   * こちらは**利用者が直せる**ので分けてある）。
+   */
+  | 'conflict-markers-present'
   /** 指した path が git の知らないものになっていた（消えた・既に Stage が外れていた）。 */
   | 'path-not-found'
   /**
@@ -439,10 +464,18 @@ export type GitOperationFailureReason =
   /**
    * 同じ名前の remote が既にある（Session 3-8-16）。
    *
-   * `branch-exists` とまったく同じ性質で、**上書きはしない** ── `git remote add`
-   * は既にあれば失敗し、こちらは `set-url` を持っていない（3-8-16 の範囲外。
-   * docs/ARCHITECTURE.md §14.24）。黙って上書きすると、**送り先が入れ替わった
-   * ことに誰も気づかないまま Push が別のところへ飛ぶ。**
+   * `branch-exists` とまったく同じ性質で、**上書きはしない** ──
+   * `git remote add` は既にあれば失敗する。黙って上書きすると、
+   * **送り先が入れ替わったことに誰も気づかないまま Push が別のところへ飛ぶ。**
+   *
+   * URL を変えたい人の行き先は 3-8-17 で別の口として在る
+   * （`git:set-remote-url`。押す前に「今どこを指していて、これからどこを
+   * 指すか」を見せる。docs/ARCHITECTURE.md §14.25）── **この分類が返るのは
+   * 今も「足す」と「rename の行き先」の2つだけ**で、上書きの意味は持たない。
+   *
+   * 3-8-17 で rename からも返るようになった ── 行き先の名前が既に
+   * 使われている場合にあたる（`git:rename-remote`）。どちらの場合も
+   * 手元の remote は1つも変わらない。
    *
    * `branch-exists` と分けているのは、次に開き直す一覧が違うため ──
    * あちらはブランチの面、こちらは remote の面になる（`branch-not-found` と
@@ -450,28 +483,41 @@ export type GitOperationFailureReason =
    */
   | 'remote-exists'
   /**
-   * 消そうとした remote が、もうそこに無い（Session 3-8-16）。
+   * 指した remote が、もうそこに無い（Session 3-8-16 / 3-8-17）。
    *
-   * 一覧を開いてから ✕ を押すまでの間に、他の経路（端末での
-   * `git remote remove`・別のウィンドウ）で消えた場合にあたる。
+   * 一覧を開いてから押すまでの間に、他の経路（端末での `git remote remove` /
+   * `rename`・別のウィンドウ）で消えた・名前が変わった場合にあたる。
+   * 削除（3-8-16）に加えて、3-8-17 の URL の変更と rename からも返る。
    *
    * 退避（`stash-not-found`）と違い、**「ずれた」は起こりえない** ── remote は
    * 位置ではなく名前で指すため、名前が在ればそれは同じ remote になる。
-   * 名前は `git remote add` の後に勝手に変わらない（rename の口を持っていない。
-   * §14.24）。
+   * 3-8-17 で rename の口ができても、そこは変わらない ── **名前が変われば
+   * 指せなくなるだけ**で、その名前が別の remote を指すことにはならない
+   * （`git remote rename` は行き先が既にあれば断る）。
    */
   | 'remote-not-found'
   /**
-   * その行は、その操作の対象にならない（Session 3-8-9）。
+   * その対象は、その操作の相手にならない（Session 3-8-9 / 3-8-17）。
    *
-   * 未追跡の**フォルダ1件**（`node_modules/` のように中身ごと1行で出るもの）を
-   * 破棄しようとした場合が当たる。行の側に操作を出していないため利用者には
-   * 起こらないが、Main は届いた対象を**自分が読み直した状態**で必ず確かめ直す
-   * （main/git/gitDiscard.ts）── 画面が古いまま押された場合に、
-   * 数万件を巻き込む1回にならないようにするため。
+   * 3-8-9 では、未追跡の**フォルダ1件**（`node_modules/` のように中身ごと
+   * 1行で出るもの）を破棄しようとした場合が当たる。行の側に操作を出して
+   * いないため利用者には起こらないが、Main は届いた対象を**自分が読み直した
+   * 状態**で必ず確かめ直す（main/git/gitDiscard.ts）── 画面が古いまま
+   * 押された場合に、数万件を巻き込む1回にならないようにするため。
+   *
+   * 3-8-17 では、**大文字小文字だけを変える remote の rename** が当たる。
+   * Windows では `refs/remotes/origin/…` と `refs/remotes/Origin/…` が
+   * 同じファイルになるため git は `cannot lock ref` で落ちるが、そのとき
+   * **途中まで適用したまま**止まる（設定だけが新しい名前になり、refspec も
+   * remote-tracking ref も追跡先も古い名前を指したまま残る）── つまり
+   * 「失敗したのでやり直せる」ではなく1回目で壊れるため、git を動かす前に
+   * ここへ落とす（main/git/gitRemotes.ts）。ブランチの rename（3-8-14）で
+   * 同じ形を `--force` で通しているのとは逆の答えで、
+   * **`git remote rename` に force が無い**ことがその違いになる。
    *
    * `path-not-found`（消えた・グループが変わった）と分けているのは、
-   * こちらが**待っても変わらない**ため。
+   * こちらが**待っても変わらない**ため ── 3-8-17 の側も同じ性質で、
+   * 何度押しても、他の git が終わっても通らない。
    */
   | 'unsupported-target'
   /**
