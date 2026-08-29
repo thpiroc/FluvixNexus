@@ -80,6 +80,7 @@ export type {
   SettingsIpcContract
 } from './contracts/settings'
 export type {
+  AddGitRemoteRequest,
   CommitAndPushGitChangesRequest,
   CommitGitChangesRequest,
   CreateGitBranchRequest,
@@ -96,7 +97,9 @@ export type {
   GitStashEntryRequest,
   ListGitBranchesResponse,
   ListGitCommitsResponse,
+  ListGitRemotesResponse,
   ListGitStashesResponse,
+  RemoveGitRemoteRequest,
   StageGitChangesRequest,
   SwitchGitBranchRequest,
   UnstageGitChangesRequest

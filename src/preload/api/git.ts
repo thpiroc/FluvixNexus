@@ -61,6 +61,21 @@ import { subscribeIpcEvent } from '../ipc/subscribe'
  * （main/git/gitCommands.ts）。一覧（`listStashes`）と退避（`stashPush`）は
  * 要求が `void` に戻る。
  *
+ * ## Session 3-8-16 で「危ない値」が渡っても、線は動かない
+ *
+ * remote の追加（`addRemote`）で、初めて **git に任意のプログラムを
+ * 起動させうる値**（URL）が境界を渡る ── `ext::sh -c …` は今の git が
+ * そのまま受け取る形にあたる。それでも**ここは素通しの経路のまま**になる。
+ *
+ * 通す形を3つに絞るのは Main のハンドラ（`normalizeGitRemoteUrl`）で、
+ * `--end-of-options` の後ろに独立した引数として置くのは Main の表になる
+ * （main/git/gitCommands.ts）。Preload で確かめない理由は Files /
+ * ブランチ名と同じで、**Preload は Renderer と同じ側から差し替えられうる**
+ * 前提に立つため ── ここで弾いても、それは境界にならない。
+ *
+ * 一覧（`listRemotes`）は要求が `void` に戻り、**返るものにも URL は無い**
+ * （名前と表示用のラベルだけ。shared/git/remote.ts）。
+ *
  * ## Session 3-8-10 で足した `init` も、渡す値が1つも無い
  *
  * 初期化の要求は `void` ── どこを初期化するかも初期ブランチ名も渡せない。
@@ -91,6 +106,9 @@ export const gitApi: GitApi = {
   createBranch: (request) => invokeIpc(IPC_CHANNELS.GIT_CREATE_BRANCH, request),
   deleteBranch: (request) => invokeIpc(IPC_CHANNELS.GIT_DELETE_BRANCH, request),
   renameBranch: (request) => invokeIpc(IPC_CHANNELS.GIT_RENAME_BRANCH, request),
+  listRemotes: () => invokeIpc(IPC_CHANNELS.GIT_LIST_REMOTES),
+  addRemote: (request) => invokeIpc(IPC_CHANNELS.GIT_ADD_REMOTE, request),
+  removeRemote: (request) => invokeIpc(IPC_CHANNELS.GIT_REMOVE_REMOTE, request),
   listStashes: () => invokeIpc(IPC_CHANNELS.GIT_LIST_STASHES),
   stashPush: () => invokeIpc(IPC_CHANNELS.GIT_STASH_PUSH),
   stashPop: (request) => invokeIpc(IPC_CHANNELS.GIT_STASH_POP, request),

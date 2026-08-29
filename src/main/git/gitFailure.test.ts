@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  classifyGitAddRemoteFailure,
   classifyGitBranchFailure,
   classifyGitCommitFailure,
   classifyGitCreateBranchFailure,
@@ -9,6 +10,7 @@ import {
   classifyGitMergeFailure,
   classifyGitOperationFailure,
   classifyGitPushFailure,
+  classifyGitRemoveRemoteFailure,
   classifyGitRenameBranchFailure,
   classifyGitStashDropFailure,
   classifyGitStashPopFailure,
@@ -801,5 +803,93 @@ describe('classifyGitStashDropFailure', () => {
 
   it('知らない文章は unknown に倒す', () => {
     expect(classifyGitStashDropFailure('error: something entirely new')).toBe('unknown')
+  })
+})
+
+/**
+ * remote の追加 / 削除の分類（Session 3-8-16）。
+ *
+ * 読む相手は `git remote add` / `git remote remove` の stderr で、
+ * どちらの文言も**実物で確かめてある**（git 2.54）。
+ *
+ *   既にある     … `error: remote origin already exists.`（終了コード 3）
+ *   見つからない … `error: No such remote: 'nope'`（終了コード 2）
+ *
+ * ここで固定したいのは、3-8-14 / 3-8-15 と同じ「**表を分けてあること**」に
+ * なる ── 片方でしか起こりえない分類が、もう片方から返らないこと。
+ */
+describe('classifyGitAddRemoteFailure', () => {
+  it('同じ名前の remote が既にある', () => {
+    expect(classifyGitAddRemoteFailure('error: remote origin already exists.')).toBe(
+      'remote-exists'
+    )
+  })
+
+  it('index.lock を先に見る', () => {
+    expect(
+      classifyGitAddRemoteFailure(
+        "fatal: Unable to create 'D:/work/app/.git/index.lock': File exists."
+      )
+    ).toBe('index-locked')
+  })
+
+  it('権限', () => {
+    expect(
+      classifyGitAddRemoteFailure('error: could not lock config file: Permission denied')
+    ).toBe('permission-denied')
+  })
+
+  /*
+    削除でしか起こりえないものを、追加の表から返さない。
+  */
+  it('「見つからない」は追加の表では読まない', () => {
+    expect(classifyGitAddRemoteFailure("error: No such remote: 'nope'")).toBe('unknown')
+  })
+
+  it('知らない文章は unknown に倒す', () => {
+    expect(classifyGitAddRemoteFailure('error: something entirely new')).toBe('unknown')
+  })
+})
+
+describe('classifyGitRemoveRemoteFailure', () => {
+  it('消そうとした remote が無い', () => {
+    expect(classifyGitRemoveRemoteFailure("error: No such remote: 'nope'")).toBe('remote-not-found')
+  })
+
+  it('index.lock を先に見る', () => {
+    expect(
+      classifyGitRemoveRemoteFailure(
+        "fatal: Unable to create 'D:/work/app/.git/index.lock': File exists."
+      )
+    ).toBe('index-locked')
+  })
+
+  it('権限', () => {
+    expect(
+      classifyGitRemoveRemoteFailure('error: could not lock config file: Permission denied')
+    ).toBe('permission-denied')
+  })
+
+  /*
+    追加でしか起こりえないものを、削除の表から返さない。
+  */
+  it('「既にある」は削除の表では読まない', () => {
+    expect(classifyGitRemoveRemoteFailure('error: remote origin already exists.')).toBe('unknown')
+  })
+
+  /*
+    ブランチの表と書き写して分けてある ── `already exists` は
+    `classifyGitRenameBranchFailure` では `branch-exists` になるが、
+    remote の表では読まない（3-8-14 と同じ判断）。
+  */
+  it('ブランチの表とは別の答えを返す', () => {
+    expect(classifyGitRenameBranchFailure('error: a branch named x already exists')).toBe(
+      'branch-exists'
+    )
+    expect(classifyGitRemoveRemoteFailure('error: a branch named x already exists')).toBe('unknown')
+  })
+
+  it('知らない文章は unknown に倒す', () => {
+    expect(classifyGitRemoveRemoteFailure('error: something entirely new')).toBe('unknown')
   })
 })

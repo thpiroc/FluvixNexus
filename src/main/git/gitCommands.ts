@@ -1458,6 +1458,112 @@ export function addOriginRemote(url: string): GitCommand {
   return { label: 'remote add origin', args: ['remote', 'add', 'origin', url] }
 }
 
+/* ------------------------------------------- remote の管理（Session 3-8-16） */
+
+/**
+ * 設定されている remote を、URL 付きで尋ねる（Session 3-8-16）。
+ *
+ * ## `listRemotes`（名前だけ）と別の1本にしてある
+ *
+ * あちらは Push の前に「1つでも在るか」を確かめるためのもので、
+ * **出力を捨てている**（有無だけを見る。main/git/gitRepository.ts の
+ * `resolveHasRemote`）。こちらは一覧を作るために URL まで要る ──
+ * 用途が違うものを1つにまとめると、状態を読むたびに使わない URL まで
+ * 運ぶことになる（状態の読み直しは保存のたびに走る）。
+ *
+ * ## 出力の形
+ *
+ * 1件につき2行出る（実物で確かめてある）。
+ *
+ * ```
+ * origin<TAB>https://github.com/o/r.git (fetch)
+ * origin<TAB>https://github.com/o/r.git (push)
+ * ```
+ *
+ * 名前と URL の区切りは **TAB** で、末尾に用途が括弧付きで付く。
+ * remote 名に TAB は入らない（git が禁じ、こちらも弾いている。
+ * shared/git/remoteName.ts）ので、名前の側に何が入っていても読み分けられる ──
+ * `for-each-ref` の区切りを NUL にしたのと同じ考え方になる。
+ *
+ * `--verbose` を短縮形（`-v`）で書かないのは、この表の他の引数と同じ理由で、
+ * 読んだときに何を頼んでいるかがそのまま分かる方を採るため。
+ *
+ * ## 上限を git に掛けられない
+ *
+ * `for-each-ref`（`--count`）や `log`（`--max-count`）と違い、
+ * `git remote` に件数を切る指定は無い ── したがって上限は読む側で掛ける
+ * （main/git/gitOutput.ts の `readRemoteEntries`）。remote は普通1つか2つで、
+ * 数千行が返る形が現実には起こらないため、その差は問題にならない。
+ */
+export function listRemoteUrls(): GitCommand {
+  return { label: 'remote --verbose', args: ['remote', '--verbose'] }
+}
+
+/**
+ * remote を1つ追加する（Session 3-8-16）。
+ *
+ * ## `addOriginRemote` と書き分けてある
+ *
+ * 動かす git は同じ `git remote add` だが、**受け取る値の出どころが違う。**
+ *
+ *   `addOriginRemote` … 名前は固定の `origin`、URL は GitHub が返したもの。
+ *                       **Renderer 由来の値が1つも入らない**（3-8-10）
+ *   `addRemote`       … 名前も URL も Renderer から来る（3-8-16）
+ *
+ * 1つの関数にまとめると、3-8-10 の「公開の口には Renderer 由来の URL が
+ * 入らない」という保証が、呼び出し側の使い分けの話に落ちる ──
+ * 削除と rename の失敗の分類を書き写して分けた（3-8-14）のと同じ判断になる。
+ *
+ * ## `--end-of-options` を置くが、それだけでは足りない
+ *
+ * `git remote add --end-of-options -x <url>` は git が**受け取る** ── `-x` と
+ * いう名前の remote が実際に作られ、その後 `git remote remove -x` は
+ * オプションとして読まれるため**消せなくなる**（実物で確かめた）。
+ * つまりこの引数が守るのは「引数として解釈されない」ことだけで、
+ * **扱えない名前が生まれること**は止めない ── 先頭の `-` は名前の側の
+ * 検証でも弾いてある（shared/git/remoteName.ts）。
+ *
+ * URL の側も同じで、`ext::sh -c whoami` のような値を git は受け取る
+ * （追加した時点では何も起きず、以降の fetch / push でシェルが走る）。
+ * したがって通す形は3つだけに絞ってある（shared/git/remoteUrl.ts）。
+ * **ここは表で、値の良し悪しは呼び出し側が先に決める**（`stagePaths` と
+ * 同じ分担）。
+ *
+ * ## 付けていないもの
+ *
+ * | 付けない   | なぜ                                                             |
+ * | ---------- | ---------------------------------------------------------------- |
+ * | `--fetch`  | 追加した直後にネットワークへ出ることになり、1回で起きることが増える |
+ * | `--tags`   | 取ってくるものを増やす指定。取ってくる操作はここではない          |
+ * | `--track`  | 特定のブランチだけを追う設定。渡せる欄そのものを作らない          |
+ * | `--mirror` | **push すると remote 側の ref を消しうる。** 3-8-13 の `--force` と同じ線 |
+ */
+export function addRemote(name: string, url: string): GitCommand {
+  return { label: 'remote add', args: ['remote', 'add', END_OF_OPTIONS, name, url] }
+}
+
+/**
+ * remote を1つ削除する（Session 3-8-16）。
+ *
+ * `--end-of-options` が要るのはここがいちばんはっきりしている ── 先頭が `-` の
+ * remote 名（端末から作られていることがある）に対して、これを置かないと
+ * git は名前をオプションとして読む（実物で確かめた）。置いてあれば、
+ * アプリからは消せる。
+ *
+ * 消えるのは3つで、**commit は1つも失われない**（実物で確かめてある。
+ * main/git/gitRemoteRepository.test.ts）。
+ *
+ *   `remote.<名前>.*`            … URL と fetch の refspec
+ *   `refs/remotes/<名前>/*`      … 手元の remote-tracking ref
+ *   `branch.*.remote` / `.merge` … その remote を追っていたブランチの追跡先
+ *
+ * `remove` と `rm` は同じものだが、**綴りの長い方**を使う ── この表の
+ * 他の引数（`--delete` / `--verbose` / `--set-upstream`）と揃える。
+ */
+export function removeRemote(name: string): GitCommand {
+  return { label: 'remote remove', args: ['remote', 'remove', END_OF_OPTIONS, name] }
+}
+
 /**
  * 公開の初回 Push（Session 3-8-10）。
  *

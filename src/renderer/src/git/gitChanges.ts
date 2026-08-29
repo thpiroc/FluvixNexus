@@ -437,11 +437,23 @@ function describeGitOperationFailureReason(reason: GitOperationFailureReason): s
       return 'ブランチの上に居ないため Push / Pull できません。ブランチに切り替えてからお試しください。'
 
     /*
-      Session 3-8-10 で次の一手が変わった ── 端末で `git remote add` を
-      打つ以外に、「GitHub に公開」がパネルの中に在る。
+      Session 3-8-16 で、次の一手が**アプリの中だけで揃った。**
+
+      3-8-10 の時点では2つ書いていた ── 「GitHub に公開」と、端末での
+      `git remote add`。前者は**新しく作る**側の入口で、既にどこかに在る
+      repository へ繋ぎたい人は、そこでアプリの外へ出るしかなかった。
+
+      3-8-16 で上のバーに「リモート」が付き、その道もパネルの中に在る。
+      **端末への案内はここから落とす** ── 出せる行き先が2つになった以上、
+      3つ並べると「どれを押せばよいか」を先に判断させることになる
+      （§14.24）。落とした後も端末で打てなくなるわけではない。
+
+      並びは「繋ぐ → 作る」にしてある。この文が出るのは Push / Pull を
+      押した後で、**送り先があるつもりだった人**が読む ── その人にとって
+      近いのは、既に在るものへ繋ぐ側になる。
     */
     case 'no-remote':
-      return 'このリポジトリには remote が設定されていません。「GitHub に公開」から作成するか、Terminal パネルで git remote add を実行してください。'
+      return 'このリポジトリにはリモートが設定されていません。上の「リモート」から追加するか、「GitHub に公開」で新しく作成してください。'
 
     /*
       Session 3-8-15 で、この分類を返す操作が2つになった（公開と、退避）。
@@ -536,6 +548,28 @@ function describeGitOperationFailureReason(reason: GitOperationFailureReason): s
     */
     case 'stash-not-found':
       return '対象の退避が見つかりませんでした。一覧が変わっている可能性があります。開き直してご確認ください。'
+
+    /*
+      同じ名前の remote が既にある（Session 3-8-16）。
+
+      `branch-exists` と**同じ言い回しで揃えてある** ── どちらも
+      「名前が埋まっている」で、次の一手も同じ「別の名前を打つ」になる。
+      **URL を変える案内はしない** ── アプリはその口を持たない
+      （docs/ARCHITECTURE.md §14.24）。持っていないものを勧めると、
+      「どこにあるのか」を探させることになる（`-D` を案内しないのと同じ判断）。
+    */
+    case 'remote-exists':
+      return '同じ名前のリモートが既にあります。別の名前をお試しください。'
+
+    /*
+      消そうとした remote が無い（Session 3-8-16）。
+
+      `stash-not-found` と違って「ずれた」は含まない ── remote は位置では
+      なく名前で指すため、在れば必ず同じものになる（shared/git/operation.ts）。
+      したがって文も「見つかりません」だけで足りる。
+    */
+    case 'remote-not-found':
+      return '対象のリモートが見つかりませんでした。一覧を開き直してご確認ください。'
 
     case 'unsupported-target':
       return 'この行はその操作の対象になりません。一覧を更新しました。'

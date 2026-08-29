@@ -3,8 +3,10 @@ import type {
   GitCommitChangeKind,
   GitCommitSummary,
   GitLocalBranch,
+  GitRemote,
   GitStashEntry
 } from '@shared/git'
+import { describeGitRemoteUrl } from './gitRemoteLabel'
 
 /**
  * git の出力を読む（Electron / fs / child_process 非依存・テスト対象）。
@@ -22,6 +24,7 @@ import type {
  *   - `diff-tree --raw` が返した塊は、どのファイルがどう変わったか（Session 3-8-12）
  *   - `stash list` が返した行は、どの退避か（Session 3-8-15）
  *   - `stash pop` が言っているのは「競合した」か（Session 3-8-15）
+ *   - `remote --verbose` が返した行は、どの remote か（Session 3-8-16）
  *
  * 1つめが Session 3-8-1 の核心にあたる。**Workspace root がリポジトリ root で
  * ないときは Git 操作を行わない**（設計判断 10）ため、「同じ場所か」の判断を
@@ -446,6 +449,114 @@ export function readStashEntries(
   }
 
   return { entries, truncated }
+}
+
+/* ------------------------------------------- remote（Session 3-8-16） */
+
+/**
+ * `git remote --verbose` の出力を、一覧として読む（Session 3-8-16）。
+ *
+ * ## 1件につき2行来る
+ *
+ * ```
+ * origin<TAB>https://github.com/o/r.git (fetch)
+ * origin<TAB>https://github.com/o/r.git (push)
+ * ```
+ *
+ * 同じ名前が2回出るので、**先に出た方だけを採る**（`git remote --verbose` は
+ * fetch を先に出す。実物で確かめてある）。fetch と push で URL が違う場合
+ * （`git remote set-url --push` を打った人が居る場合）も、載せるのは
+ * fetch 側1つになる ── push 側だけを変える口をアプリが持っていない以上、
+ * 2つ並べても読む人にできることが無い（shared/git/remote.ts）。
+ *
+ * ## 区切りは TAB で、末尾の `(fetch)` は落とす
+ *
+ * remote 名に TAB は入らない（git が禁じ、こちらも弾いている。
+ * shared/git/remoteName.ts）ので、名前の側に何が入っていても読み分けられる。
+ * URL の側には空白が入りうるため（`ext::sh -c whoami` のような値が端末から
+ * 追加されていることがある）、**末尾から** ` (fetch)` / ` (push)` を落とす ──
+ * 空白で切ると、そういう値の途中で切れる。
+ *
+ * ## 上限は読む側で掛ける
+ *
+ * `for-each-ref`（`--count`）や `log`（`--max-count`）と違い、`git remote` に
+ * 件数を切る指定は無い（main/git/gitCommands.ts）。したがって
+ * 「上限より1つ多く求めて、切れたかを知る」形が取れない ── 代わりに、
+ * **上限を超える名前が現れた時点で `truncated` を立てて読むのをやめる。**
+ * 数え方が違うだけで、返すものは他の一覧と同じになる。
+ *
+ * ## URL は返さない
+ *
+ * 読んだ URL はここで**ラベルへ変える**（gitRemoteLabel.ts）── この関数の
+ * 戻り値に URL の欄が無いことが、「Renderer へ URL が渡らない」を
+ * 型の上で担保している（shared/git/remote.ts）。
+ */
+export function readRemoteEntries(
+  stdout: string,
+  limit: number
+): { readonly remotes: readonly GitRemote[]; readonly truncated: boolean } {
+  const remotes: GitRemote[] = []
+  const seen = new Set<string>()
+  let truncated = false
+
+  for (const line of stdout.split('\n')) {
+    const record = readRemoteRecord(line)
+
+    if (record === null || seen.has(record.name)) {
+      continue
+    }
+
+    if (remotes.length >= limit) {
+      truncated = true
+      break
+    }
+
+    seen.add(record.name)
+    remotes.push(record)
+  }
+
+  return { remotes, truncated }
+}
+
+/** `git remote --verbose` が URL の後ろに付ける用途の印。 */
+const REMOTE_USAGE_SUFFIXES: readonly string[] = [' (fetch)', ' (push)']
+
+/**
+ * `<名前><TAB><URL> (fetch)` の1行を読む。読めなければ null。
+ *
+ * 用途の印が付いていない行も通す ── 付ける / 付けないは `--verbose` の
+ * 振る舞いで、版によって変わりうる。**印の有無で行ごと捨てると、
+ * remote が1つも出ない**という壊れ方になる（名前と URL さえ読めれば足りる）。
+ */
+function readRemoteRecord(line: string): GitRemote | null {
+  const tab = line.indexOf('\t')
+
+  if (tab < 0) {
+    return null
+  }
+
+  const name = line.slice(0, tab).trim()
+
+  if (name.length === 0) {
+    return null
+  }
+
+  let url = line.slice(tab + 1).replace(/\r$/, '')
+
+  for (const suffix of REMOTE_USAGE_SUFFIXES) {
+    if (url.endsWith(suffix)) {
+      url = url.slice(0, -suffix.length)
+      break
+    }
+  }
+
+  /*
+    URL が空でも行は落とさない ── `remote.<名前>.url` が設定されていない
+    remote は実在しうる（`git config remote.x.fetch` だけを書いた場合）。
+    落とすと、一覧に出ていない remote が残ることになる。
+    どう見せるかはラベルの側が決める（gitRemoteLabel.ts）。
+  */
+  return { name, label: describeGitRemoteUrl(url) }
 }
 
 /** `stash@{12}` から 12 を取り出すための形。 */

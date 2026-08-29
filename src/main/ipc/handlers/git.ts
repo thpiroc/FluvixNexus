@@ -1,6 +1,8 @@
 import {
   normalizeGitBranchName,
   normalizeGitCommitMessage,
+  normalizeGitRemoteName,
+  normalizeGitRemoteUrl,
   type GitDiffGroup,
   type GitDiscardTarget,
   type GitStageTarget
@@ -15,6 +17,7 @@ import {
   type GitOperationResponse,
   type ListGitBranchesResponse,
   type ListGitCommitsResponse,
+  type ListGitRemotesResponse,
   type ListGitStashesResponse
 } from '@shared/ipc'
 import {
@@ -32,6 +35,7 @@ import { applyGitDiscard } from '../../git/gitDiscard'
 import { listGitCommits } from '../../git/gitHistory'
 import { applyGitInit } from '../../git/gitInit'
 import { normalizeGitPathspec } from '../../git/gitPathspec'
+import { applyGitAddRemote, applyGitRemoveRemote, listGitRemotes } from '../../git/gitRemotes'
 import { describeGitRepository } from '../../git/gitRepository'
 import { applyGitStage, applyGitUnstage } from '../../git/gitStage'
 import {
@@ -46,7 +50,7 @@ import { handleIpc } from '../registry'
 
 /**
  * git ドメインのハンドラ（Session 3-8-1 / 3-8-3 / 3-8-4 / 3-8-5 / 3-8-6 / 3-8-9 /
- * 3-8-10 / 3-8-11 / 3-8-12 / 3-8-13）。
+ * 3-8-10 / 3-8-11 / 3-8-12 / 3-8-13 / 3-8-14 / 3-8-15 / 3-8-16）。
  *
  * ## 3-8-1 では確かめる値が無かった
  *
@@ -366,6 +370,71 @@ function branchStartPointField(request: unknown): string | null {
  * ここで確かめるのは形だけで、**そこに何が居るかは確かめない**（それは
  * リポジトリの中身を見ないと決まらない、という 3-8-6 からの分担のまま）。
  */
+/**
+ * remote 名（Session 3-8-16）。
+ *
+ * 通すのは `normalizeGitRemoteName`（shared/git/remoteName.ts）で、
+ * **Renderer が入力中に使うのと同じ関数**になる ── Commit メッセージ・
+ * ブランチ名とまったく同じ分担で、同じ規則を2箇所に書くと、片方だけ
+ * 直された日に「ボタンは押せるのに Main が弾く」が生まれる。
+ *
+ * **ここを通らない文字列が git の引数になることは無い。** remote 名は
+ * ブランチ名と同じく `--end-of-options` の後ろに置かれる
+ * （main/git/gitCommands.ts）が、そこでも足りない ── `git remote add
+ * --end-of-options -x <url>` は git が受け取ってしまい、以降その remote は
+ * アプリからも端末からも消しにくくなる（実物で確かめた）。
+ * **置き方と形の検証の両方が要る**のは、pathspec と同じ構えになる。
+ *
+ * 追加の側も削除の側も同じ関数を通す ── 入口を分けると
+ * 「足せるが消せない名前」が生まれる（`branchNameField` /
+ * `branchNewNameField` と同じ判断）。
+ */
+function remoteNameField(request: unknown): string {
+  const name = normalizeGitRemoteName(field(request, 'name'))
+
+  if (name === null) {
+    throw invalidRequest('the remote name is empty, too long, or not usable as a git remote name.')
+  }
+
+  return name
+}
+
+/**
+ * remote の URL（Session 3-8-16）。
+ *
+ * ## ここが、この境界でいちばん危ない値になる
+ *
+ * 3-8-1 から「git の引数を渡せる欄を作らない」を守ってきたが、URL は
+ * **その欄を作らないと機能そのものが成り立たない**唯一の値にあたる。
+ * しかも素通しにすると、時間差で任意のコマンドが走る形になる ──
+ * `git remote add evil "ext::sh -c whoami"` は今の git がそのまま受け取り、
+ * 以降の fetch / push でその文字列がシェルとして走る（実物で確かめた）。
+ *
+ * したがって通すのは `normalizeGitRemoteUrl`（shared/git/remoteUrl.ts）で、
+ * **形の列挙を通ったものだけ**になる（`https://…` / `ssh://…` /
+ * `user@host:path` の3つ）。認証情報を含む URL もここで断る ── 通すと
+ * アプリが利用者の token を `.git/config` へ平文で書くことになる。
+ *
+ * ## 往復しない値
+ *
+ * 名前と違い、URL は Renderer → Main の一方向にしか流れない。一覧に載るのは
+ * ラベルだけで（shared/git/remote.ts）、削除の要求にも URL の欄は無い。
+ *
+ * 通せない値を INVALID_REQUEST にするのは他の値と同じ扱いで、Renderer 側でも
+ * そもそもボタンを押せなくしてある（renderer/src/git/GitRemoteOverlay.tsx）。
+ * 逆に、**利用者に起こること**（同じ名前が既にある）は失敗にせず、
+ * 応答の `outcome` に分類として載る。
+ */
+function remoteUrlField(request: unknown): string {
+  const url = normalizeGitRemoteUrl(field(request, 'url'))
+
+  if (url === null) {
+    throw invalidRequest('the remote url is empty, too long, or not an accepted git remote url.')
+  }
+
+  return url
+}
+
 function stashIndexField(request: unknown): number {
   const index = field(request, 'index')
 
@@ -544,6 +613,43 @@ export function registerGitHandlers(): void {
 
   handleIpc(IPC_CHANNELS.GIT_RENAME_BRANCH, async (request): Promise<GitOperationResponse> => {
     return await applyGitRenameBranch(branchNameField(request), branchNewNameField(request))
+  })
+
+  /*
+    remote の一覧 / 追加 / 削除（Session 3-8-16）。
+
+    一覧の要求は `void` ── 並べ替えも絞り込みも件数も届かないため、
+    ここで確かめるべき値そのものが無い（`git:list-branches` /
+    `git:list-commits` / `git:list-stashes` と同じ形）。
+
+    値が載るのは追加と削除で、**追加だけが1要求で2つの外来の値**を運ぶ。
+    2つは規則が別のファイルになる（3-8-14 の rename が2つとも同じ
+    `normalizeGitBranchName` を通ったのとは、そこが違う）── 名前は
+    境界を往復する値、URL は Renderer → Main へ一方向にしか流れない値で、
+    後者は **git に任意のプログラムを起動させうる**唯一の値にあたる
+    （`remoteUrlField`）。
+
+    名前を通す関数は追加と削除で**同じ**にしてある ── 入口を分けると
+    「足せるが消せない名前」が生まれる。
+
+    削除の要求に「確認したか」の欄は無い ── 確認を通した証を引数に載せると、
+    載せなければ確認を飛ばせる形になる（3-8-14 / 3-8-15 と同じ）。
+
+    **`github:publish` とは別の口のまま。** あちらが動かす `git remote add` は
+    名前が固定（`origin`）で、URL は GitHub が返したものになる ──
+    Renderer 由来の値が1つも入らない、という 3-8-10 の保証をここで崩さない
+    （main/git/gitCommands.ts の `addOriginRemote` / `addRemote`）。
+  */
+  handleIpc(IPC_CHANNELS.GIT_LIST_REMOTES, async (): Promise<ListGitRemotesResponse> => {
+    return await listGitRemotes()
+  })
+
+  handleIpc(IPC_CHANNELS.GIT_ADD_REMOTE, async (request): Promise<GitOperationResponse> => {
+    return await applyGitAddRemote(remoteNameField(request), remoteUrlField(request))
+  })
+
+  handleIpc(IPC_CHANNELS.GIT_REMOVE_REMOTE, async (request): Promise<GitOperationResponse> => {
+    return await applyGitRemoveRemote(remoteNameField(request))
   })
 
   /*

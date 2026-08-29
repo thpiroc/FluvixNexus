@@ -2389,3 +2389,421 @@
   font-size: var(--fx-font-size-sm);
   line-height: 1.5;
 }
+
+/* ------------------------------------------- リモート（Session 3-8-16） */
+
+/*
+ * バーの「リモート」（退避の隣）。
+ *
+ * 形は `.fx-git__history-open` / `.fx-git__stash-open` とまったく同じに
+ * してある ── 並び合う3つが違う大きさで並ぶ理由が無い。
+ */
+.fx-git__remote-open {
+  flex: 0 0 auto;
+  padding: 0 var(--fx-space-2);
+  color: var(--fx-color-text-muted);
+  background: none;
+  border: none;
+  font: inherit;
+  line-height: var(--fx-bar-height);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.fx-git__remote-open:hover {
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-git__remote-open:focus-visible {
+  outline: 1px solid var(--fx-color-border-strong);
+  outline-offset: -1px;
+}
+
+/*
+ * 「既存のリポジトリに接続する」（Push / Pull の下、公開の隣）。
+ *
+ * ボタンではなく1行の文にしてある ── 公開のボタンと同じ大きさで並べると、
+ * どちらを押すかを先に決めさせることになる（GitView.tsx）。
+ */
+.fx-git__connect {
+  flex: none;
+  margin: 0;
+  padding: 0 var(--fx-space-3) var(--fx-space-2);
+  color: var(--fx-color-text-faint);
+  font-size: var(--fx-font-size-sm);
+  line-height: 1.5;
+}
+
+.fx-git__connect-open {
+  padding: 0;
+  color: var(--fx-color-text-muted);
+  background: none;
+  border: none;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.fx-git__connect-open:hover {
+  color: var(--fx-color-text-strong);
+}
+
+.fx-git__connect-open:focus-visible {
+  outline: 1px solid var(--fx-color-border-strong);
+  outline-offset: 1px;
+}
+
+/*
+ * 面そのもの。
+ *
+ * 大きさも重なりも履歴・退避・差分の面とまったく同じにしてある ──
+ * 同じ場所に出て同じ閉じ方をするものが、違う大きさで出る理由が無い。
+ */
+.fx-git__remote-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--fx-color-surface);
+}
+
+/* 面の上のバー（履歴・退避・差分の面と同じ高さ・同じ並び）。 */
+.fx-git__remote-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--fx-space-2);
+  padding: var(--fx-space-2) var(--fx-space-3);
+  border-bottom: 1px solid var(--fx-color-border);
+}
+
+.fx-git__remote-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fx-color-text-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 件数（履歴・退避・変更の一覧の見出しと同じ扱い）。 */
+.fx-git__remote-count {
+  flex: 0 0 auto;
+  color: var(--fx-color-text-faint);
+}
+
+/* 閉じる（Esc でも閉じる）。履歴・退避の × と同じ形。 */
+.fx-git__remote-close {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 20px;
+  padding: 0;
+  color: var(--fx-color-text-muted);
+  background: none;
+  border: none;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.fx-git__remote-close:hover {
+  color: var(--fx-color-text-strong);
+}
+
+.fx-git__remote-close:focus-visible {
+  outline: 1px solid var(--fx-color-border-strong);
+  outline-offset: -1px;
+}
+
+/* 一覧の器。伸びるのはここだけで、下の追加の欄は常に見えるところに在る。 */
+.fx-git__remote-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* 一覧の代わりに出す一言（取得中・失敗・1件も無い）。 */
+.fx-git__remote-notice {
+  margin: 0;
+  padding: var(--fx-space-2) var(--fx-space-3);
+  color: var(--fx-color-text-muted);
+  line-height: 1.5;
+}
+
+/* 一覧が切れていることの断り（一覧の下）。履歴・退避と同じ見た目。 */
+.fx-git__remote-truncated {
+  flex: none;
+  margin: 0;
+  padding: var(--fx-space-1) var(--fx-space-3);
+  border-top: 1px solid var(--fx-color-border);
+  color: var(--fx-color-text-faint);
+  font-size: var(--fx-font-size-sm);
+  line-height: 1.5;
+}
+
+.fx-git__remotes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/*
+ * remote 1件。
+ *
+ * 行そのものは押せない（選ぶ操作が無い）ので、退避の行と同じく hover で
+ * 色を変えない ── 押せないものが押せそうに見えることが無い。
+ */
+.fx-git__remote-entry {
+  border-bottom: 1px solid var(--fx-color-border);
+}
+
+.fx-git__remote-row {
+  display: flex;
+  align-items: center;
+  gap: var(--fx-space-2);
+  padding: var(--fx-space-1) var(--fx-space-2) var(--fx-space-1) var(--fx-space-3);
+}
+
+/*
+ * 名前と、どこを指しているか。
+ *
+ * 退避の行と同じく1段にしてある ── 出すものが2つしか無く、2段にすると
+ * 行の高さだけが増える。
+ */
+.fx-git__remote-main {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: baseline;
+  gap: var(--fx-space-2);
+  min-width: 0;
+}
+
+/* 名前。指せる唯一の値なので、こちらを強く出す。 */
+.fx-git__remote-name {
+  flex: 0 0 auto;
+  color: var(--fx-color-text-strong);
+  white-space: nowrap;
+}
+
+/* 表示用のラベル（URL ではない）。名前より先に縮む。 */
+.fx-git__remote-location {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fx-color-text-faint);
+  font-size: var(--fx-font-size-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * 削除（✕）。
+ *
+ * 大きさと色は退避・ブランチの一覧の ✕ と揃えてある ── 同じパネルの中で
+ * 「行の右端に付く操作」の形が2つに割れないようにするため。
+ */
+.fx-git__remote-action {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  color: var(--fx-color-text-faint);
+  background: none;
+  border: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.fx-git__remote-row:hover .fx-git__remote-action:not(:disabled) {
+  color: var(--fx-color-text-muted);
+}
+
+.fx-git__remote-action:hover:not(:disabled) {
+  color: var(--fx-color-danger);
+}
+
+.fx-git__remote-action:focus-visible {
+  outline: 1px solid var(--fx-color-border-strong);
+  outline-offset: -1px;
+}
+
+.fx-git__remote-action:disabled {
+  color: var(--fx-color-text-faint);
+  opacity: 0.4;
+  cursor: default;
+}
+
+/*
+ * 行の下に開く「削除」の確認。
+ *
+ * 地を1段沈めてあるのは、一覧の行と**同じ高さに見えない**ようにするため
+ * （ブランチ・退避の面の確認と同じ形）。
+ */
+.fx-git__remote-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-1);
+  padding: var(--fx-space-2) var(--fx-space-3);
+  border-top: 1px solid var(--fx-color-border);
+  background: var(--fx-color-surface-sunken);
+}
+
+.fx-git__remote-confirm-message {
+  margin: 0;
+  color: var(--fx-color-text-strong);
+  line-height: 1.5;
+}
+
+.fx-git__remote-confirm-note {
+  margin: 0;
+  color: var(--fx-color-text-muted);
+  font-size: var(--fx-font-size-sm);
+  line-height: 1.5;
+}
+
+/* 「やめる」を左、「削除」を右（破棄・ブランチ・退避とまったく同じ並び）。 */
+.fx-git__remote-confirm-actions {
+  display: flex;
+  gap: var(--fx-space-2);
+  justify-content: flex-end;
+  margin-top: var(--fx-space-1);
+}
+
+.fx-git__remote-confirm-button {
+  padding: var(--fx-space-1) var(--fx-space-3);
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface-raised);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.fx-git__remote-confirm-button:hover:not(:disabled) {
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-git__remote-confirm-button:focus-visible {
+  outline: 1px solid var(--fx-color-border-strong);
+  outline-offset: 1px;
+}
+
+.fx-git__remote-confirm-button:disabled {
+  color: var(--fx-color-text-faint);
+  cursor: default;
+}
+
+/* 消す側であることを色でも言う（破棄・ブランチ・退避と同じ）。 */
+.fx-git__remote-confirm-button[data-variant='danger'] {
+  color: var(--fx-color-danger);
+  border-color: var(--fx-color-danger);
+}
+
+/*
+ * 新しく足す（面の下）。
+ *
+ * ブランチ・退避の面が一覧の下に欄を置いたのと同じ位置になる ── 一覧が
+ * 伸びてもここは縮まない。
+ */
+.fx-git__remote-add {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: var(--fx-space-1);
+  padding: var(--fx-space-2) var(--fx-space-3);
+  border-top: 1px solid var(--fx-color-border);
+}
+
+/* 名前 / URL の1行。ラベルを左に置いて、2つの欄の左端を揃える。 */
+.fx-git__remote-field {
+  display: flex;
+  align-items: center;
+  gap: var(--fx-space-2);
+}
+
+.fx-git__remote-label {
+  flex: 0 0 auto;
+  width: 3.5em;
+  color: var(--fx-color-text-muted);
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-git__remote-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: var(--fx-space-1) var(--fx-space-2);
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface-sunken);
+  border: 1px solid var(--fx-color-border);
+  border-radius: 3px;
+  font: inherit;
+}
+
+.fx-git__remote-input::placeholder {
+  color: var(--fx-color-text-faint);
+}
+
+.fx-git__remote-input:focus-visible {
+  outline: 1px solid var(--fx-color-border-strong);
+  outline-offset: -1px;
+}
+
+/* 何が起きるか / なぜ押せないかを左に、ボタンを右に（公開の面と同じ並び）。 */
+.fx-git__remote-add-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--fx-space-2);
+  margin-top: var(--fx-space-1);
+}
+
+.fx-git__remote-note {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--fx-color-text-muted);
+  font-size: var(--fx-font-size-sm);
+  line-height: 1.5;
+}
+
+.fx-git__remote-add-button {
+  flex: 0 0 auto;
+  padding: var(--fx-space-1) var(--fx-space-3);
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface-raised);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.fx-git__remote-add-button:hover:not(:disabled) {
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-git__remote-add-button:focus-visible {
+  outline: 1px solid var(--fx-color-border-strong);
+  outline-offset: 1px;
+}
+
+.fx-git__remote-add-button:disabled {
+  color: var(--fx-color-text-faint);
+  cursor: default;
+}
+
+/* 押した1回の結末（面の中だけに出す）。 */
+.fx-git__remote-failure {
+  flex: none;
+  margin: 0;
+  padding: var(--fx-space-1) var(--fx-space-3);
+  color: var(--fx-color-danger);
+  font-size: var(--fx-font-size-sm);
+  line-height: 1.5;
+}

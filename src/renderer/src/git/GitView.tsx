@@ -9,6 +9,7 @@ import { GitDiscardConfirm } from './GitDiscardConfirm'
 import { GitHistoryOverlay } from './GitHistoryOverlay'
 import { GitHubPublishForm } from './GitHubPublishForm'
 import { GitInitConfirm } from './GitInitConfirm'
+import { GitRemoteOverlay } from './GitRemoteOverlay'
 import { GitStashOverlay } from './GitStashOverlay'
 import { DiffIcon, DiscardIcon, StageIcon, UnstageIcon } from './GitIcons'
 import {
@@ -40,6 +41,7 @@ import {
   type GitRowAction
 } from './gitChanges'
 import { canDiffGitChange, toGitDiffGroup } from './gitDiff'
+import { GIT_ADD_REMOTE_OPERATION_KEY } from './gitRemotes'
 import { GIT_STASH_PUSH_OPERATION_KEY, toGitStashPushReadiness } from './gitStash'
 import { GITHUB_PUBLISH_OPERATION_KEY } from './githubPublish'
 import { describeGitRepositoryNotice } from './gitRepositoryMessage'
@@ -164,6 +166,12 @@ export function GitView(): JSX.Element {
     createBranchFromCommit,
     deleteBranch,
     renameBranch,
+    remotes,
+    remoteOpen,
+    openRemotes,
+    closeRemotes,
+    addRemote,
+    removeRemote,
     stashes,
     stashOpen,
     openStash,
@@ -538,6 +546,33 @@ export function GitView(): JSX.Element {
         >
           退避
         </button>
+        {/*
+          リモート（Session 3-8-16）。
+
+          置き場所は履歴・退避の**隣**にする。3つとも「①変更 → ②メッセージ →
+          ③Commit / Push の一続きの上に無いもの」で、開くのは面になる
+          （DESIGN.md 設計判断 2 が効くのはその並びの上での話）。
+
+          ## `hasRemote` に関わらず、常に同じ場所に在る
+
+          remote が無いときだけ出す形にはしない ── そうすると、**押す場所が
+          リポジトリの状態で動く**ことになる。remote が1つも無い人にとっても
+          「ここが接続する場所」であることは変わらず、下の「GitHub に公開」の
+          隣に置いた導線（後述）もここへ来る。
+
+          **押せなくする条件を持たない。** 一覧を開くこと自体は読み取りで、
+          他の Git 操作が動いていても邪魔にならない（履歴・退避と同じ）──
+          押せないのは面の中の「追加」と ✕ の側で、そちらは gitRemotes.ts が決める。
+        */}
+        <button
+          type="button"
+          className="fx-git__remote-open"
+          onClick={openRemotes}
+          title="リモート（remote）を見る"
+          aria-label="リモートを見る"
+        >
+          リモート
+        </button>
         <button
           type="button"
           className="fx-git__refresh"
@@ -662,14 +697,44 @@ export function GitView(): JSX.Element {
         置き場所は Push / Pull の**下**（足すのは下へ）。
       */}
       {repository.hasRemote ? null : (
-        <GitHubPublishForm
-          workspaceName={workspaceName}
-          status={githubStatus}
-          operating={operating}
-          publishing={pending.has(GITHUB_PUBLISH_OPERATION_KEY)}
-          onRefreshStatus={refreshGitHubStatus}
-          onPublish={publishToGitHub}
-        />
+        <>
+          <GitHubPublishForm
+            workspaceName={workspaceName}
+            status={githubStatus}
+            operating={operating}
+            publishing={pending.has(GITHUB_PUBLISH_OPERATION_KEY)}
+            onRefreshStatus={refreshGitHubStatus}
+            onPublish={publishToGitHub}
+          />
+          {/*
+            既にあるリポジトリに接続する（Session 3-8-16）。
+
+            ## 3-8-10 が開けたままにしていた穴を、ここで塞ぐ
+
+            remote が1つも無いリポジトリでパネルの下に在ったのは
+            「GitHub に公開」だけだった ── **新しく作る**側の入口しか無く、
+            既にどこかに在る repository へ繋ぎたい人は、そこで
+            アプリの外（端末の `git remote add`）へ出るしかなかった。
+            `no-remote` の文言が「Terminal パネルで」と案内していたのは
+            そのためになる。
+
+            ## 公開のボタンと同じ場所に置く
+
+            上のバーの「リモート」を押しても同じ面が開くが、それだけにはしない ──
+            **remote が無い人がいちばん長く見ているのはこの位置**（Push / Pull の
+            下）で、そこに「もう1つの選び方」が無いと、公開が唯一の道に見える。
+
+            見た目は控えめにしてある（ボタンではなく1行の文）── 2つを同じ
+            大きさで並べると、どちらを押すかを先に決めさせることになる。
+            公開は「作る」、こちらは「繋ぐ」で、多くの人にとっては前者になる。
+          */}
+          <p className="fx-git__connect">
+            既にあるリポジトリがある場合は
+            <button type="button" className="fx-git__connect-open" onClick={openRemotes}>
+              既存のリポジトリに接続する
+            </button>
+          </p>
+        </>
       )}
       {/*
         履歴（Session 3-8-11 / 3-8-12）。
@@ -722,6 +787,27 @@ export function GitView(): JSX.Element {
         開けないので、実際に重なることは無い（退避の中身を見る口は
         置いていない。docs/ARCHITECTURE.md §14.23）。
       */}
+      {/*
+        リモート（Session 3-8-16）。
+
+        履歴・退避と**同じ場所に、同じ閉じ方で**重ねる（GitRemoteOverlay.tsx）。
+        3つが同時に開くことは起こりえない ── 面はバーごと覆うので、
+        どれかが開いている間は他のボタンを押せる場所が無い。したがって
+        履歴が差分に対して持っている `suspended` は要らない。
+
+        退避と同じく差分の**手前**に置いてあるが、この面からは差分を
+        開けないので、実際に重なることは無い。
+      */}
+      {remoteOpen ? (
+        <GitRemoteOverlay
+          list={remotes}
+          operating={operating}
+          adding={pending.has(GIT_ADD_REMOTE_OPERATION_KEY)}
+          onAdd={addRemote}
+          onRemove={removeRemote}
+          onClose={closeRemotes}
+        />
+      ) : null}
       {stashOpen ? (
         <GitStashOverlay
           list={stashes}

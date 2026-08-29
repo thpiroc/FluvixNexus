@@ -6,6 +6,7 @@ import type {
   GitFileDiff,
   GitOperationFailure,
   GitOperationOutcome,
+  GitRemote,
   GitRepositoryState,
   GitStageTarget,
   GitStashEntry
@@ -25,6 +26,12 @@ import {
 } from './gitBranches'
 import type { GitCommitDetailState } from './gitCommitDetail'
 import { INITIAL_GIT_COMMIT_HISTORY, type GitCommitHistoryState } from './gitHistory'
+import {
+  GIT_ADD_REMOTE_OPERATION_KEY,
+  GIT_REMOVE_REMOTE_OPERATION_KEY,
+  INITIAL_GIT_REMOTE_LIST,
+  type GitRemoteListState
+} from './gitRemotes'
 import {
   GIT_STASH_DROP_OPERATION_KEY,
   GIT_STASH_POP_OPERATION_KEY,
@@ -361,6 +368,45 @@ export interface GitRepositoryController {
    * 閉じている間は `stashOpen` が false で、その間は一度も取りに行かない。
    */
   readonly stashes: GitStashListState
+  /**
+   * remote の一覧（Session 3-8-16）。
+   *
+   * ブランチ・履歴・退避と同じく**リポジトリの状態とは別に持つ** ──
+   * `repository` が持っているのは今も `hasRemote`（有無だけ）で、そこは
+   * 3-8-10 から動かしていない（shared/git/repository.ts）。一覧を相乗り
+   * させると、ファイルを保存するたびに `git remote --verbose` を1回
+   * 起動することになる。
+   *
+   * 閉じている間は `remoteOpen` が false で、その間は一度も取りに行かない。
+   */
+  readonly remotes: GitRemoteListState
+  /** remote の面が開いているか（開いている間だけ `git:changed` で追いつく）。 */
+  readonly remoteOpen: boolean
+  /** remote を開く（開いた瞬間に取りに行く）。 */
+  readonly openRemotes: () => void
+  /** remote を閉じる（飛んでいる問い合わせの答えは捨てる）。 */
+  readonly closeRemotes: () => void
+  /**
+   * remote を1つ追加する（Session 3-8-16）。
+   *
+   * **結末を返す**のは 3-8-14 の削除 / rename・3-8-15 の退避と同じ理由で、
+   * 押した場所の近くに理由を出す必要があるため ── remote の面はパネルを
+   * 覆っており、下に出ている `failure` は読めない（GitRemoteOverlay.tsx）。
+   *
+   * 通ると `repository.hasRemote` が true に変わるため、面を閉じたときに
+   * 「GitHub に公開」の入口が消えている ── その差し替えは応答に載っている
+   * 操作後の状態がそのまま行う（`operate`）。
+   */
+  readonly addRemote: (name: string, url: string) => Promise<GitOperationOutcome | null>
+  /**
+   * remote を1つ削除する（Session 3-8-16）。
+   *
+   * 渡すのは一覧の行そのもの ── 名前だけでも足りるが、行を渡す形に
+   * 揃えてある（`stashPop` / `stashDrop` と同じ）。**確認を挟むのは
+   * ここではない** ── 押してよいかを尋ねるのは面の側で
+   * （GitRemoteOverlay.tsx）、ここへ来るのは既に尋ね終えたものになる。
+   */
+  readonly removeRemote: (remote: GitRemote) => Promise<GitOperationOutcome | null>
   /** 退避の面が開いているか（開いている間だけ `git:changed` で追いつく）。 */
   readonly stashOpen: boolean
   /** 退避を開く（開いた瞬間に取りに行く）。 */
@@ -554,6 +600,34 @@ export function useGitRepository(): GitRepositoryController {
 
   /** 退避の問い合わせの通し番号（一覧・履歴・差分と同じ理由で別に持つ）。 */
   const stashRequestRef = useRef(0)
+
+  /**
+   * remote の一覧（Session 3-8-16）。
+   *
+   * 退避とまったく同じ扱いで、**閉じている間は誰も見ていない**が開いている間は
+   * 追いつく必要がある（下の useEffect）── 端末で `git remote add` を打つ
+   * ことがあり、そのとき出たままの一覧は「さっき足したものが無い」という形で
+   * 嘘をつく。
+   *
+   * 退避と違い、**古い一覧が押し間違いにはならない** ── remote は位置ではなく
+   * 名前で指すため、名前が在ればそれは同じ remote になる（shared/git/remote.ts）。
+   * それでも追いつくのは、公開の入口（`hasRemote`）と一覧が食い違って見える
+   * ことを避けるためになる。
+   */
+  const [remotes, setRemotes] = useState<GitRemoteListState>(INITIAL_GIT_REMOTE_LIST)
+
+  /**
+   * remote の面が開いているか。
+   *
+   * state と ref の両方に持つ ── 描き直すために state が要り、
+   * **イベントの購読の中から今の値を読む**ために ref が要る（履歴・退避と同じ形）。
+   */
+  const [remoteOpen, setRemoteOpen] = useState(false)
+  const remoteOpenRef = useRef(remoteOpen)
+  remoteOpenRef.current = remoteOpen
+
+  /** remote の問い合わせの通し番号（一覧・履歴・退避・差分と同じ理由で別に持つ）。 */
+  const remoteRequestRef = useRef(0)
 
   /**
    * GitHub CLI の状態（Session 3-8-10）。
@@ -988,6 +1062,64 @@ export function useGitRepository(): GitRepositoryController {
     setStashOpen(false)
   }, [])
 
+  /**
+   * remote の一覧を取り直す（Session 3-8-16）。
+   *
+   * 経路は退避（`refreshStashes`）とまったく同じ ── 通し番号で追い越しを捨て、
+   * `workspaceId` で行き違いを捨てる。
+   *
+   * `quiet` が付くのは、開いている間に `.git` が変わって取り直すときと、
+   * 自分が変えたと分かっている1回（追加 / 削除が通った直後）になる。
+   */
+  const refreshRemotes = useCallback(
+    async (options?: { readonly quiet?: boolean }): Promise<void> => {
+      const requestId = remoteRequestRef.current + 1
+      remoteRequestRef.current = requestId
+
+      if (options?.quiet !== true) {
+        setRemotes(INITIAL_GIT_REMOTE_LIST)
+      }
+
+      const result = await fluvix.git.listRemotes()
+
+      // 追い越された（開き直した／閉じた）。新しい方の答えが来る。
+      if (remoteRequestRef.current !== requestId) {
+        return
+      }
+
+      if (!result.ok) {
+        console.warn('[git] リモートの一覧を取得できませんでした。', result.error)
+        setRemotes({ status: 'failed', remotes: [], truncated: false })
+        return
+      }
+
+      // 問い合わせている間に Workspace が切り替わっていたら捨てる（`load` と同じ）。
+      if (result.data.workspaceId !== workspaceIdRef.current) {
+        return
+      }
+
+      const listing = result.data.listing
+
+      setRemotes(
+        listing.status === 'ready'
+          ? { status: 'ready', remotes: listing.remotes, truncated: listing.truncated }
+          : { status: listing.status, remotes: [], truncated: false }
+      )
+    },
+    []
+  )
+
+  const openRemotes = useCallback((): void => {
+    setRemoteOpen(true)
+    void refreshRemotes()
+  }, [refreshRemotes])
+
+  const closeRemotes = useCallback((): void => {
+    // 飛んでいる問い合わせの答えを捨てる（閉じた後に中身が入れ替わらないように）。
+    remoteRequestRef.current += 1
+    setRemoteOpen(false)
+  }, [])
+
   /*
     履歴が開いている間だけ、`.git` の変化に追いつく（Session 3-8-11）。
 
@@ -1094,6 +1226,54 @@ export function useGitRepository(): GitRepositoryController {
       unsubscribe()
     }
   }, [stashOpen, workspaceId, refreshStashes])
+
+  /*
+    remote の面が開いている間だけ、`.git` の変化に追いつく（Session 3-8-16）。
+
+    形は履歴・退避とまったく同じで、購読するのは `git:changed` だけになる ──
+    作業ツリーのファイルをいくら書き換えても、remote の一覧は1行も変わらない。
+
+    拾いたいのは端末での `git remote add` / `git remote remove` で、
+    どちらも `.git/config` を書き換える ── その変化を watcher が運ぶ
+    （main/git/gitWatcher.ts）。
+
+    束ねる間（`CHANGE_SETTLE_MS`）も同じにしてある。
+  */
+  useEffect(() => {
+    if (!remoteOpen || workspaceId === null) {
+      return
+    }
+
+    let settle: ReturnType<typeof setTimeout> | null = null
+
+    const unsubscribe = fluvix.git.onChanged((event) => {
+      // 切り替えと行き違った通知は捨てる（イベントには対応関係が無い）。
+      if (event.workspaceId !== workspaceId) {
+        return
+      }
+
+      if (settle !== null) {
+        clearTimeout(settle)
+      }
+
+      settle = setTimeout(() => {
+        settle = null
+
+        // 閉じた直後に発火した最後の1回を捨てる。
+        if (remoteOpenRef.current) {
+          void refreshRemotes({ quiet: true })
+        }
+      }, CHANGE_SETTLE_MS)
+    })
+
+    return () => {
+      if (settle !== null) {
+        clearTimeout(settle)
+      }
+
+      unsubscribe()
+    }
+  }, [remoteOpen, workspaceId, refreshRemotes])
 
   /**
    * 1回分の操作（Session 3-8-3）。
@@ -1516,6 +1696,61 @@ export function useGitRepository(): GitRepositoryController {
   )
 
   /*
+    remote の追加 / 削除（Session 3-8-16）。
+
+    ## 経路は他の書き込み操作とまったく同じ
+
+    `operate` を通り、二重の要求は目印で止まり、応答に載っている操作後の状態を
+    そのまま使う。`git remote` を動かす初めての操作だが、**Renderer から見ると
+    そこは何も変わらない** ── どの git が動くかは Main の中の話になる
+    （3-8-14 で `git branch` が、3-8-15 で `git stash` が増えたときと同じ）。
+
+    ## 通ったときだけ一覧を取り直す
+
+    面を閉じないため、ここで取り直さないと消えた行・増えた行が合わなくなる。
+    失敗のときに取り直さないのは、**理由を読む前に一覧が入れ替わらないように
+    する**ため（3-8-14 / 3-8-15 と同じ判断）。
+
+    `quiet` を付けるのは、取り直しの間だけ面が「取得しています…」に
+    戻らないようにするため。
+
+    ## `repository` の側は、応答が勝手に新しくしている
+
+    追加が通ると `hasRemote` が false から true に変わり、パネルの下の
+    「GitHub に公開」が消える ── そのために別の読み直しを足す必要は無い
+    （`operate` が応答に載っている操作後の状態をそのまま使う）。
+  */
+  const addRemote = useCallback(
+    async (name: string, url: string): Promise<GitOperationOutcome | null> => {
+      const outcome = await operate(GIT_ADD_REMOTE_OPERATION_KEY, () =>
+        fluvix.git.addRemote({ name, url })
+      )
+
+      if (outcome?.status === 'applied') {
+        void refreshRemotes({ quiet: true })
+      }
+
+      return outcome
+    },
+    [operate, refreshRemotes]
+  )
+
+  const removeRemote = useCallback(
+    async (remote: GitRemote): Promise<GitOperationOutcome | null> => {
+      const outcome = await operate(GIT_REMOVE_REMOTE_OPERATION_KEY, () =>
+        fluvix.git.removeRemote({ name: remote.name })
+      )
+
+      if (outcome?.status === 'applied') {
+        void refreshRemotes({ quiet: true })
+      }
+
+      return outcome
+    },
+    [operate, refreshRemotes]
+  )
+
+  /*
     初期化（Session 3-8-10）。
 
     経路は他の書き込み操作とまったく同じ（`operate`）で、要求に載せる値が
@@ -1624,6 +1859,12 @@ export function useGitRepository(): GitRepositoryController {
     createBranchFromCommit,
     deleteBranch,
     renameBranch,
+    remotes,
+    remoteOpen,
+    openRemotes,
+    closeRemotes,
+    addRemote,
+    removeRemote,
     stashes,
     stashOpen,
     openStash,

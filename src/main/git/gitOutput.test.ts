@@ -6,6 +6,7 @@ import {
   readCommitFileChanges,
   readCommitHistory,
   readLocalBranches,
+  readRemoteEntries,
   readRepositoryRoot,
   readShortCommit,
   readStashEntries,
@@ -679,5 +680,146 @@ describe('readStashPopConflict', () => {
   it('通ったときの出力は競合として読まない', () => {
     expect(readStashPopConflict('')).toBe(false)
     expect(readStashPopConflict('On branch main\nnothing to commit\n')).toBe(false)
+  })
+})
+
+/**
+ * `git remote --verbose` の読み取り（Session 3-8-16）。
+ *
+ * ## 1件につき2行来る
+ *
+ * ここで固定したいのは「**同じ名前を2つの行として出さない**」ことと、
+ * fetch と push で URL が違う場合に**どちらを採るか**になる。
+ *
+ * ## URL は返らない
+ *
+ * 戻り値に URL の欄が無いことが、「Renderer へ URL が渡らない」を型の上で
+ * 担保している（shared/git/remote.ts）── ラベルの作り方そのものは
+ * gitRemoteLabel.test.ts が固定している。
+ */
+describe('readRemoteEntries', () => {
+  /** 実物の出力（区切りは TAB、末尾に用途）。 */
+  function verbose(...lines: readonly string[]): string {
+    return `${lines.join('\n')}\n`
+  }
+
+  it('1件につき2行来る出力を、1件として読む', () => {
+    const reading = readRemoteEntries(
+      verbose(
+        'origin\thttps://github.com/o/r.git (fetch)',
+        'origin\thttps://github.com/o/r.git (push)'
+      ),
+      100
+    )
+
+    expect(reading.remotes).toEqual([{ name: 'origin', label: 'github.com/o/r' }])
+    expect(reading.truncated).toBe(false)
+  })
+
+  it('複数の remote を、git が返した順のまま読む', () => {
+    const reading = readRemoteEntries(
+      verbose(
+        'origin\thttps://github.com/o/r.git (fetch)',
+        'origin\thttps://github.com/o/r.git (push)',
+        'upstream\tgit@github.com:upstream/r.git (fetch)',
+        'upstream\tgit@github.com:upstream/r.git (push)'
+      ),
+      100
+    )
+
+    expect(reading.remotes).toEqual([
+      { name: 'origin', label: 'github.com/o/r' },
+      { name: 'upstream', label: 'github.com/upstream/r' }
+    ])
+  })
+
+  /*
+    push 側だけを変える口をアプリが持っていない以上、2つ並べても読む人に
+    できることが無い ── 先に出る fetch 側を採る（main/git/gitOutput.ts）。
+  */
+  it('fetch と push で URL が違うときは、先に出る fetch 側を採る', () => {
+    const reading = readRemoteEntries(
+      verbose(
+        'origin\thttps://github.com/o/r.git (fetch)',
+        'origin\tssh://git@github.com/o/r.git (push)'
+      ),
+      100
+    )
+
+    expect(reading.remotes).toEqual([{ name: 'origin', label: 'github.com/o/r' }])
+  })
+
+  it('用途の印が付いていない行も読む（--verbose の振る舞いに寄りかからない）', () => {
+    const reading = readRemoteEntries(verbose('origin\thttps://github.com/o/r.git'), 100)
+
+    expect(reading.remotes).toEqual([{ name: 'origin', label: 'github.com/o/r' }])
+  })
+
+  /*
+    URL に空白が入りうるので、空白で切ると値の途中で切れる ──
+    **末尾から**印を落とす（main/git/gitOutput.ts）。
+  */
+  it('URL に空白が入っていても、末尾の印だけを落とす', () => {
+    const reading = readRemoteEntries(verbose('evil\text::sh -c whoami (fetch)'), 100)
+
+    expect(reading.remotes).toEqual([{ name: 'evil', label: '不明な形式' }])
+  })
+
+  it('URL が空の行も落とさない（一覧に出ない remote を作らない）', () => {
+    const reading = readRemoteEntries(verbose('broken\t (fetch)'), 100)
+
+    expect(reading.remotes).toEqual([{ name: 'broken', label: '不明な形式' }])
+  })
+
+  it('remote が1件も無い出力は、空の一覧として読む（失敗ではない）', () => {
+    expect(readRemoteEntries('', 100)).toEqual({ remotes: [], truncated: false })
+    expect(readRemoteEntries('\n', 100)).toEqual({ remotes: [], truncated: false })
+  })
+
+  it('TAB の無い行は読まない', () => {
+    expect(readRemoteEntries(verbose('origin https://github.com/o/r.git (fetch)'), 100)).toEqual({
+      remotes: [],
+      truncated: false
+    })
+  })
+
+  it('CRLF の出力でも読む', () => {
+    const reading = readRemoteEntries('origin\thttps://github.com/o/r.git (fetch)\r\n', 100)
+
+    expect(reading.remotes).toEqual([{ name: 'origin', label: 'github.com/o/r' }])
+  })
+
+  /*
+    `git remote` に件数を切る指定が無いため、上限は読む側で掛ける
+    （ブランチ・履歴・退避が `--count` / `--max-count` を使うのとは違う。
+    main/git/gitCommands.ts）。
+  */
+  it('上限で切り、切ったことを言う', () => {
+    const lines: string[] = []
+
+    for (let index = 0; index < 5; index += 1) {
+      lines.push(`r${index}\thttps://example.com/o/r${index}.git (fetch)`)
+      lines.push(`r${index}\thttps://example.com/o/r${index}.git (push)`)
+    }
+
+    const reading = readRemoteEntries(verbose(...lines), 3)
+
+    expect(reading.remotes.map((remote) => remote.name)).toEqual(['r0', 'r1', 'r2'])
+    expect(reading.truncated).toBe(true)
+  })
+
+  it('ちょうど上限の件数では切らない', () => {
+    const reading = readRemoteEntries(
+      verbose(
+        'a\thttps://example.com/o/a.git (fetch)',
+        'a\thttps://example.com/o/a.git (push)',
+        'b\thttps://example.com/o/b.git (fetch)',
+        'b\thttps://example.com/o/b.git (push)'
+      ),
+      2
+    )
+
+    expect(reading.remotes.map((remote) => remote.name)).toEqual(['a', 'b'])
+    expect(reading.truncated).toBe(false)
   })
 })

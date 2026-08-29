@@ -7,6 +7,7 @@ import type {
   GitDiscardTarget,
   GitFileDiff,
   GitOperationOutcome,
+  GitRemoteListing,
   GitRepositoryState,
   GitStageTarget,
   GitStashListing,
@@ -422,6 +423,113 @@ export interface RenameGitBranchRequest {
   readonly name: string
   /** 新しい名前。 */
   readonly newName: string
+}
+
+/**
+ * remote の一覧の応答（Session 3-8-16）。
+ *
+ * ## 相乗りさせていないのは、これで4つめ
+ *
+ * ブランチ・履歴・退避とまったく同じ理由で、`git:get-repository` に載せない ──
+ * **見られている時間が違う。** リポジトリの状態が持っているのは今も
+ * `hasRemote`（有無だけ）で、そこは 3-8-10 から1文字も動かしていない
+ * （shared/git/repository.ts）── あちらはパネルが開いている間ずっと
+ * 「公開の入口を出すか」を決めており、一覧は面を開いている間だけになる。
+ *
+ * 相乗りさせると、ファイルを保存するたびに `git remote --verbose` を
+ * 1回起動することになる。
+ *
+ * ## 開いている間は追いつく（退避と同じ側）
+ *
+ * 端末で `git remote add` を打つことがあり、そのとき出たままの一覧は
+ * 「さっき足したものが無い」という形で嘘をつく。ブランチの一覧が
+ * 「開いた瞬間に取り直して、閉じるまでそのまま」なのとは違う側になる。
+ *
+ * ## 載るのは名前と**表示用ラベル**だけ
+ *
+ * URL は載らない（shared/git/remote.ts）── 渡すと、Renderer がそれを
+ * 指して何かを頼みたくなるだけでなく、URL そのものが git に任意の
+ * プログラムを起動させうる値にあたる（shared/git/remoteUrl.ts）。
+ */
+export interface ListGitRemotesResponse {
+  /** どの Workspace について答えたか。未選択なら null（他の応答と同じ理由）。 */
+  readonly workspaceId: string | null
+  /** remote の一覧、またはそれを出せない理由（shared/git/remote.ts）。 */
+  readonly listing: GitRemoteListing
+}
+
+/**
+ * remote を1つ追加する要求（Session 3-8-16）。
+ *
+ * ## 3-8-1 で「作らない」と決めた欄を、初めて作る
+ *
+ * 3-8-5 から 3-8-15 まで、remote を指せる欄はどこにも無かった ── 送り先を
+ * 決めるのはリポジトリの設定で、Renderer が名前で指せる形にすると
+ * 「画面に出ているブランチとは別のものへ送れる欄」になるためだった。
+ *
+ * **その判断は今も動いていない。** ここで作るのは
+ * 「**登録簿に1行足す**」欄であって、「送り先を選ぶ」欄ではない ──
+ * Push / Pull の要求は今も `void` のままで、どこへ送るかは
+ * リポジトリの設定が持つ（`git:push` / `git:pull`）。
+ *
+ * ## 1つの要求に外来の値が2つ載る、2つめの形
+ *
+ * 1つめは rename（`RenameGitBranchRequest`）だった。あちらは
+ * 「どれを」と「何に」で、どちらも同じ規則を通ったが、こちらの2つは
+ * **性質そのものが違う。**
+ *
+ *   `name` … 境界を往復する値（一覧の行に載り、削除の要求に載る）
+ *   `url`  … Renderer → Main へ**1回だけ流れる値**（一覧には載らない）
+ *
+ * したがって規則も別のファイルになる（shared/git/remoteName.ts /
+ * shared/git/remoteUrl.ts）── とくに URL の側は、Git 機能で唯一
+ * **git に任意のプログラムを起動させうる値**にあたる。
+ *
+ * ## `--fetch` の欄は無い
+ *
+ * 追加した直後にネットワークへ出る形にしない（`addOriginRemote` で
+ * 同じ判断をしている。main/git/gitCommands.ts）── この1回で起きることを
+ * 「設定に1行増える」だけに保つ。届く相手かどうかは、次の Pull で分かる。
+ *
+ * ## 追跡先（upstream）は付けない
+ *
+ * remote を足しても、今のブランチの `branch.<名前>.remote` は変わらない ──
+ * 追跡先が付くのは Push が通ったときだけになる（`pushSettingUpstream`）。
+ * 足した瞬間に付ける形にすると、**まだ届くかも分からない相手**が
+ * 画面の `↑ ↓` の基準になる。
+ */
+export interface AddGitRemoteRequest {
+  /** remote 名（`origin` など）。`normalizeGitRemoteName` を通る。 */
+  readonly name: string
+  /** 送り先の URL。`normalizeGitRemoteUrl` を通る（通す形は3つだけ）。 */
+  readonly url: string
+}
+
+/**
+ * remote を1つ削除する要求（Session 3-8-16）。
+ *
+ * ## 載るのは名前だけ
+ *
+ * URL も「確認したか」も欄が無い。後者は 3-8-14 / 3-8-15 と同じ判断で、
+ * 確認を通した証を引数に載せると、載せなければ確認を飛ばせる形になる。
+ *
+ * ## 何が失われるか
+ *
+ * `git remote remove` が消すのは3つになる（実物で確かめてある。
+ * main/git/gitRemoteRepository.test.ts）。
+ *
+ *   `remote.<名前>.*`            … URL と fetch の refspec
+ *   `refs/remotes/<名前>/*`      … 手元に持っていた remote-tracking ref
+ *   `branch.*.remote` / `.merge` … **その remote を追っていたブランチの追跡先**
+ *
+ * commit は1つも失われない（到達できなくなる ref は remote-tracking だけで、
+ * それは次の fetch で戻る）。それでも確認を挟むのは、3つめのため ──
+ * 追跡先が消えると、画面の `↑2 ↓1` が消え、Push が
+ * 「初回の Push」（`--set-upstream`）に戻る。
+ */
+export interface RemoveGitRemoteRequest {
+  /** 削除する remote 名（一覧の行が持っていたもの）。 */
+  readonly name: string
 }
 
 /**
@@ -843,6 +951,75 @@ export interface GitIpcContract {
    */
   'git:rename-branch': {
     request: RenameGitBranchRequest
+    response: GitOperationResponse
+  }
+  /**
+   * remote の一覧を尋ねる（Session 3-8-16）。
+   *
+   * 要求は `void` ── 並べ替えも絞り込みも件数も指定できない
+   * （`git:list-branches` / `git:list-commits` / `git:list-stashes` と同じ形）。
+   * 返るのは常に「今の Workspace に登録されている remote を、上限まで」になる。
+   *
+   * 読み取りだが `git:get-repository` とは別の1本にしてある ──
+   * リポジトリの状態が持つのは今も `hasRemote`（有無だけ）で、
+   * 見られている時間が違う（`ListGitRemotesResponse`）。
+   */
+  'git:list-remotes': {
+    request: void
+    response: ListGitRemotesResponse
+  }
+  /**
+   * remote を1つ追加する（Session 3-8-16）。
+   *
+   * ## `github:publish` と**別の口**にしてある
+   *
+   * どちらも最終的には `git remote add` を動かすが、混ぜない。
+   *
+   *   `github:publish` … GitHub に repository を**作り**、その URL を
+   *                      `origin` として設定し、初回 Push まで行う。
+   *                      名前は固定（`origin`）で、URL は GitHub が返した
+   *                      ものになる ── **Renderer から URL は来ない**
+   *   `git:add-remote` … 既にどこかに在るものを、名前と URL で**登録する**。
+   *                      ネットワークへは出ない
+   *
+   * 1本にすると、「公開」の口から任意の URL を渡せることになる ──
+   * `addOriginRemote` が Renderer 由来の値を1つも受け取らない、という
+   * 3-8-10 の保証がそこで消える（main/git/gitCommands.ts）。
+   *
+   * ## `set-url`（URL の変更）は、この口の先にも無い
+   *
+   * `git remote add` は名前が既にあれば**失敗する。** それがここで欲しい
+   * 振る舞いになる ── 上書きすると、送り先が入れ替わったことに誰も
+   * 気づかないまま Push が別のところへ飛ぶ。変更の口は 3-8-16 の範囲外で、
+   * 消して足し直すのとは別の設計が要る（docs/ARCHITECTURE.md §14.24）。
+   *
+   * 応答は他の書き込み操作と同じ `GitOperationResponse` で、追加後の状態が
+   * 丸ごと載る（`hasRemote` が false から true へ変わり、公開の入口が消える）──
+   * ただし**remote の一覧はそこに載らない**。面は開いたままなので、
+   * Renderer が通った後に取り直す（renderer/src/git/useGitRepository.ts）。
+   */
+  'git:add-remote': {
+    request: AddGitRemoteRequest
+    response: GitOperationResponse
+  }
+  /**
+   * remote を1つ削除する（Session 3-8-16）。
+   *
+   * 追加と同じ `git remote` だが、**別の1本**にしてある。1本にして
+   * 「URL があれば追加、無ければ削除」のような区別を引数に持たせると、
+   * いつか片方の意味でもう片方が動く ── `git:stage` と `git:unstage`、
+   * `git:delete-branch` と `git:rename-branch` を分けてあるのと同じ判断になる。
+   *
+   * 消えるのは設定と remote-tracking ref だけで、commit は1つも失われない
+   * （`RemoveGitRemoteRequest`）。それでも確認を挟むのは、**その remote を
+   * 追っていたブランチの追跡先まで消える**ためになる。
+   *
+   * 一括で消す口（`git remote prune` / 複数指定）は無い ── 渡せるのは
+   * 1件で、複数を渡せる欄は作らない（Stage の「任意の複数」・ブランチの
+   * 一括削除・`stash clear` と同じ線）。
+   */
+  'git:remove-remote': {
+    request: RemoveGitRemoteRequest
     response: GitOperationResponse
   }
   /**

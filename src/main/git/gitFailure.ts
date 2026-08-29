@@ -887,6 +887,91 @@ const STASH_NOT_FOUND_NEEDLES: readonly string[] = [
   'no stash entries found'
 ]
 
+/* ------------------------------------------- remote の管理（Session 3-8-16） */
+
+/**
+ * remote の追加（`git remote add`）の失敗の分類（Session 3-8-16）。
+ *
+ * ## 表を分ける理由は 3-8-14 / 3-8-15 と同じ
+ *
+ * 動かしているコマンドが違う以上、返ってくる言い方も違う ── ブランチ用の表を
+ * 通すと、remote の追加では起こりえない分類（`branch-not-merged` など）が
+ * 結果に混ざる形を残すことになる。
+ *
+ * ## ここへ落ちるものは、ほとんど残っていない
+ *
+ * 名前と URL の形は境界で確かめてあり（shared/git/remoteName.ts /
+ * shared/git/remoteUrl.ts）、ネットワークへは出ない（`--fetch` を渡していない。
+ * main/git/gitCommands.ts）。つまり**実際に起こるのは「既にある」だけ**で、
+ * 残りは備えになる。
+ *
+ * git の言い方は `error: remote origin already exists.`（終了コード 3）で、
+ * 実物で確かめてある。
+ */
+export function classifyGitAddRemoteFailure(stderr: string): GitOperationFailureReason {
+  const text = stderr.toLowerCase()
+
+  if (text.includes('index.lock')) {
+    return 'index-locked'
+  }
+
+  if (ADD_REMOTE_EXISTS_NEEDLES.some((needle) => text.includes(needle))) {
+    return 'remote-exists'
+  }
+
+  if (text.includes('permission denied') || text.includes('access is denied')) {
+    return 'permission-denied'
+  }
+
+  return 'unknown'
+}
+
+/**
+ * 同じ名前の remote が既にある。
+ *
+ * `BRANCH_EXISTS_NEEDLES`（`already exists`）と**書き写して分けてある** ──
+ * 読む相手が `git branch` と `git remote` で違い、片方に言い方が増えた日に
+ * もう片方の分類まで黙って動く形にしない（3-8-14 と同じ判断）。
+ */
+const ADD_REMOTE_EXISTS_NEEDLES: readonly string[] = ['already exists']
+
+/**
+ * remote の削除（`git remote remove`）の失敗の分類（Session 3-8-16）。
+ *
+ * 追加と表を分けてあるのは、起こりうることが重ならないため ── 削除に
+ * 「既にある」は無く、追加に「見つからない」は無い（3-8-14 で削除と rename を
+ * 分けたのとまったく同じ形）。
+ *
+ * git の言い方は `error: No such remote: 'nope'`（終了コード 2）で、
+ * 実物で確かめてある。
+ */
+export function classifyGitRemoveRemoteFailure(stderr: string): GitOperationFailureReason {
+  const text = stderr.toLowerCase()
+
+  if (text.includes('index.lock')) {
+    return 'index-locked'
+  }
+
+  if (REMOTE_NOT_FOUND_NEEDLES.some((needle) => text.includes(needle))) {
+    return 'remote-not-found'
+  }
+
+  if (text.includes('permission denied') || text.includes('access is denied')) {
+    return 'permission-denied'
+  }
+
+  return 'unknown'
+}
+
+/**
+ * 消そうとした remote が無い。
+ *
+ * 一覧を開いてから ✕ を押すまでの間に、他の経路（端末・別のウィンドウ）で
+ * 消えた場合にあたる。ブランチ・退避の「見つからない」の表とは
+ * 書き写して分けてある（このファイルの他の3つと同じ）。
+ */
+const REMOTE_NOT_FOUND_NEEDLES: readonly string[] = ['no such remote']
+
 /**
  * stderr が「ここはリポジトリではない」と言っているか。
  *

@@ -1,7 +1,8 @@
 /**
  * Git の**書き込み操作**（Session 3-8-3 の Stage / Unstage、Session 3-8-4 の Commit、
  * Session 3-8-5 の Push / Pull / Commit & Push、Session 3-8-6 のブランチの
- * 切り替え / 作成、Session 3-8-9 の破棄、Session 3-8-10 の初期化と公開）。
+ * 切り替え / 作成、Session 3-8-9 の破棄、Session 3-8-10 の初期化と公開、
+ * Session 3-8-16 の remote の追加 / 削除）。
  *
  * ## repository.ts / status.ts との分担
  *
@@ -206,8 +207,17 @@ export type GitOperationFailureReason =
   /**
    * remote が1つも設定されていない（Session 3-8-5）。
    *
-   * `git init` しただけのリポジトリがこれにあたる。次の一手は
-   * 「GitHub に公開」（Session 3-8-10）か、端末での `git remote add` になる。
+   * `git init` しただけのリポジトリがこれにあたる。
+   *
+   * ## Session 3-8-16 で、次の一手がアプリの中で2つになった
+   *
+   * 3-8-10 の時点では「GitHub に公開」か、端末での `git remote add` の
+   * どちらかだった ── 前者は**新しく作る**side で、既にどこかに在る
+   * repository へ繋ぐ人はアプリの外へ出るしかなかった。
+   *
+   * 3-8-16 で上のバーに「リモート」が付き、既にある repository の URL を
+   * 登録できるようになった。文言はそこを指す（renderer/src/git/gitChanges.ts）──
+   * **端末へ案内するのは、この2つのどちらでもない場合だけ**になる。
    */
   | 'no-remote'
   /**
@@ -426,6 +436,31 @@ export type GitOperationFailureReason =
    * 分ける基準は「利用者が取る行動が違うか」になる（main/git/gitFailure.ts）。
    */
   | 'stash-not-found'
+  /**
+   * 同じ名前の remote が既にある（Session 3-8-16）。
+   *
+   * `branch-exists` とまったく同じ性質で、**上書きはしない** ── `git remote add`
+   * は既にあれば失敗し、こちらは `set-url` を持っていない（3-8-16 の範囲外。
+   * docs/ARCHITECTURE.md §14.24）。黙って上書きすると、**送り先が入れ替わった
+   * ことに誰も気づかないまま Push が別のところへ飛ぶ。**
+   *
+   * `branch-exists` と分けているのは、次に開き直す一覧が違うため ──
+   * あちらはブランチの面、こちらは remote の面になる（`branch-not-found` と
+   * `commit-not-found` を分けたのと同じ判断）。
+   */
+  | 'remote-exists'
+  /**
+   * 消そうとした remote が、もうそこに無い（Session 3-8-16）。
+   *
+   * 一覧を開いてから ✕ を押すまでの間に、他の経路（端末での
+   * `git remote remove`・別のウィンドウ）で消えた場合にあたる。
+   *
+   * 退避（`stash-not-found`）と違い、**「ずれた」は起こりえない** ── remote は
+   * 位置ではなく名前で指すため、名前が在ればそれは同じ remote になる。
+   * 名前は `git remote add` の後に勝手に変わらない（rename の口を持っていない。
+   * §14.24）。
+   */
+  | 'remote-not-found'
   /**
    * その行は、その操作の対象にならない（Session 3-8-9）。
    *

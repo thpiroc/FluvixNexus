@@ -22,6 +22,7 @@ import type {
 } from './ipc/contracts/files'
 import type { IpcInvokeResult } from './ipc/contract'
 import type {
+  AddGitRemoteRequest,
   CommitAndPushGitChangesRequest,
   CommitGitChangesRequest,
   CreateGitBranchRequest,
@@ -31,6 +32,7 @@ import type {
   GetGitCommitFileDiffRequest,
   GetGitFileDiffRequest,
   GitStashEntryRequest,
+  RemoveGitRemoteRequest,
   RenameGitBranchRequest,
   StageGitChangesRequest,
   SwitchGitBranchRequest,
@@ -573,6 +575,51 @@ export interface GitApi {
    * remote branch へ向かう（shared/ipc/contracts/git.ts）。
    */
   readonly renameBranch: (request: RenameGitBranchRequest) => IpcInvokeResult<'git:rename-branch'>
+  /**
+   * remote の一覧を尋ねる（Session 3-8-16）。
+   *
+   * **引数が無い。** 並べ替えも絞り込みも件数も渡せず、返るのは常に
+   * 「今の Workspace に登録されている remote を、上限まで」になる。
+   *
+   * **返るのは名前と表示用のラベルだけで、URL は返らない**
+   * （shared/git/remote.ts）── ラベルからは URL を組み立て直せない形にしてある。
+   *
+   * 呼ぶのは**remote の面を開いたとき**と、開いている間に `.git` が変わったとき
+   * （`onChanged`）の2つ ── 退避とまったく同じ契機になる。閉じている間は
+   * 一度も取りに行かない。
+   */
+  readonly listRemotes: () => IpcInvokeResult<'git:list-remotes'>
+  /**
+   * remote を1つ追加する（Session 3-8-16）。
+   *
+   * 渡すのは名前と URL の2つで、どちらも shared の規則
+   * （`normalizeGitRemoteName` / `normalizeGitRemoteUrl`）を通る。
+   * URL に通る形は `https://…` / `ssh://…` / `user@host:path` の3つだけで、
+   * 認証情報を含む URL は断る（shared/git/remoteUrl.ts）。
+   *
+   * **ネットワークへは出ない。** `--fetch` の欄が無く、この1回で起きるのは
+   * 設定に1行増えることだけになる（shared/ipc/contracts/git.ts）。
+   * 追跡先も付かない ── それが付くのは Push が通ったときだけ。
+   *
+   * 同じ名前が既にあれば `remote-exists` として返り、**上書きはしない**
+   * （URL を変える口は持たない。shared/git/operation.ts）。
+   *
+   * 応答には追加後のリポジトリの状態が入っているため、呼んだ側が続けて
+   * `getRepository()` を呼ぶ必要は無い ── ただし一覧は載らないので、
+   * 面を開いたままなら `listRemotes()` を取り直す。
+   */
+  readonly addRemote: (request: AddGitRemoteRequest) => IpcInvokeResult<'git:add-remote'>
+  /**
+   * remote を1つ削除する（Session 3-8-16）。
+   *
+   * 渡せるのは名前だけ。消えるのは設定（`remote.<名前>.*`）と
+   * remote-tracking ref、そして**その remote を追っていたブランチの追跡先**に
+   * なる ── commit は1つも失われない（shared/ipc/contracts/git.ts）。
+   *
+   * 一括で消す口は無い。押す前に確認を挟む（確認そのものは Renderer 側の
+   * 話で、この要求に「確認したか」の欄は無い）。
+   */
+  readonly removeRemote: (request: RemoveGitRemoteRequest) => IpcInvokeResult<'git:remove-remote'>
   /**
    * 退避の一覧を尋ねる（Session 3-8-15）。
    *
