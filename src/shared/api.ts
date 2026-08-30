@@ -33,6 +33,7 @@ import type {
   GetGitCommitFileDiffRequest,
   GetGitFileDiffRequest,
   GitStashEntryRequest,
+  MergeGitBranchRequest,
   RemoveGitRemoteRequest,
   RenameGitBranchRequest,
   RenameGitRemoteRequest,
@@ -579,6 +580,39 @@ export interface GitApi {
    * remote branch へ向かう（shared/ipc/contracts/git.ts）。
    */
   readonly renameBranch: (request: RenameGitBranchRequest) => IpcInvokeResult<'git:rename-branch'>
+  /**
+   * ローカルブランチを今のブランチへ取り込む（Session 3-8-20）。
+   *
+   * 渡せるのは**相手の名前1つ**だけ。取り込み先は常に今のブランチで、
+   * 戦略（`-X ours` / `-X theirs`）も `--no-ff` も `--squash` も
+   * `--no-commit` も渡す欄が無い ── 動く引数は Main の表に固定してある
+   * （`merge --quiet --no-edit --ff --no-autostash`。main/git/gitCommands.ts）。
+   *
+   * `--ff` を明示するので、早送りできるときは**merge commit を作らない** ──
+   * PC ごとの `merge.ff` 設定で振る舞いが変わらない。`--no-autostash` も
+   * 同じ理由で明示する（アプリが見えない stash を作らない）。
+   *
+   * 相手は tag でも commit hash でも remote-tracking branch でもなく、
+   * **その綴りちょうどのローカルブランチ**でなければ動かない
+   * （main/git/gitMerge.ts が `branch --list` で確かめる）。
+   *
+   * 競合したときは `partly-applied`（`completed: 'merge'`）で返り、
+   * 応答の状態は `merging: true` になる ── そこから先は 3-8-18 の
+   * 「解決済みにする」→ Commit がそのまま続きになる。
+   */
+  readonly mergeBranch: (request: MergeGitBranchRequest) => IpcInvokeResult<'git:merge-branch'>
+  /**
+   * 途中のマージをやめる（Session 3-8-20）。
+   *
+   * **引数が無い。** 途中のマージは常に高々1つで、それは `MERGE_HEAD` が指す。
+   * マージ中でなければ git を1回も動かさずに `nothing-to-do` として返る。
+   *
+   * 戻るのは**マージを始める前の状態**で、そこから在った作業ツリーの変更は
+   * 残る。一方、**競合の解決中に書いた内容・stage したものは消える**
+   * （実物で確かめてある）── だから押す前に確認を挟む
+   * （renderer/src/git/GitView.tsx）。
+   */
+  readonly abortMerge: () => IpcInvokeResult<'git:abort-merge'>
   /**
    * remote-tracking branch の一覧を尋ねる（Session 3-8-19）。
    *

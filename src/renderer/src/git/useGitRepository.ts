@@ -23,6 +23,8 @@ import {
   INITIAL_GIT_BRANCH_LIST,
   GIT_DELETE_BRANCH_OPERATION_KEY,
   GIT_RENAME_BRANCH_OPERATION_KEY,
+  GIT_MERGE_BRANCH_OPERATION_KEY,
+  GIT_ABORT_MERGE_OPERATION_KEY,
   type GitBranchListState
 } from './gitBranches'
 import type { GitCommitDetailState } from './gitCommitDetail'
@@ -391,6 +393,37 @@ export interface GitRepositoryController {
    * 上のバーの表示も一緒に変わる（HEAD は git が追随させる）。
    */
   readonly renameBranch: (name: string, newName: string) => Promise<GitOperationOutcome | null>
+  /**
+   * ローカルブランチを今のブランチへ取り込む（Session 3-8-20）。
+   *
+   * ## 結末を返す（削除 / rename と同じ）
+   *
+   * 押した場所（一覧の行の下の確認）に理由を出すため ── パネル全体の
+   * `failure` にも同じものが載るが、面が開いている間はそちらが見えない。
+   *
+   * ## 通ったら面を閉じる（削除 / rename とは違う）
+   *
+   * 取り込みが済めば、その面でやることはもう無い ── 続けて別の枝を
+   * 取り込む、という使い方は無い（溜まった枝を続けて消す削除とはそこが違う）。
+   * **競合した場合も閉じる** ── 次にすることは面の中ではなく、
+   * パネル本体の競合のグループにあるためになる（Session 3-8-18）。
+   *
+   * ## 一覧を取り直さない
+   *
+   * 面が閉じるので、取り直すのは誰も見ていない一覧のために git を1回
+   * 起動することになる（3-8-19 の `createTrackingBranch` と同じ判断）。
+   * 上のバーのブランチ名・`↑ ↓`・変更ファイルの一覧は、
+   * どれも応答に載っている操作後の状態から変わる。
+   */
+  readonly mergeBranch: (name: string) => Promise<GitOperationOutcome | null>
+  /**
+   * 途中のマージをやめる（Session 3-8-20）。
+   *
+   * 押す場所は面の中ではなくパネルの帯（`repository.merging` が真のときだけ
+   * 出る）になる ── 結末を返すのは、確認を出しているその場に理由を
+   * 出すためで、削除 / rename と同じ形にあたる。
+   */
+  readonly abortMerge: () => Promise<GitOperationOutcome | null>
   /**
    * remote-tracking branch を追うローカルブランチを作って、切り替える
    * （Session 3-8-19）。
@@ -1823,6 +1856,39 @@ export function useGitRepository(): GitRepositoryController {
   )
 
   /*
+    マージの開始 / 中止（Session 3-8-20）。
+
+    ## 経路は他の書き込み操作とまったく同じ
+
+    `operate` を通り、二重の要求は目印で止まり、応答に載っている操作後の
+    状態をそのまま使う。**`partly-applied`（競合した）でも同じ経路**を
+    通る ── `operate` は `applied` 以外を `failure` に入れるので、
+    「マージを開始し、自動でマージできた変更は取り込みました。競合した
+    ファイルがあります…」がパネルの上に1行出る（gitChanges.ts）。
+
+    ## 一覧を取り直さない
+
+    どちらも面を閉じる／面の外から押すので、取り直す先が無い
+    （3-8-19 の `createTrackingBranch` と同じ判断）── ブランチの一覧は
+    マージで1行も増減しない、という点でも取り直す理由が無い。
+
+    ## 中止が通った後も、取り直すのは状態だけ
+
+    `merging` は応答に載っている（shared/git/repository.ts）ので、
+    帯はその1回の応答で消える ── 別に確かめ直す経路を作らない。
+  */
+  const mergeBranch = useCallback(
+    async (name: string): Promise<GitOperationOutcome | null> => {
+      return await operate(GIT_MERGE_BRANCH_OPERATION_KEY, () => fluvix.git.mergeBranch({ name }))
+    },
+    [operate]
+  )
+
+  const abortMerge = useCallback(async (): Promise<GitOperationOutcome | null> => {
+    return await operate(GIT_ABORT_MERGE_OPERATION_KEY, () => fluvix.git.abortMerge())
+  }, [operate])
+
+  /*
     remote-tracking branch を追うブランチを作って切り替える（Session 3-8-19）。
 
     ## 経路は他の書き込み操作とまったく同じ
@@ -2129,6 +2195,8 @@ export function useGitRepository(): GitRepositoryController {
     createBranchFromCommit,
     deleteBranch,
     renameBranch,
+    mergeBranch,
+    abortMerge,
     createTrackingBranch,
     remotes,
     remoteOpen,

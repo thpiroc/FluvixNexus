@@ -210,7 +210,28 @@ function restoreEnv(name: string, value: string | undefined): void {
   process.env[name] = value
 }
 
-describeWithGit('listGitStashes', () => {
+/**
+ * 実 git を何本も起動するテストの待ち時間（Session 3-8-20 で明示した）。
+ *
+ * ここのテストは1件あたり 10 本前後の git プロセスを起動する ── 準備の
+ * commit / switch に加えて、`applyGit*` は操作の前後で状態を読み直し
+ * （main/git/gitOperationResult.ts）、その1回ずつが `rev-parse` /
+ * `symbolic-ref` / `remote` / `rev-parse MERGE_HEAD` / `status` を動かす
+ * （main/git/gitRepository.ts）。
+ *
+ * vitest の既定（5 秒）はそれに対して元から余裕が無く、100 本を超える
+ * テストファイルを並べて走らせたときだけ落ちる、という形で表に出ていた ──
+ * Session 3-8-20 で状態の読み取りに `rev-parse MERGE_HEAD` が1本増えたことで、
+ * その余裕が無くなった（プロセスの起動そのものが Windows では重い）。
+ *
+ * **速さを確かめるテストではない**ので、上限は「本当に返ってこなくなったことに
+ * 気づける」までの長さで足りる。既定を全体へ広げるのではなく、実 git を
+ * 並べて起動するこの塊にだけ掛ける ── 純粋なロジックのテストは 5 秒で
+ * 落ちてくれた方がよい。
+ */
+const REAL_GIT_TIMEOUT_MS = 30_000
+
+describeWithGit('listGitStashes', { timeout: REAL_GIT_TIMEOUT_MS }, () => {
   /*
     `git log` と違い、`git stash list` は commit が1つも無くても 0 で終わる
     （確かめた）── だから履歴のような「HEAD の有無を先に見る」分岐が要らない。
@@ -267,7 +288,7 @@ describeWithGit('listGitStashes', () => {
   })
 })
 
-describeWithGit('applyGitStashPush', () => {
+describeWithGit('applyGitStashPush', { timeout: REAL_GIT_TIMEOUT_MS }, () => {
   /**
    * `-u` を渡していないことの実体。
    *
@@ -358,7 +379,7 @@ describeWithGit('applyGitStashPush', () => {
   })
 })
 
-describeWithGit('applyGitStashPop', () => {
+describeWithGit('applyGitStashPop', { timeout: REAL_GIT_TIMEOUT_MS }, () => {
   it('戻して、一覧から取り除く', async () => {
     commit('a.txt', 'base\n', 'first')
     stash('changed\n', 'work in progress')
@@ -489,7 +510,7 @@ describeWithGit('applyGitStashPop', () => {
   })
 })
 
-describeWithGit('applyGitStashDrop', () => {
+describeWithGit('applyGitStashDrop', { timeout: REAL_GIT_TIMEOUT_MS }, () => {
   it('指した1件だけを捨てる', async () => {
     commit('a.txt', 'base\n', 'first')
     stash('one\n', 'first stash')

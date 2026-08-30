@@ -225,7 +225,28 @@ function createStashPopConflict(): void {
   }
 }
 
-describeWithGit('applyGitResolveConflict', () => {
+/**
+ * 実 git を何本も起動するテストの待ち時間（Session 3-8-20 で明示した）。
+ *
+ * ここのテストは1件あたり 10 本前後の git プロセスを起動する ── 準備の
+ * commit / switch に加えて、`applyGit*` は操作の前後で状態を読み直し
+ * （main/git/gitOperationResult.ts）、その1回ずつが `rev-parse` /
+ * `symbolic-ref` / `remote` / `rev-parse MERGE_HEAD` / `status` を動かす
+ * （main/git/gitRepository.ts）。
+ *
+ * vitest の既定（5 秒）はそれに対して元から余裕が無く、100 本を超える
+ * テストファイルを並べて走らせたときだけ落ちる、という形で表に出ていた ──
+ * Session 3-8-20 で状態の読み取りに `rev-parse MERGE_HEAD` が1本増えたことで、
+ * その余裕が無くなった（プロセスの起動そのものが Windows では重い）。
+ *
+ * **速さを確かめるテストではない**ので、上限は「本当に返ってこなくなったことに
+ * 気づける」までの長さで足りる。既定を全体へ広げるのではなく、実 git を
+ * 並べて起動するこの塊にだけ掛ける ── 純粋なロジックのテストは 5 秒で
+ * 落ちてくれた方がよい。
+ */
+const REAL_GIT_TIMEOUT_MS = 30_000
+
+describeWithGit('applyGitResolveConflict', { timeout: REAL_GIT_TIMEOUT_MS }, () => {
   /*
     アプリ自身が作れる競合。3-8-15 の pop が `partly-applied` として返す
     状態がこれで、そこから出る道が 3-8-18 まで無かった。
@@ -488,7 +509,7 @@ describeWithGit('applyGitResolveConflict', () => {
  * ここだけ確かめる相手が git になる ── **終了コードでは決められない**ことが、
  * 出力の行を読む（`countLeftoverConflictMarkers`）という判断の根拠にあたる。
  */
-describeWithGit('git diff --check の振る舞い', () => {
+describeWithGit('git diff --check の振る舞い', { timeout: REAL_GIT_TIMEOUT_MS }, () => {
   function conflictAndResolve(): void {
     write('f.txt', 'a\nb\nc\n')
     write('g.txt', 'x\ny\nz\n')
@@ -587,7 +608,7 @@ describeWithGit('git diff --check の振る舞い', () => {
  * 「解決済みにする」の取り消しを作らないと決めたのは、git に**戻す手立てが
  * 無い**ためではなく、**戻したことにならない手立てしか無い**ためになる。
  */
-describeWithGit('解決を取り消せない理由', () => {
+describeWithGit('解決を取り消せない理由', { timeout: REAL_GIT_TIMEOUT_MS }, () => {
   function resolved(): void {
     write('f.txt', 'a\nb\nc\n')
     git('add', '--', 'f.txt')

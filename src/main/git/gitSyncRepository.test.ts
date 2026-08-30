@@ -200,7 +200,28 @@ function advanceRemote(relativePath: string, content: string, message: string): 
   gitIn(other, 'push', '--quiet', 'origin', 'main')
 }
 
-describeWithGit('applyGitPush', () => {
+/**
+ * 実 git を何本も起動するテストの待ち時間（Session 3-8-20 で明示した）。
+ *
+ * ここの Push / Pull は1件あたり**10 本前後の git プロセス**を起動する ──
+ * 準備（clone / commit）に加えて、`applyGitPush` は操作の前後で状態を
+ * 読み直し（main/git/gitOperationResult.ts）、その1回ずつが
+ * `rev-parse` / `symbolic-ref` / `remote` / `rev-parse MERGE_HEAD` /
+ * `status` を動かす（main/git/gitRepository.ts）。
+ *
+ * vitest の既定（5 秒）はそれに対して元から余裕が無く、109 本のテストファイルを
+ * 並べて走らせたときだけ落ちる、という形で表に出ていた ── Session 3-8-20 で
+ * 状態の読み取りに `rev-parse MERGE_HEAD` が1本増えたことで、
+ * その余裕が無くなった（プロセスの起動そのものが Windows では重い）。
+ *
+ * **速さを確かめるテストではない**ので、上限は「本当に返ってこなくなったことに
+ * 気づける」までの長さで足りる。既定を全体へ広げるのではなく、
+ * 実 git を並べて起動するこの塊にだけ掛ける ── 純粋なロジックのテストは
+ * 5 秒で落ちてくれた方がよい。
+ */
+const REAL_GIT_TIMEOUT_MS = 30_000
+
+describeWithGit('applyGitPush', { timeout: REAL_GIT_TIMEOUT_MS }, () => {
   describe('基本', () => {
     /*
       いちばん人が触る場面。追跡先がまだ無い状態から、送ることと
@@ -325,7 +346,7 @@ describeWithGit('applyGitPush', () => {
   })
 })
 
-describeWithGit('applyGitPull', () => {
+describeWithGit('applyGitPull', { timeout: REAL_GIT_TIMEOUT_MS }, () => {
   /** 追跡先まで作った状態から始める。 */
   async function withUpstream(): Promise<void> {
     addRemote()
@@ -432,7 +453,7 @@ describeWithGit('applyGitPull', () => {
   })
 })
 
-describeWithGit('applyGitCommitAndPush', () => {
+describeWithGit('applyGitCommitAndPush', { timeout: REAL_GIT_TIMEOUT_MS }, () => {
   it('Commit してそのまま Push する', async () => {
     addRemote()
     commit('a.txt', 'a\n', 'first')

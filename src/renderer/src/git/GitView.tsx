@@ -41,6 +41,7 @@ import {
   type GitCommitReadiness,
   type GitRowAction
 } from './gitChanges'
+import { describeGitAbortMergeWarning } from './gitBranches'
 import { canDiffGitChange, toGitDiffGroup } from './gitDiff'
 import { GIT_ADD_REMOTE_OPERATION_KEY } from './gitRemotes'
 import { GIT_STASH_PUSH_OPERATION_KEY, toGitStashPushReadiness } from './gitStash'
@@ -169,6 +170,8 @@ export function GitView(): JSX.Element {
     createBranchFromCommit,
     deleteBranch,
     renameBranch,
+    mergeBranch,
+    abortMerge,
     createTrackingBranch,
     remotes,
     remoteOpen,
@@ -233,6 +236,18 @@ export function GitView(): JSX.Element {
     readonly group: GitDiscardTarget['group']
     readonly change: GitFileChange
   } | null>(null)
+
+  /*
+    マージの中止の確認を出しているか（Session 3-8-20）。
+
+    破棄・初期化の確認と同じくここが持つ ── フックが持っているのは
+    「git に聞けば分かること」の写しで、これは**まだ何も起きていない、
+    押すかどうかの途中**にあたる。
+
+    マージが終われば帯ごと消えるので、閉じ忘れが残る余地は無い
+    （帯が出ていないときは、この確認を出す場所そのものが無い）。
+  */
+  const [aborting, setAborting] = useState(false)
 
   /*
     Files の行を押したときとまったく同じ呼び出し（files/FilesView.tsx）。
@@ -518,11 +533,18 @@ export function GitView(): JSX.Element {
           */
           remoteList={remoteBranches}
           operating={operating}
+          /*
+            マージ中は行の ⤵ を押せなくする（Session 3-8-20）── 状態から
+            そのまま渡す。面の側で「競合の行があるか」から推し量らせない
+            （shared/git/repository.ts）。
+          */
+          merging={repository.merging}
           onOpen={refreshBranches}
           onSwitch={switchBranch}
           onCreate={createBranch}
           onDelete={deleteBranch}
           onRename={renameBranch}
+          onMerge={mergeBranch}
           onCreateTracking={createTrackingBranch}
         />
         {upstream === null ? null : (
@@ -620,6 +642,47 @@ export function GitView(): JSX.Element {
           {describeGitOperationFailure(failure)}
         </p>
       )}
+      {/*
+        マージの途中であることの帯（Session 3-8-20）。
+
+        ## 置き場所は上のバーの**すぐ下**
+
+        一覧より上に出す ── ここに出ている競合の行が「なぜ競合しているのか」
+        を先に言うためになる（`stash pop` の競合と見分けが付かないと、
+        利用者は `merge --abort` という出口があることに気づけない）。
+
+        失敗の1行より下に置いてあるのは、あちらが**押した1回の結末**で、
+        こちらが**今の状態**だからになる ── 競合したマージでは2つが同時に
+        出るが、先に読むべきなのは「今どこで止まっているか」ではなく
+        「押した結果どうなったか」の方にあたる。
+
+        ## 出すのはマージ中だけ
+
+        `merging` は Main が MERGE_HEAD から読んだ値そのもの
+        （shared/git/repository.ts）── 競合の行の有無からは導かない。
+        解決し終えた後（競合の行が0件になった後）も Commit するまでは
+        出続ける、というのがここで効く違いになる。
+      */}
+      {repository.merging ? (
+        <GitMergeBanner
+          operating={operating}
+          aborting={aborting}
+          onOpenAbort={() => setAborting(true)}
+          onCancelAbort={() => setAborting(false)}
+          onAbort={() => {
+            void abortMerge().then((outcome) => {
+              /*
+                通ったら確認を畳む。通らなかったときに畳まないのは、
+                理由（パネルの上の1行）を読んでからもう一度押せるように
+                するため ── 畳むと、押す場所を開き直すことになる。
+              */
+              if (outcome !== null && outcome.status === 'applied') {
+                setAborting(false)
+              }
+            })
+          }}
+        />
+      ) : null}
       <div className="fx-git__body">
         {total === 0 ? (
           <p className="fx-git__empty">変更はありません。</p>
@@ -883,6 +946,103 @@ export function GitView(): JSX.Element {
           onCancel={() => setDiscarding(null)}
         />
       )}
+    </div>
+  )
+}
+
+/**
+ * マージの途中であることの帯と、その中の中止（Session 3-8-20）。
+ *
+ * ## 新しい画面を作らない
+ *
+ * 専用の Merge 画面も、重なる器（`GitDiffOverlay` のような面）も置かない ──
+ * マージ中に利用者がすることは**既にこのパネルに在るもの**（競合の行を開いて
+ * 直す → 解決済みにする → Commit）で、その上に別の画面を被せると、
+ * いちばん見たい一覧が隠れる。帯が足すのは「なぜ今この状態なのか」の
+ * 1行と、そこから出る道1つだけになる。
+ *
+ * ## 中止をここに置く（ブランチの面ではなく）
+ *
+ * 始めるのは面の中（一覧の行）だが、やめるのはパネルの本体に置く ──
+ * マージ中に面を開くと、そこに並ぶのは**今は押せない行ばかり**で、
+ * 出口がその奥にあることになる。3-8-15 の退避が「押せない理由」を
+ * 面の中に置いたのとは逆で、これは**状態から抜ける口**にあたる。
+ *
+ * ## 確認は帯の中に開く
+ *
+ * 行の下に開く削除 / マージの確認と同じ形（`GitDiscardConfirm` のような
+ * 重なる器にしない）── 帯のすぐ下なら、何について尋ねられているかが
+ * そのまま真上に見えている。
+ *
+ * 既定の focus は「やめる」で、実行の側に `data-variant="danger"` を付ける ──
+ * **解決中に書いた内容が消えうる**操作で、そこは破棄・削除と同じ重さになる
+ * （gitBranches.ts の `describeGitAbortMergeWarning`）。
+ */
+function GitMergeBanner({
+  operating,
+  aborting,
+  onOpenAbort,
+  onCancelAbort,
+  onAbort
+}: {
+  readonly operating: boolean
+  /** 中止の確認を出しているか。 */
+  readonly aborting: boolean
+  readonly onOpenAbort: () => void
+  readonly onCancelAbort: () => void
+  readonly onAbort: () => void
+}): JSX.Element {
+  const warning = describeGitAbortMergeWarning()
+
+  return (
+    <div className="fx-git__merge" data-testid="git-merge-banner">
+      <div className="fx-git__merge-bar">
+        <span className="fx-git__merge-label" role="status">
+          マージの途中です。競合を解決して Commit すると完了します。
+        </span>
+        <button
+          type="button"
+          className="fx-git__merge-abort"
+          onClick={onOpenAbort}
+          disabled={operating}
+          aria-expanded={aborting}
+          title="マージを中止して、開始する前の状態に戻します。"
+        >
+          マージを中止
+        </button>
+      </div>
+      {aborting ? (
+        <div
+          className="fx-git__branch-confirm"
+          role="alertdialog"
+          aria-label="マージの中止の確認"
+          data-testid="git-merge-abort-confirm"
+        >
+          <p className="fx-git__branch-confirm-message">{warning.message}</p>
+          <p className="fx-git__branch-confirm-note">{warning.note}</p>
+          <div className="fx-git__branch-confirm-actions">
+            <button
+              type="button"
+              className="fx-git__branch-confirm-button"
+              onClick={onCancelAbort}
+              // 確認を出す目的は誤操作を止めることなので、既定はこちらに置く。
+              autoFocus
+            >
+              やめる
+            </button>
+            <button
+              type="button"
+              className="fx-git__branch-confirm-button"
+              data-variant="danger"
+              data-testid="git-merge-abort-apply"
+              disabled={operating}
+              onClick={onAbort}
+            >
+              {warning.confirmLabel}
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

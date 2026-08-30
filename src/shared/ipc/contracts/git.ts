@@ -427,6 +427,46 @@ export interface RenameGitBranchRequest {
 }
 
 /**
+ * ローカルブランチを今のブランチへ取り込む要求（Session 3-8-20）。
+ *
+ * ## 載るのは「相手」1つだけ
+ *
+ * 取り込み**先**は載らない ── 常に今チェックアウトしているブランチになる。
+ * 載せる形にすると「画面に出ているブランチとは別の枝へ取り込める欄」に
+ * なり、押した人から見て何が起きたのか分からなくなる（Push / Pull の
+ * 相手を渡せる欄を作らない、という 3-8-5 からの線と同じ）。
+ *
+ * ## 相手も**ローカルブランチ名**に限る
+ *
+ * tag も commit hash も remote-tracking branch（`origin/main`）も渡らない。
+ * `normalizeGitBranchName` を通したうえで、Main が
+ * 「その綴りちょうどのローカルブランチが実在するか」を `branch --list` で
+ * 確かめてから git を動かす（main/git/gitMerge.ts）── 名前の**形**だけを
+ * 見て通すと、`git merge <tag>` や `git merge <hash>` が
+ * 「ブランチのマージ」として動くことになる。
+ *
+ * remote-tracking branch を直接マージする口は無い（3-8-20 の範囲外）──
+ * 取り込むには 3-8-19 でローカルブランチを作るか、Pull を使う。
+ *
+ * ## 戦略も `--no-ff` も `--squash` も渡せる欄が無い
+ *
+ * 動く引数は Main の表に固定してある（`merge --quiet --no-edit --ff
+ * --no-autostash`。main/git/gitCommands.ts）── `-X ours` / `-X theirs` /
+ * `--squash` / `--no-commit` はどれも履歴の形を変える**判断**で、
+ * Renderer から選ばせる欄を作らない（Pull を `--ff-only` に固定してある
+ * のと同じ線）。
+ *
+ * ## 「確認したか」の欄は無い
+ *
+ * 3-8-14 以降と同じ判断。確認は Renderer の中の話で、証を引数に載せると
+ * 「載せなければ確認を飛ばせる形」になる。
+ */
+export interface MergeGitBranchRequest {
+  /** 取り込むローカルブランチ名（一覧の行が持っていたもの）。 */
+  readonly name: string
+}
+
+/**
  * remote-tracking branch の一覧の応答（Session 3-8-19）。
  *
  * ## ローカルブランチの一覧と、別のチャンネルにしてある
@@ -1239,6 +1279,68 @@ export interface GitIpcContract {
    */
   'git:rename-branch': {
     request: RenameGitBranchRequest
+    response: GitOperationResponse
+  }
+  /**
+   * ローカルブランチを今のブランチへ取り込む（Session 3-8-20）。
+   *
+   * ## Pull と同じ `git merge` を動かすが、別の1本にしてある
+   *
+   * 3-8-5 の Pull は `fetch` → `merge --ff-only @{upstream}` で、相手は
+   * **リポジトリの設定が指すもの**だった。こちらの相手は
+   * **一覧の行から選んだローカルブランチ**で、`--ff-only` でもない
+   * （早送りできなければ merge commit を作る）── 動かす git が同じでも
+   * 意味が違えば口を分ける、という §14.24 の線がそのまま当てはまる。
+   *
+   * ## 結末は3つに分かれる
+   *
+   *   `applied`（早送り）        … merge commit は作られない（`--ff`）
+   *   `applied`（merge commit）  … 枝分かれしていたので1つ作られた
+   *   `partly-applied`           … 競合した。`completed: 'merge'` /
+   *                                `reason: 'merge-conflict'`
+   *
+   * 3つめを `failed` に丸めないのは、git が**自動でマージできた分を既に
+   * 書き込んでいる**ため（shared/git/operation.ts）。そこから先は
+   * Session 3-8-18 の競合の解決 → Commit がそのまま続きになる。
+   *
+   * `Already up to date` は普通の成功として返る ── それだけを区別するために
+   * git を1回増やしたり、結果の型を足したりはしない（3-8-5 の Pull で
+   * 同じ判断をしている）。
+   *
+   * ## 応答には**マージ中かどうか**が載る
+   *
+   * `GetGitRepositoryResponse` と同じ `GitRepositoryState` が返るので、
+   * 競合したときは `merging: true` がその場で載る ── Renderer が
+   * 別の問い合わせでマージ中かを確かめ直す形にはしない（shared/git/repository.ts）。
+   */
+  'git:merge-branch': {
+    request: MergeGitBranchRequest
+    response: GitOperationResponse
+  }
+  /**
+   * 途中のマージをやめて、始める前の状態へ戻す（Session 3-8-20）。
+   *
+   * ## 要求は `void`
+   *
+   * どのマージを中止するかは渡せない ── 途中のマージは常に高々1つで、
+   * それは `MERGE_HEAD` が指している（shared/git/repository.ts の `merging`）。
+   *
+   * ## `merging` が偽なら、git を1回も動かさない
+   *
+   * `git merge --abort` は MERGE_HEAD が無ければ
+   * `fatal: There is no merge to abort` で終わる（実物で確かめてある）──
+   * それは**読んだ状態だけで先に分かる**ので、`nothing-to-do` として返す
+   * （押す前に分かることを git に聞かない、という §14.14 からの構え）。
+   *
+   * ## 戻る範囲
+   *
+   * マージを**始める前から在った**作業ツリーの変更は残り、
+   * **解決中に書いた内容・stage したもの**は消える（実物で確かめてある。
+   * main/git/gitMergeRepository.test.ts）── 後者があるため、押す前に
+   * 確認を挟む（renderer/src/git/GitView.tsx）。
+   */
+  'git:abort-merge': {
+    request: void
     response: GitOperationResponse
   }
   /**

@@ -95,6 +95,18 @@ import { subscribeIpcEvent } from '../ipc/subscribe'
  * 一覧（`listRemoteBranches`）は要求が `void` に戻る ── remote 名で絞る欄も、
  * **fetch するかどうか**の欄も無い。
  *
+ * ## Session 3-8-20 で「履歴を書き換える操作」が来ても、線は動かない
+ *
+ * マージの開始（`mergeBranch`）の要求に載るのは、一覧の行が持っていた
+ * ブランチ名1つだけになる ── 取り込み先も、戦略（`-X ours` / `-X theirs`）も、
+ * `--no-ff` も `--squash` も**渡す欄が無い。** 中止（`abortMerge`）は
+ * 要求が `void` に戻る（途中のマージは常に高々1つで、それは MERGE_HEAD が指す）。
+ *
+ * それでも**ここは素通しの経路のまま**になる ── 名前の形を確かめるのは
+ * Main のハンドラ（`normalizeGitBranchName`）、「それが本当にローカル
+ * ブランチか」を git に確かめるのも Main（main/git/gitMerge.ts）、
+ * 引数を組み立てるのも Main の表になる。
+ *
  * ## Session 3-8-10 で足した `init` も、渡す値が1つも無い
  *
  * 初期化の要求は `void` ── どこを初期化するかも初期ブランチ名も渡せない。
@@ -125,6 +137,8 @@ export const gitApi: GitApi = {
   createBranch: (request) => invokeIpc(IPC_CHANNELS.GIT_CREATE_BRANCH, request),
   deleteBranch: (request) => invokeIpc(IPC_CHANNELS.GIT_DELETE_BRANCH, request),
   renameBranch: (request) => invokeIpc(IPC_CHANNELS.GIT_RENAME_BRANCH, request),
+  mergeBranch: (request) => invokeIpc(IPC_CHANNELS.GIT_MERGE_BRANCH, request),
+  abortMerge: () => invokeIpc(IPC_CHANNELS.GIT_ABORT_MERGE),
   listRemoteBranches: () => invokeIpc(IPC_CHANNELS.GIT_LIST_REMOTE_BRANCHES),
   createTrackingBranch: (request) => invokeIpc(IPC_CHANNELS.GIT_CREATE_TRACKING_BRANCH, request),
   listRemotes: () => invokeIpc(IPC_CHANNELS.GIT_LIST_REMOTES),

@@ -26,7 +26,8 @@ describe('describeGitRepositoryNotice', () => {
       head: { kind: 'branch', name: 'main' },
       changes: { staged: [], unstaged: [], untracked: [], conflicted: [] },
       upstream: null,
-      hasRemote: false
+      hasRemote: false,
+      merging: false
     }
 
     expect(describeGitRepositoryNotice(state)).toBeNull()

@@ -362,6 +362,8 @@ describe('describeGitOperationFailure', () => {
     'push-rejected',
     'remote-rejected',
     'diverged',
+    'unrelated-histories',
+    'merge-conflict',
     'local-changes-blocked',
     'branch-exists',
     'branch-not-merged',
@@ -453,6 +455,54 @@ describe('describeGitOperationFailure', () => {
       })
 
       expect(stash).not.toContain('Commit は完了')
+    })
+  })
+
+  /**
+   * Session 3-8-20 で4つめの `partly-applied` が増えた。
+   *
+   * ここで取り違えてはいけないのは、**マージが既に始まっていること**になる ──
+   * 「失敗した」と読ませると押し直され、MERGE_HEAD は既に在るので
+   * git は「未解決のファイルがあります」としか言わない（先へ進む手立てが
+   * 画面のどこにも見えなくなる）。
+   */
+  describe('partly-applied（マージは始まったが競合した）', () => {
+    it('マージが始まっていることを先に伝える', () => {
+      const message = describeGitOperationFailure({
+        status: 'partly-applied',
+        completed: 'merge',
+        reason: 'merge-conflict'
+      })
+
+      expect(message.indexOf('マージを開始し')).toBe(0)
+      expect(message).toContain('自動でマージできた変更は取り込みました')
+    })
+
+    /*
+      後半（理由）が「次に何をすればよいか」を言う ── 3-8-18 の
+      「解決済みにする」がその行き先になる。
+    */
+    it('次の一手（解決 → Commit）が後半に出る', () => {
+      const message = describeGitOperationFailure({
+        status: 'partly-applied',
+        completed: 'merge',
+        reason: 'merge-conflict'
+      })
+
+      expect(message).toContain('解決済みにする')
+      expect(message).toContain('Commit')
+    })
+
+    it('他の3つの前半とは違う文言になる', () => {
+      const merge = describeGitOperationFailure({
+        status: 'partly-applied',
+        completed: 'merge',
+        reason: 'merge-conflict'
+      })
+
+      expect(merge).not.toContain('Commit は完了')
+      expect(merge).not.toContain('退避の内容は作業ツリーに戻りました')
+      expect(merge).not.toContain('GitHub の repository は作成されました')
     })
   })
 })

@@ -10,7 +10,8 @@ import {
   showHeadCommit,
   showRepositoryRoot,
   showWorkingTreeStatus,
-  verifyHeadCommit
+  verifyHeadCommit,
+  verifyMergeHead
 } from './gitCommands'
 import { classifyGitFailure, isNotARepositoryMessage } from './gitFailure'
 import {
@@ -42,7 +43,8 @@ import { runGit } from './runGit'
  * 3. root は Workspace root と同じか → 違えば操作しない（設計判断 10）
  * 4. HEAD はどこを指しているか      → ブランチ / detached
  * 5. remote は設定されているか      → 公開の入口を出すか（Session 3-8-10）
- * 6. 作業ツリーはどう変わっているか → 変更ファイルの一覧（Session 3-8-2）
+ * 6. MERGE_HEAD は在るか            → マージの途中か（Session 3-8-20）
+ * 7. 作業ツリーはどう変わっているか → 変更ファイルの一覧（Session 3-8-2）
  * ```
  *
  * 3 を 4 / 5 より先に置いているのが要点になる。root が食い違う状態で一覧を出すと、
@@ -211,6 +213,7 @@ async function resolveRepositoryState(workspaceRoot: string): Promise<GitReposit
 async function resolveReadyState(): Promise<GitRepositoryState> {
   const head = await resolveHead()
   const hasRemote = await resolveHasRemote()
+  const merging = await resolveMerging()
   const status = await runGit(showWorkingTreeStatus())
 
   switch (status.status) {
@@ -243,8 +246,42 @@ async function resolveReadyState(): Promise<GitRepositoryState> {
     head,
     changes: reading.changes,
     upstream: reading.upstream,
-    hasRemote
+    hasRemote,
+    merging
   }
+}
+
+/**
+ * マージの途中か（Session 3-8-20）。
+ *
+ * ## Renderer に推測させないための1回
+ *
+ * 「競合しているファイルがあるか」からは導けない ── 解決し終えた後も
+ * Commit するまで MERGE_HEAD は残り、逆に `stash pop` の競合では
+ * MERGE_HEAD が無いまま競合の行が並ぶ（shared/git/repository.ts）。
+ * 導ける形にしておくと、いつかどちらかの側で間違える。
+ *
+ * ## 読めなかったら「マージ中ではない」に倒す
+ *
+ * `hasRemote` / `resolveHead` と同じで、**読めなかったことを失敗にしない。**
+ * 倒す先を `false` にしてあるのは、その方の間違いが取り返しがつくため。
+ *
+ *   false へ倒す … 帯が出ない。中止は押せないが、マージを押せば
+ *                  git が `unresolved-conflicts` として断る（何も壊れない）
+ *   true へ倒す  … マージしていないのに「マージの途中です」と出て、
+ *                  中止を押すと `nothing-to-do` が返る ── **画面が嘘をつく**
+ *
+ * ## 読むのは終了コードだけ
+ *
+ * `rev-parse --verify --quiet MERGE_HEAD` は、在れば 0・無ければ 1 で終わる
+ * （commit が1つも無いリポジトリでも 1。実物で確かめてある）── 出力（hash）は
+ * 使わずに捨てる。呼び出し側が hash を知る必要が無いのは、
+ * 「どこからマージしているか」を出す画面が無いためになる。
+ */
+async function resolveMerging(): Promise<boolean> {
+  const outcome = await runGit(verifyMergeHead())
+
+  return outcome.status === 'completed' && outcome.exitCode === 0
 }
 
 /**

@@ -345,14 +345,54 @@ export type GitOperationFailureReason =
    */
   | 'github-repository-exists'
   /**
-   * 追跡先と枝分かれしていて、早送りできない（Session 3-8-5）。
+   * 早送りできない（Session 3-8-5 / 3-8-20）。
+   *
+   * ## 3-8-5（Pull）
    *
    * Pull は `merge --ff-only` に固定してある（DESIGN.md §3 / ARCHITECTURE.md §14.13）。
    * 手元にも remote にも別々の commit があると、統合には merge か rebase の
    * **判断**が要る ── どちらを選ぶかはリポジトリの流儀で決まることで、
    * アプリが黙って選ぶと、履歴の形が利用者の意図と違うものになる。
+   *
+   * ## 3-8-20（Merge）
+   *
+   * Merge は `--ff` を明示するので、早送りできなければ merge commit を作る ──
+   * つまり**普段はここへ来ない。** それでも表に載せてあるのは、
+   * `Not possible to fast-forward` を出す経路がリポジトリの設定側に
+   * 残りうるためで、そのとき「取り込めなかった」という結論と次の一手
+   * （端末で内容を確かめる）は Pull のときとまったく同じになる。
+   *
+   * 文言はどちらから来ても通る形にしてある（renderer/src/git/gitChanges.ts）──
+   * 「remote と枝分かれしている」と書くと、Merge から出たときに
+   * **relate しない相手の話**になる。
    */
   | 'diverged'
+  /**
+   * 相手のブランチと共通の祖先が無い（Session 3-8-20）。
+   *
+   * `git merge` は `refusing to merge unrelated histories` として**動かずに断る。**
+   * `--allow-unrelated-histories` を渡す欄は作っていない ── 通すと、
+   * 無関係な2つの履歴が1つの枝に混ざり、戻すには merge commit を
+   * reset することになる（3-8-20 の範囲外）。
+   *
+   * `diverged` と分けてあるのは、**次の一手が違う**ため ── あちらは
+   * 「どう統合するかを決める」だが、こちらは大半が
+   * 「そもそも相手を間違えている」にあたる（別のリポジトリから
+   * fetch した枝・履歴を作り直した枝）。
+   */
+  | 'unrelated-histories'
+  /**
+   * マージは始まったが、自動でマージできない箇所が残った（Session 3-8-20）。
+   *
+   * **これだけは `failed` として使わない。** 必ず `partly-applied` の
+   * `completed: 'merge'` と一緒に返る（`GitOperationOutcome`）── git は
+   * 自動でマージできた分を作業ツリーと index へ**既に書き込んでいる**ので、
+   * 「何も起きなかった」ではない。
+   *
+   * 次の一手は Session 3-8-18 の競合の解決そのもので、それは画面の上の方に
+   * 「競合」グループとしてそのまま出ている。
+   */
+  | 'merge-conflict'
   /**
    * 作業ツリーの変更が取り込み／切り替えを妨げた（Session 3-8-5 / 3-8-6）。
    *
@@ -588,6 +628,31 @@ export type GitPartialOperationStep =
    * それにあたり、文言の前半がそれを言う（renderer/src/git/gitChanges.ts）。
    */
   | 'stash-apply'
+  /**
+   * マージは始まり、自動でマージできた分は入った（Session 3-8-20）。
+   *
+   * ## 4つめの `partly-applied` は、失敗ではなく**途中**にあたる
+   *
+   * 先の3つ（Commit & Push・公開・`stash pop`）は、どれも
+   * 「済んだところまでは残るが、その先は押し直す」ものだった。マージは違う ──
+   * ここから先に**利用者がやることがある**（競合を解決して Commit する）。
+   * つまりこれは「止まった」ではなく「始まって、次の手を待っている」になる。
+   *
+   * ## `failed` に丸めない理由は、前の3つより強い
+   *
+   * 丸めると利用者は「マージは起きなかった」と読み、**もう一度マージを押す。**
+   * だが MERGE_HEAD は既に在るので、git は
+   * `Merging is not possible because you have unmerged files` としか言わない
+   * （実物で確かめてある）── そこから先へ進む手立てが画面のどこにも
+   * 見えない状態になる。
+   *
+   * 実際に起きていることは3つある。**そのどれもが `failed` では言えない。**
+   *
+   *   - 自動でマージできたファイルは index に載っている（ステージ済みへ並ぶ）
+   *   - できなかったファイルは競合のグループへ並ぶ（Session 3-8-2 からの器）
+   *   - `MERGE_HEAD` が在る ＝ 中止（`merge --abort`）の口が開く
+   */
+  | 'merge'
 
 /**
  * 1回の操作の結末。
@@ -606,10 +671,16 @@ export type GitOperationOutcome =
   /** 要求どおりに変わった（index が変わった / commit が作られた / 送れた）。 */
   | { readonly status: 'applied' }
   /**
-   * **途中まで通った**（Session 3-8-5 / 3-8-10）。
+   * **途中まで通った**（Session 3-8-5 / 3-8-10 / 3-8-15 / 3-8-20）。
    *
-   * 返しうるのは Commit & Push と、GitHub への公開の2つ ── どちらも
-   * 「手元は変わった／外に物ができたのに、Push だけが通らなかった」状態にあたる。
+   * 3-8-10 までに返しうるのは Commit & Push と、GitHub への公開の2つだった ──
+   * どちらも「手元は変わった／外に物ができたのに、Push だけが通らなかった」
+   * 状態にあたる。3-8-15 で `stash pop` の競合が、3-8-20 で**マージの競合**が
+   * 加わり、**ネットワークが1度も出てこない形**の方が多くなっている。
+   *
+   * 3-8-20 のマージだけは、そこから先に**利用者がやることがある**という点で
+   * 他の3つと性質が違う（`GitPartialOperationStep` の `merge`）── 押し直す
+   * のではなく、競合を解決して Commit することで先へ進む。
    *
    * ## なぜ `failed` に丸めないか
    *

@@ -36,6 +36,7 @@ import { applyGitResolveConflict } from '../../git/gitConflict'
 import { applyGitDiscard } from '../../git/gitDiscard'
 import { listGitCommits } from '../../git/gitHistory'
 import { applyGitInit } from '../../git/gitInit'
+import { applyGitAbortMerge, applyGitMergeBranch } from '../../git/gitMerge'
 import { normalizeGitPathspec } from '../../git/gitPathspec'
 import { applyGitCreateTrackingBranch, listGitRemoteBranches } from '../../git/gitRemoteBranches'
 import {
@@ -688,6 +689,41 @@ export function registerGitHandlers(): void {
 
   handleIpc(IPC_CHANNELS.GIT_RENAME_BRANCH, async (request): Promise<GitOperationResponse> => {
     return await applyGitRenameBranch(branchNameField(request), branchNewNameField(request))
+  })
+
+  /*
+    ブランチのマージの開始 / 中止（Session 3-8-20）。
+
+    ## 開始の要求も、確かめるのは名前1つだけ
+
+    通すのは切り替え / 削除 / rename とまったく同じ `branchNameField`
+    （`normalizeGitBranchName`）── ここまでの4本と同じ規則にしてあるのは、
+    入口ごとに違う規則が効くと「切り替えられるがマージできない名前」が
+    生まれるため（3-8-14 / 3-8-19 と同じ判断）。
+
+    **ただし、形が通ることと「それがローカルブランチである」ことは別**に
+    なる ── `v1.0` は tag として、`3d0574a` は commit hash として解ける
+    名前でもあり、`git merge` はどちらも受け取る。そこは
+    `branch --list` で確かめてから動かす（main/git/gitMerge.ts）。
+
+    取り込み**先**の欄は無い（常に今のブランチ）。戦略も `--no-ff` も
+    `--squash` も渡す欄が無く、動く引数は Main の表に固定してある
+    （main/git/gitCommands.ts）。
+
+    ## 中止の要求は `void`
+
+    どのマージを中止するかは届かない ── 途中のマージは常に高々1つで、
+    それは MERGE_HEAD が指す。マージ中でなければ git を1回も動かさずに
+    `nothing-to-do` として返る。
+
+    どちらの要求にも「確認したか」の欄は無い（3-8-14 以降と同じ）。
+  */
+  handleIpc(IPC_CHANNELS.GIT_MERGE_BRANCH, async (request): Promise<GitOperationResponse> => {
+    return await applyGitMergeBranch(branchNameField(request))
+  })
+
+  handleIpc(IPC_CHANNELS.GIT_ABORT_MERGE, async (): Promise<GitOperationResponse> => {
+    return await applyGitAbortMerge()
   })
 
   /*

@@ -211,7 +211,28 @@ function restoreEnv(name: string, value: string | undefined): void {
   process.env[name] = value
 }
 
-describeWithGit('listGitRemoteBranches', () => {
+/**
+ * 実 git を何本も起動するテストの待ち時間（Session 3-8-20 で明示した）。
+ *
+ * ここのテストは1件あたり 10 本前後の git プロセスを起動する ── 準備の
+ * commit / switch に加えて、`applyGit*` は操作の前後で状態を読み直し
+ * （main/git/gitOperationResult.ts）、その1回ずつが `rev-parse` /
+ * `symbolic-ref` / `remote` / `rev-parse MERGE_HEAD` / `status` を動かす
+ * （main/git/gitRepository.ts）。
+ *
+ * vitest の既定（5 秒）はそれに対して元から余裕が無く、100 本を超える
+ * テストファイルを並べて走らせたときだけ落ちる、という形で表に出ていた ──
+ * Session 3-8-20 で状態の読み取りに `rev-parse MERGE_HEAD` が1本増えたことで、
+ * その余裕が無くなった（プロセスの起動そのものが Windows では重い）。
+ *
+ * **速さを確かめるテストではない**ので、上限は「本当に返ってこなくなったことに
+ * 気づける」までの長さで足りる。既定を全体へ広げるのではなく、実 git を
+ * 並べて起動するこの塊にだけ掛ける ── 純粋なロジックのテストは 5 秒で
+ * 落ちてくれた方がよい。
+ */
+const REAL_GIT_TIMEOUT_MS = 30_000
+
+describeWithGit('listGitRemoteBranches', { timeout: REAL_GIT_TIMEOUT_MS }, () => {
   it('remote-tracking branch を、既定のローカル名つきで返す', () => {
     commit('a.txt', 'a\n', 'first')
     git('branch', 'feature/x')
@@ -360,7 +381,7 @@ describeWithGit('listGitRemoteBranches', () => {
   })
 })
 
-describeWithGit('applyGitCreateTrackingBranch', () => {
+describeWithGit('applyGitCreateTrackingBranch', { timeout: REAL_GIT_TIMEOUT_MS }, () => {
   /** `main` と `feature/x` を送った状態から始める（この塊の共通の前提）。 */
   function prepare(): void {
     commit('a.txt', 'a\n', 'first')

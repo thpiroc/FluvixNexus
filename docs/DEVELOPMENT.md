@@ -1,6 +1,6 @@
 # 開発ガイド
 
-> 対象: Session 3-8-19（remote の枝から手元にブランチを作る）完了時点
+> 対象: Session 3-8-20（ブランチのマージの開始 / 中止）完了時点
 > 最終更新: 2026-08-27
 
 ---
@@ -122,9 +122,9 @@ Vitest を使い、**Electron に依存しない純粋なロジック**だけを
 
 Files の検証（`main/files/workspacePath.ts`）は Electron にも fs にも依存しない形に切り出してある。symlink による脱出だけはパス文字列では判断できないため、realpath を取ってから同じ関数へ通す側（`readWorkspaceDirectory.ts` / `readWorkspaceFile.ts` / `mutateWorkspaceEntry.ts`）が担う。
 
-#### 例外: 実ディスクを触るテスト（Session 3-5.1 / 3-6-2 / 3-6-4 / 3-6-5 / 3-8-2 / 3-8-3 / 3-8-4 / 3-8-5 / 3-8-6 / 3-8-9 / 3-8-10 / 3-8-11 / 3-8-12 / 3-8-13 / 3-8-14 / 3-8-15 / 3-8-16 / 3-8-17 / 3-8-18 / 3-8-19）
+#### 例外: 実ディスクを触るテスト（Session 3-5.1 / 3-6-2 / 3-6-4 / 3-6-5 / 3-8-2 / 3-8-3 / 3-8-4 / 3-8-5 / 3-8-6 / 3-8-9 / 3-8-10 / 3-8-11 / 3-8-12 / 3-8-13 / 3-8-14 / 3-8-15 / 3-8-16 / 3-8-17 / 3-8-18 / 3-8-19 / 3-8-20）
 
-「純粋なロジックだけを対象にする」方針に対する例外が18ある ── `mutateWorkspaceEntry.test.ts`（作成 / 改名 / 移動 / 削除）、`copyTree.test.ts`（再帰コピー）、`searchWorkspaceFiles.test.ts`（Workspace 全体の走査）、`searchWorkspaceFileContents.test.ts`（全文検索の走査）、`gitStatusRepository.test.ts`（本物の git の出力）、`gitStageRepository.test.ts`（本物の git への Stage / Unstage）、`gitCommitRepository.test.ts`（本物の git への Commit）、`gitSyncRepository.test.ts`（本物の git への Push / Pull）、`gitBranchRepository.test.ts`（本物の git へのブランチ操作）、`gitDiffRepository.test.ts`（本物の git から読む差分）、`gitDiscardRepository.test.ts`（本物の git に対する破棄）、`gitInitRepository.test.ts`（本物の git での初期化）、`publishRepository.test.ts`（本物の git での公開の一連）、`gitHistoryRepository.test.ts`（本物の git から読む履歴）、`gitCommitDetailRepository.test.ts`（本物の git から読む commit 1件の中身）、`gitStashRepository.test.ts`（本物の git に対する退避）、`gitRemoteRepository.test.ts`（本物の git に対する remote の管理）、`gitConflictRepository.test.ts`（本物の git に対する競合の解決）。確かめたいのがパスの文字列処理ではなく **「実際にそこに在るものを操作できるか」** だからで、モックしたファイルシステムでは何も確かめられない ── 判定と実体がずれることこそが Session 3-5.1 で直した不具合の中身だった。`aux.ts` や末尾に空白を持つ名前を Windows がどう扱うかは実装ではなく OS が決めるため、写しを相手にするとその答えを自分で書くことになる。
+「純粋なロジックだけを対象にする」方針に対する例外が18ある ── `mutateWorkspaceEntry.test.ts`（作成 / 改名 / 移動 / 削除）、`copyTree.test.ts`（再帰コピー）、`searchWorkspaceFiles.test.ts`（Workspace 全体の走査）、`searchWorkspaceFileContents.test.ts`（全文検索の走査）、`gitStatusRepository.test.ts`（本物の git の出力）、`gitStageRepository.test.ts`（本物の git への Stage / Unstage）、`gitCommitRepository.test.ts`（本物の git への Commit）、`gitSyncRepository.test.ts`（本物の git への Push / Pull）、`gitBranchRepository.test.ts`（本物の git へのブランチ操作）、`gitDiffRepository.test.ts`（本物の git から読む差分）、`gitDiscardRepository.test.ts`（本物の git に対する破棄）、`gitInitRepository.test.ts`（本物の git での初期化）、`publishRepository.test.ts`（本物の git での公開の一連）、`gitHistoryRepository.test.ts`（本物の git から読む履歴）、`gitCommitDetailRepository.test.ts`（本物の git から読む commit 1件の中身）、`gitStashRepository.test.ts`（本物の git に対する退避）、`gitRemoteRepository.test.ts`（本物の git に対する remote の管理）、`gitConflictRepository.test.ts`（本物の git に対する競合の解決）、`gitMergeRepository.test.ts`（本物の git に対するマージの開始 / 中止）。確かめたいのがパスの文字列処理ではなく **「実際にそこに在るものを操作できるか」** だからで、モックしたファイルシステムでは何も確かめられない ── 判定と実体がずれることこそが Session 3-5.1 で直した不具合の中身だった。`aux.ts` や末尾に空白を持つ名前を Windows がどう扱うかは実装ではなく OS が決めるため、写しを相手にするとその答えを自分で書くことになる。
 
 どれも一時フォルダを Workspace root に見立てる。走査（検索）のテストでは、深い階層・大量ファイル・除外フォルダ・**外を指すジャンクション**を実際に作って、リンクの中へ潜っていないことを「指し先の中身が結果に出ていないこと」で確かめる ── 「潜らないつもり」を実物で確かめるため。上限（件数 / 深さ / 走査数）は引数で差し替えて小さくし、時間の上限だけは `now` を差し替えて固定する（実時間に依存させると、速いマシンでは通り遅いマシンでは落ちるテストになる）。
 
@@ -298,6 +298,51 @@ Files の検証（`main/files/workspacePath.ts`）は Electron にも fs にも�
 **`git branch --list --format=... --end-of-options <name>` が大文字小文字を区別すること**は、loose ref と packed-refs の両方で確かめてある（`git pack-refs --all` の前後で同じ問いを投げる）── `show-ref --verify` はどちらでも成功を返してしまい、この確認には使えない。
 
 7 の ref は `git update-ref --stdin` で**一度に**作る ── `git branch` を 500 回呼ぶと、確かめたいこと（上限の扱い）に対して待ち時間が釣り合わない。この塊も `GIT_CONFIG_GLOBAL` / `GIT_CONFIG_SYSTEM` を実在しないパスへ向けてから走らせる（`checkout.defaultRemote` / `branch.autoSetupMerge` はどれも開発者の PC に入っていておかしくなく、確かめている振る舞いそのものを変えうる）。
+
+**Session 3-8-20 では、この塊にファイルが1つ増える**（例外は 20 になった）── `gitMergeRepository.test.ts`。確かめたいことの向きは 3-8-19 の「押した人が指したものだけが相手になること」に、もう1つ**「PC ごとの設定に振る舞いを左右されないこと」**が加わる ── `merge.ff` / `merge.autoStash` はどちらも開発者の PC に入っていておかしくなく、**同じボタンの結果を変える**。写しを相手にすると、`--ff` / `--no-autostash` を明示した理由そのものを自分で書くことになる。実物にしか確かめられないのは次の 18 個。
+
+1. 早送りできるときは早送りすること（**merge commit を作らない**）
+2. 枝分かれしていれば merge commit を1つ作ること（親が2つ）
+3. `--no-edit` があるのでエディタ待ちにならないこと（`core.editor` に「入力を待ち続けるもの」を置いて確かめる ── 外れていれば返ってこない）
+4. 競合すると `partly-applied` / `completed: 'merge'` / `merge-conflict` になること
+5. 競合した行が 3-8-2 の「競合」グループに並ぶこと
+6. **自動でマージできたファイルがステージ済みへ入る**こと（＝「何も起きなかった」ではないことの中身）
+7. そのとき `merging` が真になること（MERGE_HEAD がある）
+8. **3-8-18 の解決 → 3-8-4 の Commit でマージが完結する**こと（merge commit ができ、MERGE_HEAD が消える）
+9. 作業ツリーの変更がマージを妨げるとき `local-changes-blocked` になり、書きかけがそのまま残ること
+10. **staged の変更が妨げるときも安全に断る**こと（git は終了コード 2 と `Merge with strategy ort failed.` を返す ── `unknown` に落ちない）
+11. detached HEAD は **git を動かす前に** `not-on-branch` で断ること
+12. 実在しないブランチが `branch-not-found` になること
+13. **tag をブランチとして受け取らない**こと
+14. **commit hash をブランチとして受け取らない**こと
+15. **remote-tracking ref をブランチとして受け取らない**こと
+16. `merge.ff=false` でも `--ff` が勝つこと（早送りのまま ── 余計な merge commit を作らない）
+17. `merge.ff=only` でも `--ff` が勝つこと（枝分かれしていても merge commit を作れる）
+18. `merge.autoStash=true` でも `--no-autostash` が勝つこと（**隠れた退避を1つも作らない**）
+
+13〜15 がこの回の要点にあたる ── **git が受け取ってしまう値を、こちらが受け取らない**（3-8-16 の `ext::`・3-8-19 の始点と同じ側）。`git merge` はタグも hash も remote-tracking ref もそのまま受け取るので、名前の**形**だけを見て通すと「ブランチのマージ」を名乗ったまま別のものが取り込まれる。15 の ref は `git update-ref refs/remotes/origin/feat feat` で置く ── remote を繋がずに「一覧に出る名前」だけを作れる。
+
+16〜18 は**この塊だけが `GIT_CONFIG_GLOBAL` を無効にしたうえで、リポジトリの側に設定を入れて**確かめる ── 他の塊が「設定を見えなくする」のに対し、こちらは見えなくしたうえで**わざと効かせて、それでも勝つこと**を測る。
+
+8 は 3-8-18 の `applyGitResolveConflict` と 3-8-4 の `applyGitCommit` を**本番のまま**通す ── 「3-8-20 で足したのは開始と中止の2手だけ」という判断の根拠そのものになるため、写しに置き換えるとその主張が確かめられない。
+
+中止の側で確かめるのは4つで、うち1つがこの回の確認のいちばん核心にあたる ── **開始前から在った作業ツリーの変更は残り、解決中に書いた内容（stage したものを含む）は消える。** 2つを同じ1回で確かめておかないと、確認の文言（`describeGitAbortMergeWarning`）がどちらか片方の嘘になる。残りは MERGE_HEAD が消えること・マージ前のファイルの内容へ戻ること・**マージ中でなければ git を1回も動かさずに `nothing-to-do`** になることになる。
+
+#### 実 git を起動するテストの待ち時間（Session 3-8-20 で明示した）
+
+3-8-20 で状態の読み取りに `rev-parse --verify MERGE_HEAD` が**1本増えた**（§14.28）。1回の書き込み操作は前後で状態を読み直すので、増えるのは操作あたり2本になる ── そのぶん実 git の塊が全体で1割ほど遅くなり、**vitest の既定（5 秒）で落ちるテストが出た。**
+
+落ちたのは重い塊（Push / Pull・退避）で、**単独では通り、110 本のテストファイルを並べたときだけ落ちる** ── つまり既定の 5 秒に元から余裕が無く、この1本で足りなくなったことになる（プロセスの起動そのものが Windows では重い）。
+
+そこで**実 git を起動するテストファイルにだけ**明示の上限を掛けてある。
+
+```ts
+const REAL_GIT_TIMEOUT_MS = 30_000
+
+describeWithGit('applyGitMergeBranch', { timeout: REAL_GIT_TIMEOUT_MS }, () => { … })
+```
+
+**vitest.config.ts の既定は動かさない。** 全体へ広げると、純粋なロジックのテスト（95 本ほど）まで 30 秒待つことになる ── あちらは 5 秒で落ちてくれた方がよく、本当に返ってこなくなったことに早く気づける。速さを確かめるテストではないので、上限は「固まったと分かる」までの長さで足りる。
 
 **hook は `#!/bin/sh` のスクリプトで置ける**（Git for Windows は付属の sh で走らせる）。`exit 1` で止める hook、何も言わずに落ちる hook、`sleep` で遅い hook の3つを作れば、分類・迂回しないこと・待ち時間の上限のすべてが確かめられる。
 
@@ -1196,6 +1241,29 @@ Session 3-8-19（remote の枝から手元にブランチを作る）では、**
 - **同名衝突と成功を、1回の起動で両方通せる。** 衝突の側は面が閉じず、そのまま別の行へ開き替えられる（一度に開くのは1つ）── 順番を「衝突 → 成功」にすれば、成功で面が閉じたところが終点になる。逆にすると、切り替わった後の一覧はもう別のブランチのものになる。
 - **`origin/HEAD` は fixture 側で作らないと確かめられない。** `git fetch` だけでは作られず、`git remote set-head` が要る ── 作らずに走らせると「除かれた」ではなく「そもそも無かった」を測ることになるので、**ref が実在することを先に確かめてから**一覧を見る。
 - **追跡先は `git config --get` で読む（画面の `↑↓` で代用しない）。** 表示は追跡先が付いていることの必要条件でしかなく、`branch.<名前>.remote` と `.merge` の2つを読んで初めて「どこを追っているか」まで測れる。
+
+Session 3-8-20（ブランチのマージの開始 / 中止）では、**production ビルド版 42項目、全項目 PASS。** 相手は使い捨ての一時リポジトリ5つで、確かめたい結末ごとに別の repo を作ってある ── `ff`（早送りできる）・`diverged`（別々のファイルを足した枝分かれ）・`conflict` / `abort` / `dirty`（同じ行を両方で変えた競合。3つとも同じ形で、進める先が違う）。**リポジトリ一式は走らせるたびに作り直す**（`setup-fixtures.sh`）── 1回目のマージが履歴を進めるので、2回目は「既にマージ済み」でアプリのせいに見える FAIL が出る（3-8-8 で踏んだのと同じ形）。
+
+- ① 一覧: **現在以外の行にだけマージの口（`⤵`）が出る**こと（行2件に対して口は1つ）、現在のブランチの行には出ないこと
+- ② 確認: 押すと行の下に確認が開き、**相手と行き先の両方を名指しする**こと（「ブランチ「feat」を main に取り込みますか？」）
+- ③ **Esc の段**: 1回目で**確認だけが畳まれ、面は開いたまま**であること、2回目で面が閉じること（3-8-14 / 3-8-19 から段が増えていない）
+- ④ 早送り: 通ること、**commit が1つだけ増え、HEAD の親が1つのまま**であること（merge commit を作らない）、取り込んだファイルが現れること、通ると面が閉じること、**帯が出ない**こと
+- ⑤ 通常マージ: **HEAD の親が2つ**になること（`Merge branch 'feat'`）、両方の枝のファイルが揃うこと、帯が出ないこと
+- ⑥ 競合（画面）: 3-8-2 の**「競合」グループに出る**こと、**自動でマージできた側がステージ済みへ入る**こと、1行目が**「マージを開始し…」から始まる**こと（失敗と読ませない）
+- ⑦ 帯: マージ中に出ること、次の一手（解決して Commit）が書いてあること、**マージ中でなければ出ない**こと
+- ⑧ ブロック: **マージ中は行の `⤵` が押せず**、理由が「解決して Commit するか、マージを中止してから」であること
+- ⑨ 完走: 「解決済みにする」で競合グループが消えること、**解決しても Commit するまで帯は出たまま**であること、Commit で**親が2つの merge commit** になり帯が消えること、**解決した内容がそのまま記録される**こと
+- ⑩ 中止（確認）: 押すと確認が出ること、**「開始前の変更は残る」と「解決中に書いた内容は失われる」の両方**が書いてあること
+- ⑪ 中止（通る）: MERGE_HEAD が消えること、帯が消えること、**マージ前のファイルの内容へ戻る**こと、自動でマージできていた側も戻ること、**マージを始める前から在った変更は残る**こと、競合グループが消えること
+- ⑫ local changes: 日本語の理由が出ること（「作業ツリーの変更が上書きされるため…Commit するか退避してから」）、**生の英語（`fatal:` / `error:`）が混ざっていない**こと、**通らなかったときは面が閉じない**こと、**マージが始まっていない**こと、書きかけがそのまま残ること
+
+確認の要領（この回で分かったもの）:
+
+- **面を開いた直後に行を数えない。** ブランチの面は開いた瞬間に一覧を取り直す（「ブランチを取得しています…」を通る）ため、`.fx-git__branch-panel` が出た時点では**行が 0 件**になる ── `.fx-git__branch-entry` が出るまで待たないと、アプリは正しいのに「マージの口が出ない」という FAIL になる（実際に1度踏んだ）。
+- **「解決済みにする」は座標で押さない。** 行の右端のボタンは、グループの見出し（`.fx-git__group-title`、sticky）に重なられることがあり、Playwright の click が `intercepts pointer events` で retry し続ける ── `data-action="resolve"` で絞ったうえで `element.click()`（DOM 側）を呼ぶと安定する。
+- **早送りかどうかは `rev-list --parents` の語数で測る。** 「マージできたか」だけでは `--ff` が効いているか分からない ── 親が1つなら早送り、2つなら merge commit で、**設計判断 1 が守られているかはここでしか読めない**。
+- **中止の確認は「残る」と「失われる」の両方を読む。** 片方だけを確かめると、文言がどちらかの嘘になっていても通ってしまう ── 実際に**マージ前から在るファイル**と**解決中に書いたファイル**の2つを置いてから中止し、それぞれの中身で測る。
+- **競合の repo は、進める先ごとに別に作る。** 同じ repo で「解決して Commit」と「中止」を続けて確かめようとすると、1つめが履歴を進めた状態から2つめが始まる ── 形は同じでも別の repo にしておく方が、どちらが失敗したのかを読み違えずに済む。
 
 ---
 

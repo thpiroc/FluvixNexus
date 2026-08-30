@@ -1,12 +1,15 @@
-import { GIT_BRANCH_NAME_MAX_LENGTH, type GitBranchNameProblem } from '@shared/git'
+import { GIT_BRANCH_NAME_MAX_LENGTH, type GitBranchNameProblem, type GitHead } from '@shared/git'
 import { describe, expect, it } from 'vitest'
 import {
+  describeGitAbortMergeWarning,
   describeGitBranchDeleteWarning,
   describeGitBranchList,
+  describeGitBranchMergeWarning,
   describeGitBranchNameProblem,
   describeGitBranchTruncation,
   toGitBranchCreateReadiness,
   toGitBranchDeleteReadiness,
+  toGitBranchMergeReadiness,
   toGitBranchRenameReadiness,
   toGitBranchSwitchReadiness,
   toGitCommitBranchReadiness,
@@ -323,6 +326,143 @@ describe('describeGitBranchDeleteWarning', () => {
   it('通らないことがあると断ってある', () => {
     // 「押せば必ず消える」と読ませない ── 未マージなら git が中止する。
     expect(warning.note).toContain('中止')
+  })
+
+  it('押すボタンの言葉がある', () => {
+    expect(warning.confirmLabel.length).toBeGreaterThan(0)
+  })
+})
+
+/**
+ * 今のブランチへ取り込めるか（Session 3-8-20）。
+ *
+ * ここで固定したいのは3つ。
+ *
+ *   - **自分自身は取り込めない**（画面はそもそも口を出さない）
+ *   - マージの途中は押せない（待っても押せるようにはならない）
+ *   - 取り込み**先**が文言に出る（どちらへ入るのかが押す前に読める）
+ */
+describe('toGitBranchMergeReadiness', () => {
+  const onMain: GitHead = { kind: 'branch', name: 'main' }
+  const feature = { name: 'feature/x', current: false }
+
+  it('今そこに居ないブランチは取り込める', () => {
+    const readiness = toGitBranchMergeReadiness(feature, onMain, false, false)
+
+    expect(readiness.enabled).toBe(true)
+    // 相手と行き先の両方を名指しする（どちらへ入るのかが押す前に読める）。
+    expect(readiness.note).toContain('feature/x')
+    expect(readiness.note).toContain('main')
+  })
+
+  it('今そこに居るブランチは取り込めない', () => {
+    const readiness = toGitBranchMergeReadiness(
+      { name: 'main', current: true },
+      onMain,
+      false,
+      false
+    )
+
+    expect(readiness.enabled).toBe(false)
+  })
+
+  /*
+    行の側（切り替え）とは判断が違う ── 削除（3-8-14）と同じ対比で、
+    同じブランチについて片方は押せて片方は押せない。
+  */
+  it('同じ行でも、切り替えの側は押せる', () => {
+    const branch = { name: 'main', current: true }
+
+    expect(toGitBranchSwitchReadiness(branch, false).enabled).toBe(true)
+    expect(toGitBranchMergeReadiness(branch, onMain, false, false).enabled).toBe(false)
+  })
+
+  /*
+    detached HEAD では取り込み先が無い。Main も動かす前に `not-on-branch` で
+    断るが、画面の側でも押せる形にしない（二重の備え）。
+  */
+  it('detached HEAD では取り込めない', () => {
+    const detached: GitHead = { kind: 'detached', commit: 'abc1234' }
+
+    expect(toGitBranchMergeReadiness(feature, detached, false, false).enabled).toBe(false)
+  })
+
+  /*
+    マージの途中は、押しても絶対に通らない（git も Main も断る）──
+    先にすること（解決して Commit するか、中止する）が決まっているので、
+    その2つを理由に書く。
+  */
+  it('マージの途中は押せず、先にすることが理由に出る', () => {
+    const readiness = toGitBranchMergeReadiness(feature, onMain, true, false)
+
+    expect(readiness.enabled).toBe(false)
+    expect(readiness.note).toContain('中止')
+  })
+
+  it('他の Git 操作が動いている間は押せない', () => {
+    expect(toGitBranchMergeReadiness(feature, onMain, false, true).enabled).toBe(false)
+  })
+})
+
+/**
+ * マージの確認の文言（Session 3-8-20）。
+ *
+ * **盛らない**ことを固定する ── マージで消えるものは無いので、
+ * 破棄や削除と同じ重さの言い方をすると、本当に失われる場面の警告まで
+ * 軽く読まれる（`describeGitBranchDeleteWarning` と同じ判断）。
+ */
+describe('describeGitBranchMergeWarning', () => {
+  const warning = describeGitBranchMergeWarning(
+    { name: 'feature/x', current: false },
+    { kind: 'branch', name: 'main' }
+  )
+
+  it('相手と行き先の両方を名指しする', () => {
+    expect(warning.message).toContain('feature/x')
+    expect(warning.message).toContain('main')
+  })
+
+  it('失われるとは言わない', () => {
+    expect(warning.message).not.toContain('失われ')
+    expect(warning.note).not.toContain('失われ')
+  })
+
+  /*
+    押した後に競合の行が並ぶことを、押す前に言っておく ──
+    知らされていなければ「壊れた」と読まれる。
+  */
+  it('競合しうることを先に言う', () => {
+    expect(warning.note).toContain('競合')
+  })
+
+  /* 設計判断 1 の前半（不要な merge commit を作らない）が読める。 */
+  it('早送りではマージコミットを作らないことが読める', () => {
+    expect(warning.note).toContain('マージコミット')
+  })
+
+  it('押すボタンの言葉がある', () => {
+    expect(warning.confirmLabel.length).toBeGreaterThan(0)
+  })
+})
+
+/**
+ * マージの中止の確認の文言（Session 3-8-20）。
+ *
+ * ここは**「消える」側**の確認になる。2つを同じ文の中で並べて書くことを
+ * 固定する ── 片方だけだと、どちらかの嘘になる。
+ *
+ *   「元に戻ります」だけ    … 解決に費やした内容が消えることが伝わらない
+ *   「変更が失われます」だけ … マージ前から書きかけていた人が中止できなくなる
+ */
+describe('describeGitAbortMergeWarning', () => {
+  const warning = describeGitAbortMergeWarning()
+
+  it('開始前の変更は残ることを言う', () => {
+    expect(warning.note).toContain('残り')
+  })
+
+  it('解決中に書いた内容は失われることを言う', () => {
+    expect(warning.note).toContain('失われ')
   })
 
   it('押すボタンの言葉がある', () => {

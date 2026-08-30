@@ -456,6 +456,20 @@ function describeGitPartialStep(step: GitPartialOperationStep): string {
     */
     case 'stash-apply':
       return '退避の内容は作業ツリーに戻りましたが、競合しました（退避は一覧に残しています）。'
+
+    /*
+      マージは始まった（Session 3-8-20）。
+
+      **「失敗しました」と読ませない。** ここを言わないと、利用者は
+      もう一度マージを押す ── だが MERGE_HEAD は既に在るので、git は
+      「未解決のファイルがあります」としか言わず、先へ進む手立てが
+      画面のどこにも見えなくなる（shared/git/operation.ts の `merge`）。
+
+      自動でマージできた分が既に入っていることを先に言い、
+      残りをどうするかは後半の理由（`merge-conflict`）が言う。
+    */
+    case 'merge':
+      return 'マージを開始し、自動でマージできた変更は取り込みました。'
   }
 }
 
@@ -564,8 +578,44 @@ function describeGitOperationFailureReason(reason: GitOperationFailureReason): s
     case 'remote-rejected':
       return 'remote 側が受け取りを拒否しました。保護されたブランチか、サーバー側の設定によるものです。'
 
+    /*
+      早送りできなかった（Session 3-8-5 の Pull / Session 3-8-20 のマージ）。
+
+      3-8-19 まで「手元と remote が枝分かれしているため」と書いていた ──
+      Pull からしか出ない分類だったのでそれで通っていたが、3-8-20 で
+      **相手が remote とは限らなくなった**（一覧から選んだローカルブランチ）。
+      そのままだと、ブランチのマージで断られた人に
+      「remote と枝分かれしています」という**関係の無い相手の話**が出る。
+
+      どちらから来ても通る形にするために、相手を名指しせず
+      「枝分かれしている」とだけ言う ── 次の一手（端末で内容を確かめる）は
+      2つとも同じなので、そこは分けなくてよい（`branch-not-found` を
+      3-8-14 で3つの操作に当たる形へ直したのと同じ判断）。
+    */
     case 'diverged':
-      return '手元と remote が枝分かれしているため、早送りで取り込めませんでした。Terminal パネルで内容をご確認ください。'
+      return '枝分かれしているため、早送りで取り込めませんでした。Terminal パネルで内容をご確認ください。'
+
+    /*
+      共通の祖先が無い（Session 3-8-20）。
+
+      `diverged` と**同じ文にしない** ── あちらは「どう統合するかを決める」
+      だが、こちらの大半は「そもそも相手を間違えている」にあたる。
+      `--allow-unrelated-histories` は案内しない（アプリはその欄を持たず、
+      持っていないものを勧めると探させることになる ── `branch -D` と同じ形）。
+    */
+    case 'unrelated-histories':
+      return '共通の履歴が無いブランチのため、マージできません。取り込む相手をご確認ください。'
+
+    /*
+      競合した（Session 3-8-20）。**必ず `partly-applied` の後半に出る。**
+
+      前半（`describeGitPartialStep('merge')`）が「マージは始まった」と
+      言っているので、ここが言うのは**残りをどうするか**だけになる ──
+      その行き先（競合のグループと「解決済みにする」）は、この文が出ている
+      すぐ下に開いている（Session 3-8-18）。
+    */
+    case 'merge-conflict':
+      return '競合したファイルがあります。内容を直してから「解決済みにする」を押し、Commit してください。'
 
     case 'local-changes-blocked':
       return '作業ツリーの変更が上書きされるため実行できませんでした。Commit するか退避してからお試しください。'

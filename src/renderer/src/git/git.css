@@ -612,6 +612,84 @@
   line-height: 1.5;
 }
 
+/*
+ * マージの途中であることの帯（Session 3-8-20）。
+ *
+ * ## 失敗の1行（上）とは別の見た目にする
+ *
+ * あちらは**押した1回の結末**（赤・次の操作が通れば消える）で、こちらは
+ * **今の状態**（片付けるまで消えない）にあたる。同じ色・同じ形にすると、
+ * 競合したマージで2行並んだときに1つのことの続きに読める。
+ *
+ * 色は識別色の橙を**左の細い線**としてだけ使う（面には使わない）──
+ * テーマ変数の決めごと（styles/theme.css）のとおりで、新しい色は足していない。
+ */
+.fx-git__merge {
+  flex: none;
+  border-bottom: 1px solid var(--fx-color-border);
+  border-left: 2px solid var(--fx-accent-orange);
+  background: var(--fx-color-surface-raised);
+}
+
+.fx-git__merge-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--fx-space-2);
+  padding: var(--fx-space-1) var(--fx-space-3);
+}
+
+/* 何が起きているかの1行。中止のボタンに押されて折り返してよい。 */
+.fx-git__merge-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--fx-color-text);
+  line-height: 1.5;
+}
+
+/*
+ * 中止。
+ *
+ * 形は Push / Pull（`.fx-git__sync-action`）と揃える ── 同じパネルの中で
+ * 「押すと git が動く四角いボタン」の見た目が2つに割れないようにするため。
+ * 色で危なさを言わないのは、**押した先にもう1段（確認）がある**からになる。
+ */
+.fx-git__merge-abort {
+  flex: 0 0 auto;
+  padding: var(--fx-space-1) var(--fx-space-2);
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.fx-git__merge-abort:hover:not(:disabled) {
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-git__merge-abort:focus-visible {
+  outline: 1px solid var(--fx-color-border-strong);
+  outline-offset: 1px;
+}
+
+.fx-git__merge-abort:disabled {
+  color: var(--fx-color-text-faint);
+  cursor: default;
+}
+
+/*
+ * 帯の中に開く確認。
+ *
+ * 器そのものは `.fx-git__branch-confirm`（ブランチの面の中の確認）を
+ * そのまま使い、ここでは**面の中ではない**ぶんの調整だけを足す ──
+ * 尋ね方を揃えるのは 3-8-14 からの決めごとで、器が違っても
+ * 「やめる」が左・実行が右、既定の focus は「やめる」になる。
+ */
+.fx-git__merge .fx-git__branch-confirm {
+  border-bottom: none;
+}
+
 /* 変更ファイルの一覧が入る場所。 */
 .fx-git__body {
   flex: 1 1 auto;

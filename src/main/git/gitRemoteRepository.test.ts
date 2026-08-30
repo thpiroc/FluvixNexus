@@ -215,7 +215,28 @@ function restoreEnv(name: string, value: string | undefined): void {
   process.env[name] = value
 }
 
-describeWithGit('listGitRemotes', () => {
+/**
+ * 実 git を何本も起動するテストの待ち時間（Session 3-8-20 で明示した）。
+ *
+ * ここのテストは1件あたり 10 本前後の git プロセスを起動する ── 準備の
+ * commit / switch に加えて、`applyGit*` は操作の前後で状態を読み直し
+ * （main/git/gitOperationResult.ts）、その1回ずつが `rev-parse` /
+ * `symbolic-ref` / `remote` / `rev-parse MERGE_HEAD` / `status` を動かす
+ * （main/git/gitRepository.ts）。
+ *
+ * vitest の既定（5 秒）はそれに対して元から余裕が無く、100 本を超える
+ * テストファイルを並べて走らせたときだけ落ちる、という形で表に出ていた ──
+ * Session 3-8-20 で状態の読み取りに `rev-parse MERGE_HEAD` が1本増えたことで、
+ * その余裕が無くなった（プロセスの起動そのものが Windows では重い）。
+ *
+ * **速さを確かめるテストではない**ので、上限は「本当に返ってこなくなったことに
+ * 気づける」までの長さで足りる。既定を全体へ広げるのではなく、実 git を
+ * 並べて起動するこの塊にだけ掛ける ── 純粋なロジックのテストは 5 秒で
+ * 落ちてくれた方がよい。
+ */
+const REAL_GIT_TIMEOUT_MS = 30_000
+
+describeWithGit('listGitRemotes', { timeout: REAL_GIT_TIMEOUT_MS }, () => {
   /*
     `git remote --verbose` は remote が1つも無くても 0 で終わり、
     何も出さない ── だから「1件も無い」を失敗にする分岐が要らない
@@ -320,7 +341,7 @@ describeWithGit('listGitRemotes', () => {
   })
 })
 
-describeWithGit('applyGitAddRemote', () => {
+describeWithGit('applyGitAddRemote', { timeout: REAL_GIT_TIMEOUT_MS }, () => {
   it('登録すると、一覧に出て hasRemote が立つ', async () => {
     commit('a.txt', 'base\n', 'first')
 
@@ -416,7 +437,7 @@ describeWithGit('applyGitAddRemote', () => {
  * 変更後も前の送り先と比べた数のまま残る** ── これが確認の文言
  * （renderer/src/git/gitRemotes.ts）の根拠そのものにあたる。
  */
-describeWithGit('applyGitSetRemoteUrl', () => {
+describeWithGit('applyGitSetRemoteUrl', { timeout: REAL_GIT_TIMEOUT_MS }, () => {
   /** 送り先を bare にして、追跡先まで作る（ネットワークへは出ない）。 */
   async function connectAndPush(): Promise<void> {
     commit('a.txt', 'base\n', 'first')
@@ -578,7 +599,7 @@ describeWithGit('applyGitSetRemoteUrl', () => {
  *
  * 唯一壊れるのが大文字小文字だけの改名で、そこは git を動かす前に断つ。
  */
-describeWithGit('applyGitRenameRemote', () => {
+describeWithGit('applyGitRenameRemote', { timeout: REAL_GIT_TIMEOUT_MS }, () => {
   /** 送り先を bare にして、追跡先まで作る（ネットワークへは出ない）。 */
   async function connectAndPush(): Promise<void> {
     commit('a.txt', 'base\n', 'first')
@@ -729,7 +750,7 @@ describeWithGit('applyGitRenameRemote', () => {
   })
 })
 
-describeWithGit('applyGitRemoveRemote', () => {
+describeWithGit('applyGitRemoveRemote', { timeout: REAL_GIT_TIMEOUT_MS }, () => {
   /** 送り先を bare にして、追跡先まで作る（ネットワークへは出ない）。 */
   async function connectAndPush(): Promise<void> {
     commit('a.txt', 'base\n', 'first')
@@ -832,7 +853,7 @@ describeWithGit('applyGitRemoveRemote', () => {
  * 要る理由」そのものになるため。写しを相手にすると、この前提を
  * 自分で書くことになる。
  */
-describeWithGit('git が受け取る値と、こちらが受け取る値', () => {
+describeWithGit('git が受け取る値と、こちらが受け取る値', { timeout: REAL_GIT_TIMEOUT_MS }, () => {
   /*
     `ext::` は実在する RCE の経路になる ── 追加した時点では何も起きないが、
     以降の fetch / push でその文字列がシェルとして走る。

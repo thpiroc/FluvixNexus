@@ -168,7 +168,28 @@ function restoreEnv(name: string, value: string | undefined): void {
   process.env[name] = value
 }
 
-describeWithGit('readGitCommitDetail', () => {
+/**
+ * 実 git を何本も起動するテストの待ち時間（Session 3-8-20 で明示した）。
+ *
+ * ここのテストは1件あたり 10 本前後の git プロセスを起動する ── 準備の
+ * commit / switch に加えて、`applyGit*` は操作の前後で状態を読み直し
+ * （main/git/gitOperationResult.ts）、その1回ずつが `rev-parse` /
+ * `symbolic-ref` / `remote` / `rev-parse MERGE_HEAD` / `status` を動かす
+ * （main/git/gitRepository.ts）。
+ *
+ * vitest の既定（5 秒）はそれに対して元から余裕が無く、100 本を超える
+ * テストファイルを並べて走らせたときだけ落ちる、という形で表に出ていた ──
+ * Session 3-8-20 で状態の読み取りに `rev-parse MERGE_HEAD` が1本増えたことで、
+ * その余裕が無くなった（プロセスの起動そのものが Windows では重い）。
+ *
+ * **速さを確かめるテストではない**ので、上限は「本当に返ってこなくなったことに
+ * 気づける」までの長さで足りる。既定を全体へ広げるのではなく、実 git を
+ * 並べて起動するこの塊にだけ掛ける ── 純粋なロジックのテストは 5 秒で
+ * 落ちてくれた方がよい。
+ */
+const REAL_GIT_TIMEOUT_MS = 30_000
+
+describeWithGit('readGitCommitDetail', { timeout: REAL_GIT_TIMEOUT_MS }, () => {
   it('追加・変更・削除を、変更ファイルの一覧と同じ語で返す', async () => {
     write('keep.txt', 'v1\n')
     write('gone.txt', 'x\n')
@@ -312,7 +333,7 @@ describeWithGit('readGitCommitDetail', () => {
   })
 })
 
-describeWithGit('readGitCommitFileDiff', () => {
+describeWithGit('readGitCommitFileDiff', { timeout: REAL_GIT_TIMEOUT_MS }, () => {
   it('親の中身と、この commit の中身を返す', async () => {
     write('a.txt', 'before\n')
     commit('first')

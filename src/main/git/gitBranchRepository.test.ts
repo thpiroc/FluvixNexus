@@ -199,7 +199,28 @@ function restoreEnv(name: string, value: string | undefined): void {
   process.env[name] = value
 }
 
-describeWithGit('listGitBranches', () => {
+/**
+ * 実 git を何本も起動するテストの待ち時間（Session 3-8-20 で明示した）。
+ *
+ * ここのテストは1件あたり 10 本前後の git プロセスを起動する ── 準備の
+ * commit / switch に加えて、`applyGit*` は操作の前後で状態を読み直し
+ * （main/git/gitOperationResult.ts）、その1回ずつが `rev-parse` /
+ * `symbolic-ref` / `remote` / `rev-parse MERGE_HEAD` / `status` を動かす
+ * （main/git/gitRepository.ts）。
+ *
+ * vitest の既定（5 秒）はそれに対して元から余裕が無く、100 本を超える
+ * テストファイルを並べて走らせたときだけ落ちる、という形で表に出ていた ──
+ * Session 3-8-20 で状態の読み取りに `rev-parse MERGE_HEAD` が1本増えたことで、
+ * その余裕が無くなった（プロセスの起動そのものが Windows では重い）。
+ *
+ * **速さを確かめるテストではない**ので、上限は「本当に返ってこなくなったことに
+ * 気づける」までの長さで足りる。既定を全体へ広げるのではなく、実 git を
+ * 並べて起動するこの塊にだけ掛ける ── 純粋なロジックのテストは 5 秒で
+ * 落ちてくれた方がよい。
+ */
+const REAL_GIT_TIMEOUT_MS = 30_000
+
+describeWithGit('listGitBranches', { timeout: REAL_GIT_TIMEOUT_MS }, () => {
   it('ローカルブランチを、今どこに居るかの印つきで返す', async () => {
     commit('a.txt', 'a\n', 'first')
     git('branch', 'feature/x')
@@ -286,7 +307,7 @@ describeWithGit('listGitBranches', () => {
   })
 })
 
-describeWithGit('applyGitCreateBranch', () => {
+describeWithGit('applyGitCreateBranch', { timeout: REAL_GIT_TIMEOUT_MS }, () => {
   it('作って、そのまま切り替わる', async () => {
     commit('a.txt', 'a\n', 'first')
 
@@ -509,7 +530,7 @@ describeWithGit('applyGitCreateBranch', () => {
   })
 })
 
-describeWithGit('applyGitSwitchBranch', () => {
+describeWithGit('applyGitSwitchBranch', { timeout: REAL_GIT_TIMEOUT_MS }, () => {
   it('切り替えると、作業ツリーの中身がそのブランチのものになる', async () => {
     commit('a.txt', 'main\n', 'first')
     git('switch', '--quiet', '--create', 'feature/x')
@@ -686,7 +707,7 @@ describeWithGit('applyGitSwitchBranch', () => {
  *
  * `-D` を持たないという判断が意味を持つのは、まさにそこにあたる。
  */
-describeWithGit('applyGitDeleteBranch', () => {
+describeWithGit('applyGitDeleteBranch', { timeout: REAL_GIT_TIMEOUT_MS }, () => {
   it('マージ済みのブランチを消す', async () => {
     commit('a.txt', 'a\n', 'first')
     git('branch', 'merged')
@@ -825,7 +846,7 @@ describeWithGit('applyGitDeleteBranch', () => {
  *   - 行き先が実在するときは**相手のブランチが1文字も動かない**
  *   - 大文字小文字だけの改名が**通る**（`--force` の使いどころが1点であること）
  */
-describeWithGit('applyGitRenameBranch', () => {
+describeWithGit('applyGitRenameBranch', { timeout: REAL_GIT_TIMEOUT_MS }, () => {
   it('他のブランチの名前を変える（HEAD は動かない）', async () => {
     commit('a.txt', 'a\n', 'first')
     git('branch', 'old-name')

@@ -202,6 +202,35 @@ export type GitRepositoryState =
        * 移しただけで、合計は増えていない（main/git/gitSync.ts）。
        */
       readonly hasRemote: boolean
+      /**
+       * マージの途中か（`MERGE_HEAD` があるか。Session 3-8-20）。
+       *
+       * ## Renderer 側で推測しない
+       *
+       * 「競合しているファイルが1件以上ある」から導けそうに見えるが、**導けない。**
+       *
+       *   競合が無くてもマージ中 … 解決し終えた直後（Commit するまで MERGE_HEAD は残る）
+       *   マージ中でなくても競合 … `stash pop` が作る競合（Session 3-8-15）
+       *
+       * 前者を取り違えると「解決し終えた瞬間に中止の口が消える」ことになり、
+       * 後者では**マージしていないのに `merge --abort` を出す**ことになる。
+       * どちらの間違いも、利用者が見ている画面と Git の実際の状態が食い違う。
+       *
+       * したがって読むのは Git で（`rev-parse --verify --quiet MERGE_HEAD`。
+       * main/git/gitRepository.ts）、Renderer へはその答えだけが渡る。
+       *
+       * ## なぜ `ready` の中なのか
+       *
+       * 基準は `hasRemote` と同じ**「見られている時間」**になる。マージ中は
+       * その間ずっと画面を決めている ── 上のバーの下に「マージの途中です」の
+       * 帯が出て、そこにだけ中止の口が在る（renderer/src/git/GitView.tsx）。
+       * 別の問い合わせに分けると、変更ファイルの一覧と**別の瞬間の写し**になり、
+       * 「競合の行は消えているのに帯だけ残っている」画面がありうる。
+       *
+       * 代償は、状態を読むたびに git が1回増えること（`rev-parse`）。
+       * ref を1つ確かめるだけで、作業ツリーにもネットワークにも触らない。
+       */
+      readonly merging: boolean
     }
   /** Git を動かせたが、答えが得られなかった。 */
   | { readonly status: 'failed'; readonly reason: GitFailureReason }

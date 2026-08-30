@@ -465,6 +465,220 @@ const DIVERGED_NEEDLES: readonly string[] = [
   'not something we can merge'
 ]
 
+/* ----------------------------------- ブランチのマージ（Session 3-8-20） */
+
+/**
+ * ブランチのマージの失敗の分類（Session 3-8-20）。
+ *
+ * ## `classifyGitMergeFailure`（3-8-5）と別の表にしてある
+ *
+ * 動かす git は同じ `git merge` だが、**起こりうることが重ならない。**
+ *
+ *   3-8-5（`--ff-only @{upstream}`） … 競合しない・相手は必ず解ける・断られて終わる
+ *   3-8-20（`--ff <ローカル名>`）    … **競合する**・相手が無いことがある・
+ *                                       merge commit を作るので hook が走る
+ *
+ * とくに `not something we can merge` の**意味が裏返る** ── あちらでは
+ * 「追跡先の ref が解けなかった」で `diverged` に寄せていたが、こちらでは
+ * 「一覧から選んだブランチが（押すまでの間に）消えていた」で、
+ * 次の一手は「一覧を開き直す」になる（`branch-not-found`）。同じ文言を
+ * 同じ分類へ落とすと、片方で必ず間違った案内が出る。
+ *
+ * ## 読むのは stdout と stderr を繋いだもの
+ *
+ * **競合の報告は stdout に出る**（`--quiet` を付けても残る。実物で
+ * 確かめてある）── `CONFLICT (content): Merge conflict in f.txt` も
+ * `Automatic merge failed; fix conflicts and then commit the result.` も
+ * 標準エラーではない。stderr だけを見る他の分類と同じ形にすると、
+ * **競合が `unknown` に落ちる。**
+ *
+ * 引数を1つにしてあるのは、繋ぐ側（main/git/gitMerge.ts）に
+ * 「どちらを渡すか」の判断を残さないため。
+ *
+ * ## 順番に意味がある
+ *
+ * ```
+ * index.lock  → 競合 → hook → 無関係な履歴 → 作業ツリー → 前のマージ
+ *             → 相手が無い → 早送りできない → 権限
+ * ```
+ *
+ * 競合をいちばん先（index.lock の次）に見るのは、それだけが
+ * **`failed` ではなく `partly-applied` になる**ため ── 後ろに置くと、
+ * 競合と一緒に出た別の言い回しに当たった一回だけ「何も起きなかった」と
+ * 名乗ることになる。
+ *
+ * hook を無関係な履歴より先に見るのは、hook の出力が**任意の文章**だから
+ * にあたる（`refusing to merge unrelated histories` と書く hook が
+ * 在りうる。§14.12 で hook の出力を Renderer へ渡さないと決めたのと
+ * 同じ「当てにならないもの」の扱い）。
+ *
+ * 作業ツリー（`local-changes-blocked`）を前のマージ（`unresolved-conflicts`）
+ * より先に見るのは 3-8-5 と同じで、**git は作業ツリーの方を先に言う** ──
+ * 「まず何を片付けるか」の順番と揃う。
+ */
+export function classifyGitMergeBranchFailure(output: string): GitOperationFailureReason {
+  const text = output.toLowerCase()
+
+  if (text.includes('index.lock')) {
+    return 'index-locked'
+  }
+
+  /*
+    自動でマージできない箇所が残った。**これだけは「失敗」ではない** ──
+    呼ぶ側がこれを見て `partly-applied` に組み替える（main/git/gitMerge.ts）。
+  */
+  if (MERGE_CONFLICT_NEEDLES.some((needle) => text.includes(needle))) {
+    return 'merge-conflict'
+  }
+
+  /*
+    `pre-merge-commit` / `commit-msg` hook が merge commit を止めた。
+
+    このとき MERGE_HEAD は**残る**（実物で確かめてある）── 作業ツリーと
+    index には取り込みが済んでおり、commit だけが作られていない。
+    画面はマージ中として出続け、中止の口も開いたままになる。
+  */
+  if (MERGE_HOOK_NEEDLES.some((needle) => text.includes(needle))) {
+    return 'hook-rejected'
+  }
+
+  /*
+    共通の祖先が無い。`diverged` より**先に**見る ── 3-8-5 の表では
+    同じ文言を `diverged` に寄せてあるが、こちらでは次の一手が違う
+    （あちらは「どう統合するかを決める」、こちらは「相手を間違えている」）。
+  */
+  if (text.includes('refusing to merge unrelated histories')) {
+    return 'unrelated-histories'
+  }
+
+  if (LOCAL_CHANGES_NEEDLES.some((needle) => text.includes(needle))) {
+    return 'local-changes-blocked'
+  }
+
+  if (UNRESOLVED_MERGE_NEEDLES.some((needle) => text.includes(needle))) {
+    return 'unresolved-conflicts'
+  }
+
+  /*
+    一覧から選んだブランチが解けなかった（押すまでの間に消えた）。
+
+    アプリは動かす前に `branch --list` で確かめている（main/git/gitMerge.ts）
+    ので、ここへ来るのはその後に消えた場合と、確かめが効かなかった場合に
+    限られる ── どちらも次の一手は「一覧を開き直す」で同じになる。
+  */
+  if (MERGE_TARGET_NOT_FOUND_NEEDLES.some((needle) => text.includes(needle))) {
+    return 'branch-not-found'
+  }
+
+  /*
+    早送りできない。`--ff` を明示しているので**普段はここへ来ない**が、
+    リポジトリの設定側から出る経路が残りうる ── 取り込めなかったという
+    結論は Pull のときと同じなので、同じ分類に寄せてある。
+  */
+  if (MERGE_DIVERGED_NEEDLES.some((needle) => text.includes(needle))) {
+    return 'diverged'
+  }
+
+  if (text.includes('permission denied') || text.includes('access is denied')) {
+    return 'permission-denied'
+  }
+
+  return 'unknown'
+}
+
+/**
+ * 自動でマージできない箇所が残った（**stdout に出る**）。
+ *
+ * 3つとも同じ1回のマージで並んで出るが、どれか1つでも当たれば足りる ──
+ * `CONFLICT (` は種類ごとに続きが変わる（`content` / `modify/delete` /
+ * `add/add` など）ので、括弧までで切ってある。
+ */
+const MERGE_CONFLICT_NEEDLES: readonly string[] = [
+  'automatic merge failed',
+  'conflict (',
+  'fix conflicts and then commit'
+]
+
+/**
+ * hook が merge commit を止めた。
+ *
+ * `Not committing merge; use 'git commit' to complete the merge.` は
+ * `pre-merge-commit` が非0で終わったときに git 自身が出す文言にあたる
+ * （実物で確かめてある）── hook 自身の出力ではないので、当てにしてよい。
+ */
+const MERGE_HOOK_NEEDLES: readonly string[] = [
+  'not committing merge',
+  'hook declined',
+  'hooks/pre-merge-commit'
+]
+
+/** 相手のブランチが解けなかった。 */
+const MERGE_TARGET_NOT_FOUND_NEEDLES: readonly string[] = [
+  'not something we can merge',
+  'did not match any',
+  'unknown revision'
+]
+
+/**
+ * 早送りできない（`refusing to merge unrelated histories` を**含めない**）。
+ *
+ * 3-8-5 の `DIVERGED_NEEDLES` からその1行を抜いたものにあたる ──
+ * こちらでは1つ手前で `unrelated-histories` として拾う。
+ * `not something we can merge` も抜いてある（こちらでは `branch-not-found`）。
+ */
+const MERGE_DIVERGED_NEEDLES: readonly string[] = [
+  'not possible to fast-forward',
+  'divergent branches'
+]
+
+/**
+ * マージの中止の失敗の分類（Session 3-8-20）。
+ *
+ * ## 起こりうることが少ない
+ *
+ * `git merge --abort` は引数を1つも取らず、ネットワークにも出ず、
+ * hook も走らない ── 分けるのは4つで足りる。
+ *
+ * | 断り方                            | 分類               | 次の一手                     |
+ * | --------------------------------- | ------------------ | ---------------------------- |
+ * | index.lock                        | `index-locked`     | 他の git が終わるのを待つ    |
+ * | MERGE_HEAD が無い                 | `nothing-to-do`    | 何も要らない（もう中止済み） |
+ * | 権限                              | `permission-denied`| フォルダの権限を見る          |
+ * | それ以外                          | `unknown`          | ログを見る                    |
+ *
+ * `nothing-to-do` はアプリが**先に見て返す**（読んだ状態の `merging` が
+ * 偽なら git を1回も動かさない。main/git/gitMerge.ts）── ここへ来るのは
+ * 「確かめてから動かすまでの間に、端末側で中止された」場合に限られる。
+ */
+export function classifyGitAbortMergeFailure(stderr: string): GitOperationFailureReason {
+  const text = stderr.toLowerCase()
+
+  if (text.includes('index.lock')) {
+    return 'index-locked'
+  }
+
+  if (ABORT_MERGE_NOTHING_NEEDLES.some((needle) => text.includes(needle))) {
+    return 'nothing-to-do'
+  }
+
+  if (text.includes('permission denied') || text.includes('access is denied')) {
+    return 'permission-denied'
+  }
+
+  return 'unknown'
+}
+
+/**
+ * 中止するものが無かった。
+ *
+ * `fatal: There is no merge to abort (MERGE_HEAD missing).` が実際の文言で、
+ * 前半と後半のどちらでも当たるようにしてある（実物で確かめてある）。
+ */
+const ABORT_MERGE_NOTHING_NEEDLES: readonly string[] = [
+  'there is no merge to abort',
+  'merge_head missing'
+]
+
 /* ------------------------------------------- ブランチ（Session 3-8-6） */
 
 /**

@@ -1,5 +1,5 @@
 import { findGitBranchNameProblem, prepareGitBranchName } from '@shared/git'
-import type { GitBranchNameProblem, GitLocalBranch } from '@shared/git'
+import type { GitBranchNameProblem, GitHead, GitLocalBranch } from '@shared/git'
 import type { GitActionReadiness } from './gitChanges'
 
 /**
@@ -9,12 +9,13 @@ import type { GitActionReadiness } from './gitChanges'
  * 文言」を持つのと同じ立ち位置で、こちらは**ブランチを選ぶ面の中身**を持つ。
  * GitBranchMenu.tsx に残るのは配置だけになる。
  *
- * ## ここで決めているのは4つ（Session 3-8-14 で1つ増えた）
+ * ## ここで決めているのは5つ（Session 3-8-14 と 3-8-20 で1つずつ増えた）
  *
  *   1. 開いた面に何と出すか（読み込み中・失敗・1件も無い・切れている）
  *   2. 行を押せるか、押すと何が起きるか
  *   3. 打った名前でブランチを作れるか、作れないならなぜか
  *   4. その行を削除 / 改名できるか、できないならなぜか（3-8-14）
+ *   5. その行を今のブランチへ取り込めるか、確認に何と書くか（3-8-20）
  *
  * 3 の判断は shared の関数（`findGitBranchNameProblem`）に委ねてある ──
  * Main が受け取った後に通すのと**同じ関数**で、ここが持つのは文言だけになる
@@ -52,6 +53,20 @@ export const GIT_CREATE_BRANCH_OPERATION_KEY = 'create-branch'
  */
 export const GIT_DELETE_BRANCH_OPERATION_KEY = 'delete-branch'
 export const GIT_RENAME_BRANCH_OPERATION_KEY = 'rename-branch'
+/**
+ * マージの開始 / 中止の目印（Session 3-8-20）。
+ *
+ * ここも対象を名前に含めない ── 含めると「別のブランチのマージなら並べて
+ * 始めてよい」ことになるが、取り込み先は常に**1つの今のブランチ**で、
+ * 2本同時に始めてよいものではない（削除 / rename と同じ判断）。
+ *
+ * 中止を別の目印にしてあるのは、**同時に走ってよいかではなく、
+ * 押せる場所が別**だからになる ── 開始は面の中の行、中止はパネルの帯で、
+ * 片方が動いている間にもう片方の押せなさを目印から読めるようにする
+ * （どちらも `operating` で止まるので、実際に並ぶことは無い）。
+ */
+export const GIT_MERGE_BRANCH_OPERATION_KEY = 'merge-branch'
+export const GIT_ABORT_MERGE_OPERATION_KEY = 'abort-merge'
 
 /**
  * 一覧の今の姿（フックが持つ形）。
@@ -280,6 +295,132 @@ export function describeGitBranchDeleteWarning(branch: GitLocalBranch): {
     message: `ブランチ「${branch.name}」を削除しますか？`,
     note: 'このブランチにしか無いコミットがある場合、Git が削除を中止します。取り消しはできません。',
     confirmLabel: '削除'
+  }
+}
+
+/**
+ * その行のブランチを今のブランチへ取り込めるか（Session 3-8-20）。
+ *
+ * ## 今のブランチの行では**出さない**（薄くもしない）
+ *
+ * 削除（✕）は「押しても絶対に通らない」ので薄くして理由を添えたが、
+ * マージは違う ── 自分自身を取り込むというのは**操作として意味を成さない**
+ * （git は `Already up to date.` と言って何もしない）。薄いボタンを置くと、
+ * 「条件が揃えば押せるもの」に見える。
+ *
+ * 消しても一覧の見た目は揃う ── ✕ と違い、マージの口は行の**左端側**
+ * （名前のすぐ右）に付くので、無い行では右の ✎ / ✕ がそのまま
+ * 左へ詰まるのではなく、場所だけが空く形にしてある
+ * （renderer/src/git/GitBranchMenu.tsx が空の器を置く）。
+ *
+ * 呼ぶ側はこの関数の `enabled` を見て**出すかどうか**を決める
+ * （`visible` を別に返さないのは、押せない理由が1つしか無いため）。
+ *
+ * ## マージ中は押せない
+ *
+ * 途中のマージが在る間、git は次のマージを始めない（Main も先に断る。
+ * main/git/gitMerge.ts）── 待っても押せるようになるわけではなく、
+ * 先にすること（解決して Commit するか、中止する）が決まっている。
+ * その2つはどちらもパネルの帯に出ている（GitView.tsx）。
+ *
+ * ## 競合が残っているかは、ここでは見ない
+ *
+ * 一覧の面は `head` と行しか受け取っておらず、変更ファイルの一覧は
+ * 持っていない ── 持たせると、面が開くたびに増える依存が1つできる。
+ * 競合が残っていれば Main が `unresolved-conflicts` として断り、
+ * その文言は「先に解決してください」と言う（gitChanges.ts）。
+ * **押す前に分かることを全部先に出す**のは Main の側の構えで、
+ * 画面の側は「意味を成さない押し方」だけを塞ぐ。
+ */
+export function toGitBranchMergeReadiness(
+  branch: GitLocalBranch,
+  head: GitHead,
+  merging: boolean,
+  operating: boolean
+): GitActionReadiness {
+  const into = head.kind === 'branch' ? head.name : null
+
+  if (branch.current || into === null || into === branch.name) {
+    return { enabled: false, note: `${branch.name} は今このブランチに居るため取り込めません。` }
+  }
+
+  if (merging) {
+    return {
+      enabled: false,
+      note: 'マージの途中です。解決して Commit するか、マージを中止してからお試しください。'
+    }
+  }
+
+  return { enabled: !operating, note: `${branch.name} を ${into} に取り込みます。` }
+}
+
+/**
+ * マージの確認に出す文言（Session 3-8-20）。
+ *
+ * ## Git で確認を挟む、3つめ
+ *
+ * 1つめは破棄（§14.16）、2つめはブランチの削除（§14.22）── どちらも
+ * 「消える」ことへの確認だった。こちらは**消えないのに確認を挟む**、
+ * 初めての操作になる。
+ *
+ * 理由は2つある。
+ *
+ *   - **押す場所が切り替えの行の上**にある（1文字分の距離）。誤って押すと、
+ *     切り替えるつもりで**履歴に merge commit が積まれる**
+ *   - **戻す口をアプリが持たない。** merge commit を作った後の取り消し
+ *     （`reset`）は 3-8-20 の範囲外で、行き先は Terminal パネルになる
+ *
+ * ## 何が起きるかを、盛らずに書く
+ *
+ * 「失われます」とは書かない ── マージで消えるものは無く、
+ * 起きるのは「今のブランチに相手の変更が入る」ことだけになる。
+ * 破棄や削除と同じ重さの言い方をすると、本当に失われる場面の警告まで
+ * 軽く読まれる（`describeGitBranchDeleteWarning` と同じ判断）。
+ *
+ * 競合しうることは**先に言う** ── 押した後に競合の行が並ぶのは、
+ * 知らされていなければ「壊れた」と読まれる形になる。
+ */
+export function describeGitBranchMergeWarning(
+  branch: GitLocalBranch,
+  head: GitHead
+): {
+  readonly message: string
+  readonly note: string
+  readonly confirmLabel: string
+} {
+  const into = head.kind === 'branch' ? head.name : ''
+
+  return {
+    message: `ブランチ「${branch.name}」を ${into} に取り込みますか？`,
+    note: '早送りできる場合はマージコミットを作りません。競合した場合は、解決してから Commit すると完了します。',
+    confirmLabel: 'マージ'
+  }
+}
+
+/**
+ * マージの中止の確認に出す文言（Session 3-8-20）。
+ *
+ * ## ここは「消える」側の確認になる
+ *
+ * `git merge --abort` が戻すのは**マージを始める前の状態**で、
+ * そのとき在った作業ツリーの変更は残る。一方、
+ * **競合を解決するために書いた内容・その間に stage したものは消える**
+ * （実物で確かめてある。main/git/gitMergeRepository.test.ts）。
+ *
+ * 2つを同じ文の中で並べて書く ── 「元に戻ります」とだけ書くと、
+ * 30 分かけて解決した内容が消えることが伝わらない。逆に
+ * 「変更が失われます」とだけ書くと、マージの前から書きかけていた人が
+ * 中止できなくなる。
+ */
+export function describeGitAbortMergeWarning(): {
+  readonly message: string
+  readonly note: string
+  readonly confirmLabel: string
+} {
+  return {
+    message: 'マージを中止しますか？',
+    note: 'マージを開始する前の状態に戻ります。開始前からあった変更は残りますが、競合の解決中に書いた内容は失われます。',
+    confirmLabel: 'マージを中止'
   }
 }
 

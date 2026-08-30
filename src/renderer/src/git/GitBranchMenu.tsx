@@ -11,9 +11,11 @@ import { Popover } from '../ui/Popover'
 import {
   describeGitBranchDeleteWarning,
   describeGitBranchList,
+  describeGitBranchMergeWarning,
   describeGitBranchTruncation,
   toGitBranchCreateReadiness,
   toGitBranchDeleteReadiness,
+  toGitBranchMergeReadiness,
   toGitBranchRenameReadiness,
   toGitBranchSwitchReadiness,
   type GitBranchListState
@@ -153,7 +155,7 @@ import { describeGitHead } from './gitRepositoryMessage'
  */
 interface OpenedBranchRow {
   readonly name: string
-  readonly mode: 'delete' | 'rename' | 'track'
+  readonly mode: 'delete' | 'rename' | 'track' | 'merge'
 }
 
 export function GitBranchMenu({
@@ -161,11 +163,13 @@ export function GitBranchMenu({
   list,
   remoteList,
   operating,
+  merging,
   onOpen,
   onSwitch,
   onCreate,
   onDelete,
   onRename,
+  onMerge,
   onCreateTracking
 }: {
   /** 今 HEAD がどこを指しているか（ボタンの文字になる）。 */
@@ -176,6 +180,16 @@ export function GitBranchMenu({
   readonly remoteList: GitRemoteBranchListState
   /** 何かしらの Git 操作が動いている最中か。 */
   readonly operating: boolean
+  /**
+   * マージの途中か（Session 3-8-20）。
+   *
+   * `head` と同じく状態から来る（shared/git/repository.ts）── 面が自分で
+   * 推し量らないのは、「競合の行があるか」からは導けないためになる。
+   * 使うのは行のマージの口を押せなくするためだけで、**中止の口はここに
+   * 置かない**（パネルの帯にある。GitView.tsx）── 面を開かないと
+   * 中止できない形にすると、いちばん出口が要る状態で出口が隠れる。
+   */
+  readonly merging: boolean
   /** 面が開いた（一覧を取り直す契機 ── 3-8-19 から2本とも取り直す）。 */
   readonly onOpen: () => void
   readonly onSwitch: (name: string) => void
@@ -185,6 +199,8 @@ export function GitBranchMenu({
   readonly onDelete: (name: string) => Promise<GitOperationOutcome | null>
   /** 名前を変える（結末をそのまま返す）。 */
   readonly onRename: (name: string, newName: string) => Promise<GitOperationOutcome | null>
+  /** 今のブランチへ取り込む（結末をそのまま返す。Session 3-8-20）。 */
+  readonly onMerge: (name: string) => Promise<GitOperationOutcome | null>
   /** remote の枝を追うブランチを作る（結末をそのまま返す。Session 3-8-19）。 */
   readonly onCreateTracking: (
     startPoint: string,
@@ -309,7 +325,9 @@ export function GitBranchMenu({
                 <GitBranchRow
                   key={branch.name}
                   branch={branch}
+                  head={head}
                   operating={operating}
+                  merging={merging}
                   opened={opened !== null && opened.name === branch.name ? opened.mode : null}
                   failure={failure}
                   onSelect={() => {
@@ -320,6 +338,8 @@ export function GitBranchMenu({
                   onCloseRow={closeRow}
                   onDelete={onDelete}
                   onRename={onRename}
+                  onMerge={onMerge}
+                  onMerged={close}
                   onOutcome={setFailure}
                 />
               ))
@@ -701,7 +721,9 @@ function GitTrackingBranchForm({
  */
 function GitBranchRow({
   branch,
+  head,
   operating,
+  merging,
   opened,
   failure,
   onSelect,
@@ -709,10 +731,14 @@ function GitBranchRow({
   onCloseRow,
   onDelete,
   onRename,
+  onMerge,
+  onMerged,
   onOutcome
 }: {
   readonly branch: GitLocalBranch
+  readonly head: GitHead
   readonly operating: boolean
+  readonly merging: boolean
   /** この行の下で開いているもの（無ければ null）。 */
   readonly opened: OpenedBranchRow['mode'] | null
   readonly failure: GitOperationFailure | null
@@ -721,10 +747,24 @@ function GitBranchRow({
   readonly onCloseRow: () => void
   readonly onDelete: (name: string) => Promise<GitOperationOutcome | null>
   readonly onRename: (name: string, newName: string) => Promise<GitOperationOutcome | null>
+  readonly onMerge: (name: string) => Promise<GitOperationOutcome | null>
+  /** マージが始まったので面を閉じる（続きはパネル本体にある）。 */
+  readonly onMerged: () => void
   readonly onOutcome: (failure: GitOperationFailure | null) => void
 }): JSX.Element {
   const switchReadiness = toGitBranchSwitchReadiness(branch, operating)
   const deleteReadiness = toGitBranchDeleteReadiness(branch, operating)
+  const mergeReadiness = toGitBranchMergeReadiness(branch, head, merging, operating)
+  /*
+    今のブランチ（と detached）の行にはマージの口を出さない
+    （gitBranches.ts）── 自分自身を取り込むのは操作として意味を成さず、
+    薄いボタンを置くと「条件が揃えば押せるもの」に見える。
+
+    **場所は空けたまま残す**（下の `<span>`）── 消すと、行ごとにボタンの
+    数が変わって ✎ / ✕ の位置が縦に揃わなくなる（3-8-14 で ✕ を薄くして
+    残したのと同じ判断）。
+  */
+  const mergeVisible = !branch.current && head.kind === 'branch'
 
   return (
     <div className="fx-git__branch-entry" data-current={branch.current}>
@@ -743,6 +783,37 @@ function GitBranchRow({
           <span className="fx-menu__label fx-git__branch-name">{branch.name}</span>
           {branch.current ? <span className="fx-menu__hint">現在</span> : null}
         </button>
+        {/*
+          ⤵（今のブランチへ取り込む。Session 3-8-20）。
+
+          ## 置き場所は ✎ / ✕ の**手前**
+
+          いちばん右（✕ ＝ 消す）を動かさないため ── 一覧を縦に読む人が
+          頼りにしているのは「右端は消す側」という並びで、そこに
+          別のものを差し込むと、3-8-14 からの押し方が変わる。
+
+          ## 押すとその場で git が動くのではなく、行の下が開く
+
+          ✎ / ✕ とまったく同じ形になる（`aria-expanded`）。3-8-20 で
+          いちばん避けたいのは**切り替えるつもりで押してマージが始まる**
+          ことで、確認はそのために在る（gitBranches.ts）。
+        */}
+        {mergeVisible ? (
+          <button
+            type="button"
+            className="fx-git__branch-action"
+            data-action="merge"
+            onClick={() => onOpenRow({ name: branch.name, mode: 'merge' })}
+            disabled={!mergeReadiness.enabled}
+            aria-expanded={opened === 'merge'}
+            title={mergeReadiness.note}
+            aria-label={`${branch.name} を取り込む`}
+          >
+            ⤵
+          </button>
+        ) : (
+          <span className="fx-git__branch-action" aria-hidden="true" />
+        )}
         {/*
           ✎ と ✕ は、押すと**その場で git が動くのではなく行の下が開く。**
           `aria-expanded` を持たせてあるのはそのためで、押した結果として
@@ -794,6 +865,132 @@ function GitBranchRow({
           onOutcome={onOutcome}
         />
       ) : null}
+
+      {opened === 'merge' ? (
+        <GitBranchMergeConfirm
+          branch={branch}
+          head={head}
+          operating={operating}
+          failure={failure}
+          onConfirm={onMerge}
+          onCancel={onCloseRow}
+          onMerged={onMerged}
+          onOutcome={onOutcome}
+        />
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * 行の下に開くマージの確認（Session 3-8-20）。
+ *
+ * ## Git で確認を挟む、3つめ
+ *
+ * 1つめは破棄（§14.16）、2つめはブランチの削除（§14.22）── どちらも
+ * 「消える」ことへの確認だった。**マージでは何も消えない。** それでも
+ * 挟むのは、押す場所が切り替えの行の上（1文字分の距離）にあり、
+ * 誤って押すと**履歴に merge commit が積まれる**ためになる ── その取り消し
+ * （`reset`）はアプリが持たず、行き先は Terminal パネルになる。
+ *
+ * ## 器は削除の確認と同じ
+ *
+ * 見た目も並びも `GitBranchDeleteConfirm` をそのまま踏襲する ── 尋ね方を
+ * 揃えるのは 3-8-14 からの決めごとで、既定の focus は「やめる」、
+ * 実行は右になる。**`data-variant="danger"` は付けない**（消す操作ではない）。
+ *
+ * ## 通っても競合しても閉じる。通らなかったときだけ開いたままにする
+ *
+ * 通れば、この面でやることはもう無い。**競合した場合も閉じる** ──
+ * 次にすること（競合の解決 → Commit）は面の中ではなく、パネル本体の
+ * 一覧に在るためで、面が被さっていると見えない。
+ *
+ * 逆に `failed`（作業ツリーが邪魔・相手が消えた）では閉じない ── 3-8-14 の
+ * 削除 / rename と同じ判断で、**理由を読む前に押した行が消えない**ように
+ * するためになる。
+ */
+function GitBranchMergeConfirm({
+  branch,
+  head,
+  operating,
+  failure,
+  onConfirm,
+  onCancel,
+  onMerged,
+  onOutcome
+}: {
+  readonly branch: GitLocalBranch
+  readonly head: GitHead
+  readonly operating: boolean
+  readonly failure: GitOperationFailure | null
+  readonly onConfirm: (name: string) => Promise<GitOperationOutcome | null>
+  readonly onCancel: () => void
+  readonly onMerged: () => void
+  readonly onOutcome: (failure: GitOperationFailure | null) => void
+}): JSX.Element {
+  const warning = describeGitBranchMergeWarning(branch, head)
+
+  const confirm = useCallback((): void => {
+    void onConfirm(branch.name).then((outcome) => {
+      if (outcome === null) {
+        return
+      }
+
+      /*
+        通らなかった（`failed`）── 行の下に理由を出し、面は開けたままにする。
+        押した行がその場に残っていないと、出ている理由がどれについてのものか
+        分からなくなる（3-8-14 の削除 / rename と同じ）。
+      */
+      if (outcome.status === 'failed') {
+        onOutcome(outcome)
+        return
+      }
+
+      /*
+        通った（`applied`）か、競合した（`partly-applied`）── どちらも
+        続きは面の外にある。競合の理由はパネル本体の1行に出る
+        （GitView.tsx が同じ結末から出す）。
+      */
+      onOutcome(null)
+      onMerged()
+    })
+  }, [branch.name, onConfirm, onMerged, onOutcome])
+
+  return (
+    <div
+      className="fx-git__branch-confirm"
+      role="alertdialog"
+      aria-label={`${branch.name} のマージの確認`}
+      data-testid="git-branch-merge-confirm"
+      data-branch={branch.name}
+    >
+      <p className="fx-git__branch-confirm-message">{warning.message}</p>
+      <p className="fx-git__branch-confirm-note">{warning.note}</p>
+      <div className="fx-git__branch-confirm-actions">
+        <button
+          type="button"
+          className="fx-git__branch-confirm-button"
+          onClick={onCancel}
+          // 確認を出す目的は誤操作を止めることなので、既定はこちらに置く。
+          autoFocus
+        >
+          やめる
+        </button>
+        <button
+          type="button"
+          className="fx-git__branch-confirm-button"
+          data-testid="git-branch-merge-apply"
+          disabled={operating}
+          onClick={confirm}
+        >
+          {warning.confirmLabel}
+        </button>
+      </div>
+      {failure === null ? null : (
+        <p className="fx-git__branch-failure" role="alert">
+          {describeGitOperationFailure(failure)}
+        </p>
+      )}
     </div>
   )
 }

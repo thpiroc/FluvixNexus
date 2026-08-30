@@ -7,6 +7,8 @@ import {
   classifyGitDeleteBranchFailure,
   classifyGitFailure,
   classifyGitFetchFailure,
+  classifyGitAbortMergeFailure,
+  classifyGitMergeBranchFailure,
   classifyGitMergeFailure,
   classifyGitOperationFailure,
   classifyGitPushFailure,
@@ -403,6 +405,193 @@ describe('classifyGitMergeFailure', () => {
 
   it('知らない文章は unknown に倒す', () => {
     expect(classifyGitMergeFailure('error: something entirely new')).toBe('unknown')
+  })
+})
+
+/**
+ * ブランチのマージの分類（Session 3-8-20）。
+ *
+ * ## `classifyGitMergeFailure`（上）と**同じ文言が別の分類になる**
+ *
+ * それがこの表を分けた理由そのものにあたる。
+ *
+ * | 文言                                  | 3-8-5（Pull）  | 3-8-20（マージ）      |
+ * | ------------------------------------- | -------------- | --------------------- |
+ * | `refusing to merge unrelated histories` | `diverged`   | `unrelated-histories` |
+ * | `not something we can merge`          | `diverged`     | `branch-not-found`    |
+ *
+ * 相手が違う（`@{upstream}` と、一覧から選んだブランチ）ので、
+ * 次の一手も違う ── 同じ分類へ落とすと、片方で必ず間違った案内が出る。
+ *
+ * ## 読むのは stdout と stderr を繋いだもの
+ *
+ * **競合の報告は stdout に出る**（`--quiet` を付けても残る。実物で
+ * 確かめてある）── stderr だけを見る形にすると、いちばん起こる結末が
+ * `unknown` に落ちる。文言はどれも実際の git（2.54）が出す形をそのまま置いてある。
+ */
+describe('classifyGitMergeBranchFailure', () => {
+  /*
+    いちばん起こる結末。3行とも stdout 側に出るもので、
+    どれか1つでも当たれば競合として読む。
+  */
+  it('競合した（stdout に出る3行）', () => {
+    const stdout = [
+      'Auto-merging f.txt',
+      'CONFLICT (content): Merge conflict in f.txt',
+      'Automatic merge failed; fix conflicts and then commit the result.'
+    ].join('\n')
+
+    expect(classifyGitMergeBranchFailure(stdout)).toBe('merge-conflict')
+  })
+
+  it('競合の種類が変わっても拾う（modify/delete）', () => {
+    const stdout = 'CONFLICT (modify/delete): f.txt deleted in feat and modified in HEAD.'
+
+    expect(classifyGitMergeBranchFailure(stdout)).toBe('merge-conflict')
+  })
+
+  /*
+    hook が merge commit を止めた。このとき MERGE_HEAD は**残る**
+    （実物で確かめてある）── 画面はマージ中として出続ける。
+  */
+  it('hook が merge commit を止めた', () => {
+    const output = ["Not committing merge; use 'git commit' to complete the merge."].join('\n')
+
+    expect(classifyGitMergeBranchFailure(output)).toBe('hook-rejected')
+  })
+
+  /*
+    hook の出力は**任意の文章**なので、hook を競合や無関係な履歴より
+    後ろで見ると、そう書いた hook に引きずられる ── 順番でそれを防いでいる。
+  */
+  it('hook が別の分類の言い回しを出しても hook-rejected のまま', () => {
+    const output = [
+      'refusing to merge unrelated histories',
+      "Not committing merge; use 'git commit' to complete the merge."
+    ].join('\n')
+
+    expect(classifyGitMergeBranchFailure(output)).toBe('hook-rejected')
+  })
+
+  /*
+    3-8-5 の表では `diverged` に寄せている文言。こちらでは分ける ──
+    次の一手が「どう統合するかを決める」ではなく「相手を確かめ直す」になる。
+  */
+  it('共通の履歴が無い（Pull の表とは違う分類になる）', () => {
+    const stderr = 'fatal: refusing to merge unrelated histories'
+
+    expect(classifyGitMergeBranchFailure(stderr)).toBe('unrelated-histories')
+    // 3-8-5 の表では同じ文言が diverged のままであること。
+    expect(classifyGitMergeFailure(stderr)).toBe('diverged')
+  })
+
+  /*
+    こちらも 3-8-5 とは意味が裏返る ── あちらは「追跡先の ref が
+    解けなかった」、こちらは「一覧から選んだブランチが消えていた」。
+  */
+  it('相手のブランチが解けない（Pull の表とは違う分類になる）', () => {
+    const stderr = 'merge: no-such-branch - not something we can merge'
+
+    expect(classifyGitMergeBranchFailure(stderr)).toBe('branch-not-found')
+    expect(classifyGitMergeFailure('merge: @{upstream} - not something we can merge')).toBe(
+      'diverged'
+    )
+  })
+
+  it('作業ツリーの変更が邪魔をしている', () => {
+    const stderr = [
+      'error: Your local changes to the following files would be overwritten by merge:',
+      '\tf.txt',
+      'Please commit your changes or stash them before you merge.',
+      'Aborting'
+    ].join('\n')
+
+    expect(classifyGitMergeBranchFailure(stderr)).toBe('local-changes-blocked')
+  })
+
+  /* staged が邪魔なときの言い回し（終了コードは 2）。 */
+  it('staged の変更が邪魔でも local-changes-blocked', () => {
+    const stderr = [
+      'error: Your local changes to the following files would be overwritten by merge:',
+      '\tf.txt',
+      'Merge with strategy ort failed.'
+    ].join('\n')
+
+    expect(classifyGitMergeBranchFailure(stderr)).toBe('local-changes-blocked')
+  })
+
+  it('前のマージが終わっていない', () => {
+    const stderr = [
+      'error: Merging is not possible because you have unmerged files.',
+      'fatal: Exiting because of an unresolved conflict.'
+    ].join('\n')
+
+    expect(classifyGitMergeBranchFailure(stderr)).toBe('unresolved-conflicts')
+  })
+
+  it('index が握られている', () => {
+    const stderr = "fatal: Unable to create '/repo/.git/index.lock': File exists."
+
+    expect(classifyGitMergeBranchFailure(stderr)).toBe('index-locked')
+  })
+
+  /*
+    `--ff` を明示しているので普段は出ないが、設定側から出る経路が残りうる ──
+    取り込めなかったという結論は Pull と同じなので、同じ分類に寄せてある。
+  */
+  it('早送りできない言い回しは diverged のまま', () => {
+    expect(classifyGitMergeBranchFailure('fatal: Not possible to fast-forward, aborting.')).toBe(
+      'diverged'
+    )
+  })
+
+  it('権限で断られた', () => {
+    expect(classifyGitMergeBranchFailure('error: unable to write file: Permission denied')).toBe(
+      'permission-denied'
+    )
+  })
+
+  /* マージはネットワークを通らない（相手は手元のブランチ）。 */
+  it('ネットワークの文言が来ても network には倒さない', () => {
+    expect(classifyGitMergeBranchFailure('fatal: could not resolve host: example.com')).toBe(
+      'unknown'
+    )
+  })
+
+  it('知らない文章は unknown に倒す', () => {
+    expect(classifyGitMergeBranchFailure('error: something entirely new')).toBe('unknown')
+  })
+})
+
+/**
+ * マージの中止の分類（Session 3-8-20）。
+ *
+ * 起こりうることが少ない ── 引数を1つも取らず、ネットワークにも出ず、
+ * hook も走らない。`nothing-to-do` はアプリが**先に見て返す**ので
+ * （読んだ状態の `merging` が偽なら git を動かさない）、ここへ来るのは
+ * 「確かめてから動かすまでの間に、端末側で中止された」場合に限られる。
+ */
+describe('classifyGitAbortMergeFailure', () => {
+  it('中止するものが無かった', () => {
+    const stderr = 'fatal: There is no merge to abort (MERGE_HEAD missing).'
+
+    expect(classifyGitAbortMergeFailure(stderr)).toBe('nothing-to-do')
+  })
+
+  it('index が握られている', () => {
+    const stderr = "fatal: Unable to create '/repo/.git/index.lock': File exists."
+
+    expect(classifyGitAbortMergeFailure(stderr)).toBe('index-locked')
+  })
+
+  it('権限で断られた', () => {
+    expect(classifyGitAbortMergeFailure('error: unable to unlink: Permission denied')).toBe(
+      'permission-denied'
+    )
+  })
+
+  it('知らない文章は unknown に倒す', () => {
+    expect(classifyGitAbortMergeFailure('error: something entirely new')).toBe('unknown')
   })
 })
 
