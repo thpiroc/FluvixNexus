@@ -4,6 +4,7 @@ import type {
   GitCommitSummary,
   GitLocalBranch,
   GitRemote,
+  GitRemoteBranch,
   GitStashEntry
 } from '@shared/git'
 import { describeGitRemoteUrl } from './gitRemoteLabel'
@@ -25,6 +26,8 @@ import { describeGitRemoteUrl } from './gitRemoteLabel'
  *   - `stash list` が返した行は、どの退避か（Session 3-8-15）
  *   - `stash pop` が言っているのは「競合した」か（Session 3-8-15）
  *   - `remote --verbose` が返した行は、どの remote か（Session 3-8-16）
+ *   - `for-each-ref refs/remotes` が返した行は、どの remote-tracking branch か
+ *     ── そして手元に作るときの既定の名前は何か（Session 3-8-19）
  *
  * 1つめが Session 3-8-1 の核心にあたる。**Workspace root がリポジトリ root で
  * ないときは Git 操作を行わない**（設計判断 10）ため、「同じ場所か」の判断を
@@ -128,6 +131,145 @@ export function readLocalBranches(
   }
 
   return { branches, truncated }
+}
+
+/**
+ * `git remote` の出力（1行1名）を読む（Session 3-8-19）。
+ *
+ * 名前の**切り出しにだけ**使う（`readRemoteBranches` の第2引数）── remote を
+ * 一覧として見せる側は `remote --verbose` を読む（`readRemoteEntries`）ので、
+ * こちらは URL もラベルも作らない。
+ *
+ * ## 長い順に並べて返す
+ *
+ * 並べ替えるのは、これを使う側が**いちばん長い接頭辞で切る**ため
+ * （`readRemoteBranches`）。`up` と `up/stream` の両方が登録されている
+ * リポジトリで、`up/stream/feature` を `up` で切ると `stream/feature` になる ──
+ * remote 名の一覧を知っていながら間違えることになる。並べ替えをここで
+ * 済ませておけば、使う側は先頭から試すだけでよい。
+ *
+ * 上限は掛けない ── remote の一覧に上限があるのは IPC を渡る配列のためで
+ * （shared/git/remote.ts）、こちらは Main の中だけで消える。
+ */
+export function readRemoteNames(stdout: string): readonly string[] {
+  const names: string[] = []
+
+  for (const line of stdout.split('\n')) {
+    const name = line.trim()
+
+    if (name.length > 0) {
+      names.push(name)
+    }
+  }
+
+  return names.sort((a, b) => b.length - a.length)
+}
+
+/**
+ * `for-each-ref refs/remotes/ --format=%(refname:short)%00%(symref)` の出力を読む
+ * （Session 3-8-19）。
+ *
+ * 1行が1つの ref で、形は `origin/feature/x<NUL>`（普通のもの）または
+ * `origin<NUL>refs/remotes/origin/main`（symbolic HEAD）になる。
+ *
+ * ## symbolic ref は落とす
+ *
+ * `%(symref)` が空でない行は `refs/remotes/<remote>/HEAD` ── その remote の
+ * 既定ブランチを指す**別名**にあたる。載せると、指した先が別の行と同じになる
+ * 選択肢が一覧に混ざる（main/git/gitCommands.ts の `listRemoteBranches`）。
+ *
+ * 名前で弾かないのは、`%(refname:short)` が symbolic HEAD に対して
+ * `origin`（`origin/HEAD` ではなく！）を返すためでもある ── 名前の形での
+ * 判定は、そこで既に足を取られる。**判断の材料は git 自身が出したもの**を使う。
+ *
+ * ## 既定のローカル名は、remote 名の一覧から切り出す
+ *
+ * `origin/feature/x` の `feature/x` は、**remote 名を知らないと切り出せない** ──
+ * remote 名に `/` を入れられるため、最初の `/` で切るのは当てにならない
+ * （`up/stream/feature/x` の remote は `up/stream` かもしれない）。
+ * したがって渡された名前を**長い順に**試し、`<remote>/` で始まる最初のもので切る。
+ *
+ * ## どの remote にも属さない行は落とす
+ *
+ * `refs/remotes/` の下には、登録されていない remote の残骸が在りうる
+ * （`git remote remove` は ref を消すが、手で作られたものは残る）。
+ * そういう行を落とすのは、**既定の名前を決められない**ため ── 名前を
+ * 空にして出すと、押した瞬間に何が作られるのかが利用者にも分からない。
+ * 落としても一覧が嘘にはならない（`readLocalBranches` が読めない行を
+ * 落とすのと同じ判断で、「出ていない行がある」だけになる）。
+ *
+ * ## 上限の切り方は `readLocalBranches` と同じ
+ *
+ * git には上限より1つ多く求めてあり、ここで `limit` 件に切って
+ * **切ったかどうか**を一緒に返す。落とした行（symbolic ref・属さない行）は
+ * 数に入れない ── 数えるのは**一覧に出るもの**で、そうしないと
+ * 「500 件表示」と言いながら 498 行しか出ない形になる。
+ */
+export function readRemoteBranches(
+  stdout: string,
+  remoteNames: readonly string[],
+  limit: number
+): { readonly branches: readonly GitRemoteBranch[]; readonly truncated: boolean } {
+  const branches: GitRemoteBranch[] = []
+  let truncated = false
+
+  for (const line of stdout.split('\n')) {
+    const separator = line.indexOf('\0')
+
+    if (separator < 0) {
+      continue
+    }
+
+    // 空でなければ symbolic ref（`origin/HEAD`）── 一覧には載せない。
+    if (line.slice(separator + 1).trim().length > 0) {
+      continue
+    }
+
+    const name = line.slice(0, separator).trim()
+
+    if (name.length === 0) {
+      continue
+    }
+
+    const branch = findRemoteBranchPart(name, remoteNames)
+
+    if (branch === null) {
+      continue
+    }
+
+    if (branches.length >= limit) {
+      // 上限より1つ多く求めてあるので、ここへ来た時点で「まだ先がある」。
+      truncated = true
+      break
+    }
+
+    branches.push({ name, branch })
+  }
+
+  return { branches, truncated }
+}
+
+/**
+ * `origin/feature/x` から `feature/x` を切り出す。どの remote にも属さなければ null。
+ *
+ * 渡される `remoteNames` は**長い順**（`readRemoteNames`）なので、
+ * 先頭から試すだけで「いちばん長い接頭辞」が当たる。
+ *
+ * 切った後が空になる場合（`origin/` そのもの）は null を返す ── ref として
+ * 在りえない形だが、**空の既定値を作らない**ことを読み取りの側でも担保しておく。
+ */
+function findRemoteBranchPart(name: string, remoteNames: readonly string[]): string | null {
+  for (const remote of remoteNames) {
+    const prefix = `${remote}/`
+
+    if (name.startsWith(prefix)) {
+      const branch = name.slice(prefix.length)
+
+      return branch.length > 0 ? branch : null
+    }
+  }
+
+  return null
 }
 
 /**

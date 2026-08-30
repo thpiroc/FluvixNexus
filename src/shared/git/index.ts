@@ -54,6 +54,9 @@ export type { GitBranchListing, GitLocalBranch } from './branch'
 export { GIT_REMOTE_LIMIT } from './remote'
 export type { GitRemote, GitRemoteListing } from './remote'
 
+export { GIT_REMOTE_BRANCH_LIMIT } from './remoteBranch'
+export type { GitRemoteBranch, GitRemoteBranchListing } from './remoteBranch'
+
 export { GIT_COMMIT_HISTORY_LIMIT } from './history'
 export type { GitCommitHistory, GitCommitSummary } from './history'
 

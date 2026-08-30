@@ -479,6 +479,88 @@
   line-height: 1.5;
 }
 
+/*
+ * リモートのブランチから作る段（Session 3-8-19）。
+ *
+ * 作成の欄との間にも線を引く ── 面の中で起きることが3つに分かれる
+ * （切り替える / 今の場所から作る / remote の枝から作る）。
+ *
+ * 畳んである間の高さは見出しの1行だけになる。3-8-6 からそこに在った
+ * 一覧と作成欄の位置を、この段の有無で動かさないため
+ * （renderer/src/git/GitBranchMenu.tsx）。
+ */
+.fx-git__remote-branches {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--fx-color-border);
+}
+
+/* 見出し（押すと開閉する）。行の高さは一覧の行と揃える。 */
+.fx-git__remote-branches-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--fx-space-1);
+  width: 100%;
+  padding: var(--fx-space-1) var(--fx-space-2);
+  color: var(--fx-color-text-muted);
+  background: none;
+  border: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fx-git__remote-branches-toggle:hover,
+.fx-git__remote-branches[data-expanded='true'] .fx-git__remote-branches-toggle {
+  color: var(--fx-color-text-strong);
+}
+
+.fx-git__remote-branches-toggle:focus-visible {
+  outline: 1px solid var(--fx-color-border-strong);
+  outline-offset: -1px;
+}
+
+/* 開閉の向きを示す三角。幅を固定して、開閉で見出しの文字が動かないようにする。 */
+.fx-git__remote-branches-caret {
+  flex: 0 0 auto;
+  width: 1em;
+  text-align: center;
+}
+
+.fx-git__remote-branches-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * 件数（畳んだ状態でも出す）。
+ *
+ * 開かずに「remote に枝が在るか」が分かる方が、開いてから空だったと知るより
+ * 早い ── 出るのは一覧が読めているときだけになる（GitBranchMenu.tsx）。
+ */
+.fx-git__remote-branches-count {
+  flex: 0 0 auto;
+  color: var(--fx-color-text-faint);
+}
+
+/*
+ * 開いたときの一覧。
+ *
+ * 上限をローカルの一覧（260px）より低くしてある ── 面の高さは
+ * 「ローカルの一覧 ＋ 作成欄 ＋ ここ」の合計になるので、同じ高さを許すと
+ * 画面からはみ出す。remote の枝は選んだら閉じる（切り替わる）ものなので、
+ * 眺め続ける一覧ではない。
+ */
+.fx-git__remote-branch-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
 .fx-git__refresh {
   flex: 0 0 auto;
   width: 24px;

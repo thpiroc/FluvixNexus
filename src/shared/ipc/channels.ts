@@ -51,6 +51,8 @@ export const IPC_CHANNELS = {
   GIT_CREATE_BRANCH: 'git:create-branch',
   GIT_DELETE_BRANCH: 'git:delete-branch',
   GIT_RENAME_BRANCH: 'git:rename-branch',
+  GIT_LIST_REMOTE_BRANCHES: 'git:list-remote-branches',
+  GIT_CREATE_TRACKING_BRANCH: 'git:create-tracking-branch',
   GIT_LIST_REMOTES: 'git:list-remotes',
   GIT_ADD_REMOTE: 'git:add-remote',
   GIT_SET_REMOTE_URL: 'git:set-remote-url',

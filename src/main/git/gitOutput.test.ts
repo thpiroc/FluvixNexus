@@ -7,7 +7,9 @@ import {
   readCommitFileChanges,
   readCommitHistory,
   readLocalBranches,
+  readRemoteBranches,
   readRemoteEntries,
+  readRemoteNames,
   readRepositoryRoot,
   readShortCommit,
   readStashEntries,
@@ -898,5 +900,160 @@ describe('countLeftoverConflictMarkers', () => {
   it('言い回しが末尾に無い行は数えない', () => {
     expect(countLeftoverConflictMarkers('leftover conflict marker が残っていました')).toBe(0)
     expect(countLeftoverConflictMarkers('+ // leftover conflict marker was here.')).toBe(0)
+  })
+})
+
+/**
+ * `git remote` の名前の読み取り（Session 3-8-19）。
+ *
+ * ここで固定したいのは**長い順に並ぶこと**だけになる ── 使う側
+ * （`readRemoteBranches`）が「いちばん長い接頭辞で切る」ことを、
+ * 先頭から試すだけで済ませるための約束にあたる。
+ */
+describe('readRemoteNames', () => {
+  it('1行1名で読み、長い順に並べる', () => {
+    expect(readRemoteNames('origin\nup/stream\nfork\n')).toEqual(['up/stream', 'origin', 'fork'])
+  })
+
+  it('1つも無ければ空（失敗にしない）', () => {
+    // remote が1つも無いリポジトリでは `git remote` は 0 で終わって何も出さない。
+    expect(readRemoteNames('')).toEqual([])
+  })
+
+  it('空行と前後の空白は落とす', () => {
+    expect(readRemoteNames('\n  origin  \n\n')).toEqual(['origin'])
+  })
+})
+
+/**
+ * remote-tracking branch の読み取り（Session 3-8-19）。
+ *
+ * ここで固定したいのは3つある。
+ *
+ *   - **symbolic HEAD（`origin/HEAD`）が載らない。** 指した先が別の行と
+ *     同じになる選択肢を一覧に混ぜない（main/git/gitCommands.ts）
+ *   - **既定のローカル名が、remote 名から正しく切られる。** remote 名に `/` が
+ *     入る場合まで含めて ── ここを間違えると、押した人はそれを打ち直すことになる
+ *   - **一覧に出る数と `truncated` が食い違わない。** 落とした行（symbolic ref・
+ *     どの remote にも属さない行）を数に入れない
+ */
+describe('readRemoteBranches', () => {
+  /** 区切りの NUL（テスト側でも見えない文字を直接書かない）。 */
+  const nul = String.fromCharCode(0)
+
+  /** git の出力を組み立てる（末尾の改行まで本物と同じ形にする）。 */
+  function output(...lines: readonly string[]): string {
+    return `${lines.join('\n')}\n`
+  }
+
+  it('名前と、既定のローカル名を返す', () => {
+    const reading = readRemoteBranches(
+      output(`origin/main${nul}`, `origin/feature/x${nul}`),
+      ['origin'],
+      10
+    )
+
+    expect(reading.branches).toEqual([
+      { name: 'origin/main', branch: 'main' },
+      { name: 'origin/feature/x', branch: 'feature/x' }
+    ])
+    expect(reading.truncated).toBe(false)
+  })
+
+  /*
+    実物の `for-each-ref` は symbolic HEAD に対して
+    `origin<NUL>refs/remotes/origin/main` を出す（`%(refname:short)` が
+    `origin/HEAD` ではなく `origin` になる）── 名前で弾こうとすると
+    ここで足を取られるので、判断は `%(symref)` の側で行う。
+  */
+  it('symbolic HEAD（origin/HEAD）は載せない', () => {
+    const reading = readRemoteBranches(
+      output(`origin${nul}refs/remotes/origin/main`, `origin/main${nul}`),
+      ['origin'],
+      10
+    )
+
+    expect(reading.branches).toEqual([{ name: 'origin/main', branch: 'main' }])
+  })
+
+  /*
+    remote 名に `/` が入る場合。git の `%(refname:lstrip=3)` はここを
+    `stream/feature/x` と切ってしまう（実物で確かめてある）── 名前の一覧と
+    突き合わせるのは、この1件を正しく切るためにあたる。
+  */
+  it('remote 名に / が入っていても、いちばん長い接頭辞で切る', () => {
+    const reading = readRemoteBranches(
+      output(`up/stream/feature/x${nul}`),
+      // 呼ぶ側（`readRemoteNames`）が長い順に渡す。
+      ['up/stream', 'up'],
+      10
+    )
+
+    expect(reading.branches).toEqual([{ name: 'up/stream/feature/x', branch: 'feature/x' }])
+  })
+
+  it('どの remote にも属さない行は落とす', () => {
+    // `git remote remove` の後に手で作られた ref などが残っていることがある。
+    const reading = readRemoteBranches(
+      output(`ghost/main${nul}`, `origin/main${nul}`),
+      ['origin'],
+      10
+    )
+
+    expect(reading.branches).toEqual([{ name: 'origin/main', branch: 'main' }])
+  })
+
+  it('1件も無ければ空（失敗にしない）', () => {
+    // remote が無い場合も、まだ fetch していない場合も、出力は空になる。
+    expect(readRemoteBranches('', ['origin'], 10)).toEqual({ branches: [], truncated: false })
+  })
+
+  it('git が返した順をそのまま保つ', () => {
+    const reading = readRemoteBranches(
+      output(`origin/zeta${nul}`, `origin/alpha${nul}`),
+      ['origin'],
+      10
+    )
+
+    expect(reading.branches.map((branch) => branch.name)).toEqual(['origin/zeta', 'origin/alpha'])
+  })
+
+  it('上限で切り、切ったことを truncated で伝える', () => {
+    // git には上限より1つ多く求めてある（`--count=limit + 1`）。
+    const lines = ['a', 'b', 'c', 'd'].map((name) => `origin/${name}${nul}`)
+    const reading = readRemoteBranches(output(...lines), ['origin'], 3)
+
+    expect(reading.branches.map((branch) => branch.branch)).toEqual(['a', 'b', 'c'])
+    expect(reading.truncated).toBe(true)
+  })
+
+  /*
+    落とした行を数に入れると「3件表示」と言いながら2行しか出ない形になる ──
+    数えるのは**一覧に出るもの**だけにする。
+  */
+  it('落とした行は上限の数に入れない', () => {
+    const reading = readRemoteBranches(
+      output(
+        `origin${nul}refs/remotes/origin/main`,
+        `ghost/x${nul}`,
+        `origin/a${nul}`,
+        `origin/b${nul}`
+      ),
+      ['origin'],
+      2
+    )
+
+    expect(reading.branches.map((branch) => branch.branch)).toEqual(['a', 'b'])
+    expect(reading.truncated).toBe(false)
+  })
+
+  it('区切りが無い行と、名前が空の行は落とす', () => {
+    const reading = readRemoteBranches(
+      output('壊れた行', `${nul}`, `origin/main${nul}`),
+      ['origin'],
+      10
+    )
+
+    expect(reading.branches).toEqual([{ name: 'origin/main', branch: 'main' }])
   })
 })

@@ -17,6 +17,7 @@ import {
   type GitOperationResponse,
   type ListGitBranchesResponse,
   type ListGitCommitsResponse,
+  type ListGitRemoteBranchesResponse,
   type ListGitRemotesResponse,
   type ListGitStashesResponse
 } from '@shared/ipc'
@@ -36,6 +37,7 @@ import { applyGitDiscard } from '../../git/gitDiscard'
 import { listGitCommits } from '../../git/gitHistory'
 import { applyGitInit } from '../../git/gitInit'
 import { normalizeGitPathspec } from '../../git/gitPathspec'
+import { applyGitCreateTrackingBranch, listGitRemoteBranches } from '../../git/gitRemoteBranches'
 import {
   applyGitAddRemote,
   applyGitRemoveRemote,
@@ -310,6 +312,42 @@ function branchNewNameField(request: unknown): string {
   if (name === null) {
     throw invalidRequest(
       'the new branch name is empty, too long, or not usable as a git branch name.'
+    )
+  }
+
+  return name
+}
+
+/**
+ * 追う相手の remote-tracking branch 名（Session 3-8-19）。
+ *
+ * ## 通すのは `branchNameField` と同じ `normalizeGitBranchName`
+ *
+ * `origin/feature/x` はブランチ名の規則をそのまま通る（`/` は形として
+ * 認められており、位置だけが見られる。shared/git/branchName.ts）── つまり
+ * **新しい規則を1つも足していない。** 足すと「remote-tracking branch 名としては
+ * 通るがブランチ名としては通らない」形が生まれ、git の引数に載る2つの値に
+ * 別々の備えが掛かることになる（`branchNewNameField` を分けたのと同じ判断）。
+ *
+ * ## 「`/` を含むこと」をここで求めない
+ *
+ * remote-tracking branch は必ず `<remote>/<branch>` の形をしているので、
+ * `/` を求める検証は書ける。**書かないのは、それが何も守らないから**になる ──
+ * `origin/x` の形をした**ローカル**ブランチ名も同じ検証を通り、
+ * 守りたいのはその区別の方にあたる。
+ *
+ * 区別を付けられるのは**手元のリポジトリを見た側**だけなので、そこは Main が
+ * git に確かめる（`refs/remotes/` の下に在るか。main/git/gitRemoteBranches.ts）──
+ * 名前の形の話ではないものを、名前の形の検証で守ったつもりにしない
+ * （shared/git/branchName.ts が「既にある名前か」を git に答えさせているのと
+ * 同じ線）。
+ */
+function branchStartRefField(request: unknown): string {
+  const name = normalizeGitBranchName(field(request, 'startPoint'))
+
+  if (name === null) {
+    throw invalidRequest(
+      'the remote-tracking branch name is empty, too long, or not usable as a git branch name.'
     )
   }
 
@@ -651,6 +689,40 @@ export function registerGitHandlers(): void {
   handleIpc(IPC_CHANNELS.GIT_RENAME_BRANCH, async (request): Promise<GitOperationResponse> => {
     return await applyGitRenameBranch(branchNameField(request), branchNewNameField(request))
   })
+
+  /*
+    remote-tracking branch の一覧と、そこからの作成（Session 3-8-19）。
+
+    一覧の要求は `void` ── remote 名で絞る欄も並べ替えも件数も、
+    **fetch するかどうか**も届かない（`git:list-branches` と同じ形）。
+    ローカルの一覧と別の1本にしてあるのは、動かす git が違い・上限が
+    別々に効き・押したときに起きることが違うため（shared/ipc/contracts/git.ts）。
+
+    作成の要求には**外来の名前が2つ**載る（rename に続いて2つめの形）。
+    どちらも `normalizeGitBranchName` を通り、通す関数は 3-8-6 から
+    1つも変わらない ── 増えたのは「その名前が本当に remote-tracking branch か」
+    という**リポジトリを見ないと決まらない問い**で、それは名前の形の検証では
+    なく Main が git に確かめる（main/git/gitRemoteBranches.ts）。
+
+    `--no-track` の欄も `--force` の欄も無い。同じ名前のローカルブランチが
+    あれば git を動かす前に断り、上書きも削除も自動切替も行わない。
+  */
+  handleIpc(
+    IPC_CHANNELS.GIT_LIST_REMOTE_BRANCHES,
+    async (): Promise<ListGitRemoteBranchesResponse> => {
+      return await listGitRemoteBranches()
+    }
+  )
+
+  handleIpc(
+    IPC_CHANNELS.GIT_CREATE_TRACKING_BRANCH,
+    async (request): Promise<GitOperationResponse> => {
+      return await applyGitCreateTrackingBranch(
+        branchNameField(request),
+        branchStartRefField(request)
+      )
+    }
+  )
 
   /*
     remote の一覧 / 追加 / 削除（Session 3-8-16）。

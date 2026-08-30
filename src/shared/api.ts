@@ -26,6 +26,7 @@ import type {
   CommitAndPushGitChangesRequest,
   CommitGitChangesRequest,
   CreateGitBranchRequest,
+  CreateGitTrackingBranchRequest,
   DeleteGitBranchRequest,
   DiscardGitChangesRequest,
   GetGitCommitDetailRequest,
@@ -578,6 +579,41 @@ export interface GitApi {
    * remote branch へ向かう（shared/ipc/contracts/git.ts）。
    */
   readonly renameBranch: (request: RenameGitBranchRequest) => IpcInvokeResult<'git:rename-branch'>
+  /**
+   * remote-tracking branch の一覧を尋ねる（Session 3-8-19）。
+   *
+   * **引数が無い。** remote 名で絞る欄も並べ替えも件数も渡せず、
+   * **fetch もしない** ── 返るのは常に「今の Workspace の `refs/remotes/` に
+   * **既に**在るものを、上限まで」になる（shared/git/remoteBranch.ts）。
+   *
+   * `listBranches` と別の口にしてあるのは、動かす git が違い・上限が別々に効き・
+   * 押したときに起きることが違うため（shared/ipc/contracts/git.ts）。
+   * 各 remote の symbolic HEAD（`origin/HEAD`）は返らない ── あれは
+   * 「どのブランチが既定か」を指す**別名**で、選んで手元に作る相手ではない。
+   *
+   * 呼ぶのは**ブランチの面を開いたとき**だけで、`onChanged` には乗らない
+   * （`listBranches` とまったく同じ契機になる）。
+   */
+  readonly listRemoteBranches: () => IpcInvokeResult<'git:list-remote-branches'>
+  /**
+   * remote-tracking branch を追うローカルブランチを作って、切り替える
+   * （Session 3-8-19）。
+   *
+   * 渡すのは「どれを追うか」（一覧の行が持っていた `origin/feature` のような
+   * 名前）と「手元で何という名前にするか」の2つで、どちらも
+   * `normalizeGitBranchName` を通る。追跡先は**必ず付く**（`--track`）──
+   * 付けない作成は `createBranch` が既にその形で、`--no-track` の欄は無い。
+   *
+   * 同じ名前のローカルブランチが既にあれば、**git を1度も動かさずに**
+   * `branch-exists` として断る（main/git/gitRemoteBranches.ts）── 上書きも
+   * 削除も、既にあるブランチへの自動切替も行わない。
+   *
+   * 渡した名前が `refs/remotes/` の下に無ければ `branch-not-found` になる ──
+   * ローカルブランチ名を渡して「ローカルを追うブランチ」を作ることはできない。
+   */
+  readonly createTrackingBranch: (
+    request: CreateGitTrackingBranchRequest
+  ) => IpcInvokeResult<'git:create-tracking-branch'>
   /**
    * remote の一覧を尋ねる（Session 3-8-16）。
    *

@@ -866,6 +866,178 @@ export function listExactBranch(name: string): GitCommand {
   }
 }
 
+/* ------------------------ remote-tracking branch（Session 3-8-19） */
+
+/**
+ * remote-tracking branch を一覧する（Session 3-8-19）。
+ *
+ * ## `listLocalBranches` と別の関数にしてある
+ *
+ * 見る場所が違う（`refs/remotes/` と `refs/heads/`）だけでなく、
+ * **欄が1つ多い。** ここでは `%(symref)` が要る（下記）── 引数に接頭辞を
+ * 渡して1つの関数で兼ねる形にすると、`refs/` の下ならどこでも一覧できる
+ * 関数が1つできることになる（tag も `refs/notes/` も含めて）。
+ * この表は「何を実行するか」を数え上げる場所なので、**数えられるものだけ**を置く。
+ *
+ * ## `%(symref)` が symbolic HEAD を見分ける
+ *
+ * `refs/remotes/origin/HEAD` は、その remote の既定ブランチを指す**別名**に
+ * あたる（`refs/remotes/origin/main` を指す symbolic ref）。一覧に載せると
+ * 「`origin/HEAD` を手元に持ってくる」という、指した先が別の行と同じになる
+ * 選択肢が並ぶことになる。
+ *
+ * 名前で弾く（`/HEAD` で終わる行を落とす）形にしないのは、**`HEAD` という
+ * 名前のブランチが remote 側に実在しうる**ため ── ではなく（git は
+ * それを禁じている）、名前の形での判定が
+ * 「remote 名が `HEAD` で終わる場合」に巻き添えを出すためになる
+ * （`refs/remotes/my/HEAD/main` のような ref は作れる）。`%(symref)` は
+ * git 自身が持っている区別で、**そこに理由が書いてある**：空でなければ
+ * それは別名で、指し先はこの一覧の別の行になる。
+ *
+ * `%(refname:short)` は symbolic HEAD に対して `origin`（！）を返す ──
+ * これも名前で見分けようとすると足を取られるところで、実物で確かめてある。
+ *
+ * ## `%(refname:lstrip=3)` を使わない
+ *
+ * `refs/remotes/origin/feature/x` から `feature/x` を切り出す atom は在るが、
+ * **remote 名に `/` が入ると間違える** ── `refs/remotes/up/stream/feature/x`
+ * （remote 名が `up/stream`）に対して git は `stream/feature/x` を返す
+ * （実物で確かめてある）。remote 名に `/` を禁じていない以上
+ * （shared/git/remoteName.ts）、この atom は当てにできない。
+ *
+ * 切り出しは読む側が行う ── `git remote` で得た**名前の一覧**と
+ * 突き合わせ、いちばん長い接頭辞で切る（main/git/gitOutput.ts の
+ * `readRemoteBranches`）。
+ *
+ * ## 区切り・上限・並べ替えは `listLocalBranches` と同じ
+ *
+ * 区切りは NUL（ref 名に何が入っていても読み分けられる）、上限は
+ * `--count` で git 自身に掛け、**1つ多く求めて切れたかを知る。**
+ * 並べ替えは指定しない ＝ git の既定（refname 順）。
+ */
+export function listRemoteBranches(limit: number): GitCommand {
+  return {
+    label: 'for-each-ref refs/remotes',
+    args: [
+      'for-each-ref',
+      '--format=%(refname:short)%00%(symref)',
+      `--count=${limit + 1}`,
+      'refs/remotes/'
+    ]
+  }
+}
+
+/**
+ * その名前ちょうどの remote-tracking branch が実在するかを尋ねる（Session 3-8-19）。
+ *
+ * ## 何のために聞くのか
+ *
+ * 作成の要求に載る `startPoint` は、形としては
+ * `normalizeGitBranchName` を通っただけの文字列にあたる（`origin/feature` も
+ * `main` も同じように通る）。**形が通ることと、それが remote-tracking branch で
+ * あることは別**になる ── 確かめずに `switch --create --track main` を動かすと、
+ * git は `branch.<名前>.remote=.` を書いて**ローカルを追うローカルブランチ**を
+ * 作る（実物で確かめてある）。押した人が一覧から選んだのは remote の枝なので、
+ * それは指していないものにあたる。
+ *
+ * ## `--remotes` を付けた `branch --list` を使う
+ *
+ * `listExactBranch`（3-8-14）とまったく同じ形で、違うのは `--remotes` の1語だけ。
+ * `for-each-ref` にしないのは 3-8-14 と同じ理由になる ── あちらのパターンは
+ * **完全な refname** で書く必要があり、外から来た名前に `refs/remotes/` を
+ * **繋いだ1つの引数**を作ることになる。このアプリは境界を渡った値を他の文字と
+ * 繋いで引数にしない（3-8-12 で `<hash>^` を作らないと決めたのと同じ線）。
+ *
+ * `--remotes` を付けた `branch --list` のパターンは `origin/feature` のような
+ * 短い形をそのまま取るので、名前は最後まで**独立した1つの引数**のままでいられる。
+ * ローカルブランチ名を渡すと**何も返らない**（実物で確かめてある）── つまり
+ * この1回が「remote-tracking branch であること」の答えになる。
+ *
+ * ## `%(symref)` も一緒に読む
+ *
+ * `origin/HEAD` を渡すとこのパターンは**一致する**（実物で確かめてある）──
+ * 一覧から除いてあるものが、要求としては届きうる。したがってここでも
+ * symbolic かどうかを読み、別名は始点として認めない
+ * （main/git/gitRemoteBranches.ts）。
+ *
+ * パターンは fnmatch として読まれるが、`*` `?` `[` `\` は名前の形の検証で
+ * 弾いてある（shared/git/branchName.ts）ため、ここへ届く名前に
+ * ワイルドカードは入らない。出力が空なら「その名前の remote-tracking branch は
+ * 無い」で、終了コードは 0 のまま（見つからないことは失敗ではない）。
+ */
+export function listExactRemoteBranch(name: string): GitCommand {
+  return {
+    label: 'branch --remotes --list (exact)',
+    args: [
+      'branch',
+      '--remotes',
+      '--list',
+      '--format=%(refname:short)%00%(symref)',
+      END_OF_OPTIONS,
+      name
+    ]
+  }
+}
+
+/**
+ * remote-tracking branch を追うローカルブランチを作って、そこへ切り替える
+ * （Session 3-8-19）。
+ *
+ * ## `createBranch` と別の関数にしてある
+ *
+ * 動かす git は同じ `git switch --create` だが、**渡す引数が1つ増え、
+ * その1つで起きることが変わる。**
+ *
+ *   `createBranch`         … 追跡先は付かない（`branch.autoSetupMerge` の領分）
+ *   `createTrackingBranch` … `--track` で**必ず**付く（`.git/config` に2行）
+ *
+ * 1つの関数に `track` の真偽を渡す形にすると、**追跡先を付けるかどうかが
+ * 呼び出し側の引数1つで裏返る**ことになる ── `addOriginRemote` と `addRemote` を
+ * 書き分けた（3-8-16）のと同じ判断で、起きることが違うものは表の上でも分ける。
+ *
+ * ## `--track` を明示する（既定に任せない）
+ *
+ * 始点が remote-tracking branch のとき、git は既定で追跡先を設定する
+ * （`branch.autoSetupMerge` の既定が `true`）。それでも明示するのは、
+ * **その既定が利用者の設定で消えている PC がある**ため ── `false` に
+ * してある環境では、押した人から見て「追跡先が付く操作」が黙って
+ * 付けない操作になる。この口の意味は追跡先が付くことそのものなので、
+ * リポジトリの設定に委ねない。
+ *
+ * 逆に `--no-track` は**渡す欄そのものを作らない** ── 追跡しない作成は
+ * `createBranch` が既にその形で、ここに真偽の欄を作ると口が2つの意味を持つ。
+ *
+ * ## `--end-of-options` は名前の後ろ（3-8-13 の言い直しがそのまま効く）
+ *
+ * 名前は位置引数ではなく `--create` 自身の引数になるため、**手前に挟むと
+ * 名前が始点として読まれる**（3-8-13 で確かめた）。`--track` はその後ろ、
+ * 始点はさらに後ろの位置引数になる ── `switch --quiet --create <名前>
+ * --track --end-of-options <始点>` の並びで通ることを実物で確かめてある。
+ *
+ * `--track` は値を取らないフラグ（値を渡すときは `--track=direct` の形）なので、
+ * 次の引数（`--end-of-options`）を飲み込むことは無い。
+ *
+ * ## 1回で作って切り替える（`createBranch` と同じ）
+ *
+ * `git branch` と `git switch` の2回に分けない ── 分けると1つめが通って
+ * 2つめが通らなかったときに「作られたのに切り替わっていない」状態が残る。
+ * ここでは始点が**別の commit**（remote の枝の先端）なので、書きかけがあれば
+ * git が断りうる（`local-changes-blocked`）── そのときブランチも作られない
+ * ことが要る。
+ *
+ * ## 付けていないもの
+ *
+ * `--force`（`-C`）も `--detach` も `--orphan` も `--merge` も渡さない
+ * （3-8-6 / 3-8-13 の表がそのまま効く）。同じ名前があれば git を動かす前に
+ * `branch-exists` として断る（main/git/gitRemoteBranches.ts）。
+ */
+export function createTrackingBranch(name: string, startPoint: string): GitCommand {
+  return {
+    label: 'switch --create --track',
+    args: ['switch', '--quiet', '--create', name, '--track', END_OF_OPTIONS, startPoint]
+  }
+}
+
 /* --------------------------------------- 履歴（Session 3-8-11） */
 
 /**

@@ -1,6 +1,6 @@
 # 開発ガイド
 
-> 対象: Session 3-8-16（remote の管理）完了時点
+> 対象: Session 3-8-19（remote の枝から手元にブランチを作る）完了時点
 > 最終更新: 2026-08-27
 
 ---
@@ -122,7 +122,7 @@ Vitest を使い、**Electron に依存しない純粋なロジック**だけを
 
 Files の検証（`main/files/workspacePath.ts`）は Electron にも fs にも依存しない形に切り出してある。symlink による脱出だけはパス文字列では判断できないため、realpath を取ってから同じ関数へ通す側（`readWorkspaceDirectory.ts` / `readWorkspaceFile.ts` / `mutateWorkspaceEntry.ts`）が担う。
 
-#### 例外: 実ディスクを触るテスト（Session 3-5.1 / 3-6-2 / 3-6-4 / 3-6-5 / 3-8-2 / 3-8-3 / 3-8-4 / 3-8-5 / 3-8-6 / 3-8-9 / 3-8-10 / 3-8-11 / 3-8-12 / 3-8-13 / 3-8-14 / 3-8-15 / 3-8-16）
+#### 例外: 実ディスクを触るテスト（Session 3-5.1 / 3-6-2 / 3-6-4 / 3-6-5 / 3-8-2 / 3-8-3 / 3-8-4 / 3-8-5 / 3-8-6 / 3-8-9 / 3-8-10 / 3-8-11 / 3-8-12 / 3-8-13 / 3-8-14 / 3-8-15 / 3-8-16 / 3-8-17 / 3-8-18 / 3-8-19）
 
 「純粋なロジックだけを対象にする」方針に対する例外が18ある ── `mutateWorkspaceEntry.test.ts`（作成 / 改名 / 移動 / 削除）、`copyTree.test.ts`（再帰コピー）、`searchWorkspaceFiles.test.ts`（Workspace 全体の走査）、`searchWorkspaceFileContents.test.ts`（全文検索の走査）、`gitStatusRepository.test.ts`（本物の git の出力）、`gitStageRepository.test.ts`（本物の git への Stage / Unstage）、`gitCommitRepository.test.ts`（本物の git への Commit）、`gitSyncRepository.test.ts`（本物の git への Push / Pull）、`gitBranchRepository.test.ts`（本物の git へのブランチ操作）、`gitDiffRepository.test.ts`（本物の git から読む差分）、`gitDiscardRepository.test.ts`（本物の git に対する破棄）、`gitInitRepository.test.ts`（本物の git での初期化）、`publishRepository.test.ts`（本物の git での公開の一連）、`gitHistoryRepository.test.ts`（本物の git から読む履歴）、`gitCommitDetailRepository.test.ts`（本物の git から読む commit 1件の中身）、`gitStashRepository.test.ts`（本物の git に対する退避）、`gitRemoteRepository.test.ts`（本物の git に対する remote の管理）、`gitConflictRepository.test.ts`（本物の git に対する競合の解決）。確かめたいのがパスの文字列処理ではなく **「実際にそこに在るものを操作できるか」** だからで、モックしたファイルシステムでは何も確かめられない ── 判定と実体がずれることこそが Session 3-5.1 で直した不具合の中身だった。`aux.ts` や末尾に空白を持つ名前を Windows がどう扱うかは実装ではなく OS が決めるため、写しを相手にするとその答えを自分で書くことになる。
 
@@ -274,6 +274,26 @@ Files の検証（`main/files/workspacePath.ts`）は Electron にも fs にも�
 15. **`git reset HEAD` が競合を復元しない**こと（3段が畳まれたただの変更として残る）と、`git checkout --merge` は復元するが**書いた解決内容を消す**こと（＝取り消しを置かない根拠）
 
 この塊も `GIT_CONFIG_GLOBAL` / `GIT_CONFIG_SYSTEM` を実在しないパスへ向けてから走らせる ── とくに `merge.conflictStyle`（`diff3` / `zdiff3`）は開発者の PC に入っていておかしくなく、**マーカーの行数そのものを変える**。
+
+**Session 3-8-19 では、この塊にファイルが1つ増える**（例外は 19 になった）── `gitRemoteBranchRepository.test.ts`。確かめたいことの向きが、3-8-6 / 3-8-13 の「**失われないこと**」とは違う ── **押した人が指したものだけが相手になること**になる。3-8-6 が `--no-guess` で閉じた口を 3-8-19 で開ける以上、開けた口が指せる範囲を実物で閉じておく必要があるため。実物にしか確かめられないのは次の 13 個。
+
+1. symbolic HEAD（`origin/HEAD`）が一覧に載らないこと（`%(refname:short)` が `origin/HEAD` ではなく **`origin`** を返すので、名前では弾けない）
+2. ローカルブランチが一覧に混ざらないこと（3-8-6 の「remote-tracking が載らない」の裏返し）
+3. **remote 名に `/` が入っていても、既定のローカル名が正しく切れる**こと（git の `%(refname:lstrip=3)` は `up/stream/feature/x` を `stream/feature/x` に切ってしまう）
+4. remote が1つも無い場合と、remote はあるが未 fetch の場合を `hasRemote` で言い分けられること（git の出力はどちらも空）
+5. 上限（500 件）で切り、切ったことを言うこと
+6. 作れたときに**追跡先が必ず付く**こと（`branch.autoSetupMerge` を見えなくしたうえで ── `--track` を明示している効き目そのもの）
+7. ローカル名を打ち替えても、追う先が変わらないこと
+8. **同名のローカルブランチがあれば git を動かさずに断り、元のブランチの ref も追跡先も HEAD も1つも動かない**こと
+9. **ローカルブランチ名を始点に渡しても作らない**こと（渡せば git は受け取り、`branch.<名前>.remote=.` を書いて通してしまう）
+10. **`origin/HEAD` を始点に渡しても作らない**こと（`branch --remotes --list` のパターンには一致するため、要求としては届きうる）
+11. 無い remote-tracking branch を指したら `branch-not-found` になること
+12. 書きかけが上書きされるときは断り、**ブランチも作られない**こと（`switch --create` が1回で行う）
+13. 切り替え先が触らないファイルの書きかけは、作っても残ること
+
+9 と 10 がこの回の要点にあたる ── **git が受け取ってしまう値を、こちらが受け取らない**（3-8-16 の `ext::` / `-x` と同じ側）。写しを相手にすると、始点を git に確かめる理由そのものを自分で書くことになる。
+
+6 のために `branch.autoSetupMerge` を見えなくするのは、3-8-6 の塊が同じ設定を見えなくしていたのと**理由が逆**になる ── あちらは「付いてしまわないこと」を守るためで、こちらは「明示したから付くこと」を測るためにあたる。
 
 **`git branch --list --format=... --end-of-options <name>` が大文字小文字を区別すること**は、loose ref と packed-refs の両方で確かめてある（`git pack-refs --all` の前後で同じ問いを投げる）── `show-ref --verify` はどちらでも成功を返してしまい、この確認には使えない。
 
@@ -1161,6 +1181,21 @@ Session 3-8-14（ブランチの削除 / rename）では、**production ビル�
 - **通った操作の後は、面の中の欄が自分で畳まれることまで測る。** 削除 / rename が通ると、その行は一覧から消える（あるいは名前が変わる）── 行の下に開いていたものを畳まないと、どの行にも属さない確認が宙に浮いて残る。**畳まれた後は `Esc` の段も1つ減る**ので、そこで Esc を押すと面ごと閉じる（driver を書いていて1度これで取り違えた。アプリ側は正しかった）。
 - **未コミットの変更は、追跡済みと未追跡の両方を置いてから通す。** 削除も rename も作業ツリーに触らないことが売りなので、片方だけだと「触っていない」の証明が半分になる。
 - **Workspace は保存ファイル経由で開かせる。** `workspaceFolder.open` にパスを渡せないのは設計そのもの（§8.4）なので、driver から IPC で開かせようとすると必ず行き詰まる ── 借りた保存ファイルは終わったら戻すこと。
+
+Session 3-8-19（remote の枝から手元にブランチを作る）では、**production ビルド版 22項目、全項目 PASS。** 相手は使い捨ての一時リポジトリ2つ（bare の remote と作業リポジトリ）で、`main` / `feature/x` / `taken` を remote へ送ってから、**手元の `feature/x` だけを消して**「remote には在るが手元には無い枝」を作ってある。`taken` はローカルに残したうえで**別の commit を指させ**、同名衝突の側も同じ1回で通せるようにした。`git remote set-head origin main` で `origin/HEAD` も作ってある（除かれることを確かめるため）。
+
+- ① 一覧: 畳んだ段に件数が出ること（**`origin/HEAD` を除いた3件**）、既定では畳んであること
+- ② 中身: 開くと `origin/feature/x` / `origin/main` / `origin/taken` が並び、**`origin/HEAD` が並ばない**こと、**ローカルの一覧（上半分）は 3-8-6 のまま**で remote-tracking が混ざらないこと、いつの写しかの断りが出ていること
+- ③ 既定値: 行を押すと欄が開き、**`origin/` を外した形**が入っていること（`taken` / `feature/x` の2つで確認）、開くのは一度に1つだけであること
+- ④ 作成: 通ると**面が閉じ**、バーの表示が新しいブランチになり、HEAD が動き、**追跡先が付き**（`branch.feature/x.remote` = `origin`）、始点の中身（`feature.txt`）が作業ツリーに現れ、**`↑↓` の表示が出る**こと
+- ⑤ 同名衝突: 「同じ名前のブランチが既にあります。別の名前をお試しください。」が**欄のすぐ下**に出ること、**面が閉じないこと**、打った名前が消えないこと、そして実 git で**元のブランチの ref が動かず・追跡先も付かず・HEAD も切り替わっていない**こと
+
+確認の要領（この回で分かったもの）:
+
+- **「断られた」は、実 git の3つで測る。** 文言が出たことは何も言わない ── 3-8-14 で「ref で測る」と書いたものが、ここでは**3つ**に増える（元のブランチの ref・追跡先の設定・HEAD）。上書き / 削除 / 自動切替のどれも起きていないことを、それぞれ別々に読む必要がある。
+- **同名衝突と成功を、1回の起動で両方通せる。** 衝突の側は面が閉じず、そのまま別の行へ開き替えられる（一度に開くのは1つ）── 順番を「衝突 → 成功」にすれば、成功で面が閉じたところが終点になる。逆にすると、切り替わった後の一覧はもう別のブランチのものになる。
+- **`origin/HEAD` は fixture 側で作らないと確かめられない。** `git fetch` だけでは作られず、`git remote set-head` が要る ── 作らずに走らせると「除かれた」ではなく「そもそも無かった」を測ることになるので、**ref が実在することを先に確かめてから**一覧を見る。
+- **追跡先は `git config --get` で読む（画面の `↑↓` で代用しない）。** 表示は追跡先が付いていることの必要条件でしかなく、`branch.<名前>.remote` と `.merge` の2つを読んで初めて「どこを追っているか」まで測れる。
 
 ---
 

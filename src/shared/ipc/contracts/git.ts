@@ -7,6 +7,7 @@ import type {
   GitDiscardTarget,
   GitFileDiff,
   GitOperationOutcome,
+  GitRemoteBranchListing,
   GitRemoteListing,
   GitRepositoryState,
   GitStageTarget,
@@ -423,6 +424,125 @@ export interface RenameGitBranchRequest {
   readonly name: string
   /** 新しい名前。 */
   readonly newName: string
+}
+
+/**
+ * remote-tracking branch の一覧の応答（Session 3-8-19）。
+ *
+ * ## ローカルブランチの一覧と、別のチャンネルにしてある
+ *
+ * `ListGitBranchesResponse` に種別の欄を足して1本にまとめない。理由は3つある。
+ *
+ *   - **動かす git の引数が違う。** `refs/heads/` と `refs/remotes/` で
+ *     `for-each-ref` を2回動かすことになり、1本にすると**面を開くたびに
+ *     必ず2回**動く ── ローカルの一覧だけを見たい人（3-8-6 からの利用者）に、
+ *     見ていないものの代金を払わせることになる
+ *   - **上限が別々に効く。** 1つの配列に混ぜると、remote 側が 500 件あるだけで
+ *     ローカルの行が押し出される（`truncated` が何について切れたのかも
+ *     言えなくなる）
+ *   - **押したときに起きることが違う。** ローカルの行は切り替え、こちらの行は
+ *     「ローカル名を確かめる欄が開く」になる。同じ配列に入れると、行ごとに
+ *     押した結果が変わるものを種別の欄で見分けることになる
+ *     （shared/git/remoteBranch.ts）
+ *
+ * ## 取り直す契機はローカルの一覧と同じ
+ *
+ * 面（ブランチの Popover）を**開いた瞬間だけ**取り直し、`git:changed` には
+ * 相乗りさせない（§14.14 と同じ判断）── 見られているのは面が開いている
+ * 一瞬だけで、閉じている間に数え直すのは誰も見ていない一覧のために
+ * git を1回多く起動することになる。
+ *
+ * ## fetch はしない
+ *
+ * 返るのは**手元の `refs/remotes/` に既にあるもの**だけで、一覧を出す前に
+ * `git fetch` は動かさない（Session 3-8-19 の範囲外。shared/git/remoteBranch.ts）。
+ */
+export interface ListGitRemoteBranchesResponse {
+  /** どの Workspace について答えたか。未選択なら null（他の応答と同じ理由）。 */
+  readonly workspaceId: string | null
+  /** remote-tracking branch の一覧、またはそれを出せない理由。 */
+  readonly listing: GitRemoteBranchListing
+  /**
+   * remote が1つでも登録されているか。
+   *
+   * ## 一覧が空だったときに、言うことが2つに分かれる
+   *
+   * `refs/remotes/` が空になる理由は2つあり、**次の一手がまったく違う。**
+   *
+   *   remote が無い   … 先に「リモート」から登録する
+   *   remote はあるが未 fetch … Terminal で `git fetch` するか、一度 Pull する
+   *
+   * git の出力からは見分けられない（どちらも 0 で終わって何も出さない）ため、
+   * Main が同じ1回の問い合わせの中で確かめて載せる ── Renderer に
+   * `repository.hasRemote` と突き合わせさせないのは、その2つが**別の瞬間の
+   * 写し**になりうるためになる（`GitLocalBranch.current` を同じ読み取りから
+   * 出しているのと同じ判断。shared/git/branch.ts）。
+   *
+   * 一覧が `ready` で空のときにだけ読まれる値で、それ以外では見ない。
+   */
+  readonly hasRemote: boolean
+}
+
+/**
+ * remote-tracking branch から、それを追うローカルブランチを作って切り替える要求
+ * （Session 3-8-19）。
+ *
+ * ## `CreateGitBranchRequest` と別の型・別のチャンネルにしてある
+ *
+ * `startPoint` に `origin/feature` を渡せるようにする、という形は取らない。
+ * 3-8-13 で開けた `startPoint` の欄は**履歴の行が持っていた短い hash**だけを
+ * 通すもので（`normalizeGitCommitHash`。16進 4〜40 桁）、そこに ref 名を
+ * 通せるようにすると、**あの欄の意味そのものが変わる** ── 「画面に出ている
+ * commit を指す」から「rev を渡せる」へ広がることになり、3-8-12 から
+ * 引いてきた線がそこで切れる。
+ *
+ * 起きることも違う。
+ *
+ *   `git:create-branch`          … 追跡先は付かない（始点はローカルの commit）
+ *   `git:create-tracking-branch` … **追跡先が必ず付く**（`--track`）
+ *
+ * 後者は `.git/config` に `branch.<名前>.remote` / `.merge` の2行を書く ──
+ * つまり**この操作の後、Push / Pull の相手が決まる。** 送り先が決まる操作を、
+ * 決まらない操作と同じチャンネルに乗せない。
+ *
+ * ## 載るのは2つだけ
+ *
+ * | 載せない        | なぜ                                                                  |
+ * | --------------- | --------------------------------------------------------------------- |
+ * | `--no-track`    | 追跡しない作成は `git:create-branch` が既にその形（この口の意味が消える） |
+ * | `--force`（`-C`） | 3-8-13 と同じ。元の枝がどこにあったかを見失わせる                     |
+ * | `--detach`      | remote-tracking branch へ detached で移る形。名前を付けずに移らない    |
+ * | remote 名の欄   | `name` の中に既に入っている。別に渡せる欄は作らない                    |
+ * | fetch するか    | 欄そのものが無い。この操作はネットワークへ出ない                       |
+ *
+ * ## ローカル名は「既定値を変えられる」形にしてある
+ *
+ * `origin/feature` から `feature` を作るのは Main で（`GitRemoteBranch.branch`）、
+ * ここに載るのは**利用者が確かめた後の名前**になる。既定値のまま送ることも、
+ * 打ち替えて送ることもできる ── 打ち替えられることが要るのは、同じ名前の
+ * ローカルブランチが既にある場合に、それ以外の道が無いためにあたる
+ * （アプリは上書きも削除も自動切替もしない）。
+ *
+ * 2つとも `normalizeGitBranchName` を通る（main/ipc/handlers/git.ts）──
+ * `RenameGitBranchRequest` が2つの名前に同じ規則を掛けているのと同じ形で、
+ * 入口を分けると「始点としては通るがローカル名としては通らない」形が生まれる。
+ */
+export interface CreateGitTrackingBranchRequest {
+  /**
+   * 追う相手の remote-tracking branch 名（一覧の行が持っていたもの）。
+   *
+   * 例: `origin/feature/x`
+   *
+   * **形が通ることと、それが remote-tracking branch であることは別**になる ──
+   * 前者は `normalizeGitBranchName`、後者は Main が git に確かめる
+   * （`refs/remotes/` の下に在るか。main/git/gitRemoteBranches.ts）。
+   * 後者を確かめないと、ローカルブランチ名を渡して
+   * 「ローカルを追うローカルブランチ」を作れてしまう（実物で確かめてある ──
+   * git は `branch.<名前>.remote=.` を書いて通す）。
+   */
+  readonly startPoint: string
+  /** 手元に作るローカルブランチ名（既定値は `GitRemoteBranch.branch`）。 */
+  readonly name: string
 }
 
 /**
@@ -1119,6 +1239,53 @@ export interface GitIpcContract {
    */
   'git:rename-branch': {
     request: RenameGitBranchRequest
+    response: GitOperationResponse
+  }
+  /**
+   * remote-tracking branch の一覧を尋ねる（Session 3-8-19）。
+   *
+   * 要求は `void` ── remote 名で絞る欄も、並べ替えも、件数も、
+   * **fetch するかどうか**も指定できない（`git:list-branches` と同じ形）。
+   * 返るのは常に「今の Workspace の `refs/remotes/` に在るものを、上限まで」になる。
+   *
+   * `git:list-branches` と**別の1本**にしてある理由は3つ
+   * （`ListGitRemoteBranchesResponse`）── 動かす git が違う・上限が別々に効く・
+   * 押したときに起きることが違う。
+   */
+  'git:list-remote-branches': {
+    request: void
+    response: ListGitRemoteBranchesResponse
+  }
+  /**
+   * remote-tracking branch を追うローカルブランチを作って、そこへ切り替える
+   * （Session 3-8-19）。
+   *
+   * ## `git:create-branch` と別の1本にしてある
+   *
+   * 「操作ごとに1本ずつ」の決めごとどおりだが、ここでは理由がもう2つある。
+   *
+   *   - **始点に通る値の形が違う。** あちらは短い hash（16進 4〜40 桁）だけで、
+   *     こちらは ref 名になる。1本にすると、3-8-12 から引いてきた
+   *     「渡せるのは画面に出ている commit を指す hash だけ」が広がる
+   *   - **追跡先が付く。** `.git/config` に2行書かれ、この操作の後は
+   *     Push / Pull の相手が決まる。送り先が決まる操作を、決まらない操作と
+   *     同じ口に乗せない
+   *
+   * ## 名前が埋まっていたら、git を動かす前に断る
+   *
+   * 同じ名前のローカルブランチが既にある場合、Main は
+   * **`git switch` を1度も動かさずに** `branch-exists` を返す
+   * （main/git/gitRemoteBranches.ts）。上書きも（`--force` を渡さない）、
+   * 削除も、既にあるブランチへの自動切替も行わない ── どれも
+   * 「押した人が指していないもの」を相手にすることになる（3-8-13 /
+   * 3-8-16 と同じ線）。次の一手は「別の名前を打つ」で、それは同じ欄に在る。
+   *
+   * 応答は他の書き込み操作と同じ `GitOperationResponse` で、作成 → 切り替えの
+   * 後の状態が丸ごと載る（バーのブランチ名も `↑ ↓` も一緒に変わる）──
+   * ただし**一覧はそこに載らない**（3-8-6 からの分担）。
+   */
+  'git:create-tracking-branch': {
+    request: CreateGitTrackingBranchRequest
     response: GitOperationResponse
   }
   /**

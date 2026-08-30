@@ -1,6 +1,12 @@
 import type { FormEvent, JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'
-import type { GitHead, GitLocalBranch, GitOperationFailure, GitOperationOutcome } from '@shared/git'
+import type {
+  GitHead,
+  GitLocalBranch,
+  GitOperationFailure,
+  GitOperationOutcome,
+  GitRemoteBranch
+} from '@shared/git'
 import { Popover } from '../ui/Popover'
 import {
   describeGitBranchDeleteWarning,
@@ -12,6 +18,14 @@ import {
   toGitBranchSwitchReadiness,
   type GitBranchListState
 } from './gitBranches'
+import {
+  describeGitRemoteBranchFreshness,
+  describeGitRemoteBranchList,
+  describeGitRemoteBranchTruncation,
+  toGitRemoteBranchSelectReadiness,
+  toGitTrackingBranchCreateReadiness,
+  type GitRemoteBranchListState
+} from './gitRemoteBranches'
 import { describeGitOperationFailure } from './gitChanges'
 import { describeGitHead } from './gitRepositoryMessage'
 
@@ -76,10 +90,49 @@ import { describeGitHead } from './gitRepositoryMessage'
  * 続けて片付けられるように開いたままにし、一覧はフックが取り直す
  * （useGitRepository.ts）。
  *
+ * ## Session 3-8-19 で、面の3段目に「remote の枝から始める」が付いた
+ *
+ * 並びは上から3つになる。
+ *
+ *   1. ローカルの一覧   … 押すと切り替わる
+ *   2. 新しく作る欄     … 今の場所から作って切り替わる
+ *   3. remote の枝の一覧 … 押すとローカル名の欄が開き、作ると切り替わる
+ *
+ * **別のボタン・別の面に分けなかった**のが、この回のいちばん大きい配置の
+ * 決めごとになる。3-8-6 が一覧と作成を1つの面に置いた理由が、そのまま
+ * 3つめにも当てはまるため ──
+ *
+ * > 「切り替える」と「作って切り替える」は、利用者から見て**同じ場面で
+ * > 選ぶこと**になる（今の作業を別の枝で続けたい、というときに、行き先が
+ * > 既にあるかどうかは一覧を見て初めて決まる）
+ *
+ * remote の枝はまさにその続きにあたる ── 一覧を開いて `feature/x` が
+ * 無かった人の次の問いは「じゃあ remote には在るのか」で、それが別の面に
+ * あると、閉じて別のところを押し直すことになる。上のバーに4つめのボタンを
+ * 足す形にしなかったのも同じ理由になる（履歴・退避・リモートは
+ * ①〜③の流れの**上に無い**ものだが、これは流れの中にある）。
+ *
+ * ## 3 は畳んである（既定では閉じている）
+ *
+ * 1 と 2 は 3-8-6 からそこに在るもので、**開くたびに位置が変わってはいけない。**
+ * 3 を常に開くと、ローカルの一覧が長い人ほど下へ押し出され、3-8-6 からの
+ * 利用者にとって「作成欄がどこかへ行った」ことになる。畳んでおけば、
+ * 増えるのは見出しの1行だけになる。
+ *
+ * 畳んだ側にも**行の数は出す** ── 開かずに「remote に枝が在るか」が
+ * 分かる方が、開いてから空だったと知るより早い。
+ *
+ * ## `Esc` の段は増えない
+ *
+ * 3 の中で開くローカル名の欄は、ローカルの一覧の ✎ / ✕ と**同じ `opened`**
+ * が持つ（下記）── 一度に開くのは面全体で1つだけで、`Esc` は
+ * 「開いているものを畳む → 面を閉じる」の2段のままになる。
+ *
  * ## 文言と押せる条件をここに書かない
  *
- * どちらも gitBranches.ts / gitChanges.ts（React 非依存・テスト対象）が決める。
- * このファイルが持つのは配置だけ、という分担は GitView.tsx と同じになる。
+ * どちらも gitBranches.ts / gitRemoteBranches.ts / gitChanges.ts
+ * （React 非依存・テスト対象）が決める。このファイルが持つのは配置だけ、
+ * という分担は GitView.tsx と同じになる。
  */
 
 /**
@@ -87,29 +140,43 @@ import { describeGitHead } from './gitRepositoryMessage'
  *
  * 名前と種類の両方を持つのは、**同じ行で ✎ と ✕ を押し替えられる**ようにする
  * ため（片方を開いたまま、もう片方を押したら入れ替わる）。
+ *
+ * Session 3-8-19 で `track` が加わった ── remote の枝の行の下に開く
+ * ローカル名の欄になる。**同じ状態に入れてある**のは、面の中で開くものが
+ * 一度に1つであることを、上下の段をまたいで担保するため ── 別の状態に
+ * すると、ローカルの行で rename を開いたまま remote の行も開ける形になり、
+ * `Esc` がどちらを畳むのかが押した順で決まることになる。
+ *
+ * 名前が衝突しないのは、remote-tracking branch の名前が必ず `<remote>/` で
+ * 始まるためではない（ローカルにも `origin/x` という名前は作れる）──
+ * `mode` まで含めて一致を見るためになる。
  */
 interface OpenedBranchRow {
   readonly name: string
-  readonly mode: 'delete' | 'rename'
+  readonly mode: 'delete' | 'rename' | 'track'
 }
 
 export function GitBranchMenu({
   head,
   list,
+  remoteList,
   operating,
   onOpen,
   onSwitch,
   onCreate,
   onDelete,
-  onRename
+  onRename,
+  onCreateTracking
 }: {
   /** 今 HEAD がどこを指しているか（ボタンの文字になる）。 */
   readonly head: GitHead
   /** 一覧の今の姿（フックが持つ。useGitRepository.ts）。 */
   readonly list: GitBranchListState
+  /** remote-tracking branch の一覧の今の姿（Session 3-8-19）。 */
+  readonly remoteList: GitRemoteBranchListState
   /** 何かしらの Git 操作が動いている最中か。 */
   readonly operating: boolean
-  /** 面が開いた（一覧を取り直す契機）。 */
+  /** 面が開いた（一覧を取り直す契機 ── 3-8-19 から2本とも取り直す）。 */
   readonly onOpen: () => void
   readonly onSwitch: (name: string) => void
   /** 作れたかどうかを返す（入力欄を空にしてよいか・面を閉じてよいか）。 */
@@ -118,6 +185,11 @@ export function GitBranchMenu({
   readonly onDelete: (name: string) => Promise<GitOperationOutcome | null>
   /** 名前を変える（結末をそのまま返す）。 */
   readonly onRename: (name: string, newName: string) => Promise<GitOperationOutcome | null>
+  /** remote の枝を追うブランチを作る（結末をそのまま返す。Session 3-8-19）。 */
+  readonly onCreateTracking: (
+    startPoint: string,
+    name: string
+  ) => Promise<GitOperationOutcome | null>
 }): JSX.Element {
   const notice = describeGitBranchList(list)
   const truncation = describeGitBranchTruncation(list)
@@ -198,10 +270,17 @@ export function GitBranchMenu({
       return
     }
 
-    if (!list.branches.some((branch) => branch.name === opened.name)) {
+    /*
+      どちらの一覧を見るかは、開いているものの種類で決まる（Session 3-8-19）──
+      `track` はローカルの一覧に居ないので、ここでローカルだけを見ていると
+      **remote の行の欄が、開いた瞬間に畳まれる。**
+    */
+    const source = opened.mode === 'track' ? remoteList.branches : list.branches
+
+    if (!source.some((branch) => branch.name === opened.name)) {
       setOpened(null)
     }
-  }, [list.branches, opened])
+  }, [list.branches, remoteList.branches, opened])
 
   return (
     <Popover
@@ -256,9 +335,352 @@ export function GitBranchMenu({
           */}
           {truncation === null ? null : <p className="fx-git__branch-truncated">{truncation}</p>}
           <GitBranchCreateForm operating={operating} onCreate={onCreate} onCreated={close} />
+          {/*
+            remote の枝から始める（Session 3-8-19）。
+
+            いちばん下に置く ── DESIGN.md 設計判断 2（足すのは下へ）のとおりで、
+            上から「今どこに居るか → どこへ行けるか → 新しく作る →
+            remote から持ってくる」と読める。3-8-6 からそこに在った2つの
+            位置を1mm も動かさない。
+          */}
+          <GitRemoteBranchSection
+            list={remoteList}
+            operating={operating}
+            opened={opened !== null && opened.mode === 'track' ? opened.name : null}
+            failure={failure}
+            onOpenRow={openRow}
+            onCloseRow={closeRow}
+            onCreateTracking={onCreateTracking}
+            onOutcome={setFailure}
+            onCreated={close}
+          />
         </>
       )}
     </Popover>
+  )
+}
+
+/**
+ * 「リモートのブランチから作る」の畳んだ塊（Session 3-8-19）。
+ *
+ * ## 開閉はこの塊が持つ
+ *
+ * 面の側（`GitBranchMenu`）に持たせない ── 面が持っている `opened` は
+ * 「行の下に何が開いているか」で、こちらは「段そのものが開いているか」に
+ * なる。混ぜると、remote の行の欄を畳んだときに段まで閉じることになる。
+ *
+ * ## 閉じるときに、中の欄も畳む
+ *
+ * 段を閉じてから開き直したとき、前に打ちかけていたローカル名が
+ * そのまま出ていると、今どの行について何をしようとしているのかが
+ * 分からなくなる（面を開き直したときに `closeRow` するのと同じ判断）。
+ *
+ * ## 件数は畳んだ状態でも出す
+ *
+ * 開かずに「remote に枝が在るか」が分かる方が、開いてから空だったと知るより
+ * 早い ── ただし出すのは `ready` のときだけになる。取得中や失敗のときに
+ * 「0」と出すと、**在るのに無いと読まれる。**
+ */
+function GitRemoteBranchSection({
+  list,
+  operating,
+  opened,
+  failure,
+  onOpenRow,
+  onCloseRow,
+  onCreateTracking,
+  onOutcome,
+  onCreated
+}: {
+  readonly list: GitRemoteBranchListState
+  readonly operating: boolean
+  /** この段の中で開いている行の名前（無ければ null）。 */
+  readonly opened: string | null
+  readonly failure: GitOperationFailure | null
+  readonly onOpenRow: (row: OpenedBranchRow) => void
+  readonly onCloseRow: () => void
+  readonly onCreateTracking: (
+    startPoint: string,
+    name: string
+  ) => Promise<GitOperationOutcome | null>
+  readonly onOutcome: (failure: GitOperationFailure | null) => void
+  /** 通ったので面を閉じる（作った先へ切り替わっている）。 */
+  readonly onCreated: () => void
+}): JSX.Element {
+  const [expanded, setExpanded] = useState(false)
+
+  const notice = describeGitRemoteBranchList(list)
+  const truncation = describeGitRemoteBranchTruncation(list)
+  const freshness = describeGitRemoteBranchFreshness(list)
+
+  const toggle = useCallback((): void => {
+    setExpanded((current) => {
+      if (current) {
+        // 畳むときは、中で開いていた欄も一緒に片付ける。
+        onCloseRow()
+      }
+
+      return !current
+    })
+  }, [onCloseRow])
+
+  const count = list.status === 'ready' ? list.branches.length : null
+
+  return (
+    <div className="fx-git__remote-branches" data-expanded={expanded}>
+      <button
+        type="button"
+        className="fx-git__remote-branches-toggle"
+        onClick={toggle}
+        aria-expanded={expanded}
+        title="リモートのブランチから、手元にブランチを作ります。"
+      >
+        <span className="fx-git__remote-branches-caret" aria-hidden="true">
+          {expanded ? '▾' : '▸'}
+        </span>
+        <span className="fx-git__remote-branches-title">リモートのブランチから作る</span>
+        {count === null ? null : (
+          <span className="fx-git__remote-branches-count">{count.toLocaleString()}</span>
+        )}
+      </button>
+      {expanded ? (
+        <>
+          <div className="fx-git__remote-branch-list">
+            {notice === null ? (
+              list.branches.map((branch) => (
+                <GitRemoteBranchRow
+                  key={branch.name}
+                  branch={branch}
+                  operating={operating}
+                  opened={opened === branch.name}
+                  failure={failure}
+                  onOpenRow={onOpenRow}
+                  onCloseRow={onCloseRow}
+                  onCreateTracking={onCreateTracking}
+                  onOutcome={onOutcome}
+                  onCreated={onCreated}
+                />
+              ))
+            ) : (
+              <p className="fx-git__branch-notice" role="status">
+                {notice}
+              </p>
+            )}
+          </div>
+          {truncation === null ? null : <p className="fx-git__branch-truncated">{truncation}</p>}
+          {/*
+            いつの写しなのかを黙らない（gitRemoteBranches.ts）── この面は
+            fetch しないので、黙ると「今の remote の状態」として読まれる。
+          */}
+          {freshness === null ? null : <p className="fx-git__branch-truncated">{freshness}</p>}
+        </>
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * remote の枝の1行と、その下に開くローカル名の欄（Session 3-8-19）。
+ *
+ * ## 押しても切り替わらない
+ *
+ * ローカルの一覧の行は押すと切り替わるが、こちらは**欄が開くだけ**になる ──
+ * 「選んだら手元にブランチが作られる」という、一覧を見ただけでは分からない
+ * 副作用を作らない、という 3-8-6 からの決めごとがここに現れる
+ * （shared/git/branch.ts）。`aria-expanded` を持たせてあるのはそのためで、
+ * 押した結果として何かが現れることを、見えていない人にも同じように伝える。
+ *
+ * ## ✎ / ✕ は無い
+ *
+ * remote branch の削除も rename も対象外にしてある（§14.22 のまま）── 他人に
+ * 影響し、サーバー側で戻せない。行に置けるのは1つだけなので、
+ * ローカルの行のようにボタンを分けていない。
+ */
+function GitRemoteBranchRow({
+  branch,
+  operating,
+  opened,
+  failure,
+  onOpenRow,
+  onCloseRow,
+  onCreateTracking,
+  onOutcome,
+  onCreated
+}: {
+  readonly branch: GitRemoteBranch
+  readonly operating: boolean
+  readonly opened: boolean
+  readonly failure: GitOperationFailure | null
+  readonly onOpenRow: (row: OpenedBranchRow) => void
+  readonly onCloseRow: () => void
+  readonly onCreateTracking: (
+    startPoint: string,
+    name: string
+  ) => Promise<GitOperationOutcome | null>
+  readonly onOutcome: (failure: GitOperationFailure | null) => void
+  readonly onCreated: () => void
+}): JSX.Element {
+  const readiness = toGitRemoteBranchSelectReadiness(branch, operating)
+
+  return (
+    <div className="fx-git__branch-entry">
+      <div className="fx-git__branch-item">
+        <button
+          type="button"
+          className="fx-menu__item fx-git__branch-switch"
+          onClick={() => onOpenRow({ name: branch.name, mode: 'track' })}
+          disabled={!readiness.enabled}
+          aria-expanded={opened}
+          title={readiness.note}
+          aria-label={readiness.note}
+        >
+          {/* 印の場所はローカルの一覧と揃える（名前の開始位置を行ごとに動かさない）。 */}
+          <span className="fx-menu__mark" aria-hidden="true" />
+          <span className="fx-menu__label fx-git__branch-name">{branch.name}</span>
+        </button>
+      </div>
+      {opened ? (
+        <GitTrackingBranchForm
+          branch={branch}
+          operating={operating}
+          failure={failure}
+          onCreateTracking={onCreateTracking}
+          onCancel={onCloseRow}
+          onOutcome={onOutcome}
+          onCreated={onCreated}
+        />
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * 行の下に開くローカル名の欄（Session 3-8-19）。
+ *
+ * ## 初期値は remote 側の branch 部分
+ *
+ * `origin/feature/x` を押したら `feature/x` が入っている ── いちばん多い答えを
+ * 打たせないためになる。切り出したのは Main で（remote 名に `/` が入りうるため、
+ * Renderer では正しく切れない。shared/git/remoteBranch.ts）、
+ * ここはそれを初期値に置くだけになる。
+ *
+ * rename の欄と同じく開いた瞬間に全選択してあるので、まるごと差し替えたい人は
+ * そのまま打てる。
+ *
+ * ## それでも欄にしてある（決め打ちにしない）
+ *
+ * 押しただけで作る形にすると、**同じ名前のローカルブランチが既にある人に
+ * 打ち直す道が無くなる** ── アプリは上書きも削除も自動切替もしないので
+ * （main/git/gitRemoteBranches.ts）、そのとき次の一手は「別の名前にする」
+ * ただ1つになる。その欄が同じ場所に在ることが要る。
+ *
+ * ## 失敗しても名前を消さない
+ *
+ * Commit 欄・作成欄・rename 欄と同じ判断 ── 「同じ名前が既にあります」と
+ * 言われた人が、また一から打ち直すことになる。
+ *
+ * ## 通ったら面ごと閉じる
+ *
+ * 作った先へ切り替わるので、開いたままの一覧は**もう別のブランチのもの**に
+ * なる（ローカルの一覧の印が全部ずれる）── 3-8-6 の作成と同じ扱いで、
+ * 削除 / rename が閉じないのとは逆側にあたる。
+ */
+function GitTrackingBranchForm({
+  branch,
+  operating,
+  failure,
+  onCreateTracking,
+  onCancel,
+  onOutcome,
+  onCreated
+}: {
+  readonly branch: GitRemoteBranch
+  readonly operating: boolean
+  readonly failure: GitOperationFailure | null
+  readonly onCreateTracking: (
+    startPoint: string,
+    name: string
+  ) => Promise<GitOperationOutcome | null>
+  readonly onCancel: () => void
+  readonly onOutcome: (failure: GitOperationFailure | null) => void
+  readonly onCreated: () => void
+}): JSX.Element {
+  const [name, setName] = useState(branch.branch)
+  const readiness = toGitTrackingBranchCreateReadiness(branch, name, operating)
+
+  const submit = useCallback(
+    (event: FormEvent<HTMLFormElement>): void => {
+      event.preventDefault()
+
+      if (!readiness.enabled) {
+        return
+      }
+
+      void onCreateTracking(branch.name, name).then((outcome) => {
+        if (outcome !== null && outcome.status === 'applied') {
+          onOutcome(null)
+          onCreated()
+          return
+        }
+
+        onOutcome(outcome === null ? null : outcome)
+      })
+    },
+    [branch.name, name, onCreateTracking, onCreated, onOutcome, readiness.enabled]
+  )
+
+  return (
+    <form
+      className="fx-git__branch-rename"
+      onSubmit={submit}
+      data-testid="git-tracking-branch-form"
+      data-branch={branch.name}
+    >
+      <div className="fx-git__branch-rename-row">
+        <input
+          type="text"
+          className="fx-git__branch-input"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          // 入力そのものは止めない（止めると、貼り付けた名前を自分で削れなくなる）。
+          aria-label={`${branch.name} を追うローカルブランチ名`}
+          spellCheck={false}
+          autoComplete="off"
+          autoFocus
+          onFocus={(event) => event.currentTarget.select()}
+        />
+        <button
+          type="submit"
+          className="fx-git__branch-create-action"
+          data-testid="git-tracking-branch-apply"
+          disabled={!readiness.enabled}
+          title={readiness.note}
+        >
+          作成
+        </button>
+        {/*
+          やめる道を `Esc` の他にも置く（rename の欄と同じ）。`type="button"` を
+          明示してあるのは、`<form>` の中の既定が `submit` のためになる。
+        */}
+        <button
+          type="button"
+          className="fx-git__branch-rename-cancel"
+          onClick={onCancel}
+          title="やめる（Esc）"
+          aria-label="やめる"
+        >
+          ×
+        </button>
+      </div>
+      <p className="fx-git__branch-note" role="status">
+        {readiness.note}
+      </p>
+      {failure === null ? null : (
+        <p className="fx-git__branch-failure" role="alert">
+          {describeGitOperationFailure(failure)}
+        </p>
+      )}
+    </form>
   )
 }
 

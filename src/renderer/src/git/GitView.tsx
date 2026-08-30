@@ -156,6 +156,7 @@ export function GitView(): JSX.Element {
     commitAndPush,
     branches,
     refreshBranches,
+    remoteBranches,
     history,
     historyOpen,
     openHistory,
@@ -168,6 +169,7 @@ export function GitView(): JSX.Element {
     createBranchFromCommit,
     deleteBranch,
     renameBranch,
+    createTrackingBranch,
     remotes,
     remoteOpen,
     openRemotes,
@@ -507,12 +509,21 @@ export function GitView(): JSX.Element {
         <GitBranchMenu
           head={repository.head}
           list={branches}
+          /*
+            remote-tracking branch の一覧（Session 3-8-19）。
+
+            ローカルの一覧と**別の props** で渡す ── 届くのは別のチャンネルで、
+            上限も `truncated` も別々に効く（shared/ipc/contracts/git.ts）。
+            `onOpen` は 3-8-6 のまま1つで、2本を取り直すのはフックの側になる。
+          */
+          remoteList={remoteBranches}
           operating={operating}
           onOpen={refreshBranches}
           onSwitch={switchBranch}
           onCreate={createBranch}
           onDelete={deleteBranch}
           onRename={renameBranch}
+          onCreateTracking={createTrackingBranch}
         />
         {upstream === null ? null : (
           <span className="fx-git__upstream" title={upstream.title}>

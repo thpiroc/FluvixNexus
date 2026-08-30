@@ -83,6 +83,18 @@ import { subscribeIpcEvent } from '../ipc/subscribe'
  * `--end-of-options` も Main 側にある。**3-8-16 で渡っていない種類の値は
  * 1つも増えていない**（名前と URL の2種類のまま）。
  *
+ * ## Session 3-8-19 で ref 名が渡っても、線は動かない
+ *
+ * remote-tracking branch からの作成（`createTrackingBranch`）の要求には、
+ * 一覧の行が持っていた名前（`origin/feature/x`）と、手元に付けるローカル名の
+ * 2つが載る。それでも**ここは素通しの経路のまま**になる ── 形を確かめるのは
+ * Main のハンドラ（2つとも `normalizeGitBranchName`）で、
+ * 「それが本当に `refs/remotes/` の下に在るか」を git に確かめるのも Main になる
+ * （main/git/gitRemoteBranches.ts）。
+ *
+ * 一覧（`listRemoteBranches`）は要求が `void` に戻る ── remote 名で絞る欄も、
+ * **fetch するかどうか**の欄も無い。
+ *
  * ## Session 3-8-10 で足した `init` も、渡す値が1つも無い
  *
  * 初期化の要求は `void` ── どこを初期化するかも初期ブランチ名も渡せない。
@@ -113,6 +125,8 @@ export const gitApi: GitApi = {
   createBranch: (request) => invokeIpc(IPC_CHANNELS.GIT_CREATE_BRANCH, request),
   deleteBranch: (request) => invokeIpc(IPC_CHANNELS.GIT_DELETE_BRANCH, request),
   renameBranch: (request) => invokeIpc(IPC_CHANNELS.GIT_RENAME_BRANCH, request),
+  listRemoteBranches: () => invokeIpc(IPC_CHANNELS.GIT_LIST_REMOTE_BRANCHES),
+  createTrackingBranch: (request) => invokeIpc(IPC_CHANNELS.GIT_CREATE_TRACKING_BRANCH, request),
   listRemotes: () => invokeIpc(IPC_CHANNELS.GIT_LIST_REMOTES),
   addRemote: (request) => invokeIpc(IPC_CHANNELS.GIT_ADD_REMOTE, request),
   setRemoteUrl: (request) => invokeIpc(IPC_CHANNELS.GIT_SET_REMOTE_URL, request),

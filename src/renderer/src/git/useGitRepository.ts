@@ -7,6 +7,7 @@ import type {
   GitOperationFailure,
   GitOperationOutcome,
   GitRemote,
+  GitRemoteBranch,
   GitRepositoryState,
   GitStageTarget,
   GitStashEntry
@@ -26,6 +27,11 @@ import {
 } from './gitBranches'
 import type { GitCommitDetailState } from './gitCommitDetail'
 import { INITIAL_GIT_COMMIT_HISTORY, type GitCommitHistoryState } from './gitHistory'
+import {
+  GIT_CREATE_TRACKING_BRANCH_OPERATION_KEY,
+  INITIAL_GIT_REMOTE_BRANCH_LIST,
+  type GitRemoteBranchListState
+} from './gitRemoteBranches'
 import {
   GIT_ADD_REMOTE_OPERATION_KEY,
   GIT_REMOVE_REMOTE_OPERATION_KEY,
@@ -268,6 +274,18 @@ export interface GitRepositoryController {
   /** 一覧を取り直す（面を開いたときに呼ぶ）。 */
   readonly refreshBranches: () => void
   /**
+   * remote-tracking branch の一覧（Session 3-8-19）。
+   *
+   * ローカルの一覧と**別に持つ。** 1つの状態にまとめると、片方だけが
+   * 届いている間の姿を表せない（2本のチャンネルは別々に返る）── そして
+   * 上限も `truncated` も別々に効くので、まとめると「何について切れたのか」を
+   * 言えなくなる（shared/ipc/contracts/git.ts）。
+   *
+   * 取り直す契機はローカルの一覧とまったく同じ（面が開いた瞬間だけ）で、
+   * `git:changed` には相乗りさせていない。
+   */
+  readonly remoteBranches: GitRemoteBranchListState
+  /**
    * commit の履歴（Session 3-8-11）。
    *
    * ブランチの一覧と同じく**リポジトリの状態とは別に持つ** ── `repository` の
@@ -373,6 +391,32 @@ export interface GitRepositoryController {
    * 上のバーの表示も一緒に変わる（HEAD は git が追随させる）。
    */
   readonly renameBranch: (name: string, newName: string) => Promise<GitOperationOutcome | null>
+  /**
+   * remote-tracking branch を追うローカルブランチを作って、切り替える
+   * （Session 3-8-19）。
+   *
+   * ## 結末を返す（`createBranch` は真偽だった）
+   *
+   * 理由は `createBranchFromCommit` / `deleteBranch` と同じで、**押した場所の
+   * 近くに理由を出す必要がある**ため ── ブランチの面はパネルを覆っており、
+   * 下に出ている `failure` は読めない（GitBranchMenu.tsx）。
+   *
+   * とくにここでは、いちばん出やすい失敗が `branch-exists`（同じ名前の
+   * ローカルブランチが既にある）になる ── その理由は**打ち直す欄の
+   * すぐ隣**に出ないと意味が無い。
+   *
+   * ## 通ったら面を閉じる（切り替わるため）
+   *
+   * 作った先へ移るので、開いたままの一覧は**もう別のブランチのもの**になる
+   * （ローカルの一覧の印が全部ずれる）── 3-8-6 の作成と同じ扱いで、
+   * 削除 / rename が閉じないのとは逆側にあたる。
+   *
+   * 閉じる判断は面の側が持つ（通ったかどうかを結末から読む）。
+   */
+  readonly createTrackingBranch: (
+    startPoint: string,
+    name: string
+  ) => Promise<GitOperationOutcome | null>
   /**
    * 退避の一覧（Session 3-8-15）。
    *
@@ -575,6 +619,25 @@ export function useGitRepository(): GitRepositoryController {
   const branchRequestRef = useRef(0)
 
   /**
+   * remote-tracking branch の一覧（Session 3-8-19）。
+   *
+   * ローカルの一覧と同じ面の中に出るが、**別の状態として持つ** ── 届くのは
+   * 別のチャンネルからで、片方だけが先に届いている間の姿がある。
+   */
+  const [remoteBranches, setRemoteBranches] = useState<GitRemoteBranchListState>(
+    INITIAL_GIT_REMOTE_BRANCH_LIST
+  )
+
+  /**
+   * remote-tracking の一覧の通し番号。
+   *
+   * ローカルの一覧（`branchRequestRef`）と**別に持つ。** 同じ面から同時に
+   * 2本走るので、1つの番号を共有すると**後から始まった方が先の答えを
+   * 捨てさせる**ことになる（2本のうち片方だけが必ず消える）。
+   */
+  const remoteBranchRequestRef = useRef(0)
+
+  /**
    * commit の履歴（Session 3-8-11）。
    *
    * ブランチの一覧と同じく**閉じている間は誰も見ていない**が、そちらと違って
@@ -775,6 +838,14 @@ export function useGitRepository(): GitRepositoryController {
     // ブランチの一覧も同じ理由で捨てる（別のリポジトリのブランチが一瞬見える）。
     setBranches(INITIAL_GIT_BRANCH_LIST)
     /*
+      remote-tracking branch の一覧も同じ理由で捨てる（Session 3-8-19）。
+      通し番号も進めて、飛んでいる問い合わせの答えを捨てる ── ローカルの
+      一覧が `workspaceId` の突き合わせだけで足りているのに対し、こちらは
+      2本が同じ面から走るぶん、番号の側でも切っておく。
+    */
+    remoteBranchRequestRef.current += 1
+    setRemoteBranches(INITIAL_GIT_REMOTE_BRANCH_LIST)
+    /*
       開いていた差分も閉じる（Session 3-8-9）。
 
       同じ位置のファイルが切り替え先にも在ることは普通にあり、閉じないと
@@ -913,10 +984,68 @@ export function useGitRepository(): GitRepositoryController {
     )
   }, [])
 
-  /** 面を開いた側から呼ぶ形（結末は画面の中だけで完結する）。 */
+  /**
+   * remote-tracking branch の一覧を取り直す（Session 3-8-19）。
+   *
+   * 経路はローカルの一覧（`refreshBranches`）とまったく同じ ── 通し番号で
+   * 追い越しを捨て、`workspaceId` で行き違いを捨てる。**fetch はしない**
+   * （この面はネットワークへ出ない。shared/git/remoteBranch.ts）。
+   *
+   * 呼ばれるのはローカルの一覧と同じ瞬間（面が開いたとき）で、2本が
+   * 並んで走る ── 順番に待たせないのは、片方が遅れるともう片方の行まで
+   * 出てこなくなるためになる（Main 側では順番待ちに入るので、git は
+   * 1本ずつ走る）。
+   */
+  const refreshRemoteBranches = useCallback(async (): Promise<void> => {
+    const requestId = remoteBranchRequestRef.current + 1
+    remoteBranchRequestRef.current = requestId
+    setRemoteBranches(INITIAL_GIT_REMOTE_BRANCH_LIST)
+
+    const result = await fluvix.git.listRemoteBranches()
+
+    // 追い越された（面を開き直した）。新しい方の答えが来る。
+    if (remoteBranchRequestRef.current !== requestId) {
+      return
+    }
+
+    if (!result.ok) {
+      console.warn('[git] リモートのブランチの一覧を取得できませんでした。', result.error)
+      setRemoteBranches({ status: 'failed', branches: [], truncated: false, hasRemote: false })
+      return
+    }
+
+    // 問い合わせている間に Workspace が切り替わっていたら捨てる（`load` と同じ）。
+    if (result.data.workspaceId !== workspaceIdRef.current) {
+      return
+    }
+
+    const listing = result.data.listing
+    const hasRemote = result.data.hasRemote
+
+    setRemoteBranches(
+      listing.status === 'ready'
+        ? {
+            status: 'ready',
+            branches: listing.branches,
+            truncated: listing.truncated,
+            hasRemote
+          }
+        : { status: listing.status, branches: [], truncated: false, hasRemote }
+    )
+  }, [])
+
+  /**
+   * 面を開いた側から呼ぶ形（結末は画面の中だけで完結する）。
+   *
+   * Session 3-8-19 で、**1回の「開いた」で2本走る**ようになった ── ローカルと
+   * remote-tracking の一覧で、チャンネルも上限も別になる
+   * （shared/ipc/contracts/git.ts）。面の側から2回呼ばせないのは、
+   * 「開いたら何を取り直すか」を決めるのがフックの側だからにあたる。
+   */
   const requestBranches = useCallback((): void => {
     void refreshBranches()
-  }, [refreshBranches])
+    void refreshRemoteBranches()
+  }, [refreshBranches, refreshRemoteBranches])
 
   /**
    * commit の履歴を取り直す（Session 3-8-11）。
@@ -1694,6 +1823,34 @@ export function useGitRepository(): GitRepositoryController {
   )
 
   /*
+    remote-tracking branch を追うブランチを作って切り替える（Session 3-8-19）。
+
+    ## 経路は他の書き込み操作とまったく同じ
+
+    `operate` を通り、二重の要求は目印で止まり、応答に載っている操作後の
+    状態をそのまま使う。**目印だけが 3-8-6 の作成と別**になる ── 動かす
+    チャンネルが別で、押せる場所も別になる（gitRemoteBranches.ts）。
+
+    ## 通った後に一覧を取り直さない
+
+    削除 / rename（3-8-14）は面を開いたままにするので取り直していたが、
+    こちらは**面が閉じる**（切り替わったため。GitBranchMenu.tsx）── 閉じる面の
+    一覧を取り直すのは、誰も見ないもののために git を1回起動することになる。
+    次に開いたときは、そのときに取り直される（§14.14 の決めごとのまま）。
+
+    バーのブランチ名も `↑ ↓` も、応答に載っている操作後の状態から変わる ──
+    **追跡先がここで設定される**ので、`↑ ↓` は作った直後から出る。
+  */
+  const createTrackingBranch = useCallback(
+    async (startPoint: string, name: string): Promise<GitOperationOutcome | null> => {
+      return await operate(GIT_CREATE_TRACKING_BRANCH_OPERATION_KEY, () =>
+        fluvix.git.createTrackingBranch({ startPoint, name })
+      )
+    },
+    [operate]
+  )
+
+  /*
     退避（Session 3-8-15）。
 
     ## 経路は他の書き込み操作とまったく同じ
@@ -1959,6 +2116,7 @@ export function useGitRepository(): GitRepositoryController {
     commitAndPush,
     branches,
     refreshBranches: requestBranches,
+    remoteBranches,
     history,
     historyOpen,
     openHistory,
@@ -1971,6 +2129,7 @@ export function useGitRepository(): GitRepositoryController {
     createBranchFromCommit,
     deleteBranch,
     renameBranch,
+    createTrackingBranch,
     remotes,
     remoteOpen,
     openRemotes,
