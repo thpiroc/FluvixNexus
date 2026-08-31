@@ -1309,6 +1309,33 @@
   color: var(--fx-color-text-muted);
 }
 
+/*
+ * 競合の形と、片側にファイルが無いこと（Session 3-8-21）。
+ *
+ * 帯（`fx-git__diff-legend`）のすぐ下に、同じ余白で置く ── 帯が
+ * 「どちらの側か」を言い、こちらが「どういう競合か」を言う。2行に分けて
+ * あるのは、左右のラベルが**どの差分にも出る**もので、この行が
+ * **競合のときだけ出る**ものだからになる（読む場所を入口ごとに変えない）。
+ */
+.fx-git__diff-shape {
+  flex: none;
+  margin: 0;
+  padding: var(--fx-space-1) var(--fx-space-3);
+  border-bottom: 1px solid var(--fx-color-border);
+  color: var(--fx-color-text-muted);
+}
+
+/*
+ * 「この側にはファイルが存在しません」。
+ *
+ * 形の説明と同じ行に続けて出し、色だけを強くする ── 別の行にすると、
+ * 差分そのものが縦に押し出される。識別色は足していない（新しい色を
+ * 増やさない。§14.28 の帯と同じ判断）。
+ */
+.fx-git__diff-missing {
+  color: var(--fx-color-text-strong);
+}
+
 .fx-git__diff-note[data-variant='error'] {
   color: var(--fx-color-danger);
 }

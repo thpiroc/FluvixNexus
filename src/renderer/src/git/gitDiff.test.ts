@@ -3,6 +3,9 @@ import { describe, expect, it } from 'vitest'
 import {
   canDiffGitChange,
   describeGitCommitDiffSides,
+  describeGitConflictDiffSides,
+  describeGitConflictMissingSides,
+  describeGitConflictShape,
   describeGitDiffSides,
   describeGitDiffTitle,
   describeGitDiffUnavailable,
@@ -29,30 +32,37 @@ function change(overrides: Partial<GitFileChange> & { kind: GitChangeKind }): Gi
 }
 
 describe('canDiffGitChange', () => {
-  it('競合の行では差分を出さない', () => {
-    expect(canDiffGitChange('conflicted', change({ kind: 'conflicted' }))).toBe(false)
+  /*
+    Session 3-8-21 で裏返った1つ。3-8-9 では競合を弾いていた（「前」と「後」が
+    2組あり、2つの中身を並べる形が当てはまらないため）── 3-8-21 で
+    「組を1つに決める」という答えが出たので、**通す側**になる。
+    行き先のチャンネルは違うが、それを決めるのは押した側（GitView.tsx）。
+  */
+  it('**競合の行でも差分を出す**（Session 3-8-21 で通るようになった）', () => {
+    expect(canDiffGitChange(change({ kind: 'conflicted' }))).toBe(true)
   })
 
   it('未追跡のフォルダ1件では差分を出さない', () => {
-    expect(canDiffGitChange('untracked', change({ kind: 'untracked', directory: true }))).toBe(
-      false
-    )
+    expect(canDiffGitChange(change({ kind: 'untracked', directory: true }))).toBe(false)
   })
 
   it('**削除された行でも差分を出す**（Editor では開けないが、中身は見せられる）', () => {
-    expect(canDiffGitChange('unstaged', change({ kind: 'deleted' }))).toBe(true)
-    expect(canDiffGitChange('staged', change({ kind: 'deleted' }))).toBe(true)
+    expect(canDiffGitChange(change({ kind: 'deleted' }))).toBe(true)
   })
 
   it('通常の行では出す', () => {
-    expect(canDiffGitChange('staged', change({ kind: 'modified' }))).toBe(true)
-    expect(canDiffGitChange('unstaged', change({ kind: 'modified' }))).toBe(true)
-    expect(canDiffGitChange('untracked', change({ kind: 'untracked' }))).toBe(true)
+    expect(canDiffGitChange(change({ kind: 'modified' }))).toBe(true)
+    expect(canDiffGitChange(change({ kind: 'untracked' }))).toBe(true)
   })
 })
 
 describe('toGitDiffGroup', () => {
-  it('競合は渡せない', () => {
+  /*
+    3-8-21 で競合にも差分の口が付いたが、**ここは 3-8-9 のまま**になる ──
+    競合が行くのは別のチャンネル（`git:get-conflict-diff`）で、
+    `GitDiffGroup` に競合は混ざらない。
+  */
+  it('競合は渡せない（別のチャンネルへ行く）', () => {
     expect(toGitDiffGroup('conflicted')).toBeNull()
   })
 
@@ -205,5 +215,180 @@ describe('describeGitCommitDiffSides', () => {
 
   it('削除では、右が「無い」ことをそのまま書く', () => {
     expect(describeGitCommitDiffSides('deleted').modified).toBe('削除されています')
+  })
+})
+
+/**
+ * 競合の左右と、競合の形（Session 3-8-21）。
+ *
+ * ここで固定したいのは3つになる。
+ *
+ *   1. **マージ中だけ** ours / theirs を「現在のブランチ / 取り込み側」と訳す
+ *      （rebase / cherry-pick では意味が逆になり、`stash pop` では枝の話ですらない）
+ *   2. どちらの側にファイルが無いかが、**形だけで**決まる
+ *      （Main から boolean を2つ受け取らない ── `shape` と食い違う組み合わせを作らない）
+ *   3. 片側が無いことが、**言葉として**出る（空のファイルと見分けが付く）
+ *
+ * 中身の取り方は Main の側の話になる（main/git/gitConflictDiffRepository.test.ts）。
+ */
+describe('describeGitConflictDiffSides', () => {
+  it('マージ中は、ours / theirs の意味を補う', () => {
+    const sides = describeGitConflictDiffSides('both-modified', true)
+
+    expect(sides.original).toBe('現在のブランチ（ours / stage 2）')
+    expect(sides.modified).toBe('取り込み側（theirs / stage 3）')
+  })
+
+  it('マージ中でなければ、ours / theirs を訳さない（中立に留める）', () => {
+    const sides = describeGitConflictDiffSides('both-modified', false)
+
+    expect(sides.original).toBe('ours（stage 2）')
+    expect(sides.modified).toBe('theirs（stage 3）')
+    // 「自分の変更」「相手の変更」と断定しない。
+    expect(sides.original).not.toContain('現在のブランチ')
+    expect(sides.modified).not.toContain('取り込み側')
+  })
+
+  it('どちらの側でも、段の番号は隠さない（端末の --ours / --theirs と照合できる）', () => {
+    for (const merging of [true, false]) {
+      const sides = describeGitConflictDiffSides('both-modified', merging)
+
+      expect(sides.original).toContain('stage 2')
+      expect(sides.modified).toContain('stage 3')
+    }
+  })
+
+  it('両方に中身がある形では、片側の不在を出さない', () => {
+    for (const shape of ['both-modified', 'both-added'] as const) {
+      const sides = describeGitConflictDiffSides(shape, true)
+
+      expect(sides.originalMissing, shape).toBe(false)
+      expect(sides.modifiedMissing, shape).toBe(false)
+      expect(describeGitConflictMissingSides(sides, true), shape).toBeNull()
+    }
+  })
+
+  it('右にファイルが無い形（削除された / ours だけが追加した）を見分ける', () => {
+    for (const shape of ['deleted-by-them', 'added-by-us'] as const) {
+      const sides = describeGitConflictDiffSides(shape, true)
+
+      expect(sides.originalMissing, shape).toBe(false)
+      expect(sides.modifiedMissing, shape).toBe(true)
+    }
+  })
+
+  it('左にファイルが無い形（消した / theirs だけが追加した）を見分ける', () => {
+    for (const shape of ['deleted-by-us', 'added-by-them'] as const) {
+      const sides = describeGitConflictDiffSides(shape, true)
+
+      expect(sides.originalMissing, shape).toBe(true)
+      expect(sides.modifiedMissing, shape).toBe(false)
+    }
+  })
+
+  it('両方で削除された形では、両側とも無い', () => {
+    const sides = describeGitConflictDiffSides('both-deleted', true)
+
+    expect(sides.originalMissing).toBe(true)
+    expect(sides.modifiedMissing).toBe(true)
+  })
+})
+
+describe('describeGitConflictMissingSides', () => {
+  it('片側が無いときは、その側を名指しして「存在しません」と言う', () => {
+    const text = describeGitConflictMissingSides(
+      describeGitConflictDiffSides('deleted-by-them', true),
+      true
+    )
+
+    expect(text).toBe('右（取り込み側）にはファイルが存在しません。')
+  })
+
+  it('両側とも無いときは、両方を言う', () => {
+    const text = describeGitConflictMissingSides(
+      describeGitConflictDiffSides('both-deleted', true),
+      true
+    )
+
+    expect(text).toContain('左（現在のブランチ）')
+    expect(text).toContain('右（取り込み側）')
+  })
+
+  /*
+    帯のラベルをそのまま挟むと「右（取り込み側（theirs / stage 3））には…」と
+    括弧が二重になる ── 段の番号はすぐ上の帯に出ているので、文の側は
+    短い呼び名で足りる。
+  */
+  it('段の番号を文の中まで持ち込まない（括弧が二重にならない）', () => {
+    const text = describeGitConflictMissingSides(
+      describeGitConflictDiffSides('added-by-us', true),
+      true
+    )
+
+    expect(text).not.toContain('stage')
+    expect(text).not.toContain('））')
+  })
+
+  it('マージ中でなければ、文の中の呼び名も訳さない', () => {
+    const text = describeGitConflictMissingSides(
+      describeGitConflictDiffSides('deleted-by-us', false),
+      false
+    )
+
+    expect(text).toBe('左（ours）にはファイルが存在しません。')
+  })
+})
+
+describe('describeGitConflictShape', () => {
+  it('7つの形すべてに文がある（git の XY は出さない）', () => {
+    const shapes = [
+      'both-modified',
+      'both-added',
+      'deleted-by-them',
+      'deleted-by-us',
+      'both-deleted',
+      'added-by-us',
+      'added-by-them'
+    ] as const
+
+    for (const shape of shapes) {
+      const text = describeGitConflictShape(shape, true)
+
+      expect(text.length, shape).toBeGreaterThan(0)
+      expect(text, shape).toMatch(/。$/)
+      expect(text, shape).not.toMatch(/\b(UU|AA|UD|DU|DD|AU|UA)\b/)
+    }
+  })
+
+  it('形ごとに違う文になる（「競合しています」で丸めない）', () => {
+    const texts = new Set(
+      (
+        [
+          'both-modified',
+          'both-added',
+          'deleted-by-them',
+          'deleted-by-us',
+          'both-deleted',
+          'added-by-us',
+          'added-by-them'
+        ] as const
+      ).map((shape) => describeGitConflictShape(shape, true))
+    )
+
+    expect(texts.size).toBe(7)
+  })
+
+  it('左右の呼び名は、ラベルと同じ規則で決まる', () => {
+    expect(describeGitConflictShape('deleted-by-them', true)).toContain('取り込み側')
+    expect(describeGitConflictShape('deleted-by-them', false)).not.toContain('取り込み側')
+    expect(describeGitConflictShape('deleted-by-them', false)).toContain('theirs')
+  })
+})
+
+describe('toGitDiffSubject（競合）', () => {
+  it('競合の1行でも、その行そのものを返す', () => {
+    const row = change({ kind: 'conflicted' })
+
+    expect(toGitDiffSubject({ source: 'conflict', change: row, merging: true })).toBe(row)
   })
 })

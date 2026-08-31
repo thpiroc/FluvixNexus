@@ -151,6 +151,7 @@ export const gitApi: GitApi = {
   stashPop: (request) => invokeIpc(IPC_CHANNELS.GIT_STASH_POP, request),
   stashDrop: (request) => invokeIpc(IPC_CHANNELS.GIT_STASH_DROP, request),
   getFileDiff: (request) => invokeIpc(IPC_CHANNELS.GIT_GET_FILE_DIFF, request),
+  getConflictDiff: (request) => invokeIpc(IPC_CHANNELS.GIT_GET_CONFLICT_DIFF, request),
   discard: (request) => invokeIpc(IPC_CHANNELS.GIT_DISCARD, request),
   resolveConflict: (request) => invokeIpc(IPC_CHANNELS.GIT_RESOLVE_CONFLICT, request),
   onChanged: (listener) => subscribeIpcEvent(IPC_EVENT_CHANNELS.GIT_CHANGED, listener)

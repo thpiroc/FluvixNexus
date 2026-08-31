@@ -1399,8 +1399,13 @@ export function showCommitFileChanges(hash: string): GitCommand {
  * `-z` を付けるのは、位置に改行を含むファイル名でも1件を切り出せるようにするため
  * （`git status` と同じ理由）。出力の読み取りは main/git/gitBlob.ts。
  *
- * **衝突している位置では stage 1 / 2 / 3 の3行が返る。** 破棄も差分も衝突を
- * 対象にしていないため、読む側は stage 0 の行だけを採る（gitBlob.ts）。
+ * **衝突している位置では stage 1 / 2 / 3 の3行が返る。** どの段を採るかは
+ * 読む側が決める（gitBlob.ts）── 3-8-9 の差分と破棄は stage 0 の行だけを
+ * 採り、3-8-21 の競合の差分は 2 と 3 を採る。
+ *
+ * **競合のために別の引数（`ls-files -u`）を足していない。** 同じ出力から
+ * 読み分けられるうえ、表に行が増えるほど「何を実行するか」の見通しが
+ * 落ちる ── ここは数え上げる場所なので、数え直さずに済む形を採る。
  */
 export function showIndexBlob(paths: readonly string[]): GitCommand {
   return {

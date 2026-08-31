@@ -303,13 +303,29 @@ export function GitView(): JSX.Element {
     (groupId: GitChangeGroup['id'], change: GitFileChange): void => {
       const group = toGitDiffGroup(groupId)
 
+      /*
+        競合の行は別のチャンネルへ行く（Session 3-8-21）。
+
+        `toGitDiffGroup` が null を返すのは競合のときだけで、3-8-9 では
+        そこで**何もせずに戻っていた**（そもそもボタンを置いていなかった）。
+        3-8-21 でその行にもボタンが付いたので、戻る代わりに競合の要求を作る。
+
+        `merging` を一緒に渡すのは、**左右のラベルの意味づけがそれで変わる**
+        ため（gitDiff.ts の `describeGitConflictDiffSides`）── 開いた瞬間の
+        値を渡すので、面が開いている間に中止されてもラベルは動かない。
+      */
       if (group === null) {
+        openDiff({
+          source: 'conflict',
+          change,
+          merging: repository.status === 'ready' && repository.merging
+        })
         return
       }
 
       openDiff({ source: 'worktree', group, change })
     },
-    [openDiff]
+    [openDiff, repository]
   )
 
   /*
@@ -1268,9 +1284,14 @@ function GitChangeRow({
 
     出す行の条件が3つとも違う（gitDiff.ts / gitChanges.ts）。
 
-      差分   … 競合と未追跡のフォルダ以外。**削除された行にも出す**
+      差分   … 未追跡のフォルダ以外。**削除された行にも、競合の行にも出す**
       破棄   … 「変更」と「未追跡のファイル」だけ
-      Stage  … 競合以外
+      Stage  … 競合以外（競合の行では「解決済みにする」に変わる）
+
+    Session 3-8-21 で、競合の行が差分の側にも入った ── 行き先のチャンネルは
+    違う（`git:get-conflict-diff`）が、**押す場所も絵も同じ**にしてある。
+    別のボタンを競合の行にだけ置くと、一覧を縦に読む人にとって
+    「左から2つめは差分」という並びがそこで崩れる。
   */
   const diffLabel = `${change.relativePath} の差分を見る`
   const discardLabel = `${change.relativePath} の変更を破棄`
@@ -1291,7 +1312,7 @@ function GitChangeRow({
           {content}
         </span>
       )}
-      {canDiffGitChange(groupId, change) ? (
+      {canDiffGitChange(change) ? (
         <button
           type="button"
           className="fx-git__change-action"

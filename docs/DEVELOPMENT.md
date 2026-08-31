@@ -67,6 +67,8 @@ Vitest を使い、**Electron に依存しない純粋なロジック**だけを
 - `src/main/git/gitStatusOutput.test.ts` — **`status --porcelain=v2 -z` の読み取り**（staged / unstaged / untracked / rename / copy / 削除 / 衝突・**日本語 / 空白 / 引用符 / 改行を含む名前**・upstream と ahead / behind・**知らない形を途中まで読んだ結果として返さないこと**・Workspace の外を指す path を受け付けないこと）
 - `src/main/git/gitStatusRepository.test.ts` — **本物の git に対する読み取り**（一時リポジトリを作って実際に `git status` を動かす。下記のとおりここも実ディスクを使う）
 - `src/main/git/gitFailure.test.ts` — **stderr の分類**（所有者・作業ツリー・権限を見分けること・**知らない文章を近い分類へ寄せないこと**・「リポジトリではない」を失敗の表に入れないこと・書き込み操作の分類では `index.lock` を pathspec より先に採ること・**Commit では終わり方の形で hook を見分けること**（`fatal:` 無しの 1 は hook）・hook の出力に混ざった `permission denied` を git の権限エラーにしないこと・**ブランチでは作業ツリーの理由を「見つからない」より先に採ること**（断り方に名前が入る）・worktree の断りを「同じ名前がある」と読み違えないこと・**始点を渡した作成だけが `invalid reference` を「commit が無い」として読むこと**（切り替えでは「ブランチが無い」── git は同じ文しか言わないので、分けられるのはどちらのコマンドを組み立てたかを知っている側だけ）・40 桁のときの `unable to read tree` も同じ側へ倒すこと・**退避では3つの表を分けること**（drop は作業ツリーに触らないので「上書きされる」を読まない・pop の競合は stderr が空なのでこの表からは分からない）・**remote では4つの表を分けること**（追加にしか「既にある」は無く、削除と URL の変更にしか「見つからない」は無く、**rename にだけ両方がある**・大文字小文字だけの rename で出る `cannot lock ref … .lock` を **`index-locked` と読み違えないこと**（読むと「他の git を閉じてやり直せば通る」という嘘の案内になる ── 実際は何度やっても通らず、その時点で既に壊れている））・**競合の解決の表を Stage の表と分けること**（`conflict-markers-present` は**git の失敗ではない**のでこの表からは返らず、pathspec の「見つからない」も読まない ── 対象は必ず index に3段で載っているもの））
+- `src/main/git/gitBlob.test.ts` — **`ls-files --stage` / `ls-tree` の読み取り**（衝突している位置（stage 1 / 2 / 3）から**通常の差分の中身を選ばない**こと・位置に改行やタブが入っていても1件を取り違えないこと・求めた位置と違う行を返さないこと・submodule（`commit`）を blob として読まないこと・**競合の段を段として読み、番号を名前（base / ours / theirs）に変えること**・**段の在り方だけで競合の形が決まること**（`UU` / `AA` / `UD` / `DU` / `DD` / `AU` / `UA` に1対1で対応し、`status` の `XY` を読み直さない）・**段が1つも無ければ形を推測しないこと**（推測すると「両側とも空の競合」として `DD` と見分けが付かなくなる）・mode `160000` を submodule と見分けること）
+- `src/main/git/gitConflictDiffRepository.test.ts` — **本物の git から読む競合の ours / theirs**（下記の実ディスクの例外）
 - `src/main/git/gitPathspec.test.ts` — **pathspec として通してよい形か**（日本語 / 空白 / 引用符 / 先頭 `-` / glob に見える名前を**通す**こと・絶対パス / `..` / 空文字 / `:` の魔法 / `.git` の中 / 制御文字を**弾く**こと・Windows の上限を超えないよう分けても1件も落とさないこと）
 - `src/main/git/gitQueue.test.ts` — **走るのは常に1本**（前が終わるまで次を始めないこと・積んだ順に走ること・**失敗した仕事の後ろも走る**こと）
 - `src/main/git/gitStageRepository.test.ts` — **本物の git に対する Stage / Unstage**（一時リポジトリを作って実際に `git add` / `reset` / `rm --cached` を動かす。下記の実ディスクの例外）
@@ -124,7 +126,7 @@ Files の検証（`main/files/workspacePath.ts`）は Electron にも fs にも�
 
 #### 例外: 実ディスクを触るテスト（Session 3-5.1 / 3-6-2 / 3-6-4 / 3-6-5 / 3-8-2 / 3-8-3 / 3-8-4 / 3-8-5 / 3-8-6 / 3-8-9 / 3-8-10 / 3-8-11 / 3-8-12 / 3-8-13 / 3-8-14 / 3-8-15 / 3-8-16 / 3-8-17 / 3-8-18 / 3-8-19 / 3-8-20）
 
-「純粋なロジックだけを対象にする」方針に対する例外が18ある ── `mutateWorkspaceEntry.test.ts`（作成 / 改名 / 移動 / 削除）、`copyTree.test.ts`（再帰コピー）、`searchWorkspaceFiles.test.ts`（Workspace 全体の走査）、`searchWorkspaceFileContents.test.ts`（全文検索の走査）、`gitStatusRepository.test.ts`（本物の git の出力）、`gitStageRepository.test.ts`（本物の git への Stage / Unstage）、`gitCommitRepository.test.ts`（本物の git への Commit）、`gitSyncRepository.test.ts`（本物の git への Push / Pull）、`gitBranchRepository.test.ts`（本物の git へのブランチ操作）、`gitDiffRepository.test.ts`（本物の git から読む差分）、`gitDiscardRepository.test.ts`（本物の git に対する破棄）、`gitInitRepository.test.ts`（本物の git での初期化）、`publishRepository.test.ts`（本物の git での公開の一連）、`gitHistoryRepository.test.ts`（本物の git から読む履歴）、`gitCommitDetailRepository.test.ts`（本物の git から読む commit 1件の中身）、`gitStashRepository.test.ts`（本物の git に対する退避）、`gitRemoteRepository.test.ts`（本物の git に対する remote の管理）、`gitConflictRepository.test.ts`（本物の git に対する競合の解決）、`gitMergeRepository.test.ts`（本物の git に対するマージの開始 / 中止）。確かめたいのがパスの文字列処理ではなく **「実際にそこに在るものを操作できるか」** だからで、モックしたファイルシステムでは何も確かめられない ── 判定と実体がずれることこそが Session 3-5.1 で直した不具合の中身だった。`aux.ts` や末尾に空白を持つ名前を Windows がどう扱うかは実装ではなく OS が決めるため、写しを相手にするとその答えを自分で書くことになる。
+「純粋なロジックだけを対象にする」方針に対する例外が21ある ── `mutateWorkspaceEntry.test.ts`（作成 / 改名 / 移動 / 削除）、`copyTree.test.ts`（再帰コピー）、`searchWorkspaceFiles.test.ts`（Workspace 全体の走査）、`searchWorkspaceFileContents.test.ts`（全文検索の走査）、`gitStatusRepository.test.ts`（本物の git の出力）、`gitStageRepository.test.ts`（本物の git への Stage / Unstage）、`gitCommitRepository.test.ts`（本物の git への Commit）、`gitSyncRepository.test.ts`（本物の git への Push / Pull）、`gitBranchRepository.test.ts`（本物の git へのブランチ操作）、`gitDiffRepository.test.ts`（本物の git から読む差分）、`gitDiscardRepository.test.ts`（本物の git に対する破棄）、`gitInitRepository.test.ts`（本物の git での初期化）、`publishRepository.test.ts`（本物の git での公開の一連）、`gitHistoryRepository.test.ts`（本物の git から読む履歴）、`gitCommitDetailRepository.test.ts`（本物の git から読む commit 1件の中身）、`gitStashRepository.test.ts`（本物の git に対する退避）、`gitRemoteRepository.test.ts`（本物の git に対する remote の管理）、`gitConflictRepository.test.ts`（本物の git に対する競合の解決）、`gitRemoteBranchRepository.test.ts`（本物の git での remote の枝からの作成）、`gitMergeRepository.test.ts`（本物の git に対するマージの開始 / 中止）、`gitConflictDiffRepository.test.ts`（本物の git から読む競合の ours / theirs）。確かめたいのがパスの文字列処理ではなく **「実際にそこに在るものを操作できるか」** だからで、モックしたファイルシステムでは何も確かめられない ── 判定と実体がずれることこそが Session 3-5.1 で直した不具合の中身だった。`aux.ts` や末尾に空白を持つ名前を Windows がどう扱うかは実装ではなく OS が決めるため、写しを相手にするとその答えを自分で書くことになる。
 
 どれも一時フォルダを Workspace root に見立てる。走査（検索）のテストでは、深い階層・大量ファイル・除外フォルダ・**外を指すジャンクション**を実際に作って、リンクの中へ潜っていないことを「指し先の中身が結果に出ていないこと」で確かめる ── 「潜らないつもり」を実物で確かめるため。上限（件数 / 深さ / 走査数）は引数で差し替えて小さくし、時間の上限だけは `now` を差し替えて固定する（実時間に依存させると、速いマシンでは通り遅いマシンでは落ちるテストになる）。
 
@@ -327,6 +329,31 @@ Files の検証（`main/files/workspacePath.ts`）は Electron にも fs にも�
 8 は 3-8-18 の `applyGitResolveConflict` と 3-8-4 の `applyGitCommit` を**本番のまま**通す ── 「3-8-20 で足したのは開始と中止の2手だけ」という判断の根拠そのものになるため、写しに置き換えるとその主張が確かめられない。
 
 中止の側で確かめるのは4つで、うち1つがこの回の確認のいちばん核心にあたる ── **開始前から在った作業ツリーの変更は残り、解決中に書いた内容（stage したものを含む）は消える。** 2つを同じ1回で確かめておかないと、確認の文言（`describeGitAbortMergeWarning`）がどちらか片方の嘘になる。残りは MERGE_HEAD が消えること・マージ前のファイルの内容へ戻ること・**マージ中でなければ git を1回も動かさずに `nothing-to-do`** になることになる。
+
+**Session 3-8-21 でも、この塊にファイルが1つ増える**（例外は 21 になった）── `gitConflictDiffRepository.test.ts`。確かめたいことの向きは、3-8-20 の「PC ごとの設定に振る舞いを左右されないこと」ともまた違う ── **どの操作が、index にどの段の組み合わせを作るのか**になる。
+
+競合の形（`UU` / `AA` / `UD` / `DU` / `DD` / `AU` / `UA`）を決めているのは git 自身で、こちらの推測ではない。写しを相手にすると、**自分で書いた前提を自分で確かめる**ことになる ── とくに `DD`（両方で削除）と `AU` / `UA`（片方だけが作った）は、「そんな状態が本当に起こるのか」自体が実物でしか言えない。実物にしか確かめられないのは次の 14 個。
+
+1. 内容の競合（`UU`）で、左に ours・右に theirs の中身がそのまま出ること
+2. その中身が**作業ツリーの中身とは違う**こと（`<<<<<<<` の入った混ざった中身ではない）
+3. `AA`（両方が追加）には base の段が無く、それでも両側に中身があること
+4. `UD`（theirs が削除）では**右が空**になり、失敗にはならないこと
+5. `DU`（ours が削除）では**左が空**になること
+6. 改名先が食い違うと `DD` / `UA` / `AU` が**同時に**現れること（1回のマージで3行）
+7. `DD` では両側とも空、`UA` / `AU` では片側だけが空になること
+8. 「片方が rename・片方が削除」は `DD` ではなく**改名先の `DU`** になること
+9. バイナリの競合が `binary` として返ること（失敗にしない）
+10. submodule（mode `160000`）の競合が `unsupported-target` として返ること
+11. 競合していない位置は `not-found` になること（差分の口が別なことの裏取り）
+12. 解決済みにした後、同じ位置が `not-found` になること（段が1段に畳まれる）
+13. `merge --abort` の後も `not-found` になること
+14. **差分を読んでも、index の段も作業ツリーも1バイトも動かないこと**
+
+**8 は、このセッションで実際に推測が外れたところになる。** 最初は「片方が rename・片方が削除すれば元の位置が `DD` になる」と書いてテストを置き、空振りした ── git はそれを**改名先に `DU` として置く**（元の位置に競合は残らない）。`DD` が本当に出るのは**改名先どうしが食い違ったとき**で、そこでは3行が同時に現れる。外れた側も答えの側も両方テストに残してある。
+
+**14 が 3-8-21 の線そのもの**にあたる。`checkout --ours` / `--theirs` を置かないと決めた以上、この経路がリポジトリを動かさないことは「置かなかった」ではなく**測れる**ものになる ── 段の中身・`status` の出力・`MERGE_HEAD` の3つを、差分を読む前後で突き合わせる。
+
+**submodule の競合を作るには、2つの落とし穴を越える必要がある。** 1つめは `git submodule add` が同じ PC のパスを既定で断ること（CVE-2022-39253）で、**local config に書いても効かない** ── clone を行う子プロセスへ引き継がれないため、`-c protocol.file.allow=always` を引数で渡す。2つめは submodule 側の2つの commit を**枝分かれさせる**ことで、一直線に積むと片方がもう片方の子孫になり **git が勝手に早送りして競合しない**（これも空振りして気づいた）。どちらもテストの準備でだけ立てるもので、本番の引数の表には1つも入らない。
 
 #### 実 git を起動するテストの待ち時間（Session 3-8-20 で明示した）
 
@@ -1264,6 +1291,28 @@ Session 3-8-20（ブランチのマージの開始 / 中止）では、**product
 - **早送りかどうかは `rev-list --parents` の語数で測る。** 「マージできたか」だけでは `--ff` が効いているか分からない ── 親が1つなら早送り、2つなら merge commit で、**設計判断 1 が守られているかはここでしか読めない**。
 - **中止の確認は「残る」と「失われる」の両方を読む。** 片方だけを確かめると、文言がどちらかの嘘になっていても通ってしまう ── 実際に**マージ前から在るファイル**と**解決中に書いたファイル**の2つを置いてから中止し、それぞれの中身で測る。
 - **競合の repo は、進める先ごとに別に作る。** 同じ repo で「解決して Commit」と「中止」を続けて確かめようとすると、1つめが履歴を進めた状態から2つめが始まる ── 形は同じでも別の repo にしておく方が、どちらが失敗したのかを読み違えずに済む。
+
+Session 3-8-21（競合の ours / theirs の差分）では、**production ビルド版 28項目、全項目 PASS。** 相手は使い捨ての一時リポジトリ2つで、**「マージ中か」で分けてある**のがこの回の要点になる ── `main`（アプリからマージを開始して競合させる。`merging === true`）と `stash`（退避を戻したときの競合。`merging !== true`）。左右のラベルの意味づけがそこで変わるため、片方だけでは確かめられない。リポジトリ一式は走らせるたびに作り直す（`setup-fixtures.sh`）。
+
+`main` の側には**一度に3種類の競合**を仕込んである ── `shared.txt`（両方で同じ行を変えた）・`removed.txt`（ours が変え、theirs が消した）・`added.bin`（両方でバイナリを変えた）。1回のマージで3行が並ぶので、「行によって出るものが違う」ところまで1回の起動で読める。
+
+- ① ボタン: **競合の行すべてに差分ボタンが出る**こと（3行に対して3つ）── 片側が無い競合もバイナリも含めて、行によって出たり出なかったりしない
+- ② 中身: 左に ours（`MAIN`）・右に theirs（`FEAT`）が出ること、**どちらにも `<<<<<<<` が入っていない**こと（＝作業ツリーの混ざった中身ではなく index の段を出している）
+- ③ ラベル（マージ中）: 左が「現在のブランチ（ours / stage 2）」・右が「取り込み側（theirs / stage 3）」であること、競合の形が1行で出ること
+- ④ 片側欠落: 「ファイルが存在しません」と出ること、**無いのが右（theirs）だと名指しで分かる**こと、形の説明にも「削除されています」が出ること
+- ⑤ バイナリ: 「バイナリのため差分を表示できません」と出ること（**何も起きないのではない**）
+- ⑥ 既存の導線: 3-8-18 の「解決済みにする」が通ること、**実 git の段が1段に畳まれる**こと、行が競合グループから消えてステージ済みへ移ること
+- ⑦ 中止: 3-8-20 の「マージを中止」が通ること、MERGE_HEAD が消えること、帯と競合の行が消えること
+- ⑧ ラベル（マージ中でない）: 帯が出ないこと、それでも競合の行はあること、左右が「ours（stage 2）」「theirs（stage 3）」であること、**「現在のブランチ」「取り込み側」と断定していない**こと、中身が退避の側と手元の側になっていること
+- ⑨ 閉じる: `×` でも Esc でも閉じること、**閉じた後も競合の一覧の件数が変わらない**こと、閉じてもマージ中の帯が残ること
+
+確認の要領（この回で分かったもの）:
+
+- **Monaco の中身は「読み込んでいます…」が消えただけでは読めない。** その後に Suspense の「差分を準備しています…」があり、Diff Editor が実際に行を描くのはさらに後になる ── `.editor.original .view-lines` と `.editor.modified .view-lines` の**両方が現れるまで**待たないと、アプリは正しく出しているのに `null` が返って FAIL に見える（実際に1度踏んだ）。左右の取り出しも `.monaco-editor` の 0 番 / 1 番では駄目で（`gutter monaco-editor` が混ざる）、`.editor.original` / `.editor.modified` で名指しする。
+- **競合の行の差分ボタンも、座標では押せない。** 3-8-20 の「解決済みにする」と同じで、グループの見出し（sticky）に重なられて `intercepts pointer events` を繰り返す ── `dispatchEvent('click')` で通す。競合のグループは一覧のいちばん上に出るので、この回はほぼ必ず当たる。
+- **「マージ中でない競合」は退避でしか作れない。** アプリの中から `merging !== true` の競合へ至る経路は `stash pop` だけになる（3-8-15）── ラベルの中立性はそこでしか確かめられないので、fixture を分けておく必要がある。
+- **ラベルの否定形も測る。** 「ours と出ている」だけでは、余分に「現在のブランチ」まで出ていても通ってしまう ── `not.toContain('現在のブランチ')` を同じ1回で読む。3-8-21 で守っているものの半分は**言っていないこと**にあたる。
+- **「一覧が崩れない」は件数で測る。** 差分を開いて閉じた後に競合の行が同じ数だけ残っていること・帯が残っていることの2つを読む ── 面が上に重なるだけで下は差し替わらない（3-8-9 からの構え）ことが、入口が3つになっても変わっていないかはここでしか分からない。
 
 ---
 

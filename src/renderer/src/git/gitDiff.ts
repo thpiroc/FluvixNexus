@@ -3,6 +3,7 @@ import type {
   GitChangeKind,
   GitCommitFileChange,
   GitCommitSummary,
+  GitConflictShape,
   GitDiffGroup,
   GitDiffUnavailableReason,
   GitFileChange
@@ -59,6 +60,26 @@ export type GitDiffRequest =
       readonly commit: GitCommitSummary
       readonly file: GitCommitFileChange
     }
+  | {
+      /**
+       * 競合している1行の ours / theirs（Session 3-8-21）。
+       *
+       * `group` を持たないのが `worktree` との違いになる ── 競合の行は
+       * 競合のグループにしか無く、比べる相手も常に1組（stage 2 と stage 3）に
+       * 固定される。
+       *
+       * `merging` を一緒に持ち回るのは、**左右のラベルの意味づけがそれで
+       * 変わる**ため（`describeGitConflictDiffSides`）。開いた瞬間の値を
+       * 持つのは、押した行そのものを持つのと同じ理由になる ── 面が開いて
+       * いる間に一覧が読み直されても、**開いた瞬間の説明を出し続ける**
+       * （途中で `merge --abort` が走ってラベルの意味だけが入れ替わる、
+       * という見え方を作らない）。
+       */
+      readonly source: 'conflict'
+      readonly change: GitFileChange
+      /** 開いた瞬間、マージの途中だったか（`GitRepositoryState.ready.merging`）。 */
+      readonly merging: boolean
+    }
 
 /** 面の見出しと本文が使う、入口によらない形。 */
 export interface GitDiffSubject {
@@ -74,7 +95,7 @@ export interface GitDiffSubject {
  * 記号・Monaco へ渡す位置は、どちらの入口でも同じ3つで決まる。
  */
 export function toGitDiffSubject(request: GitDiffRequest): GitDiffSubject {
-  return request.source === 'worktree' ? request.change : request.file
+  return request.source === 'commit' ? request.file : request.change
 }
 
 /* --------------------------------------------------- どの行の差分を見られるか */
@@ -82,20 +103,42 @@ export function toGitDiffSubject(request: GitDiffRequest): GitDiffSubject {
 /**
  * その行の差分を出せるか。
  *
- * 出せないのは2つ。
- *
- *   競合（`conflicted`）  … 「前」と「後」が2組（ours / theirs）あり、
- *                           2つの中身を並べる形そのものが当てはまらない
- *   未追跡のフォルダ1件   … 開くファイルが決まらない
+ * 出せないのは**未追跡のフォルダ1件**だけになる（開くファイルが決まらない）。
  *
  * **削除された行は出せる。** 開く（Editor で）ことはできない（`canOpenGitChange`）が、
  * 「何が消えたのか」は左側に出せる ── むしろ、開けない行でこそ中身を確かめたい。
+ *
+ * ## Session 3-8-21 で、競合の行も通るようになった
+ *
+ * 3-8-9 は競合を弾いていた ── 理由は「前」と「後」が2組（ours / theirs）
+ * あり、2つの中身を並べる形が当てはまらないため。3-8-21 でその答えが出た
+ * （**組を1つに決める**。shared/git/conflictDiff.ts）ので、条件から外して
+ * ある。行き先のチャンネルは違う（`git:get-conflict-diff`）が、それを
+ * 決めるのは押した側になる（GitView.tsx の `showDiff`）── ここが答えるのは
+ * 「**ボタンを置くか**」だけにあたる。
+ *
+ * **片側に中身が無い競合（`DD` / `AU` / `UA` / `UD` / `DU`）でも通す。**
+ * 押しても何も起きないボタンを作らないためではなく、その逆で、
+ * **どちらに無いのかを開いた先で読める**ようにするため ── 一覧の行は
+ * 「競合」としか言わないので、形はそこには出ていない。
+ *
+ * **グループを受け取らなくなった。** 3-8-9 では競合を弾くためだけに要って
+ * いたもので、通す条件がグループに依らなくなった以上、渡し続けると
+ * 「見ていない値を渡す呼び出し」がそのぶん残る。
  */
-export function canDiffGitChange(groupId: GitChangeGroup['id'], change: GitFileChange): boolean {
-  return groupId !== 'conflicted' && !change.directory
+export function canDiffGitChange(change: GitFileChange): boolean {
+  return !change.directory
 }
 
-/** グループの id を、差分のチャンネルに渡せるグループへ。競合は渡せない。 */
+/**
+ * グループの id を、`git:get-file-diff` に渡せるグループへ。競合は渡せない。
+ *
+ * 3-8-21 で競合にも差分の口が付いたが、**この関数は 3-8-9 のままにしてある**
+ * ── 競合が行くのは別のチャンネル（`git:get-conflict-diff`）で、
+ * ここを通らない。`conflicted` を通す形に広げると、`GitDiffGroup` に
+ * 競合が混ざり、左右のラベルを決める `describeGitDiffSides` が
+ * 「このグループのときは別の話」を1つ抱えることになる。
+ */
 export function toGitDiffGroup(groupId: GitChangeGroup['id']): GitDiffGroup | null {
   return groupId === 'conflicted' ? null : groupId
 }
@@ -134,6 +177,190 @@ export function describeGitDiffSides(group: GitDiffGroup, kind: GitChangeKind): 
   return {
     original: kind === 'added' ? 'まだ Git にありません' : 'HEAD（最後の Commit）',
     modified: kind === 'deleted' ? '削除されています' : 'ステージ済み（index）'
+  }
+}
+
+/* ------------------------------------------- 競合の左右（Session 3-8-21） */
+
+/** 競合の左右。ラベルに加えて「その側にファイルが無い」を持つ。 */
+export interface GitConflictDiffSides extends GitDiffSides {
+  /** 左（ours / stage 2）にファイルが存在しないか。 */
+  readonly originalMissing: boolean
+  /** 右（theirs / stage 3）にファイルが存在しないか。 */
+  readonly modifiedMissing: boolean
+}
+
+/**
+ * 競合の左右に何を出しているかを言葉にする（Session 3-8-21）。
+ *
+ * ## `merging` が真のときだけ、意味を補う
+ *
+ * ours / theirs が何を指すかは、**その競合がどうやってできたかで変わる。**
+ *
+ *   マージ中          … ours ＝ 今居るブランチ、theirs ＝ 取り込む側
+ *   rebase 中         … **逆になる**（ours ＝ 積み直す土台、theirs ＝ 自分の commit）
+ *   cherry-pick 中    … 同上
+ *   `stash pop` の競合 … どちらも「自分の変更」で、枝の話ではない
+ *
+ * アプリが真だと言い切れるのは1つめだけになる ── `merging` は
+ * `MERGE_HEAD` が在るかそのもので（shared/git/repository.ts）、Main が
+ * git に訊いた値にあたる。したがってそこでだけ
+ * 「現在のブランチ」「取り込み側」と補い、それ以外では **ours / theirs を
+ * 訳さない。**
+ *
+ * **`REBASE_HEAD` / `CHERRY_PICK_HEAD` は読んでいない**（Session 3-8-21 の
+ * 範囲外）── 読めば rebase / cherry-pick の意味づけも出せるが、それは
+ * 状態の読み取りに git を2本足す話で、そこまで足しても「どれでもない競合」
+ * （`stash pop`）は残る。中立の表現がその受け皿になる。
+ *
+ * ## 段の番号は隠さない
+ *
+ * `stage 2` / `stage 3` を括弧で添えてある。3-8-2 からの線（git の記法を
+ * Renderer へ渡さない）に触れるように見えるが、**ここでは段そのものが
+ * 見せているものの正体**にあたる ── 訳語だけを出すと、端末で
+ * `git checkout --ours` を打つ人が、画面のどちらを見ていたのか照合できない。
+ */
+export function describeGitConflictDiffSides(
+  shape: GitConflictShape,
+  merging: boolean
+): GitConflictDiffSides {
+  return {
+    original: merging ? '現在のブランチ（ours / stage 2）' : 'ours（stage 2）',
+    modified: merging ? '取り込み側（theirs / stage 3）' : 'theirs（stage 3）',
+    originalMissing: !hasOursSide(shape),
+    modifiedMissing: !hasTheirsSide(shape)
+  }
+}
+
+/**
+ * 文の中で使う ours / theirs の呼び名。
+ *
+ * ラベル（上）と別に持つのは、**括弧の中まで文へ持ち込まない**ため ──
+ * 「ours（stage 2）だけで追加されています。」は読みにくい。決め方は
+ * ラベルとまったく同じで、マージ中だけ言い切り、それ以外では git の語を
+ * そのまま置く。
+ */
+function describeGitConflictSideNames(merging: boolean): {
+  readonly ours: string
+  readonly theirs: string
+} {
+  return merging
+    ? { ours: '現在のブランチ', theirs: '取り込み側' }
+    : { ours: 'ours', theirs: 'theirs' }
+}
+
+/**
+ * その形で、左（ours / stage 2）に中身が在るか。
+ *
+ * **Main から boolean を2つ受け取らない。** どちらに中身が在るかは `shape`
+ * から一意に決まるので、応答に載せると `shape` と食い違う組み合わせが
+ * 型の上で作れてしまう（`GitFileDiff` が左右のラベルを載せていないのと
+ * 同じ判断。shared/git/conflictDiff.ts）。
+ */
+function hasOursSide(shape: GitConflictShape): boolean {
+  switch (shape) {
+    case 'both-modified':
+    case 'both-added':
+    case 'deleted-by-them':
+    case 'added-by-us':
+      return true
+
+    case 'deleted-by-us':
+    case 'added-by-them':
+    case 'both-deleted':
+      return false
+  }
+}
+
+/** その形で、右（theirs / stage 3）に中身が在るか。 */
+function hasTheirsSide(shape: GitConflictShape): boolean {
+  switch (shape) {
+    case 'both-modified':
+    case 'both-added':
+    case 'deleted-by-us':
+    case 'added-by-them':
+      return true
+
+    case 'deleted-by-them':
+    case 'added-by-us':
+    case 'both-deleted':
+      return false
+  }
+}
+
+/**
+ * 片側（または両側）にファイルが無いことを、そのまま書く（Session 3-8-21）。
+ *
+ * どちらにも在れば null（何も出さない）。
+ *
+ * ## 空の欄を黙って見せない
+ *
+ * 3-8-9 が追加・削除で「まだ Git にありません」「削除されています」と
+ * 書いたのと同じ判断になる ── 空の欄を見せておいてラベルだけを出すと、
+ * **中身が空のファイル**と見分けが付かない。競合ではそれがより効く：
+ * `AU` / `UA` は「片方だけが作った」で、そこで空に見えている側は
+ * 「空のファイルを作った」ではなく「まだ無い」にあたる。
+ *
+ * ## 呼び名は短い方を使う
+ *
+ * 帯のラベル（`sides.original`）をそのまま挟むと
+ * 「右（取り込み側（theirs / stage 3））には…」と括弧が二重になる ──
+ * 段の番号はすぐ上の帯に出ているので、文の側は短い呼び名で足りる
+ * （形の説明と同じ規則。`describeGitConflictSideNames`）。
+ */
+export function describeGitConflictMissingSides(
+  sides: GitConflictDiffSides,
+  merging: boolean
+): string | null {
+  const names = describeGitConflictSideNames(merging)
+  const notes: string[] = []
+
+  if (sides.originalMissing) {
+    notes.push(`左（${names.ours}）にはファイルが存在しません。`)
+  }
+
+  if (sides.modifiedMissing) {
+    notes.push(`右（${names.theirs}）にはファイルが存在しません。`)
+  }
+
+  return notes.length === 0 ? null : notes.join(' ')
+}
+
+/**
+ * 競合の形を1行で言う（Session 3-8-21）。
+ *
+ * 一覧の行は「競合」としか言わない（`GitChangeKind` に形を載せていない。
+ * shared/git/conflictDiff.ts）ため、**どういう競合なのかを読めるのは
+ * この面だけ**になる。とくに片側が消えている形では、Diff の片方が
+ * 空に見える理由がここに出ていないと読み取れない。
+ *
+ * `UU` / `AA` のような git の2文字は出さない（3-8-2 からの線）── 出すのは
+ * 段の番号だけで、それは左右のラベルの側にある。
+ */
+export function describeGitConflictShape(shape: GitConflictShape, merging: boolean): string {
+  const names = describeGitConflictSideNames(merging)
+
+  switch (shape) {
+    case 'both-modified':
+      return `${names.ours}と${names.theirs}の両方で変更されています。`
+
+    case 'both-added':
+      return `${names.ours}と${names.theirs}の両方で追加されています（共通の元がありません）。`
+
+    case 'deleted-by-them':
+      return `${names.ours}では変更され、${names.theirs}では削除されています。`
+
+    case 'deleted-by-us':
+      return `${names.ours}では削除され、${names.theirs}では変更されています。`
+
+    case 'both-deleted':
+      return `${names.ours}と${names.theirs}の両方で削除されています。`
+
+    case 'added-by-us':
+      return `${names.ours}だけで追加されています。`
+
+    case 'added-by-them':
+      return `${names.theirs}だけで追加されています。`
   }
 }
 

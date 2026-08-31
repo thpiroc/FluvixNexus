@@ -3,6 +3,7 @@ import type {
   GitCommitDetail,
   GitCommitFileDiff,
   GitCommitHistory,
+  GitConflictFileDiff,
   GitDiffGroup,
   GitDiscardTarget,
   GitFileDiff,
@@ -925,6 +926,40 @@ export interface GetGitFileDiffResponse {
 }
 
 /**
+ * 競合している1件の ours / theirs を尋ねる要求（Session 3-8-21）。
+ *
+ * ## 載るのは位置1つだけ
+ *
+ * `GetGitFileDiffRequest` との違いは `group` が無いことになる ── 対象は必ず
+ * 競合のグループの行で、他のグループから押せる場所がそもそも無い
+ * （`ResolveGitConflictRequest` と同じ形。3-8-18）。
+ *
+ * **どの段を見るかを渡す欄も作っていない。** 見せるのは常に stage 2 と
+ * stage 3 の1組で、`stage` を数字で渡せる形にすると「段を指せる API」が
+ * 1つできる ── そこから base（stage 1）も、存在しない段も要求できることに
+ * なり、答えられない組み合わせを Main が毎回弾く形になる。3-way は段を
+ * 渡す欄ではなく、**別のチャンネルと別の面**として後続のセッションで足す
+ * （shared/git/conflictDiff.ts）。
+ *
+ * ## 応答は `GitConflictFileDiff`
+ *
+ * `GitFileDiff` と欄の名前は揃っているが、**別の型**になる（時間の向きが
+ * 無い。左が古くて右が新しい、ではない）。理由の表だけは共通で、
+ * バイナリ・2MB 超・submodule・見つからないは 3-8-9 と同じ分類として返る。
+ */
+export interface GetGitConflictDiffRequest {
+  /** 競合しているファイルの、Workspace root からの相対位置（区切りは `/`）。 */
+  readonly relativePath: string
+}
+
+export interface GetGitConflictDiffResponse {
+  /** どの Workspace について答えたか。未選択なら null（他の応答と同じ理由）。 */
+  readonly workspaceId: string | null
+  /** 中身2つと競合の形、またはそれを出せない理由（shared/git/conflictDiff.ts）。 */
+  readonly diff: GitConflictFileDiff
+}
+
+/**
  * 破棄の要求（Session 3-8-9）。
  *
  * 載るのは `GitDiscardTarget` 1つだけで、そこに入るのは位置1つとグループ1つ
@@ -1628,6 +1663,51 @@ export interface GitIpcContract {
   'git:get-file-diff': {
     request: GetGitFileDiffRequest
     response: GetGitFileDiffResponse
+  }
+  /**
+   * 競合している1件の ours / theirs を尋ねる（Session 3-8-21）。
+   *
+   * ## `git:get-file-diff` と混ぜていない
+   *
+   * 位置1つを渡して中身2つが返る、という形だけを見れば同じに見えるが、
+   * 混ぜると**答えの意味が要求によって変わる**チャンネルが1本できる。
+   *
+   * |            | `git:get-file-diff`      | `git:get-conflict-diff`     |
+   * | ---------- | ------------------------ | --------------------------- |
+   * | 左右の意味 | 前 → 後（時間の向きあり）| ours / theirs（向きは無い） |
+   * | 相手の決め方 | `group` が決める       | 常に stage 2 / stage 3      |
+   * | 応答の型   | `GitFileDiff`            | `GitConflictFileDiff`       |
+   *
+   * `group` に `conflicted` を足す形も採らなかった ── 足すと
+   * `GitFileDiff.kind`（`GitChangeKind`）が競合の行でだけ意味を失い、
+   * 左右のラベルを決める `describeGitDiffSides(group, kind)` が
+   * 「この組み合わせのときは別の話」を1つ抱えることになる。
+   * `git:stage` と `git:resolve-conflict` を分けたのと同じ判断になる。
+   *
+   * ## Main が git を動かすのは最大5回
+   *
+   * `ls-files --stage`（段を読む）→ 段ごとに `cat-file -s` と
+   * `cat-file blob`（3-8-9 の `readGitBlobSide` をそのまま通る）。
+   * 段が片方しか無い形（`UD` / `DU` / `AU` / `UA`）では2回、
+   * 両方無い形（`DD`）では1回で終わる。
+   *
+   * ## 競合の形は、この応答だけが持つ
+   *
+   * `UU` / `AA` / `UD` / `DU` / `DD` / `AU` / `UA` の区別は
+   * `GitFileChange` にも `GitChangeKind` にも載せない ── 一覧が答えるのは
+   * 「何が競合しているか」までで、形が要るのは差分を開いた一瞬だけになる
+   * （shared/git/conflictDiff.ts）。
+   *
+   * ## 読むだけで、何も書き換えない
+   *
+   * この口から `checkout --ours` / `--theirs` は動かない。**採用する操作は
+   * 別のチャンネルにも無い**（Session 3-8-21 の範囲外）── 解決し終えたと
+   * 伝えるのは 3-8-18 の `git:resolve-conflict` のままで、差分の面は
+   * 読み取り専用になる（docs/ARCHITECTURE.md §14.29）。
+   */
+  'git:get-conflict-diff': {
+    request: GetGitConflictDiffRequest
+    response: GetGitConflictDiffResponse
   }
   /**
    * 作業ツリーの変更を破棄する（Session 3-8-9）。

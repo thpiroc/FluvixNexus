@@ -90,6 +90,8 @@ export type {
   GetGitCommitDetailResponse,
   GetGitCommitFileDiffRequest,
   GetGitCommitFileDiffResponse,
+  GetGitConflictDiffRequest,
+  GetGitConflictDiffResponse,
   GetGitFileDiffRequest,
   GetGitFileDiffResponse,
   GetGitRepositoryResponse,

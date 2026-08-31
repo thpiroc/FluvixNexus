@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
   GitCommitFileDiff,
   GitCommitSummary,
+  GitConflictFileDiff,
   GitDiscardTarget,
   GitFileDiff,
   GitOperationFailure,
@@ -233,7 +234,7 @@ export interface GitRepositoryController {
    * （GitDiffOverlay.tsx）。
    */
   readonly diffRequest: GitDiffRequest | null
-  readonly diff: GitFileDiff | GitCommitFileDiff | null
+  readonly diff: GitFileDiff | GitCommitFileDiff | GitConflictFileDiff | null
   readonly openDiff: (request: GitDiffRequest) => void
   readonly closeDiff: () => void
   /**
@@ -611,6 +612,41 @@ const INITIAL_REPOSITORY: GitRepositoryState = { status: 'no-workspace' }
  */
 const CHANGE_SETTLE_MS = 400
 
+/**
+ * 差分の中身を、入口に合ったチャンネルへ訊きに行く（Session 3-8-12 / 3-8-21）。
+ *
+ * `openDiff` の中から**この1箇所だけ**が分岐する ── 面を出す手順も、
+ * 追い越しの捨て方も、Workspace の突き合わせも入口によらず同じで、
+ * 変わるのは「どのチャンネルへ、何を渡すか」に限られる。
+ *
+ * 3本とも応答の形が揃っている（`workspaceId` と `diff`）ため、呼んだ側は
+ * union のまま読める ── 3-8-21 で3本目が増えても、`openDiff` の中の
+ * 分岐は1つも増えていない。
+ */
+async function requestDiff(request: GitDiffRequest): Promise<
+  IpcResult<{
+    readonly workspaceId: string | null
+    readonly diff: GitFileDiff | GitCommitFileDiff | GitConflictFileDiff
+  }>
+> {
+  switch (request.source) {
+    case 'worktree':
+      return await fluvix.git.getFileDiff({
+        group: request.group,
+        relativePath: request.change.relativePath
+      })
+
+    case 'commit':
+      return await fluvix.git.getCommitFileDiff({
+        shortHash: request.commit.shortHash,
+        relativePath: request.file.relativePath
+      })
+
+    case 'conflict':
+      return await fluvix.git.getConflictDiff({ relativePath: request.change.relativePath })
+  }
+}
+
 export function useGitRepository(): GitRepositoryController {
   const { status: workspaceStatus, workspace } = useWorkspaceFolder()
   const [state, setState] = useState<{
@@ -783,7 +819,9 @@ export function useGitRepository(): GitRepositoryController {
    * 出す形にすると、押してから面が現れるまで押したことが画面に出ない。
    */
   const [diffRequest, setDiffRequest] = useState<GitDiffRequest | null>(null)
-  const [diff, setDiff] = useState<GitFileDiff | GitCommitFileDiff | null>(null)
+  const [diff, setDiff] = useState<GitFileDiff | GitCommitFileDiff | GitConflictFileDiff | null>(
+    null
+  )
 
   /**
    * 差分の問い合わせの通し番号。
@@ -1650,22 +1688,18 @@ export function useGitRepository(): GitRepositoryController {
 
     void (async () => {
       /*
-        どちらの入口から来たかで、訊く先が変わる（Session 3-8-12）。
+        どの入口から来たかで、訊く先が変わる（Session 3-8-12 / 3-8-21）。
 
         面も、面を出す手順も、追い越しの捨て方も同じで、**別れるのはここ1箇所**に
         なる ── 作業ツリーの1行なら group を、commit の中の1ファイルなら
-        短い hash を渡す（shared/ipc/contracts/git.ts）。
+        短い hash を、競合の1行なら位置だけを渡す
+        （shared/ipc/contracts/git.ts）。
+
+        3-8-21 で3本目のチャンネルが増えたが、`request.source` の union が
+        そのまま3つに増えただけで、追い越しの判定も Workspace の突き合わせも
+        1つのままになる。
       */
-      const result =
-        request.source === 'worktree'
-          ? await fluvix.git.getFileDiff({
-              group: request.group,
-              relativePath: request.change.relativePath
-            })
-          : await fluvix.git.getCommitFileDiff({
-              shortHash: request.commit.shortHash,
-              relativePath: request.file.relativePath
-            })
+      const result = await requestDiff(request)
 
       // 追い越された（別の行を押した / 閉じた）。新しい方の答えが来る。
       if (diffRequestRef.current !== requestId) {

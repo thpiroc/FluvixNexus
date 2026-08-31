@@ -65,6 +65,7 @@ export const IPC_CHANNELS = {
   GIT_STASH_POP: 'git:stash-pop',
   GIT_STASH_DROP: 'git:stash-drop',
   GIT_GET_FILE_DIFF: 'git:get-file-diff',
+  GIT_GET_CONFLICT_DIFF: 'git:get-conflict-diff',
   GIT_DISCARD: 'git:discard',
   GIT_RESOLVE_CONFLICT: 'git:resolve-conflict',
   GITHUB_GET_STATUS: 'github:get-status',

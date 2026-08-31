@@ -31,6 +31,7 @@ import type {
   DiscardGitChangesRequest,
   GetGitCommitDetailRequest,
   GetGitCommitFileDiffRequest,
+  GetGitConflictDiffRequest,
   GetGitFileDiffRequest,
   GitStashEntryRequest,
   MergeGitBranchRequest,
@@ -789,6 +790,25 @@ export interface GitApi {
    * 差分を出せない理由は、利用者の次の一手がそれぞれ違う。
    */
   readonly getFileDiff: (request: GetGitFileDiffRequest) => IpcInvokeResult<'git:get-file-diff'>
+  /**
+   * 競合している1件の ours / theirs を尋ねる（Session 3-8-21）。
+   *
+   * `getFileDiff` と**別の口**にしてある ── 渡すのは位置1つだけで `group` は
+   * 無く、返るのも別の型（`GitConflictFileDiff`）になる。左右に時間の向きが
+   * 無く（前 → 後ではない）、比べる相手は常に index の stage 2 と stage 3 に
+   * 固定される（shared/ipc/contracts/git.ts）。
+   *
+   * **段を指せる欄は無い。** base（stage 1）は返らず、`--ours` / `--theirs` を
+   * 作業ツリーへ採る働きもこの口には無い ── 読むだけで、リポジトリは
+   * 1バイトも動かない。
+   *
+   * 片側にファイルが無い競合（`DD` / `AU` / `UA` / `UD` / `DU`）でも
+   * **失敗にはならない** ── その側が空文字で返り、どちらに無いかは
+   * `shape` から決まる（shared/git/conflictDiff.ts）。
+   */
+  readonly getConflictDiff: (
+    request: GetGitConflictDiffRequest
+  ) => IpcInvokeResult<'git:get-conflict-diff'>
   /**
    * 作業ツリーの変更を破棄する（Session 3-8-9）。
    *

@@ -84,6 +84,8 @@ export type {
 
 export type { GitDiffGroup, GitDiffUnavailableReason, GitFileDiff } from './diff'
 
+export type { GitConflictFileDiff, GitConflictShape } from './conflictDiff'
+
 export type { GitFailureReason, GitHead, GitRepositoryState } from './repository'
 
 export type {

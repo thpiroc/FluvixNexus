@@ -12,6 +12,7 @@ import {
   IPC_CHANNELS,
   type GetGitCommitDetailResponse,
   type GetGitCommitFileDiffResponse,
+  type GetGitConflictDiffResponse,
   type GetGitFileDiffResponse,
   type GetGitRepositoryResponse,
   type GitOperationResponse,
@@ -33,6 +34,7 @@ import { readGitCommitDetail, readGitCommitFileDiff } from '../../git/gitCommitD
 import { normalizeGitCommitHash } from '../../git/gitCommitHash'
 import { readGitFileDiff } from '../../git/gitDiff'
 import { applyGitResolveConflict } from '../../git/gitConflict'
+import { readGitConflictFileDiff } from '../../git/gitConflictDiff'
 import { applyGitDiscard } from '../../git/gitDiscard'
 import { listGitCommits } from '../../git/gitHistory'
 import { applyGitInit } from '../../git/gitInit'
@@ -883,6 +885,25 @@ export function registerGitHandlers(): void {
       relativePath: pathspecField(request)
     })
   })
+
+  /*
+    競合の ours / theirs（Session 3-8-21）。
+
+    `git:get-file-diff` と**別の1本**にしてある ── 位置1つを渡して中身2つが
+    返る形は同じに見えるが、左右の意味が違う（前 → 後ではなく、2つの枝の
+    今の中身）。混ぜると、答えの意味が要求によって変わるチャンネルが
+    1本できる（shared/ipc/contracts/git.ts）。
+
+    したがって `group` を確かめる関数（`diffGroupField`）はここを通らない ──
+    渡せるのは位置1つだけで、確かめるのは他の6本とまったく同じ
+    `pathspecField` になる。段（stage）を指せる欄も無い。
+  */
+  handleIpc(
+    IPC_CHANNELS.GIT_GET_CONFLICT_DIFF,
+    async (request): Promise<GetGitConflictDiffResponse> => {
+      return await readGitConflictFileDiff({ relativePath: pathspecField(request) })
+    }
+  )
 
   handleIpc(IPC_CHANNELS.GIT_DISCARD, async (request): Promise<GitOperationResponse> => {
     return await applyGitDiscard(discardTargetField(request))

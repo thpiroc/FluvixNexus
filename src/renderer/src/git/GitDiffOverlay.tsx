@@ -1,8 +1,11 @@
 import { lazy, Suspense, useEffect, type JSX } from 'react'
-import type { GitCommitFileDiff, GitFileDiff } from '@shared/git'
+import type { GitCommitFileDiff, GitConflictFileDiff, GitFileDiff } from '@shared/git'
 import { describeGitChangeKind } from './gitChanges'
 import {
   describeGitCommitDiffSides,
+  describeGitConflictDiffSides,
+  describeGitConflictMissingSides,
+  describeGitConflictShape,
   describeGitDiffSides,
   describeGitDiffTitle,
   describeGitDiffUnavailable,
@@ -12,7 +15,7 @@ import {
 } from './gitDiff'
 
 /**
- * 1行の差分を、Git パネルの上に重ねて見せる面（Session 3-8-9 / 3-8-12）。
+ * 1行の差分を、Git パネルの上に重ねて見せる面（Session 3-8-9 / 3-8-12 / 3-8-21）。
  *
  * ## Editor のタブにしない
  *
@@ -52,6 +55,21 @@ import {
  * 二重に持つことになるためになる ── 出る場所が入口ごとに違うと、
  * 利用者は閉じ方も別々に覚える。
  *
+ * ## Session 3-8-21 で、3つめの入口が付いた
+ *
+ * **競合の行**（3-8-2 からの「競合」グループ）から開く。ここでも面は
+ * 同じもので、変わるのは 3-8-12 と同じ3つになる。
+ *
+ *   見出しの後ろ … 何も足さない（commit の hash に当たるものが無い）
+ *   左右のラベル … 「ours（stage 2）/ theirs（stage 3）」── マージ中だけ意味を補う
+ *   中身の取り先 … `git:get-conflict-diff`（3本目のチャンネル）
+ *
+ * 帯の下に**2行だけ**足してある（競合の形と、片側にファイルが無いこと）──
+ * 一覧の行が「競合」としか言わないため、その2つはここでしか読めない。
+ *
+ * 面そのものは**読み取り専用のまま**で、「解決済みにする」も
+ * `ours` / `theirs` の採用もここには置いていない（`GitConflictDiffFrame`）。
+ *
  * ## この面が開いている間、下の面は Esc を受け取らない
  *
  * commit の詳細から開いた場合、履歴の面（GitHistoryOverlay.tsx）は
@@ -71,7 +89,7 @@ const MonacoDiffEditor = lazy(async () => {
 interface GitDiffOverlayProps {
   readonly request: GitDiffRequest
   /** 取得中は null（面は先に出す。下記）。 */
-  readonly diff: GitFileDiff | GitCommitFileDiff | null
+  readonly diff: GitFileDiff | GitCommitFileDiff | GitConflictFileDiff | null
   readonly onClose: () => void
 }
 
@@ -166,7 +184,7 @@ function GitDiffBody({
   diff
 }: {
   readonly request: GitDiffRequest
-  readonly diff: GitFileDiff | GitCommitFileDiff | null
+  readonly diff: GitFileDiff | GitCommitFileDiff | GitConflictFileDiff | null
 }): JSX.Element {
   if (diff === null) {
     return (
@@ -181,6 +199,23 @@ function GitDiffBody({
       <p className="fx-git__diff-note" data-variant="error" role="status">
         {describeGitDiffUnavailable(diff.reason)}
       </p>
+    )
+  }
+
+  /*
+    競合（Session 3-8-21）。
+
+    見分けているのは**中身の側**（`shape` を持つのは競合の応答だけ）になる ──
+    要求と応答は必ず対で入れ替わる（useGitRepository.ts が同じ1回で両方を
+    置く）ので、要求の `source` で分けても同じところに着くが、
+    その場合 `diff.kind` が在ることを型の外側で信じることになる。
+  */
+  if ('shape' in diff) {
+    return (
+      <GitConflictDiffFrame
+        diff={diff}
+        merging={request.source === 'conflict' && request.merging}
+      />
     )
   }
 
@@ -210,6 +245,73 @@ function GitDiffBody({
           modified={diff.modified}
         />
       </Suspense>
+    </div>
+  )
+}
+
+/**
+ * 競合の中身2つ（Session 3-8-21）。
+ *
+ * ## 器は 3-8-9 のまま
+ *
+ * 帯（`fx-git__diff-legend`）も枠（`fx-git__diff-frame`）も Diff Editor も、
+ * 作業ツリーの差分・commit の差分とまったく同じものを使う ── 別の面を
+ * 作らないのは、閉じ方・重なり方・読み込み中の見え方を二重に持たない
+ * ためになる（3-8-12 で入口が2つになったときと同じ判断）。
+ *
+ * 足したのは帯の下の2行だけで、どちらも**言葉**にあたる。
+ *
+ *   競合の形     … 一覧の行は「競合」としか言わない（gitDiff.ts）
+ *   片側の不在   … 空の欄を、空のファイルと見分けられるようにする
+ *
+ * ## 「解決済みにする」はここに置かない
+ *
+ * この面は読み取り専用のまま保つ（3-8-9 からの線）。解決し終えたと
+ * 伝える口は一覧の行にある（3-8-18）── 面の中にもう1つ置くと、
+ * **同じ操作の入口が2つ**になり、押せる条件（競合マーカーが残っていないか）
+ * を2箇所で説明することになる。`ours` / `theirs` を作業ツリーへ採る口も
+ * 置いていない（docs/ARCHITECTURE.md §14.29）。
+ */
+function GitConflictDiffFrame({
+  diff,
+  merging
+}: {
+  readonly diff: Extract<GitConflictFileDiff, { readonly status: 'ready' }>
+  readonly merging: boolean
+}): JSX.Element {
+  const sides = describeGitConflictDiffSides(diff.shape, merging)
+  const missing = describeGitConflictMissingSides(sides, merging)
+
+  return (
+    <div className="fx-git__diff-frame">
+      {/*
+        左右のラベル。マージ中だけ「現在のブランチ / 取り込み側」と補い、
+        それ以外では ours / theirs を訳さない（gitDiff.ts）── rebase や
+        cherry-pick では意味が逆になり、`stash pop` の競合ではどちらも
+        自分の変更になる。
+      */}
+      <div className="fx-git__diff-legend">
+        <span>左: {sides.original}</span>
+        <span>右: {sides.modified}</span>
+      </div>
+      <p className="fx-git__diff-shape" role="status">
+        {describeGitConflictShape(diff.shape, merging)}
+        {missing === null ? null : <span className="fx-git__diff-missing"> {missing}</span>}
+      </p>
+      {/*
+        両側とも無い（両方で削除された）ときは、Diff Editor を出さない ──
+        空の欄を2つ並べても読めるものが1つも無く、上の2行が答えのすべてに
+        なる。片側だけ無いときは出す（残っている側の中身が読める）。
+      */}
+      {sides.originalMissing && sides.modifiedMissing ? null : (
+        <Suspense fallback={<p className="fx-git__diff-note">差分を準備しています…</p>}>
+          <MonacoDiffEditor
+            relativePath={diff.relativePath}
+            original={diff.original}
+            modified={diff.modified}
+          />
+        </Suspense>
+      )}
     </div>
   )
 }
