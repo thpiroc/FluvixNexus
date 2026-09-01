@@ -1364,25 +1364,100 @@ Session 3-8-21（競合の ours / theirs の差分）では、**production ビ�
 - **ラベルの否定形も測る。** 「ours と出ている」だけでは、余分に「現在のブランチ」まで出ていても通ってしまう ── `not.toContain('現在のブランチ')` を同じ1回で読む。3-8-21 で守っているものの半分は**言っていないこと**にあたる。
 - **「一覧が崩れない」は件数で測る。** 差分を開いて閉じた後に競合の行が同じ数だけ残っていること・帯が残っていることの2つを読む ── 面が上に重なるだけで下は差し替わらない（3-8-9 からの構え）ことが、入口が3つになっても変わっていないかはここでしか分からない。
 
-Session 3-8-22A（Git の仕上げ）では、**production app での確認をまだ行っていない。** この回で行ったのは実装・自動テスト・実 git テスト・production build までで、**実アプリでの統合確認は Session 3-8-22B へ回してある**（意図的な分割で、3-8-19 〜 3-8-21 の実績から1セッションに収まらないことが分かっているため）。
+Session 3-8-22A（Git の仕上げ）では、**production app での確認をまだ行っていない。** この回で行ったのは実装・自動テスト・実 git テスト・production build までで、**実アプリでの統合確認は Session 3-8-22B へ回してある**（意図的な分割で、3-8-19 〜 3-8-21 の実績から1セッションに収まらないことが分かっているため）。**3-8-22B で実施済み ── 結果は下記。**
 
 自動での確認結果（3-8-22A 時点）:
 
-| 確認                                        | 結果                                                                                          |
-| ------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `npm run format:check`                      | PASS                                                                                          |
-| `npm run typecheck`（node / web）           | PASS                                                                                          |
-| `npm test`（vitest）                        | **115 files / 2487 passed / 1 skipped、全項目 PASS**（3-8-21 時点は 111 files / 2389 passed） |
-| 実 git テスト（`*Repository.test.ts` 23本） | 全項目 PASS（新規2本 = `gitInProgressRepository` 25項目 / `gitFetchRepository` 9項目を含む）  |
-| `npm run build`（production）               | PASS（41.34s）                                                                                |
+| 確認                                        | 結果                                                                                                                                                              |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run format:check`                      | PASS                                                                                                                                                              |
+| `npm run typecheck`（node / web）           | PASS                                                                                                                                                              |
+| `npm test`（vitest）                        | **115 files / 2487 passed / 1 skipped、全項目 PASS**（3-8-21 時点は 111 files / 2389 passed）                                                                     |
+| 実 git テスト（`*Repository.test.ts` 18本） | 全項目 PASS（新規2本 = `gitInProgressRepository` 25項目 / `gitFetchRepository` 9項目を含む。**本数は 3-8-22B で数え直したもの ── 当時「23本」と書いたのは誤り**） |
+| `npm run build`（production）               | PASS（41.34s）                                                                                                                                                    |
 
-**Session 3-8-22B で確認すること**（production app・`_electron`）:
+Session 3-8-22B（STEP 3 Git 全体の production app 統合確認）では、**production ビルド版 232項目、全項目 PASS。** 新しい機能は足さず、3-8-1 〜 3-8-22A で置いたものを**利用者が実際に通す流れ**として押している（3-8-7 が Git の基本機能に対して行ったことを、STEP 3 の Git 全体に対してもう一度行った回にあたる）。相手は使い捨ての一時リポジトリ一式で、走らせるたびに `setup-fixtures.sh` から作り直す（3-8-8 / 3-8-20 と同じ理由 ── 1回目が commit / push / merge を進めるので、2回目は「もう競合していない」でアプリのせいに見える FAIL が出る）。**開発リポジトリには一切触れていない。**
 
-- **3-8-15 / 3-8-16 / 3-8-17 の未確認分の回収** ── この3回は実 git テストは在るが、**`GitStashOverlay` と `GitRemoteOverlay` を実アプリで一度も押していない**（§4 の記録が 3-8-14 から 3-8-19 へ飛んでいる）。STEP 3 の Git を閉じる前に必ず通す。
-- **3-8-22A で足した4つの実物確認** ── Fetch（押すと remote の枝が現れる / 消える・追跡先が無くても押せる）、途中の操作の帯（4つの出し分けと、中止の口がマージにしか出ないこと）、禁止（マージ中に切り替え / 退避が押せないこと・Stage / Commit は押せること）、マージの Commit 欄に既定メッセージが入ること、`DD` の行に「エディタで開く」が出ないこと。
-- **統合フロー1本** ── `git init` → GitHub 公開 → 変更検出 → Stage → Commit → Push / Pull → branch 作成・切替 → remote 管理 → stash → Fetch → remote-tracking から local branch 作成 → merge → conflict → ours / theirs 確認 → 解決済みにする → Commit → Push。
-- **Esc の段** ── 帯の中止確認に Esc が効くこと（3-8-22A で足した1箇所）を含む全経路。
-- **回帰** ── Files / Editor / Terminal との共存、`window.fluvix.git` の公開範囲（`fetch` / `getMergeMessage` が増えていること・**rebase / cherry-pick / revert を動かす口が1つも無いこと**）、CSP 違反なし、console エラーなし。
+4本に分けてあるのは、1回の起動で1本しか走らせられないため（スクリプトが終わるとアプリも終わる）と、fixture の初期状態が本ごとに違うためになる。
+
+| 本                 | 相手のリポジトリ                                   | 項目 | 結果        |
+| ------------------ | -------------------------------------------------- | ---- | ----------- |
+| ① `verify-flow`    | `flow`（**リポジトリではないフォルダ**から始める） | 82   | 全項目 PASS |
+| ② `verify-sync`    | `sync` + bare + peer（他の人が push した枝がある） | 57   | 全項目 PASS |
+| ③ `verify-guard`   | `guard`（**競合したまま**置いてある）              | 54   | 全項目 PASS |
+| ④ `verify-coexist` | `coexist`（Files / Editor / Terminal との共存用）  | 39   | 全項目 PASS |
+
+**① 基本フロー + branch + remote 管理 + stash（82項目）** ── 1回の起動の中を、`git init` → 公開の面 → remote 追加 → 変更検出 → Stage → Commit → Push → branch 作成 / 切替 → remote 管理 → 退避、の順に通す。
+
+- init: 案内が出る → 確認が開く → **Esc で閉じる** → 初期化が通る → Git パネルになる
+- 公開: gh が無いことの断りと `winget` の1行が出る、公開のボタンが押せない、**remote を足すと公開の口ごと消える**
+- remote 追加: **ローカルのパスは通らない**（§14.24 の「知らない形は通さない」）・**認証情報を載せた URL も通らない**・`https://` なら通る
+- 変更検出: 未追跡が2件（**フォルダは畳んで1件**）、**外で足したファイルが押さなくても一覧に出る**（3-8-8 の回帰）
+- Stage → Commit: まとめて Stage が通る、空メッセージでは Commit が押せない、Commit 後に一覧が空になる
+- Push: bare の remote へ届く、追跡先が設定される、上のバーが `↑0 ↓0` になる
+- branch: 作成すると**そこへ切り替わって面が閉じる**、一覧の行から `main` へ戻れる、面が Esc で閉じる（**他の面を巻き込まない**）
+- remote 管理（**3-8-16 / 3-8-17 の未確認分の回収**）: 一覧・追加・URL 変更・rename・削除の5つが通る。URL 変更は欄 → 確認 → 適用の2段で、確認に**変更後の送り先**が出る。**削除も URL 変更も、確認を Esc で閉じたときは git 側が1文字も変わっていない**
+- 退避（**3-8-15 の未確認分の回収**）: 退避 → 一覧に1件 → **戻す**（作業ツリーへ返る）→ もう1度退避 → **捨てる**（確認あり）。捨てる確認も Esc で閉じ、**Esc では捨てられていない**
+
+**② Fetch / remote-tracking / merge / conflict（57項目）** ── `peer` が push した枝は `sync` からはまだ見えない状態にしてあり、**Fetch の効き目が測れる**ようにしてある。
+
+- Fetch 前: 一覧は `origin/main` だけ、**「最後に取得した時点の写しです」と黙らずに出ている**
+- Fetch: 押す前に何が起きるかが読める、押すと `origin/feature/from-remote` が現れる、`origin/HEAD` は一覧に出ない
+  - 待つのは**結果そのもの**（ref が手元に現れたか）にする ── 画面の数字は前回 fetch した時点の写しで、待つ先にならない（3-8-7）
+- tracking branch: ローカル名の既定が `feature/from-remote`（remote 名から remote を外したもの）、作ると**切り替わって面が閉じる**、追跡先が設定される、作業ツリーが入れ替わる
+- merge: 確認を挟む、**Esc ではマージが始まっていない**、適用すると競合で止まる、帯が出て次の一手と中止の口が出る、競合3件 + 自動マージ分がステージ済みへ入る
+- 競合の Diff（**3-8-21 の回帰**）: マージ中は左右が「現在のブランチ / 取り込み側」と補われる、**左に ours・右に theirs**（入れ替わっていない）、片側欠落は「右（取り込み側）にはファイルが存在しません」と名指しで出る、バイナリは「バイナリのため差分を表示できません」で**Monaco の欄が壊れて残らない**
+- 解決 → Commit → Push: 競合の行の操作が「解決済みにする」（Stage ではない）、3件とも競合から抜ける、**競合のグループごと消えて差分の口も消える**、`MERGE_HEAD` は Commit まで残る、**Commit 欄に `Merge branch 'conflict-src'` が入っている**（3-8-22A）、Commit で親が2つの merge commit が積まれて帯が消える、Push で remote へ届く
+
+**③ マージ中の禁止操作（54項目）** ── 開いた時点で `merging === true` の repo を相手に、**押せないこと・理由が読めること・IPC を直に叩いても Main が断ること**の3段で測る。
+
+- 通す側: 解決済みにする / すべて Stage / 差分 / 履歴・退避・リモートを開く（読み取り）/ **Push** / **Fetch** / branch 削除・改名 / **stash drop**
+- 通さない側（**押せない + `title` に理由と次の一手が出る**）: Pull・branch switch・branch create・tracking branch 作成・もう1度マージ・**stash push**・**stash pop**
+  - branch create と stash push は、hover だけでなく**欄の下の1行**にも同じ理由が出る
+- **「解決し終えた、まだ Commit していない」状態**（`shared/git/inProgress.ts` が名指ししていた、いちばん危うい一瞬）でも stash push / pop が押せないこと・退避が1件のまま増えていないこと
+- IPC を直に叩く: `switchBranch` / `createBranch` / `createTrackingBranch` / `stashPush` / `pull` / `mergeBranch` の6つが `operation-in-progress` で断られ、**HEAD も `MERGE_HEAD` も退避も1つも動かない**
+- 中止: 確認を挟む、何が失われるかが書いてある、**Esc で閉じても中止されていない**、適用すると `MERGE_HEAD` が消えて帯も消える、**中止すると Pull / 切り替え / 作成 / 戻す がまた押せる**
+- remote の追加 / 削除 / rename はマージ中でも通す（設計どおり ── `.git/config` の行だけを書き換え、index も作業ツリーも HEAD も動かさない）
+
+**④ Files / Editor / Terminal との共存とセキュリティ（39項目）**
+
+- Git → Editor: 行からエディタで開ける、**もう1つ開いても先のタブが閉じない**、未保存の印が保たれる、同じファイルを開き直してもタブが増えず**未保存の中身が捨てられない**
+- Git 操作との共存: Stage してもタブが消えず未保存の印が残る、**未保存のタブがあるファイルの破棄は止まる**（3-8-9 の回帰）、破棄の確認が Esc で閉じる
+- Terminal: 端末から `git checkout` を打つと Git パネルが追いつく（3-8-8 の回帰）、**Terminal を使っても Git パネル・ブランチ名・Push / Pull / Fetch の並びが壊れない**、端末で git を動かしてもタブが消えない
+- Files: Files 側で変えたファイルが Git パネルに出る
+- セキュリティ: `require` / `process` / `module` / `global` / `Buffer` / `electron` / `ipcRenderer` が Renderer に無い、`window.fluvix` の名前空間が10個のまま、**`window.fluvix.git` の36個が増えても減ってもいない**、**rebase / cherry-pick / revert を動かす口が1つも無い**、生の git コマンドを渡せる口（`exec` / `run` / `raw` / `spawn`）が無い、CSP が `default-src 'self'` / `script-src 'self'` / `object-src 'none'` / `frame-src 'none'` で **`unsafe-eval` 無し**、`webPreferences` が `nodeIntegration: false` / `contextIsolation: true` / `sandbox: true` / `webviewTag: false`、**CSP 違反 0件・console エラー 0件**
+
+#### この回で見つけて直したもの
+
+**`GitStashOverlay` にだけ、途中の Git 操作の禁止が渡っていなかった**（3-8-22A の被せ忘れ。詳細は [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §14.31.1）。マージ中でも「戻す」が押せ、競合を解決し終えた後は「作業ツリーを退避」も押せていた。**Main は両方とも断っていたので退避が消えることも `MERGE_HEAD` が落ちることも無い**（押して確かめた）が、押しても必ず失敗するボタンが残っていた。他の箇所とまったく同じ形（`withGitInProgressBlock`）で被せ、③で再確認している。
+
+**自動テストでは捕まえられない種類の抜けにあたる。** 表（`shared/git/inProgress.ts`）も Main の `guardGitInProgress` も網羅的にテストされていて全部通っていた ── 抜けていたのは props を渡す1行で、props が増えていないのだから型も通る。**実アプリで押す以外に測る手段が無い。**
+
+#### 確認の要領（この回で分かったもの）
+
+- **Monaco の Diff Editor は、片側に `.view-lines` を2つ持つ。** 消えた行を描く view-zone がもう1枚入るため、`.editor.modified .view-lines` を `querySelector`（＝最初の1つ）で読むと**消えた行の側（ours の断片）**が返る ── 「右に ours が出ている」と読めてしまい、**アプリが左右を取り違えている**という結論を1度書きかけた。その側の `.view-lines` を全部集めて**いちばん長いもの**を本体として読む。3-8-21 が同じセレクタで正しく読めていたのは DOM の並びがたまたま逆だったためで、アプリ側は 3-8-21 から一度も変わっていない。
+- **一覧の面は開いた直後に読まない。** remote / 退避の一覧は非同期に取りに行くので、開いた直後は「取得しています…」で 0 件になる ── その文言を抜けるまで待つ。**アプリは正しく出しているのに FAIL に見える**形が、3-8-21 の Monaco と同じ理由でここでも出る。
+- **ローカルのパスは remote の URL として登録できない**（§14.24 の設計どおり）。Push の相手にする bare リポジトリを**画面からは足せない**ので、UI の「追加」が動くことは `https://` の URL で測り、Push の相手は git 側から `set-url` で差し替えて用意する。
+- **未追跡のフォルダは畳んで1件**として出る（git の `status` がそう返す）。`src/a.ts` を仕込んでも一覧に出るのは `src` の1行で、ファイル名で数えると合わない。
+- **「解決した = ステージ済みに載る」ではない。** 競合を**元と同じ中身に戻して**解決すると、index が HEAD と一致するので差分が無く、ステージ済みの一覧に載らない ── 解決できたかは `git ls-files -u` が空になったかで測る。
+- **競合の差分のボタンは、この回は座標のクリックで通った**（3-8-20 / 3-8-21 は `dispatchEvent` が要った）。ウィンドウを 1680×1000 に揃えてから開いているためで、狭いままだと見出しの sticky に重なられる。
+- **ウィンドウの大きさは毎回揃える。** 前回の確認が残した `window-state.json` から始まると Git パネルが細いまま起動し、**Monaco が幅の都合で inline 表示へ落ちて**左右のペインが別々に読めなくなる（アプリの不具合ではない）。`app.evaluate` の `setBounds` で揃える（`_electron.launch` なら Main 側を触れる）。
+- **Terminal を開いたまま終わらせると `app.close()` が返らない。** 走っているシェルがあるためで、確認そのものは終わっている ── ログを先に書き出しておき、残ったプロセスは `Stop-Process` で片付ける。
+
+#### 未確認（環境に起因する1点）
+
+「GitHub に公開」の**成功する経路**は、この PC に GitHub CLI（`gh`）が入っていないため実アプリで通せていない（3-8-10 と同じ状況で、当時も gh の無い側だけを確かめている）。確かめてあるのは gh が無いときの断りと案内・公開のボタンが押せないこと・remote を足すと公開の口ごと消えることの3つで、**アプリの中の経路としては閉じている**。
+
+#### 品質ゲート（3-8-22B 時点）
+
+| 確認                                        | 結果                                                                         |
+| ------------------------------------------- | ---------------------------------------------------------------------------- |
+| production app 統合確認（`_electron`）      | **232項目、全項目 PASS**（4本の内訳は上記）                                  |
+| `npm run format:check`                      | PASS                                                                         |
+| `npm run typecheck`（node / web）           | PASS                                                                         |
+| `npm test`（vitest）                        | **115 files / 2487 passed / 1 skipped、全項目 PASS**（3-8-22A から変化なし） |
+| 実 git テスト（`*Repository.test.ts` 18本） | **396項目、全項目 PASS**（`src/main/git` 全体では 35 files / 827項目 PASS）  |
+| `npm run build`（production）               | PASS（32.93s）                                                               |
 
 ---
 

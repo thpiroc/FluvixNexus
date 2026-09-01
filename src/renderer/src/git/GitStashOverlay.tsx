@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type JSX } from 'react'
 import type { GitOperationFailure, GitOperationOutcome, GitStashEntry } from '@shared/git'
 import { describeGitOperationFailure, type GitActionReadiness } from './gitChanges'
+import { withGitInProgressBlock } from './gitInProgress'
 import {
   describeGitStashDropWarning,
   describeGitStashList,
@@ -64,6 +65,8 @@ export function GitStashOverlay({
   operating,
   pushing,
   pushReadiness,
+  popBlocked,
+  dropBlocked,
   onPush,
   onPop,
   onDrop,
@@ -76,6 +79,17 @@ export function GitStashOverlay({
   readonly pushing: boolean
   /** 今「退避する」を押せるか、押せないならなぜか（gitStash.ts）。 */
   readonly pushReadiness: GitActionReadiness
+  /**
+   * 途中の Git 操作があるために「戻す」が通らない理由（Session 3-8-22B）。
+   * 通るなら null。
+   *
+   * `pushReadiness` のように被せた形で受け取らないのは、行の readiness を
+   * 組み立てるのが**行の側**（`GitStashRowView`）のためになる ── 面が行の数だけ
+   * readiness を作って配ると、`operating` の扱いが2箇所に分かれる。
+   */
+  readonly popBlocked: string | null
+  /** 同じく「捨てる」が通らない理由。通るなら null（マージ中は通る）。 */
+  readonly dropBlocked: string | null
   /** 作業ツリーを退避する（結末をそのまま返す ── 理由を面の中に出すため）。 */
   readonly onPush: () => Promise<GitOperationOutcome | null>
   readonly onPop: (entry: GitStashEntry) => Promise<GitOperationOutcome | null>
@@ -211,6 +225,8 @@ export function GitStashOverlay({
                 entry={entry}
                 now={now}
                 operating={operating}
+                popBlocked={popBlocked}
+                dropBlocked={dropBlocked}
                 dropping={dropping === entry.shortHash}
                 failure={failure}
                 onPop={onPop}
@@ -294,6 +310,8 @@ function GitStashRowView({
   entry,
   now,
   operating,
+  popBlocked,
+  dropBlocked,
   dropping,
   failure,
   onPop,
@@ -305,6 +323,10 @@ function GitStashRowView({
   readonly entry: GitStashEntry
   readonly now: number
   readonly operating: boolean
+  /** 途中の Git 操作があるために「戻す」が通らない理由（Session 3-8-22B）。 */
+  readonly popBlocked: string | null
+  /** 同じく「捨てる」が通らない理由。 */
+  readonly dropBlocked: string | null
   /** この行の下に、捨てる確認が開いているか。 */
   readonly dropping: boolean
   readonly failure: GitOperationFailure | null
@@ -315,8 +337,12 @@ function GitStashRowView({
   readonly onOutcome: (failure: GitOperationFailure | null) => void
 }): JSX.Element {
   const row = describeGitStashRow(entry, now)
-  const popReadiness = toGitStashPopReadiness(operating)
-  const dropReadiness = toGitStashDropReadiness(operating)
+  /*
+    途中の操作の禁止を、行の2つにも被せる（Session 3-8-22B）── 被せ方は
+    GitView.tsx の他の箇所と同じで、理由は `title` / `aria-label` に載る。
+  */
+  const popReadiness = withGitInProgressBlock(toGitStashPopReadiness(operating), popBlocked)
+  const dropReadiness = withGitInProgressBlock(toGitStashDropReadiness(operating), dropBlocked)
 
   const runPop = useCallback((): void => {
     void onPop(entry).then((outcome) => {
@@ -346,7 +372,8 @@ function GitStashRowView({
           onClick={runPop}
           disabled={!popReadiness.enabled}
           title={popReadiness.note}
-          aria-label={`${row.subject} を作業ツリーへ戻す`}
+          // 押せないときは理由を名前にも載せる（GitView.tsx の行の操作と同じ）。
+          aria-label={popBlocked ?? `${row.subject} を作業ツリーへ戻す`}
         >
           戻す
         </button>
@@ -362,7 +389,7 @@ function GitStashRowView({
           disabled={!dropReadiness.enabled}
           aria-expanded={dropping}
           title={dropReadiness.note}
-          aria-label={`${row.subject} を捨てる`}
+          aria-label={dropBlocked ?? `${row.subject} を捨てる`}
         >
           ✕
         </button>

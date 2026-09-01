@@ -1053,7 +1053,26 @@ export function GitView(): JSX.Element {
           list={stashes}
           operating={operating}
           pushing={pending.has(GIT_STASH_PUSH_OPERATION_KEY)}
-          pushReadiness={toGitStashPushReadiness(repository.changes, operating)}
+          /*
+            退避の3つにも、途中の操作の禁止を被せる（Session 3-8-22B）。
+
+            3-8-22A はこの表を作ったときに、上のバー・ブランチの面・行の操作・
+            Commit 欄へは被せたが、**この面だけ渡し忘れていた** ── 実アプリで
+            測って分かった（マージ中に「戻す」が押せ、競合を解決し終えた後は
+            「作業ツリーを退避」も押せた）。Main は両方とも断っていたので
+            退避が消えることは無かったが、**押しても必ず失敗するボタン**が
+            残っていたことになる（3-8-2 の「押しても何も起きない操作を置かない」）。
+
+            3つを別々に引いているのは GitView の他の箇所と同じ理由で、表が
+            それぞれに答えを持つため ── マージ中は push / pop が通らず drop は
+            通る。ここで1つにまとめると、その違いが消える。
+          */
+          pushReadiness={withGitInProgressBlock(
+            toGitStashPushReadiness(repository.changes, operating),
+            guard('stash-push')
+          )}
+          popBlocked={guard('stash-pop')}
+          dropBlocked={guard('stash-drop')}
           onPush={stashPush}
           onPop={stashPop}
           onDrop={stashDrop}
