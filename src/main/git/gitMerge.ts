@@ -12,6 +12,7 @@ import {
 } from './gitFailure'
 import {
   finishGitOperation,
+  guardGitInProgress,
   notReadyGitOperation,
   type GitOperationResult
 } from './gitOperationResult'
@@ -62,7 +63,7 @@ import { GIT_CHECKOUT_TIMEOUT_MS, runGit } from './runGit'
  * ## 3-8-18 の続きとして噛み合う
  *
  * 競合した結末は `partly-applied`（`completed: 'merge'`）で返り、
- * 応答の状態は `merging: true` になる ── そこから先に足したものは1つも無い。
+ * 応答の状態は `inProgress: 'merge'` になる ── そこから先に足したものは1つも無い。
  *
  *   競合の行     … 3-8-2 の「競合」グループにそのまま並ぶ
  *   解決済みにする … 3-8-18 の `git:resolve-conflict` がそのまま効く
@@ -93,6 +94,17 @@ export async function applyGitMergeBranch(name: string): Promise<GitOperationRes
 
     if (before.repository.status !== 'ready') {
       return notReadyGitOperation(before)
+    }
+
+    /*
+      途中の操作があるあいだは始めない（Session 3-8-22A）。3-8-20 は
+      `findMergeBlockingState` の中で `merging` を見ていたが、判断は
+      1箇所（shared/git/inProgress.ts の表）へ寄せてある。
+    */
+    const guarded = guardGitInProgress(before, 'merge-branch')
+
+    if (guarded !== null) {
+      return guarded
     }
 
     const blocked = await findMergeBlockingState(before.repository, name)
@@ -136,15 +148,17 @@ async function findMergeBlockingState(
   }
 
   /*
-    既にマージの途中。git も断るが（`Merging is not possible because you have
-    unmerged files`）、**押す前に分かることを git に聞かない。**
+    「既にマージの途中」はここでは見ない（Session 3-8-22A）。
 
-    画面の側でも、マージ中は帯が出て「まず中止するか、解決して Commit する」
-    ことが見えている（renderer/src/git/GitView.tsx）── ここはその二重の備えになる。
+    3-8-20 ではこの関数が `repository.merging` を見て `unresolved-conflicts` を
+    返していたが、3-8-22A で**途中の操作そのものを断る表**ができたので、
+    そちらが先に断る（`guardGitInProgress(before, 'merge-branch')`）──
+    理由も `operation-in-progress` の方が正確にあたる（競合は残っていなくても
+    通さない）。同じことを2箇所で判断すると、片方だけ直された日に食い違う。
+
+    rebase / cherry-pick / revert の途中でも同じ1箇所が断る ── 3-8-20 の形の
+    ままだと、そちらは素通りしていた。
   */
-  if (repository.merging) {
-    return 'unresolved-conflicts'
-  }
 
   /*
     競合が残っている（マージ中でなくても起こる ── `stash pop` の競合。3-8-15）。
@@ -297,8 +311,13 @@ async function runMerge(name: string): Promise<GitOperationOutcome> {
  *
  * `git merge --abort` は MERGE_HEAD が無ければ
  * `fatal: There is no merge to abort (MERGE_HEAD missing).` で終わる
- * （実物で確かめてある）── それは読んだ状態（`merging`）だけで先に分かる。
+ * （実物で確かめてある）── それは読んだ状態（`inProgress`）だけで先に分かる。
  * 押す前に分かることを git に聞かない、という §14.14 からの構えのまま。
+ *
+ * **rebase / cherry-pick / revert の途中でも `nothing-to-do` で返る**
+ * （Session 3-8-22A）── `merge --abort` はそれらを中止しないため、
+ * ここで通すと「押したのに何も終わらない」になる。この3つの出口は
+ * Terminal で、それは帯の文言が言う（renderer/src/git/gitInProgress.ts）。
  *
  * 画面の側でも、中止の口はマージ中にしか出さない
  * （renderer/src/git/GitView.tsx）── ここはその二重の備えになる。
@@ -317,7 +336,7 @@ export async function applyGitAbortMerge(): Promise<GitOperationResult> {
       return notReadyGitOperation(before)
     }
 
-    if (!before.repository.merging) {
+    if (before.repository.inProgress !== 'merge') {
       return await finishGitOperation(before.workspaceId, {
         status: 'failed',
         reason: 'nothing-to-do'

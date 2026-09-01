@@ -94,6 +94,7 @@ export type {
   GetGitConflictDiffResponse,
   GetGitFileDiffRequest,
   GetGitFileDiffResponse,
+  GetGitMergeMessageResponse,
   GetGitRepositoryResponse,
   GitIpcContract,
   GitOperationResponse,

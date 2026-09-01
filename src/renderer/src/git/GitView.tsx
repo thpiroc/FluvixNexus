@@ -1,6 +1,11 @@
 import type { JSX, KeyboardEvent } from 'react'
-import { useCallback, useMemo, useState } from 'react'
-import type { GitCommitFileChange, GitDiscardTarget, GitFileChange } from '@shared/git'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import type {
+  GitCommitFileChange,
+  GitDiscardTarget,
+  GitFileChange,
+  GitGuardedOperation
+} from '@shared/git'
 import { useEditorContext } from '../editor/context'
 import { useWorkspaceFolder } from '../workspaceFolder/context'
 import { GitBranchMenu } from './GitBranchMenu'
@@ -24,12 +29,14 @@ import {
   findGitDiscardBlocker,
   GIT_COMMIT_AND_PUSH_OPERATION_KEY,
   GIT_COMMIT_OPERATION_KEY,
+  GIT_FETCH_OPERATION_KEY,
   GIT_INIT_OPERATION_KEY,
   GIT_PULL_OPERATION_KEY,
   GIT_PUSH_OPERATION_KEY,
   toGitChangeGroups,
   toGitCommitAndPushReadiness,
   toGitCommitReadiness,
+  toGitFetchReadiness,
   toGitDiscardGroup,
   toGitGroupStageTarget,
   toGitOperationKey,
@@ -42,6 +49,13 @@ import {
   type GitRowAction
 } from './gitChanges'
 import { describeGitAbortMergeWarning } from './gitBranches'
+import {
+  describeGitInProgressBlock,
+  describeGitInProgressNotice,
+  withGitInProgressBlock,
+  withGitInProgressCommitBlock,
+  type GitInProgressNotice
+} from './gitInProgress'
 import { canDiffGitChange, toGitDiffGroup } from './gitDiff'
 import { GIT_ADD_REMOTE_OPERATION_KEY } from './gitRemotes'
 import { GIT_STASH_PUSH_OPERATION_KEY, toGitStashPushReadiness } from './gitStash'
@@ -154,6 +168,8 @@ export function GitView(): JSX.Element {
     commit,
     push,
     pull,
+    fetch,
+    mergeMessage,
     commitAndPush,
     branches,
     refreshBranches,
@@ -224,6 +240,30 @@ export function GitView(): JSX.Element {
     Commit メッセージは書き直せるもので、閉じるまでの間だけ持てば足りる。
   */
   const [message, setMessage] = useState('')
+
+  /*
+    マージに入ったら、git が用意した文章を**空の欄にだけ**入れる
+    （Session 3-8-22A）。
+
+    ## 上書きしない
+
+    条件を「欄が空のとき」にしてあるので、既に書き始めていれば何も起きない。
+    利用者が自分で消した場合も、この効果は**次に届いた既定値でしか
+    走らない**（依存が `mergeMessage` だけ）── 消したそばから書き戻される、
+    という形にはならない。
+
+    ## マージが終われば `mergeMessage` は null に戻る（useGitRepository.ts）
+
+    そのとき欄を空へ戻すことはしない ── Commit が通れば `clearIfUnchanged` が
+    既に空にしており、通っていないなら**その文章はまだ必要**にあたる。
+  */
+  useEffect(() => {
+    if (mergeMessage === null) {
+      return
+    }
+
+    setMessage((current) => (current === '' ? mergeMessage : current))
+  }, [mergeMessage])
 
   /*
     破棄の確認を出している対象（Session 3-8-9）。
@@ -318,7 +358,14 @@ export function GitView(): JSX.Element {
         openDiff({
           source: 'conflict',
           change,
-          merging: repository.status === 'ready' && repository.merging
+          /*
+            左右のラベルを「現在のブランチ / 取り込み側」と断定してよいのは
+            **マージの途中だけ**になる（Session 3-8-21）。3-8-22A で状態が
+            4つに増えたが、断定してよい条件は1つのまま ── rebase /
+            cherry-pick / revert では ours / theirs の意味が入れ替わったり
+            当てはまらなかったりするので、中立の表現が受け皿になる。
+          */
+          merging: repository.status === 'ready' && repository.inProgress === 'merge'
         })
         return
       }
@@ -518,9 +565,56 @@ export function GitView(): JSX.Element {
     まさにその中身を変えている最中にあたる。行の `＋` / `−` が押した対象だけを
     止めるのとは性質が違う。
   */
-  const pushReady = toGitPushReadiness(repository.head, repository.upstream, operating)
-  const pullReady = toGitPullReadiness(repository.head, repository.upstream, operating)
-  const commitAndPushReady = toGitCommitAndPushReadiness(commitReady, repository.head)
+  /*
+    途中の Git 操作による禁止（Session 3-8-22A）。
+
+    ## 被せる形にしてある
+
+    既にある readiness の引数を1つずつ増やして回るのではなく、**上から被せる**
+    （renderer/src/git/gitInProgress.ts の `withGitInProgressBlock`）── 引数を
+    増やす形だと、渡し忘れた1つが静かに素通りする。被せる形なら、
+    被せていない呼び出しは**ここに並んでいないこと**として見て分かる。
+
+    ## 何を通さないかは、ここでは決めない
+
+    決めるのは shared/git/inProgress.ts の表で、Main が届いた要求に対して
+    見るのとまったく同じものになる ── 画面が押せなくするのは
+    「できない操作を見せない」ためで、許可の根拠は Main の側に在る。
+  */
+  const guard = (operation: GitGuardedOperation): string | null =>
+    describeGitInProgressBlock(repository.inProgress, operation)
+
+  const pushReady = withGitInProgressBlock(
+    toGitPushReadiness(repository.head, repository.upstream, operating),
+    guard('push')
+  )
+  const pullReady = withGitInProgressBlock(
+    toGitPullReadiness(repository.head, repository.upstream, operating),
+    guard('pull')
+  )
+  const fetchReady = withGitInProgressBlock(toGitFetchReadiness(operating), guard('fetch'))
+  const commitAndPushReady = withGitInProgressBlock(
+    toGitCommitAndPushReadiness(commitReady, repository.head),
+    guard('commit-and-push')
+  )
+  const guardedCommitReady = withGitInProgressCommitBlock(commitReady, guard('commit'))
+  /*
+    行の操作（Stage / Unstage / 解決 / 破棄）は readiness を持たない ──
+    3-8-3 から「押せる操作の数だけボタンを置く」形で、押せないときは
+    場所ごと作らない。したがって渡すのは**押せなくする理由が在るか**だけになる。
+
+    4つを1つにまとめず別々に聞いているのは、表がそれぞれに答えを持つため
+    （マージの途中では4つとも通り、rebase の途中では4つとも通らない ──
+    今は同じ答えになるが、それを**ここで決め打ちしない**）。
+  */
+  const rowBlocked =
+    guard('stage') ?? guard('unstage') ?? guard('resolve-conflict') ?? guard('discard')
+
+  /*
+    途中の操作の帯（Session 3-8-20 / 3-8-22A）。文言と、中止の口を出すかを
+    決めるのは gitInProgress.ts で、ここが持つのは置き場所だけになる。
+  */
+  const inProgressNotice = describeGitInProgressNotice(repository.inProgress)
 
   return (
     <div className="fx-git">
@@ -554,7 +648,7 @@ export function GitView(): JSX.Element {
             そのまま渡す。面の側で「競合の行があるか」から推し量らせない
             （shared/git/repository.ts）。
           */
-          merging={repository.merging}
+          inProgress={repository.inProgress}
           onOpen={refreshBranches}
           onSwitch={switchBranch}
           onCreate={createBranch}
@@ -672,15 +766,24 @@ export function GitView(): JSX.Element {
         出るが、先に読むべきなのは「今どこで止まっているか」ではなく
         「押した結果どうなったか」の方にあたる。
 
-        ## 出すのはマージ中だけ
+        ## 出すのは途中の操作があるときだけ
 
-        `merging` は Main が MERGE_HEAD から読んだ値そのもの
+        `inProgress` は Main が ref から読んだ値そのもの
         （shared/git/repository.ts）── 競合の行の有無からは導かない。
         解決し終えた後（競合の行が0件になった後）も Commit するまでは
         出続ける、というのがここで効く違いになる。
+
+        ## 3-8-22A で、帯が4つの状態を出し分けるようになった
+
+        3-8-20 の時点ではマージ1つだった。rebase / cherry-pick / revert では
+        **中止の口を出さない** ── アプリはその3つを始められず、終わらせる口も
+        持たないため、行き先は Terminal になる（文言がそれを言う。
+        renderer/src/git/gitInProgress.ts）。押しても何も起きないボタンを
+        置かない、という 3-8-2 からの線がそのまま効いている。
       */}
-      {repository.merging ? (
-        <GitMergeBanner
+      {inProgressNotice === null ? null : (
+        <GitInProgressBanner
+          notice={inProgressNotice}
           operating={operating}
           aborting={aborting}
           onOpenAbort={() => setAborting(true)}
@@ -698,7 +801,7 @@ export function GitView(): JSX.Element {
             })
           }}
         />
-      ) : null}
+      )}
       <div className="fx-git__body">
         {total === 0 ? (
           <p className="fx-git__empty">変更はありません。</p>
@@ -718,8 +821,14 @@ export function GitView(): JSX.Element {
                       type="button"
                       className="fx-git__group-action"
                       onClick={() => stage(groupTarget)}
-                      disabled={pending.has(toGitOperationKey(groupTarget))}
-                      title={`${group.label}をすべて Stage`}
+                      disabled={pending.has(toGitOperationKey(groupTarget)) || rowBlocked !== null}
+                      /*
+                        押せない理由をここでも出す（Session 3-8-22A）── 行の
+                        ボタンは「場所ごと作らない」形で消えるが、見出しの
+                        ボタンは**そこに在り続ける**（グループの件数の隣に
+                        空きができると、一覧の形が状態で変わる）。
+                      */
+                      title={rowBlocked ?? `${group.label}をすべて Stage`}
                     >
                       すべて Stage
                     </button>
@@ -735,6 +844,7 @@ export function GitView(): JSX.Element {
                       busy={pending.has(
                         toGitOperationKey({ kind: 'file', relativePath: change.relativePath })
                       )}
+                      blocked={rowBlocked}
                       onOpen={open}
                       onAct={act}
                       onDiff={showDiff}
@@ -761,7 +871,7 @@ export function GitView(): JSX.Element {
         onChange={setMessage}
         onCommit={runCommit}
         onCommitAndPush={runCommitAndPush}
-        readiness={commitReady}
+        readiness={guardedCommitReady}
         pushReadiness={commitAndPushReady}
         committing={committing}
         pushing={pending.has(GIT_COMMIT_AND_PUSH_OPERATION_KEY)}
@@ -778,6 +888,29 @@ export function GitView(): JSX.Element {
         戻らずに済む。
       */}
       <div className="fx-git__sync">
+        {/*
+          Fetch（Session 3-8-22A）。
+
+          ## Pull の左に置く
+
+          並びは左から「取ってくる → 取り込む → 送る」で、**手前の段ほど左**に
+          なる（Pull を Push の左に置いたのと同じ理由 ── Push が断られたときの
+          次の一手が Pull で、Pull が断られたときに何が来ているかを見る手が
+          Fetch にあたる）。
+
+          ## 上のバーではなく、ここに置く
+
+          履歴 / 退避 / リモートの3つはバーに在るが、あれは「①変更 → ②メッセージ
+          → ③Commit / Push の一続きの上に無いもの」で、**開くのは面**だった。
+          Fetch は面を開かず、押すと git が動いて上のバーの `↓1` が変わる ──
+          Push / Pull と同じ性質の操作なので、同じ並びに置く。
+        */}
+        <GitSyncButton
+          label="Fetch"
+          readiness={fetchReady}
+          running={pending.has(GIT_FETCH_OPERATION_KEY)}
+          onClick={fetch}
+        />
         <GitSyncButton
           label="Pull"
           readiness={pullReady}
@@ -967,7 +1100,20 @@ export function GitView(): JSX.Element {
 }
 
 /**
- * マージの途中であることの帯と、その中の中止（Session 3-8-20）。
+ * 途中の Git 操作の帯と、その中の中止（Session 3-8-20 / 3-8-22A）。
+ *
+ * ## 3-8-22A で、マージ専用ではなくなった
+ *
+ * 出す文言と「中止の口を出すか」（`notice.abortable`）を決めるのは
+ * gitInProgress.ts で、ここが持つのは置き場所だけになる ── 3-8-20 の
+ * 時点では文言がこのファイルに直接書かれていたが、状態が4つに増えた時点で
+ * **判断も文言も React の外へ出してある**（gitChanges.ts /
+ * gitRepositoryMessage.ts と同じ分担）。
+ *
+ * 中止の口が出るのはマージだけのまま。rebase / cherry-pick / revert では
+ * 帯が「Terminal でこうしてください」と言うだけで、押せる場所を置かない
+ * （`merge --abort` はその3つを中止しないため、置けば
+ * **押しても何も終わらないボタン**になる）。
  *
  * ## 新しい画面を作らない
  *
@@ -994,13 +1140,16 @@ export function GitView(): JSX.Element {
  * **解決中に書いた内容が消えうる**操作で、そこは破棄・削除と同じ重さになる
  * （gitBranches.ts の `describeGitAbortMergeWarning`）。
  */
-function GitMergeBanner({
+function GitInProgressBanner({
+  notice,
   operating,
   aborting,
   onOpenAbort,
   onCancelAbort,
   onAbort
 }: {
+  /** 何の途中で、次に何をすればよいか（gitInProgress.ts）。 */
+  readonly notice: GitInProgressNotice
   readonly operating: boolean
   /** 中止の確認を出しているか。 */
   readonly aborting: boolean
@@ -1010,22 +1159,76 @@ function GitMergeBanner({
 }): JSX.Element {
   const warning = describeGitAbortMergeWarning()
 
+  /*
+    Esc で中止の確認を畳む（Session 3-8-22A）。
+
+    3-8-20 では、この確認だけが Esc を持っていなかった ── 破棄の確認
+    （GitDiscardConfirm）・初期化の確認（GitInitConfirm）・4つの面・
+    ブランチの面の行の下は、いずれも 3-8-9 以降ずっと持っている。
+    **1箇所だけ約束が違う**状態で、押した人は Esc を押して何も起きないのを
+    見ることになる。
+
+    購読を張るのは確認が出ている間だけ ── 帯そのものを閉じる Esc は無い
+    （帯は状態であって、開いたり閉じたりするものではない）ので、
+    ブランチの面のような段の重なりはここでは起きない。
+  */
+  useEffect(() => {
+    if (!aborting) {
+      return
+    }
+
+    const handleKeyDown = (event: globalThis.KeyboardEvent): void => {
+      if (event.key !== 'Escape') {
+        return
+      }
+
+      event.preventDefault()
+      onCancelAbort()
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [aborting, onCancelAbort])
+
   return (
     <div className="fx-git__merge" data-testid="git-merge-banner">
       <div className="fx-git__merge-bar">
+        {/*
+          見出しと説明を分ける（Session 3-8-22A）。
+
+          3-8-20 の帯は1文だった（「マージの途中です。競合を解決して Commit
+          すると完了します。」）。4つの状態を出し分けるようになって説明が
+          長くなり、とくにアプリに出口が無い3つでは**端末で打つコマンド**まで
+          入る ── 1つの `<span>` に流し込むと、いちばん先に読ませたい
+          「何の途中か」が文の中に埋もれる。
+
+          読み上げは器（`role="status"`）に付けたまま1つにしてある ──
+          2つに分けると、状態の変化が2回読み上げられることになる。
+        */}
         <span className="fx-git__merge-label" role="status">
-          マージの途中です。競合を解決して Commit すると完了します。
+          <span className="fx-git__merge-title">{notice.title}</span>
+          <span className="fx-git__merge-description">{notice.description}</span>
         </span>
-        <button
-          type="button"
-          className="fx-git__merge-abort"
-          onClick={onOpenAbort}
-          disabled={operating}
-          aria-expanded={aborting}
-          title="マージを中止して、開始する前の状態に戻します。"
-        >
-          マージを中止
-        </button>
+        {/*
+          中止の口はマージにしか出さない ── `merge --abort` は rebase /
+          cherry-pick / revert を中止しないため、置けば押しても何も
+          終わらないボタンになる（Session 3-8-22A）。
+        */}
+        {notice.abortable ? (
+          <button
+            type="button"
+            className="fx-git__merge-abort"
+            onClick={onOpenAbort}
+            disabled={operating}
+            aria-expanded={aborting}
+            title="マージを中止して、開始する前の状態に戻します。"
+          >
+            マージを中止
+          </button>
+        ) : null}
       </div>
       {aborting ? (
         <div
@@ -1235,6 +1438,7 @@ function GitChangeRow({
   change,
   action,
   busy,
+  blocked,
   onOpen,
   onAct,
   onDiff,
@@ -1247,6 +1451,18 @@ function GitChangeRow({
   readonly action: GitRowAction
   /** この行の操作が動いている最中か。 */
   readonly busy: boolean
+  /**
+   * 途中の Git 操作があるために、書き込みを通せない理由（Session 3-8-22A）。
+   * 通せるなら null。
+   *
+   * **`busy` と別に受け取る。** あちらは「この行の操作が走っている最中」で
+   * 待てば終わるが、こちらは**その途中の状態を終わらせるまで変わらない** ──
+   * 同じ `disabled` でも次の一手が違うので、理由を出せるように分けてある。
+   *
+   * 読む側（差分・開く）は止めない ── 何が起きているのかを確かめる手立てを
+   * 奪わない（shared/git/inProgress.ts）。
+   */
+  readonly blocked: string | null
   readonly onOpen: (change: GitFileChange) => void
   readonly onAct: (action: Exclude<GitRowAction, null>, change: GitFileChange) => void
   readonly onDiff: (groupId: GitChangeGroup['id'], change: GitFileChange) => void
@@ -1335,9 +1551,9 @@ function GitChangeRow({
           className="fx-git__change-action"
           data-action="discard"
           onClick={() => onDiscard(groupId, change)}
-          disabled={busy}
-          title={discardLabel}
-          aria-label={discardLabel}
+          disabled={busy || blocked !== null}
+          title={blocked ?? discardLabel}
+          aria-label={blocked ?? discardLabel}
         >
           <DiscardIcon />
         </button>
@@ -1353,9 +1569,9 @@ function GitChangeRow({
           className="fx-git__change-action"
           data-action={action}
           onClick={() => onAct(action, change)}
-          disabled={busy}
-          title={actionLabel}
-          aria-label={actionLabel}
+          disabled={busy || blocked !== null}
+          title={blocked ?? actionLabel}
+          aria-label={blocked ?? actionLabel}
         >
           <GitRowActionIcon action={action} />
         </button>

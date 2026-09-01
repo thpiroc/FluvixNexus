@@ -5,6 +5,7 @@ import { classifyGitResolveConflictFailure, summarizeGitStderr } from './gitFail
 import { countLeftoverConflictMarkers } from './gitOutput'
 import {
   finishGitOperation,
+  guardGitInProgress,
   notReadyGitOperation,
   type GitOperationResult
 } from './gitOperationResult'
@@ -125,6 +126,17 @@ export async function applyGitResolveConflict(relativePath: string): Promise<Git
 
     if (before.repository.status !== 'ready') {
       return notReadyGitOperation(before)
+    }
+
+    /*
+      マージの途中では**止めない**（Session 3-8-22A）── 解決はマージを
+      終わらせるための手そのものになる。rebase / cherry-pick / revert では
+      止める（解決しても、その先の `--continue` がアプリに無い）。
+    */
+    const guarded = guardGitInProgress(before, 'resolve-conflict')
+
+    if (guarded !== null) {
+      return guarded
     }
 
     const path = normalizeGitPathspec(relativePath)

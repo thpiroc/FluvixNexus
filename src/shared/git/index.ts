@@ -11,6 +11,11 @@
  * **同じ答えを見る必要がある純粋な文字列の判断**で、files ドメインの
  * fileName.ts と同じ立ち位置にあたる（理由はそれぞれのファイルの冒頭）。
  *
+ * Session 3-8-22A で5つめの例外が増えた ── inProgress.ts（途中の Git 操作の
+ * あいだ何を通さないかの表）。これも Main（届いた要求を通すか）と
+ * Renderer（押せるボタンを出すか）が**同じ答えを見る必要がある**もので、
+ * 2箇所に書くと「画面では押せないのに IPC は通る」が生まれる。
+ *
  * remote の URL の**表示用ラベル**（`GitRemote.label`）を作る関数は、
  * この例外に入れていない ── あちらは Main だけが持つ（main/git/gitRemoteLabel.ts）。
  * ここへ置くと Renderer も同じ関数を持つことになり、「ラベルから URL は
@@ -85,6 +90,9 @@ export type {
 export type { GitDiffGroup, GitDiffUnavailableReason, GitFileDiff } from './diff'
 
 export type { GitConflictFileDiff, GitConflictShape } from './conflictDiff'
+
+export { isGitOperationBlockedWhileInProgress } from './inProgress'
+export type { GitGuardedOperation, GitInProgressOperation } from './inProgress'
 
 export type { GitFailureReason, GitHead, GitRepositoryState } from './repository'
 

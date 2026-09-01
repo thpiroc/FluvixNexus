@@ -18,6 +18,7 @@ import {
 } from './gitFailure'
 import {
   finishGitOperation,
+  guardGitInProgress,
   notReadyGitOperation,
   toGitOperationOutcome,
   type GitOperationResult
@@ -91,6 +92,17 @@ export async function applyGitPush(): Promise<GitOperationResult> {
 
     if (before.repository.status !== 'ready') {
       return notReadyGitOperation(before)
+    }
+
+    /*
+      マージの途中では止めない（Session 3-8-22A）── merge commit はまだ
+      作られておらず、送るものが増えていない。index にも作業ツリーにも
+      HEAD にも触らない操作にあたる。
+    */
+    const guarded = guardGitInProgress(before, 'push')
+
+    if (guarded !== null) {
+      return guarded
     }
 
     const blocked =
@@ -189,6 +201,18 @@ export async function applyGitPull(): Promise<GitOperationResult> {
 
     if (before.repository.status !== 'ready') {
       return notReadyGitOperation(before)
+    }
+
+    /*
+      途中の操作があるあいだは取り込まない（Session 3-8-22A）。マージの途中でも
+      止める ── `merge --ff-only` は必ず断られるうえ、その断り方は
+      「取ってきたのに何も変わらない」の形になる（3-8-5 が競合を先に分けたのと
+      同じ判断を、途中の状態そのものにも当てる）。
+    */
+    const guarded = guardGitInProgress(before, 'pull')
+
+    if (guarded !== null) {
+      return guarded
     }
 
     const blocked = findPullBlockingState(before.repository)
@@ -290,6 +314,13 @@ export async function applyGitCommitAndPush(message: string): Promise<GitOperati
 
     if (before.repository.status !== 'ready') {
       return notReadyGitOperation(before)
+    }
+
+    // Commit と Push の両方を通す（それぞれの理由は上の2つと同じ）。
+    const guarded = guardGitInProgress(before, 'commit-and-push')
+
+    if (guarded !== null) {
+      return guarded
     }
 
     const blocked = findPushDestinationProblem(before.repository)

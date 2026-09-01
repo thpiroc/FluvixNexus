@@ -2,12 +2,14 @@ import type { FormEvent, JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'
 import type {
   GitHead,
+  GitInProgressOperation,
   GitLocalBranch,
   GitOperationFailure,
   GitOperationOutcome,
   GitRemoteBranch
 } from '@shared/git'
 import { Popover } from '../ui/Popover'
+import { describeGitInProgressBlock, withGitInProgressBlock } from './gitInProgress'
 import {
   describeGitBranchDeleteWarning,
   describeGitBranchList,
@@ -163,7 +165,7 @@ export function GitBranchMenu({
   list,
   remoteList,
   operating,
-  merging,
+  inProgress,
   onOpen,
   onSwitch,
   onCreate,
@@ -181,15 +183,19 @@ export function GitBranchMenu({
   /** 何かしらの Git 操作が動いている最中か。 */
   readonly operating: boolean
   /**
-   * マージの途中か（Session 3-8-20）。
+   * 途中の Git 操作（Session 3-8-20 / 3-8-22A）。
    *
    * `head` と同じく状態から来る（shared/git/repository.ts）── 面が自分で
    * 推し量らないのは、「競合の行があるか」からは導けないためになる。
    * 使うのは行のマージの口を押せなくするためだけで、**中止の口はここに
    * 置かない**（パネルの帯にある。GitView.tsx）── 面を開かないと
    * 中止できない形にすると、いちばん出口が要る状態で出口が隠れる。
+   *
+   * 3-8-20 では真偽1つ（`merging`）だった。4つに広げたことで、
+   * **rebase の途中でも押せてしまっていた**穴が塞がる（`MERGE_HEAD` が
+   * 無いので、あの形では偽だった。gitBranches.ts）。
    */
-  readonly merging: boolean
+  readonly inProgress: GitInProgressOperation | null
   /** 面が開いた（一覧を取り直す契機 ── 3-8-19 から2本とも取り直す）。 */
   readonly onOpen: () => void
   readonly onSwitch: (name: string) => void
@@ -327,7 +333,7 @@ export function GitBranchMenu({
                   branch={branch}
                   head={head}
                   operating={operating}
-                  merging={merging}
+                  inProgress={inProgress}
                   opened={opened !== null && opened.name === branch.name ? opened.mode : null}
                   failure={failure}
                   onSelect={() => {
@@ -354,7 +360,12 @@ export function GitBranchMenu({
             一番上に現れて、選びたい行の位置が毎回ずれる。
           */}
           {truncation === null ? null : <p className="fx-git__branch-truncated">{truncation}</p>}
-          <GitBranchCreateForm operating={operating} onCreate={onCreate} onCreated={close} />
+          <GitBranchCreateForm
+            operating={operating}
+            blocked={describeGitInProgressBlock(inProgress, 'create-branch')}
+            onCreate={onCreate}
+            onCreated={close}
+          />
           {/*
             remote の枝から始める（Session 3-8-19）。
 
@@ -366,6 +377,7 @@ export function GitBranchMenu({
           <GitRemoteBranchSection
             list={remoteList}
             operating={operating}
+            blocked={describeGitInProgressBlock(inProgress, 'create-tracking-branch')}
             opened={opened !== null && opened.mode === 'track' ? opened.name : null}
             failure={failure}
             onOpenRow={openRow}
@@ -404,6 +416,7 @@ export function GitBranchMenu({
 function GitRemoteBranchSection({
   list,
   operating,
+  blocked,
   opened,
   failure,
   onOpenRow,
@@ -414,6 +427,15 @@ function GitRemoteBranchSection({
 }: {
   readonly list: GitRemoteBranchListState
   readonly operating: boolean
+  /**
+   * 途中の Git 操作があるために、手元に作れない理由（Session 3-8-22A）。
+   * 作れるなら null。
+   *
+   * この口は**作って切り替える**ので、3-8-6 の作成とまったく同じ危うさを
+   * 持つ（shared/git/inProgress.ts）。段の中で判断せず、面が表から引いた
+   * 答えをそのまま受け取る。
+   */
+  readonly blocked: string | null
   /** この段の中で開いている行の名前（無ければ null）。 */
   readonly opened: string | null
   readonly failure: GitOperationFailure | null
@@ -472,6 +494,7 @@ function GitRemoteBranchSection({
                   key={branch.name}
                   branch={branch}
                   operating={operating}
+                  blocked={blocked}
                   opened={opened === branch.name}
                   failure={failure}
                   onOpenRow={onOpenRow}
@@ -519,6 +542,7 @@ function GitRemoteBranchSection({
 function GitRemoteBranchRow({
   branch,
   operating,
+  blocked,
   opened,
   failure,
   onOpenRow,
@@ -529,6 +553,8 @@ function GitRemoteBranchRow({
 }: {
   readonly branch: GitRemoteBranch
   readonly operating: boolean
+  /** 手元に作れない理由（Session 3-8-22A）。作れるなら null。 */
+  readonly blocked: string | null
   readonly opened: boolean
   readonly failure: GitOperationFailure | null
   readonly onOpenRow: (row: OpenedBranchRow) => void
@@ -540,7 +566,16 @@ function GitRemoteBranchRow({
   readonly onOutcome: (failure: GitOperationFailure | null) => void
   readonly onCreated: () => void
 }): JSX.Element {
-  const readiness = toGitRemoteBranchSelectReadiness(branch, operating)
+  /*
+    行を押すこと自体は「下の欄を開く」だけだが、開いた先でできることが
+    無いなら開かせない（Session 3-8-22A）── 開いてから欄の中で断られるより、
+    押す前に理由が読める方が短い（3-8-19 が「同名があれば git を動かす前に
+    断る」としたのと同じ側）。
+  */
+  const readiness = withGitInProgressBlock(
+    toGitRemoteBranchSelectReadiness(branch, operating),
+    blocked
+  )
 
   return (
     <div className="fx-git__branch-entry">
@@ -563,6 +598,7 @@ function GitRemoteBranchRow({
         <GitTrackingBranchForm
           branch={branch}
           operating={operating}
+          blocked={blocked}
           failure={failure}
           onCreateTracking={onCreateTracking}
           onCancel={onCloseRow}
@@ -608,6 +644,7 @@ function GitRemoteBranchRow({
 function GitTrackingBranchForm({
   branch,
   operating,
+  blocked,
   failure,
   onCreateTracking,
   onCancel,
@@ -616,6 +653,8 @@ function GitTrackingBranchForm({
 }: {
   readonly branch: GitRemoteBranch
   readonly operating: boolean
+  /** 手元に作れない理由（Session 3-8-22A）。作れるなら null。 */
+  readonly blocked: string | null
   readonly failure: GitOperationFailure | null
   readonly onCreateTracking: (
     startPoint: string,
@@ -626,7 +665,10 @@ function GitTrackingBranchForm({
   readonly onCreated: () => void
 }): JSX.Element {
   const [name, setName] = useState(branch.branch)
-  const readiness = toGitTrackingBranchCreateReadiness(branch, name, operating)
+  const readiness = withGitInProgressBlock(
+    toGitTrackingBranchCreateReadiness(branch, name, operating),
+    blocked
+  )
 
   const submit = useCallback(
     (event: FormEvent<HTMLFormElement>): void => {
@@ -723,7 +765,7 @@ function GitBranchRow({
   branch,
   head,
   operating,
-  merging,
+  inProgress,
   opened,
   failure,
   onSelect,
@@ -738,7 +780,7 @@ function GitBranchRow({
   readonly branch: GitLocalBranch
   readonly head: GitHead
   readonly operating: boolean
-  readonly merging: boolean
+  readonly inProgress: GitInProgressOperation | null
   /** この行の下で開いているもの（無ければ null）。 */
   readonly opened: OpenedBranchRow['mode'] | null
   readonly failure: GitOperationFailure | null
@@ -752,9 +794,29 @@ function GitBranchRow({
   readonly onMerged: () => void
   readonly onOutcome: (failure: GitOperationFailure | null) => void
 }): JSX.Element {
-  const switchReadiness = toGitBranchSwitchReadiness(branch, operating)
-  const deleteReadiness = toGitBranchDeleteReadiness(branch, operating)
-  const mergeReadiness = toGitBranchMergeReadiness(branch, head, merging, operating)
+  /*
+    途中の Git 操作による禁止（Session 3-8-22A）。
+
+    **3つを別々に聞いている。** 答えが揃っていないためになる ── マージの
+    途中では切り替えだけが通らず、削除と改名は通る（ref を1つ動かすだけで
+    `MERGE_HEAD` に触らない）。rebase / cherry-pick / revert では3つとも
+    通らない。まとめて1つの真偽にすると、その違いがここで消える
+    （shared/git/inProgress.ts）。
+
+    マージの口だけは `toGitBranchMergeReadiness` の中で同じ表を読んでいる ──
+    あちらは「今このブランチに居る」という別の理由を先に返す必要があり、
+    その順番を外から被せる形では表せない。
+  */
+  const switchReadiness = withGitInProgressBlock(
+    toGitBranchSwitchReadiness(branch, operating),
+    describeGitInProgressBlock(inProgress, 'switch-branch')
+  )
+  const deleteReadiness = withGitInProgressBlock(
+    toGitBranchDeleteReadiness(branch, operating),
+    describeGitInProgressBlock(inProgress, 'delete-branch')
+  )
+  const renameBlocked = describeGitInProgressBlock(inProgress, 'rename-branch')
+  const mergeReadiness = toGitBranchMergeReadiness(branch, head, inProgress, operating)
   /*
     今のブランチ（と detached）の行にはマージの口を出さない
     （gitBranches.ts）── 自分自身を取り込むのは操作として意味を成さず、
@@ -859,6 +921,7 @@ function GitBranchRow({
         <GitBranchRenameForm
           branch={branch}
           operating={operating}
+          blocked={renameBlocked}
           failure={failure}
           onRename={onRename}
           onCancel={onCloseRow}
@@ -1107,6 +1170,7 @@ function GitBranchDeleteConfirm({
 function GitBranchRenameForm({
   branch,
   operating,
+  blocked,
   failure,
   onRename,
   onCancel,
@@ -1114,13 +1178,18 @@ function GitBranchRenameForm({
 }: {
   readonly branch: GitLocalBranch
   readonly operating: boolean
+  /** 途中の Git 操作があるために通せない理由（Session 3-8-22A）。無ければ null。 */
+  readonly blocked: string | null
   readonly failure: GitOperationFailure | null
   readonly onRename: (name: string, newName: string) => Promise<GitOperationOutcome | null>
   readonly onCancel: () => void
   readonly onOutcome: (failure: GitOperationFailure | null) => void
 }): JSX.Element {
   const [newName, setNewName] = useState(branch.name)
-  const readiness = toGitBranchRenameReadiness(branch, newName, operating)
+  const readiness = withGitInProgressBlock(
+    toGitBranchRenameReadiness(branch, newName, operating),
+    blocked
+  )
 
   const submit = useCallback(
     (event: FormEvent<HTMLFormElement>): void => {
@@ -1217,15 +1286,18 @@ function GitBranchRenameForm({
  */
 function GitBranchCreateForm({
   operating,
+  blocked,
   onCreate,
   onCreated
 }: {
   readonly operating: boolean
+  /** 途中の Git 操作があるために通せない理由（Session 3-8-22A）。無ければ null。 */
+  readonly blocked: string | null
   readonly onCreate: (name: string) => Promise<boolean>
   readonly onCreated: () => void
 }): JSX.Element {
   const [name, setName] = useState('')
-  const readiness = toGitBranchCreateReadiness(name, operating)
+  const readiness = withGitInProgressBlock(toGitBranchCreateReadiness(name, operating), blocked)
 
   const submit = useCallback(
     (event: FormEvent<HTMLFormElement>): void => {

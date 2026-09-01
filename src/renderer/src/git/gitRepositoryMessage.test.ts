@@ -27,7 +27,7 @@ describe('describeGitRepositoryNotice', () => {
       changes: { staged: [], unstaged: [], untracked: [], conflicted: [] },
       upstream: null,
       hasRemote: false,
-      merging: false
+      inProgress: null
     }
 
     expect(describeGitRepositoryNotice(state)).toBeNull()

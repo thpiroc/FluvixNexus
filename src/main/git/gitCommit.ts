@@ -4,6 +4,7 @@ import { commitStagedChanges, verifyCommitIdentity } from './gitCommands'
 import { classifyGitCommitFailure, summarizeGitStderr } from './gitFailure'
 import {
   finishGitOperation,
+  guardGitInProgress,
   notReadyGitOperation,
   type GitOperationResult
 } from './gitOperationResult'
@@ -74,6 +75,18 @@ export async function applyGitCommit(message: string): Promise<GitOperationResul
 
     if (before.repository.status !== 'ready') {
       return notReadyGitOperation(before)
+    }
+
+    /*
+      マージの途中では**止めない**（Session 3-8-22A）── Commit こそが
+      マージの出口になる（3-8-18 の解決 → ここ）。止まるのは rebase /
+      cherry-pick / revert の途中で、そちらはアプリに出口が無い
+      （shared/git/inProgress.ts）。
+    */
+    const guarded = guardGitInProgress(before, 'commit')
+
+    if (guarded !== null) {
+      return guarded
     }
 
     return await finishGitOperation(

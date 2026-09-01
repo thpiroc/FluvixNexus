@@ -6,6 +6,7 @@ import { restoreWorktreePaths } from './gitCommands'
 import { classifyGitOperationFailure } from './gitFailure'
 import {
   finishGitOperation,
+  guardGitInProgress,
   notReadyGitOperation,
   type GitOperationResult
 } from './gitOperationResult'
@@ -66,6 +67,13 @@ export async function applyGitDiscard(target: GitDiscardTarget): Promise<GitOper
 
     if (before.repository.status !== 'ready') {
       return notReadyGitOperation(before)
+    }
+
+    // マージの途中では止めない（1件ずつの破棄は MERGE_HEAD に触らない）。
+    const guarded = guardGitInProgress(before, 'discard')
+
+    if (guarded !== null) {
+      return guarded
     }
 
     const path = normalizeGitPathspec(target.relativePath)

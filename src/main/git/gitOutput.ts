@@ -944,3 +944,27 @@ export function countLeftoverConflictMarkers(stdout: string): number {
  * 「拾わないもの」を列挙し始めると、知らない言い回しが黙って拾われる形になる。
  */
 const LEFTOVER_CONFLICT_MARKER = 'leftover conflict marker'
+
+/**
+ * `rev-parse --git-path` が返した場所を1行ずつ読む（Session 3-8-22A）。
+ *
+ * ## 順番も件数も当てにしない
+ *
+ * 渡した順に1行ずつ返ってくる（実物で確かめてある）が、読む側は
+ * **どれがどれか**を区別せずに使う ── rebase の作業場所は
+ * `rebase-merge` と `rebase-apply` の2つあり、**どちらか一方でも在れば
+ * rebase の途中**になる（main/git/gitRepository.ts）。位置で結び付けると、
+ * 出力が1行になった版で静かに取り違える。
+ *
+ * ## 空行を落とす
+ *
+ * 末尾の改行がそのまま空文字の要素になると、`resolve()` が
+ * **Workspace root そのもの**を指すことになり（空文字は現在地）、
+ * それは必ず存在するので「rebase の途中」が常に真になる。
+ */
+export function readGitPathLines(stdout: string): readonly string[] {
+  return stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+}

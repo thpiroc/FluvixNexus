@@ -125,16 +125,37 @@ export function describeGitChangeKind(kind: GitChangeKind): {
 /**
  * その行から Editor でファイルを開けるか。
  *
- * 開けないのは2つだけになる。
+ * 開けないのは3つになる。
  *
- *   フォルダ … 中身がすべて未追跡のフォルダは1件にまとまっている（shared/git/status.ts）
- *   削除     … もうそこに無い。押せるように見せても開ける先が無い
+ *   フォルダ            … 中身がすべて未追跡のフォルダは1件にまとまっている（shared/git/status.ts）
+ *   削除                … もうそこに無い。押せるように見せても開ける先が無い
+ *   両方で消えた競合    … 競合しているのに作業ツリーにファイルが無い（Session 3-8-22A）
+ *
+ * 3つめが 3-8-22A で足したものになる。競合の行は 3-8-2 から
+ * 「フォルダでも削除でもない」ので素通りしていたが、**`both-deleted`（`DD`）
+ * だけは作業ツリーにファイルが無い**（実物で確かめてある。rename / rename の
+ * 競合で作れる）── 押すと Editor に「読めませんでした」のタブが増えるだけで、
+ * 「押しても何も起きないボタンを置かない」という 3-8-2 からの線が、
+ * この1つの形でだけ破れていた。
+ *
+ * 他の6つの形（`UU` / `AA` / `UD` / `DU` / `AU` / `UA`）では、
+ * どちらかの側の中身が作業ツリーに在る（実物で7通りすべて確かめてある）──
+ * 「片方が削除された」形でも開けるのはそのためになる。
+ *
+ * 何と何が食い違っているのかは、その隣の差分の口が出す（Session 3-8-21）──
+ * **そちらは `both-deleted` でも開ける**（「どちらにも無い」と読めることが、
+ * 押せないボタンより手掛かりになる。shared/git/conflictDiff.ts）。
+ * 開く先が違うので、押せる条件も別々に決まる。
  *
  * 消えたものを**別の見せ方で救う**のは Diff Viewer（Session 3-8-3 以降）の担当で、
  * ここで中途半端に開こうとすると、Editor に「読めませんでした」のタブが増えるだけになる。
  */
 export function canOpenGitChange(change: GitFileChange): boolean {
-  return !change.directory && change.kind !== 'deleted'
+  if (change.directory || change.kind === 'deleted') {
+    return false
+  }
+
+  return change.conflictShape !== 'both-deleted'
 }
 
 /**
@@ -499,6 +520,20 @@ function describeGitOperationFailureReason(reason: GitOperationFailureReason): s
       return '競合が解決されていないため Commit できません。競合の行で「解決済みにする」を押してください。'
 
     /*
+      途中の Git 操作があるあいだは通さない操作だった（Session 3-8-22A）。
+
+      画面の側でも押せないようにしてあるので（`withGitInProgressBlock`）、
+      ここへ来るのは**押した瞬間に状態が変わっていた**場合になる ──
+      端末でマージが始まった直後・rebase が始まった直後がそれにあたる。
+
+      次の一手は帯（`describeGitInProgressNotice`）が出しているので、
+      ここでは**そちらを見てもらう**ところまでを言う ── 同じ手順を2箇所に
+      書くと、片方だけ直された日に食い違う。
+    */
+    case 'operation-in-progress':
+      return 'Git 操作の途中のため実行できませんでした。上に出ている案内に沿って、その操作を終わらせてからお試しください。'
+
+    /*
       「解決済みにする」を押したが、マーカーが残っていた（Session 3-8-18）。
 
       `unresolved-conflicts` と**別の文にしてある** ── あちらの次の一手は
@@ -845,6 +880,7 @@ export const GIT_INIT_OPERATION_KEY = 'init'
 
 export const GIT_PUSH_OPERATION_KEY = 'push'
 export const GIT_PULL_OPERATION_KEY = 'pull'
+export const GIT_FETCH_OPERATION_KEY = 'fetch'
 export const GIT_COMMIT_AND_PUSH_OPERATION_KEY = 'commit-and-push'
 
 /**
@@ -933,6 +969,34 @@ export function toGitPullReadiness(
   const count = upstream.behind === null || upstream.behind === 0 ? '' : `（${upstream.behind} 件）`
 
   return { enabled: !operating, note: `${upstream.name} の変更を取り込みます${count}。` }
+}
+
+/**
+ * Fetch が押せるか（Session 3-8-22A）。
+ *
+ * ## 押せない条件が「他の操作が動いている」しか無い
+ *
+ * Push / Pull と並ぶボタンなのに、readiness の中身がいちばん薄い ──
+ * ブランチの上に居るかも、追跡先があるかも、送るものがあるかも見ない。
+ * どれもこの操作には当てはまらないため（動くのは `refs/remotes/` の ref だけで、
+ * HEAD も index も作業ツリーも変わらない。main/git/gitFetch.ts）。
+ *
+ * **remote が1つも無い場合も押せる。** `git fetch` は取ってくるものが無いだけで
+ * 0 で終わる（失敗ではない）── ここで先回りして塞ぐと、`hasRemote` を
+ * 見る条件が Push と2箇所に生まれる。ただし remote がまだ無い状態では
+ * そもそも「GitHub に公開」の並びが出ているので、押す人はほとんど居ない。
+ *
+ * ## 何が起きるかを、押す前に書く
+ *
+ * `--prune` が付いていることは**押した後の見た目に出る**（一覧から枝が消える）。
+ * hover と読み上げでそれを先に言う ── 3-8-17 が「URL を変えると追跡情報が
+ * 古いまま残る」を確認の文に書いたのと同じで、**消える側を先に言う**。
+ */
+export function toGitFetchReadiness(operating: boolean): GitActionReadiness {
+  return {
+    enabled: !operating,
+    note: 'remote の最新の状態を取得します（取り込みは行いません）。相手から消えた枝は一覧からも消えます。'
+  }
 }
 
 /**

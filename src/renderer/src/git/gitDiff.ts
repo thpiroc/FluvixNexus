@@ -77,7 +77,14 @@ export type GitDiffRequest =
        */
       readonly source: 'conflict'
       readonly change: GitFileChange
-      /** 開いた瞬間、マージの途中だったか（`GitRepositoryState.ready.merging`）。 */
+      /**
+       * 開いた瞬間、マージの途中だったか
+       * （`GitRepositoryState.ready.inProgress === 'merge'` の写し）。
+       *
+       * **状態そのものではなく、開いた瞬間の写しを持つ。** 面が開いている間に
+       * マージが中止されても、左右のラベルは動かない ── 読んでいる途中で
+       * 「ours」の意味が変わる方が分かりにくい（Session 3-8-21）。
+       */
       readonly merging: boolean
     }
 

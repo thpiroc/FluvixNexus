@@ -14,6 +14,7 @@ import {
   type GetGitCommitFileDiffResponse,
   type GetGitConflictDiffResponse,
   type GetGitFileDiffResponse,
+  type GetGitMergeMessageResponse,
   type GetGitRepositoryResponse,
   type GitOperationResponse,
   type ListGitBranchesResponse,
@@ -36,9 +37,11 @@ import { readGitFileDiff } from '../../git/gitDiff'
 import { applyGitResolveConflict } from '../../git/gitConflict'
 import { readGitConflictFileDiff } from '../../git/gitConflictDiff'
 import { applyGitDiscard } from '../../git/gitDiscard'
+import { applyGitFetch } from '../../git/gitFetch'
 import { listGitCommits } from '../../git/gitHistory'
 import { applyGitInit } from '../../git/gitInit'
 import { applyGitAbortMerge, applyGitMergeBranch } from '../../git/gitMerge'
+import { describeGitMergeMessage } from '../../git/gitMergeMessage'
 import { normalizeGitPathspec } from '../../git/gitPathspec'
 import { applyGitCreateTrackingBranch, listGitRemoteBranches } from '../../git/gitRemoteBranches'
 import {
@@ -576,6 +579,18 @@ export function registerGitHandlers(): void {
   })
 
   /*
+    取ってくるだけ（Session 3-8-22A）。
+
+    要求は `void` ── remote 名も refspec も届かない（Push / Pull と同じ）。
+    Pull と別の1本にしてあるのは、押せる条件も、動く git も、
+    その後に変わるものも違うため ── こちらは追跡先が無くても押せて、
+    動くのは `refs/remotes/` の ref だけになる（main/git/gitFetch.ts）。
+  */
+  handleIpc(IPC_CHANNELS.GIT_FETCH, async (): Promise<GitOperationResponse> => {
+    return await applyGitFetch()
+  })
+
+  /*
     Commit & Push（Session 3-8-5）。
 
     確かめるのは Commit と同じメッセージ1つだけで、**Push の側に足す値は無い。**
@@ -726,6 +741,17 @@ export function registerGitHandlers(): void {
 
   handleIpc(IPC_CHANNELS.GIT_ABORT_MERGE, async (): Promise<GitOperationResponse> => {
     return await applyGitAbortMerge()
+  })
+
+  /*
+    マージ commit の既定メッセージ（Session 3-8-22A）。
+
+    要求は `void` で、応答は文字列1つか null になる。**書き込みではない**ので
+    `GitOperationResponse` を返さない ── 状態も載せない（呼ぶのはマージの
+    途中に入った1回だけで、そのとき状態は既に届いている）。
+  */
+  handleIpc(IPC_CHANNELS.GIT_GET_MERGE_MESSAGE, async (): Promise<GetGitMergeMessageResponse> => {
+    return await describeGitMergeMessage()
   })
 
   /*

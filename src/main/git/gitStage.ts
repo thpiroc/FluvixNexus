@@ -14,6 +14,7 @@ import {
 import { classifyGitOperationFailure } from './gitFailure'
 import {
   finishGitOperation,
+  guardGitInProgress,
   notReadyGitOperation,
   type GitOperationResult
 } from './gitOperationResult'
@@ -83,6 +84,13 @@ export async function applyGitStage(target: GitStageTarget): Promise<GitOperatio
 
     if (before.repository.status !== 'ready') {
       return notReadyGitOperation(before)
+    }
+
+    // マージの途中では止めない（Stage はマージを終わらせる道の一部）。
+    const guarded = guardGitInProgress(before, 'stage')
+
+    if (guarded !== null) {
+      return guarded
     }
 
     const paths = collectStagePaths(target, before.repository.changes)
@@ -155,6 +163,13 @@ export async function applyGitUnstage(target: GitUnstageTarget): Promise<GitOper
 
     if (before.repository.status !== 'ready') {
       return notReadyGitOperation(before)
+    }
+
+    // Stage と同じ線（Session 3-8-22A）。
+    const guarded = guardGitInProgress(before, 'unstage')
+
+    if (guarded !== null) {
+      return guarded
     }
 
     const requested = normalizeGitPathspec(target.relativePath)

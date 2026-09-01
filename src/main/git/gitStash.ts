@@ -22,6 +22,7 @@ import {
 } from './gitFailure'
 import {
   finishGitOperation,
+  guardGitInProgress,
   notReadyGitOperation,
   type GitOperationResult
 } from './gitOperationResult'
@@ -192,6 +193,17 @@ export async function applyGitStashPush(): Promise<GitOperationResult> {
       return notReadyGitOperation(before)
     }
 
+    /*
+      途中の操作があるあいだは退避しない（Session 3-8-22A）。競合が残っている
+      間は git も断るが、解決し終えたマージでは**通ってしまう** ── index ごと
+      退避されて MERGE_HEAD が落ちる（shared/git/inProgress.ts）。
+    */
+    const guarded = guardGitInProgress(before, 'stash-push')
+
+    if (guarded !== null) {
+      return guarded
+    }
+
     const blocked = findStashPushBlockingState(before.repository)
 
     if (blocked !== null) {
@@ -270,6 +282,13 @@ export async function applyGitStashPop(
       return notReadyGitOperation(before)
     }
 
+    // 退避すると同じ線（Session 3-8-22A）── 戻すのも index を入れ替える側になる。
+    const guarded = guardGitInProgress(before, 'stash-pop')
+
+    if (guarded !== null) {
+      return guarded
+    }
+
     /*
       競合が残っている間は動かさない（退避と同じ判断）── merge の途中に
       別の merge を重ねることになり、git も断る。
@@ -312,6 +331,16 @@ export async function applyGitStashDrop(
 
     if (before.repository.status !== 'ready') {
       return notReadyGitOperation(before)
+    }
+
+    /*
+      捨てるのはマージの途中でも通す（作業ツリーにも index にも触らない）。
+      rebase / cherry-pick / revert では止める（shared/git/inProgress.ts）。
+    */
+    const guarded = guardGitInProgress(before, 'stash-drop')
+
+    if (guarded !== null) {
+      return guarded
     }
 
     if (!(await resolveStashEntry(index, shortHash))) {

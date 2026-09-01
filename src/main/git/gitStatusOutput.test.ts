@@ -42,7 +42,13 @@ describe('parseGitStatus', () => {
     )
 
     expect(reading?.changes.staged).toEqual([
-      { relativePath: 'src/app.ts', kind: 'modified', originalPath: null, directory: false }
+      {
+        relativePath: 'src/app.ts',
+        kind: 'modified',
+        originalPath: null,
+        directory: false,
+        conflictShape: null
+      }
     ])
     expect(reading?.changes.unstaged).toEqual([])
   })
@@ -54,7 +60,13 @@ describe('parseGitStatus', () => {
 
     expect(reading?.changes.staged).toEqual([])
     expect(reading?.changes.unstaged).toEqual([
-      { relativePath: 'src/app.ts', kind: 'modified', originalPath: null, directory: false }
+      {
+        relativePath: 'src/app.ts',
+        kind: 'modified',
+        originalPath: null,
+        directory: false,
+        conflictShape: null
+      }
     ])
   })
 
@@ -105,7 +117,13 @@ describe('parseGitStatus', () => {
     )
 
     expect(reading?.changes.staged).toEqual([
-      { relativePath: 'new.txt', kind: 'renamed', originalPath: 'old.txt', directory: false }
+      {
+        relativePath: 'new.txt',
+        kind: 'renamed',
+        originalPath: 'old.txt',
+        directory: false,
+        conflictShape: null
+      }
     ])
     expect(reading?.changes.unstaged).toEqual([])
     expect(reading?.changes.untracked).toEqual([])
@@ -135,10 +153,22 @@ describe('parseGitStatus', () => {
     )
 
     expect(reading?.changes.staged).toEqual([
-      { relativePath: 'new.txt', kind: 'renamed', originalPath: 'old.txt', directory: false }
+      {
+        relativePath: 'new.txt',
+        kind: 'renamed',
+        originalPath: 'old.txt',
+        directory: false,
+        conflictShape: null
+      }
     ])
     expect(reading?.changes.unstaged).toEqual([
-      { relativePath: 'new.txt', kind: 'modified', originalPath: null, directory: false }
+      {
+        relativePath: 'new.txt',
+        kind: 'modified',
+        originalPath: null,
+        directory: false,
+        conflictShape: null
+      }
     ])
   })
 
@@ -157,8 +187,20 @@ describe('parseGitStatus', () => {
     const reading = parseGitStatus(output(...CLEAN_HEADERS, '? untracked.txt', '? untracked-dir/'))
 
     expect(reading?.changes.untracked).toEqual([
-      { relativePath: 'untracked.txt', kind: 'untracked', originalPath: null, directory: false },
-      { relativePath: 'untracked-dir', kind: 'untracked', originalPath: null, directory: true }
+      {
+        relativePath: 'untracked.txt',
+        kind: 'untracked',
+        originalPath: null,
+        directory: false,
+        conflictShape: null
+      },
+      {
+        relativePath: 'untracked-dir',
+        kind: 'untracked',
+        originalPath: null,
+        directory: true,
+        conflictShape: null
+      }
     ])
   })
 
@@ -178,6 +220,77 @@ describe('parseGitStatus', () => {
     expect(reading?.changes.conflicted.every((change) => change.kind === 'conflicted')).toBe(true)
     expect(reading?.changes.staged).toEqual([])
     expect(reading?.changes.unstaged).toEqual([])
+  })
+
+  /*
+    競合の形（Session 3-8-22A）。
+
+    3-8-2 は `XY` を捨てていた（「どの形でも次の一手は同じ」）。その前提が
+    `DD` で崩れる ── **作業ツリーにファイルが無い**ので、行に出していた
+    「エディタで開く」がそこだけ空振りする（shared/git/status.ts）。
+
+    7通りは git が閉じた集合として定義していて、実物でも7通りすべてを
+    作って確かめてある（rename / rename の1回で `DD` / `AU` / `UA` が
+    同時に出る。main/git/gitConflictRepository.test.ts）。
+  */
+  it('競合の形を `XY` から読む（7通り）', () => {
+    const reading = parseGitStatus(
+      output(
+        ...CLEAN_HEADERS,
+        'u UU N... 100644 100644 100644 100644 aaaaaaaaaa bbbbbbbbbb cccccccccc both-modified.txt',
+        'u AA N... 000000 100644 100644 100644 0000000000 bbbbbbbbbb cccccccccc both-added.txt',
+        'u UD N... 100644 100644 000000 100644 aaaaaaaaaa bbbbbbbbbb 0000000000 deleted-by-them.txt',
+        'u DU N... 100644 000000 100644 100644 aaaaaaaaaa 0000000000 cccccccccc deleted-by-us.txt',
+        'u DD N... 100644 000000 000000 100644 aaaaaaaaaa 0000000000 0000000000 both-deleted.txt',
+        'u AU N... 000000 100644 000000 100644 0000000000 bbbbbbbbbb 0000000000 added-by-us.txt',
+        'u UA N... 000000 000000 100644 100644 0000000000 0000000000 cccccccccc added-by-them.txt'
+      )
+    )
+
+    expect(
+      reading?.changes.conflicted.map((change) => [change.relativePath, change.conflictShape])
+    ).toEqual([
+      ['both-modified.txt', 'both-modified'],
+      ['both-added.txt', 'both-added'],
+      ['deleted-by-them.txt', 'deleted-by-them'],
+      ['deleted-by-us.txt', 'deleted-by-us'],
+      ['both-deleted.txt', 'both-deleted'],
+      ['added-by-us.txt', 'added-by-us'],
+      ['added-by-them.txt', 'added-by-them']
+    ])
+  })
+
+  /*
+    競合していない行には形が付かない ── `conflictShape` が null であることが
+    「この行は競合ではない」の言い換えになる（`kind` と二重に持たない）。
+  */
+  it('競合していない行の形は null', () => {
+    const reading = parseGitStatus(
+      output(
+        ...CLEAN_HEADERS,
+        '1 M. N... 100644 100644 100644 aaaaaaaaaa bbbbbbbbbb staged.txt',
+        '? untracked.txt'
+      )
+    )
+
+    expect(reading?.changes.staged[0]?.conflictShape).toBeNull()
+    expect(reading?.changes.untracked[0]?.conflictShape).toBeNull()
+  })
+
+  /*
+    知らない組み合わせを「読めた」側へ倒さない ── 倒すと、いつか増えた形が
+    `both-modified` を名乗って一覧に並ぶ（`toChangeKind` が `.` と知らない
+    文字を分けているのと同じ判断）。
+  */
+  it('知らない `XY` の競合は、読めなかったこととして扱う', () => {
+    const reading = parseGitStatus(
+      output(
+        ...CLEAN_HEADERS,
+        'u ZZ N... 100644 100644 100644 100644 aaaaaaaaaa bbbbbbbbbb cccccccccc x.txt'
+      )
+    )
+
+    expect(reading).toBeNull()
   })
 
   /* ------------------------------------------------------------------ 名前の扱い */

@@ -36,6 +36,7 @@
  * shared 層のルールどおり、このファイルは型と定数だけを持つ。
  */
 
+import type { GitInProgressOperation } from './inProgress'
 import type { GitUpstreamStatus, GitWorkingTreeChanges } from './status'
 
 /**
@@ -203,34 +204,51 @@ export type GitRepositoryState =
        */
       readonly hasRemote: boolean
       /**
-       * マージの途中か（`MERGE_HEAD` があるか。Session 3-8-20）。
+       * 途中で止まっている Git 操作。何も途中でなければ null
+       * （Session 3-8-20 の `merging` を 3-8-22A で広げたもの）。
        *
-       * ## Renderer 側で推測しない
+       * ## `merging: boolean` から置き換えた理由
+       *
+       * 3-8-20 が読んでいたのは `MERGE_HEAD` 1つで、それ以外の途中の状態
+       * （rebase / cherry-pick / revert）は**存在しないのと同じ扱い**だった。
+       * 端末で rebase を始めて競合させた状態でこのパネルを開くと、
+       * 帯も出ず、Stage も Commit も素通りする ── アプリは自分が扱えない
+       * 状態の上で、扱えるふりをしていたことになる。
+       *
+       * `boolean` を1つ足す形（`rebasing` / `cherryPicking` / …）にしなかった
+       * のは、**同時に2つ在ることが無い**ため。4つの真偽値にすると、
+       * 「どれも false」と「2つ true」という**起こりえない組み合わせ**を
+       * 受け手が扱えることになり、そのぶんの分岐がどこかに書かれる。
+       *
+       * ## Renderer 側で推測しない（3-8-20 のまま）
        *
        * 「競合しているファイルが1件以上ある」から導けそうに見えるが、**導けない。**
        *
-       *   競合が無くてもマージ中 … 解決し終えた直後（Commit するまで MERGE_HEAD は残る）
-       *   マージ中でなくても競合 … `stash pop` が作る競合（Session 3-8-15）
+       *   競合が無くても途中 … 解決し終えた直後（Commit / `--continue` まで ref は残る）
+       *   途中でなくても競合 … `stash pop` が作る競合（Session 3-8-15）
        *
        * 前者を取り違えると「解決し終えた瞬間に中止の口が消える」ことになり、
        * 後者では**マージしていないのに `merge --abort` を出す**ことになる。
        * どちらの間違いも、利用者が見ている画面と Git の実際の状態が食い違う。
        *
-       * したがって読むのは Git で（`rev-parse --verify --quiet MERGE_HEAD`。
+       * したがって読むのは Git で（`rev-parse --verify --quiet <REF>`。
        * main/git/gitRepository.ts）、Renderer へはその答えだけが渡る。
        *
        * ## なぜ `ready` の中なのか
        *
-       * 基準は `hasRemote` と同じ**「見られている時間」**になる。マージ中は
-       * その間ずっと画面を決めている ── 上のバーの下に「マージの途中です」の
-       * 帯が出て、そこにだけ中止の口が在る（renderer/src/git/GitView.tsx）。
+       * 基準は `hasRemote` と同じ**「見られている時間」**になる。途中の間は
+       * その間ずっと画面を決めている ── 上のバーの下に帯が出て、
+       * マージならそこにだけ中止の口が在る（renderer/src/git/GitView.tsx）。
        * 別の問い合わせに分けると、変更ファイルの一覧と**別の瞬間の写し**になり、
        * 「競合の行は消えているのに帯だけ残っている」画面がありうる。
        *
-       * 代償は、状態を読むたびに git が1回増えること（`rev-parse`）。
-       * ref を1つ確かめるだけで、作業ツリーにもネットワークにも触らない。
+       * 何を禁止するかを決めるのは shared/git/inProgress.ts の表で、
+       * **Main と Renderer が同じものを読む。**
+       *
+       * 代償は、状態を読むたびに git が最大4回増えること（`rev-parse` ×4）。
+       * どれも ref を1つ確かめるだけで、作業ツリーにもネットワークにも触らない。
        */
-      readonly merging: boolean
+      readonly inProgress: GitInProgressOperation | null
     }
   /** Git を動かせたが、答えが得られなかった。 */
   | { readonly status: 'failed'; readonly reason: GitFailureReason }

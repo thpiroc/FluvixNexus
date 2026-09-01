@@ -11,6 +11,7 @@ import {
 import { classifyGitBranchFailure, summarizeGitStderr } from './gitFailure'
 import {
   finishGitOperation,
+  guardGitInProgress,
   notReadyGitOperation,
   toGitOperationOutcome,
   type GitOperationResult
@@ -255,6 +256,16 @@ export async function applyGitCreateTrackingBranch(
 
     if (before.repository.status !== 'ready') {
       return notReadyGitOperation(before)
+    }
+
+    /*
+      作るだけでなく**切り替える**口なので、3-8-6 の作成と同じ危うさを持つ
+      （Session 3-8-22A）。
+    */
+    const guarded = guardGitInProgress(before, 'create-tracking-branch')
+
+    if (guarded !== null) {
+      return guarded
     }
 
     const blocked = await findTrackingBranchBlockingState(before.repository, name, startPoint)

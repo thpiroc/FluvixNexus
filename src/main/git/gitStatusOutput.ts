@@ -1,5 +1,6 @@
 import type {
   GitChangeKind,
+  GitConflictShape,
   GitFileChange,
   GitUpstreamStatus,
   GitWorkingTreeChanges
@@ -238,9 +239,20 @@ function readRenamed(record: string, originalRecord: string, found: StatusAccumu
 /**
  * `u <XY> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>`
  *
- * XY は衝突の形（`UU` / `AA` / `DU` …）を表すが、**その内訳では分けていない。**
- * どれであっても利用者が次に取る行動は同じ（衝突を解いてから Stage する）で、
- * 解決の UI そのものは Session 3-8-2 の範囲外にあたる。
+ * ## 3-8-2 は XY を捨てていた
+ *
+ * 「どれであっても利用者が次に取る行動は同じ（衝突を解いてから Stage する）」
+ * というのが 3-8-2 の判断だった。3-8-22A でその前提が1つだけ崩れる ──
+ * **`DD`（both-deleted）は作業ツリーにファイルが無い**ので、行に出していた
+ * 「エディタで開く」がそこだけ空振りする（shared/git/status.ts）。
+ *
+ * 読み替えるのはここ1箇所で、Renderer へ渡るのは分類（`GitConflictShape`）
+ * だけになる ── `XY` の2文字は境界を越えない（このファイルの冒頭の線のまま）。
+ *
+ * ## 作業ツリー側のモード（`mW`）は使わない
+ *
+ * 「ファイルが在るか」を直接言っていそうに見えるが、**無くても 100644 が
+ * 入る**（rename / delete の競合で確かめてある）。形の側で決める。
  */
 function readUnmerged(record: string, found: StatusAccumulator): boolean {
   const fields = splitFields(record, 10)
@@ -255,14 +267,60 @@ function readUnmerged(record: string, found: StatusAccumulator): boolean {
     return false
   }
 
+  const conflictShape = toConflictShape(fields.tokens[1])
+
+  if (conflictShape === undefined) {
+    return false
+  }
+
   found.conflicted.push({
     relativePath: path,
     kind: 'conflicted',
     originalPath: null,
-    directory: false
+    directory: false,
+    conflictShape
   })
 
   return true
+}
+
+/**
+ * 競合の `XY` を形に読み替える。知らない組み合わせは undefined。
+ *
+ * 7通りは git が閉じた集合として定義していて（`git status` の説明にある
+ * unmerged の一覧）、実物でも7通りすべてを作って確かめてある
+ * （rename / rename の1回で `DD` / `AU` / `UA` が同時に出る）。
+ *
+ * **知らない文字を「読めた」側へ倒さない。** 倒すと、いつか増えた形が
+ * `both-modified` を名乗って一覧に並ぶ ── `toChangeKind` が `.` と
+ * 知らない文字を分けているのと同じ判断になる。
+ */
+function toConflictShape(xy: string): GitConflictShape | undefined {
+  switch (xy) {
+    case 'UU':
+      return 'both-modified'
+
+    case 'AA':
+      return 'both-added'
+
+    case 'UD':
+      return 'deleted-by-them'
+
+    case 'DU':
+      return 'deleted-by-us'
+
+    case 'DD':
+      return 'both-deleted'
+
+    case 'AU':
+      return 'added-by-us'
+
+    case 'UA':
+      return 'added-by-them'
+
+    default:
+      return undefined
+  }
 }
 
 /**
@@ -282,7 +340,13 @@ function readUntracked(record: string, found: StatusAccumulator): boolean {
     return false
   }
 
-  found.untracked.push({ relativePath: path, kind: 'untracked', originalPath: null, directory })
+  found.untracked.push({
+    relativePath: path,
+    kind: 'untracked',
+    originalPath: null,
+    directory,
+    conflictShape: null
+  })
 
   return true
 }
@@ -311,7 +375,13 @@ function applyIndexAndWorktree(
   }
 
   if (staged !== null) {
-    found.staged.push({ relativePath, kind: staged, originalPath, directory: false })
+    found.staged.push({
+      relativePath,
+      kind: staged,
+      originalPath,
+      directory: false,
+      conflictShape: null
+    })
   }
 
   if (worktree !== null) {
@@ -320,7 +390,13 @@ function applyIndexAndWorktree(
       さらに中身を書き換えた場合、作業ツリーの変更は**新しい path に対するもの**で、
       そこに「どこから来たか」を並べても、行が指しているものと食い違う。
     */
-    found.unstaged.push({ relativePath, kind: worktree, originalPath: null, directory: false })
+    found.unstaged.push({
+      relativePath,
+      kind: worktree,
+      originalPath: null,
+      directory: false,
+      conflictShape: null
+    })
   }
 
   return true

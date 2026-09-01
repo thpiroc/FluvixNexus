@@ -124,9 +124,9 @@ Vitest を使い、**Electron に依存しない純粋なロジック**だけを
 
 Files の検証（`main/files/workspacePath.ts`）は Electron にも fs にも依存しない形に切り出してある。symlink による脱出だけはパス文字列では判断できないため、realpath を取ってから同じ関数へ通す側（`readWorkspaceDirectory.ts` / `readWorkspaceFile.ts` / `mutateWorkspaceEntry.ts`）が担う。
 
-#### 例外: 実ディスクを触るテスト（Session 3-5.1 / 3-6-2 / 3-6-4 / 3-6-5 / 3-8-2 / 3-8-3 / 3-8-4 / 3-8-5 / 3-8-6 / 3-8-9 / 3-8-10 / 3-8-11 / 3-8-12 / 3-8-13 / 3-8-14 / 3-8-15 / 3-8-16 / 3-8-17 / 3-8-18 / 3-8-19 / 3-8-20）
+#### 例外: 実ディスクを触るテスト（Session 3-5.1 / 3-6-2 / 3-6-4 / 3-6-5 / 3-8-2 / 3-8-3 / 3-8-4 / 3-8-5 / 3-8-6 / 3-8-9 / 3-8-10 / 3-8-11 / 3-8-12 / 3-8-13 / 3-8-14 / 3-8-15 / 3-8-16 / 3-8-17 / 3-8-18 / 3-8-19 / 3-8-20 / 3-8-22A）
 
-「純粋なロジックだけを対象にする」方針に対する例外が21ある ── `mutateWorkspaceEntry.test.ts`（作成 / 改名 / 移動 / 削除）、`copyTree.test.ts`（再帰コピー）、`searchWorkspaceFiles.test.ts`（Workspace 全体の走査）、`searchWorkspaceFileContents.test.ts`（全文検索の走査）、`gitStatusRepository.test.ts`（本物の git の出力）、`gitStageRepository.test.ts`（本物の git への Stage / Unstage）、`gitCommitRepository.test.ts`（本物の git への Commit）、`gitSyncRepository.test.ts`（本物の git への Push / Pull）、`gitBranchRepository.test.ts`（本物の git へのブランチ操作）、`gitDiffRepository.test.ts`（本物の git から読む差分）、`gitDiscardRepository.test.ts`（本物の git に対する破棄）、`gitInitRepository.test.ts`（本物の git での初期化）、`publishRepository.test.ts`（本物の git での公開の一連）、`gitHistoryRepository.test.ts`（本物の git から読む履歴）、`gitCommitDetailRepository.test.ts`（本物の git から読む commit 1件の中身）、`gitStashRepository.test.ts`（本物の git に対する退避）、`gitRemoteRepository.test.ts`（本物の git に対する remote の管理）、`gitConflictRepository.test.ts`（本物の git に対する競合の解決）、`gitRemoteBranchRepository.test.ts`（本物の git での remote の枝からの作成）、`gitMergeRepository.test.ts`（本物の git に対するマージの開始 / 中止）、`gitConflictDiffRepository.test.ts`（本物の git から読む競合の ours / theirs）。確かめたいのがパスの文字列処理ではなく **「実際にそこに在るものを操作できるか」** だからで、モックしたファイルシステムでは何も確かめられない ── 判定と実体がずれることこそが Session 3-5.1 で直した不具合の中身だった。`aux.ts` や末尾に空白を持つ名前を Windows がどう扱うかは実装ではなく OS が決めるため、写しを相手にするとその答えを自分で書くことになる。
+「純粋なロジックだけを対象にする」方針に対する例外が23ある ── `mutateWorkspaceEntry.test.ts`（作成 / 改名 / 移動 / 削除）、`copyTree.test.ts`（再帰コピー）、`searchWorkspaceFiles.test.ts`（Workspace 全体の走査）、`searchWorkspaceFileContents.test.ts`（全文検索の走査）、`gitStatusRepository.test.ts`（本物の git の出力）、`gitStageRepository.test.ts`（本物の git への Stage / Unstage）、`gitCommitRepository.test.ts`（本物の git への Commit）、`gitSyncRepository.test.ts`（本物の git への Push / Pull）、`gitBranchRepository.test.ts`（本物の git へのブランチ操作）、`gitDiffRepository.test.ts`（本物の git から読む差分）、`gitDiscardRepository.test.ts`（本物の git に対する破棄）、`gitInitRepository.test.ts`（本物の git での初期化）、`publishRepository.test.ts`（本物の git での公開の一連）、`gitHistoryRepository.test.ts`（本物の git から読む履歴）、`gitCommitDetailRepository.test.ts`（本物の git から読む commit 1件の中身）、`gitStashRepository.test.ts`（本物の git に対する退避）、`gitRemoteRepository.test.ts`（本物の git に対する remote の管理）、`gitConflictRepository.test.ts`（本物の git に対する競合の解決）、`gitRemoteBranchRepository.test.ts`（本物の git での remote の枝からの作成）、`gitMergeRepository.test.ts`（本物の git に対するマージの開始 / 中止）、`gitConflictDiffRepository.test.ts`（本物の git から読む競合の ours / theirs）、`gitInProgressRepository.test.ts`（本物の git での途中の操作の検出と禁止。Session 3-8-22A）、`gitFetchRepository.test.ts`（本物の git への fetch。同）。確かめたいのがパスの文字列処理ではなく **「実際にそこに在るものを操作できるか」** だからで、モックしたファイルシステムでは何も確かめられない ── 判定と実体がずれることこそが Session 3-5.1 で直した不具合の中身だった。`aux.ts` や末尾に空白を持つ名前を Windows がどう扱うかは実装ではなく OS が決めるため、写しを相手にするとその答えを自分で書くことになる。
 
 どれも一時フォルダを Workspace root に見立てる。走査（検索）のテストでは、深い階層・大量ファイル・除外フォルダ・**外を指すジャンクション**を実際に作って、リンクの中へ潜っていないことを「指し先の中身が結果に出ていないこと」で確かめる ── 「潜らないつもり」を実物で確かめるため。上限（件数 / 深さ / 走査数）は引数で差し替えて小さくし、時間の上限だけは `now` を差し替えて固定する（実時間に依存させると、速いマシンでは通り遅いマシンでは落ちるテストになる）。
 
@@ -355,6 +355,54 @@ Files の検証（`main/files/workspacePath.ts`）は Electron にも fs にも�
 
 **submodule の競合を作るには、2つの落とし穴を越える必要がある。** 1つめは `git submodule add` が同じ PC のパスを既定で断ること（CVE-2022-39253）で、**local config に書いても効かない** ── clone を行う子プロセスへ引き継がれないため、`-c protocol.file.allow=always` を引数で渡す。2つめは submodule 側の2つの commit を**枝分かれさせる**ことで、一直線に積むと片方がもう片方の子孫になり **git が勝手に早送りして競合しない**（これも空振りして気づいた）。どちらもテストの準備でだけ立てるもので、本番の引数の表には1つも入らない。
 
+**Session 3-8-22A では、この塊にファイルが2つ増える**（例外は 23 になった）── `gitInProgressRepository.test.ts` と `gitFetchRepository.test.ts`。ここで確かめたいことは 3-8-16 の「何が消えるか」とも 3-8-20 の「アプリが引数で決めたこと」とも違い、**アプリが手前で断つ理由が本当に在るのか**になる。実物にしか確かめられないのは次の 25 個（検出と禁止で 16・fetch で 9）。
+
+途中の操作の検出と禁止（`gitInProgressRepository.test.ts`）:
+
+1. `MERGE_HEAD` があるあいだ `inProgress` が `merge`
+2. rebase が止まっているあいだ `inProgress` が `rebase`（HEAD は detached）
+3. **rebase が完了すると `REBASE_HEAD` は残るのに、途中ではなくなる**
+4. rebase を中止すると `REBASE_HEAD` も消える（消え方が2通りある）
+5. cherry-pick が止まっているあいだ `inProgress` が `cherry-pick`
+6. revert が止まっているあいだ `inProgress` が `revert`
+7. **解決し終えた（index がきれいな）マージでも `inProgress` は `merge` のまま**
+8. 逆に `stash pop` の競合では、競合があっても `inProgress` は null
+9. **そこで git は `stash push` を通してしまう**（＝アプリが手前で断つ理由）
+10. 一方 `switch` は git が最後まで断る（**退避とは振る舞いが違う**）
+11. アプリの `switch` / `create-branch` / `stash push` / `pull` は `operation-in-progress` として断り、ref も退避も1つも増えない
+12. **Stage / 解決 / Commit は断らない**（マージの出口に要る手）── 通せばマージ commit（親が2つ）ができて `MERGE_HEAD` が消える
+13. fetch はマージの途中では通り、rebase の途中では断る
+14. rebase の途中では Stage も Commit も解決も断り、HEAD が1mm も動かない
+15. rebase を終えれば、また通るようになる
+16. マージ commit の既定メッセージが読め、コメント行が落ちている
+
+fetch（`gitFetchRepository.test.ts`）:
+
+17. remote に増えた枝が、手元の `refs/remotes/` に現れる
+18. **`--prune` で、相手から消えた枝が手元の一覧からも消える**
+19. ローカルブランチと commit は1つも失われない（消えるのは追跡の写しだけ）
+20. **HEAD も index も作業ツリーも動かない**（取り込まない）
+21. **追跡先が無いブランチでも通る**（Pull が断る条件が当てはまらない）
+22. detached HEAD でも通る
+23. remote が1つも無くても失敗にしない
+24. 取ってきた結果が `behind` として状態に出る
+25. Workspace が閉じられていれば git を動かさない
+
+**9 と 3 がこの回の要点にあたる。** どちらも書く前の見立てを実物が否定したもので、写しを相手にしていたら気づけなかった。
+
+- **9**：3-8-20 は「競合が残っている間は git が断る」を根拠に切り替えと退避を止めていなかった。だが解決し終えた一瞬は index がきれいで、そこでは `git stash push` が通り `MERGE_HEAD` が黙って消える。**これが無いと 3-8-22A の禁止表は過剰な用心にしか見えない。**
+- **3**：4つを揃えて `REBASE_HEAD` で読もうとしていた。**その ref は rebase が完了しても消えない**（`--abort` では消える）── そのまま出していたら、1度 rebase を完了した時点から Git パネルが永久に「rebase の途中です」になり、書き込みが1つも通らなくなっていた。読むのは git 自身が見ている作業場所のフォルダ（`rebase-merge` / `rebase-apply`）に改めた。
+
+**10 は逆向きの記録になる。** 切り替えは git が最後まで断った ── それでも手前で断つのは、①断り方を1つに揃えるため（`operation-in-progress`）、②押した先で必ず失敗するボタンを残さないため、③**どちらを通すかは git が決めていて版で変わりうる**ため。
+
+確認の要領（この回で分かったもの）:
+
+- **「途中かどうか」は ref だけで測らない。** 4つのうち3つ（`MERGE_HEAD` / `CHERRY_PICK_HEAD` / `REVERT_HEAD`）は完了時に git が消すが、`REBASE_HEAD` だけ残る。**同じ形に見えるものを揃えて書く前に、4つとも完了後の状態まで測る。**
+- **rebase / cherry-pick / revert の fixture は素の git で作る。** アプリはこの3つを始められない（始める機能を持たない）ので、端末から始めたものをアプリが見つける、という実際の経路と同じ形になる。
+- **`rebase --continue` はエディタを開く。** テストの中では開く相手が居ないので `-c core.editor=true` を渡す ── アプリはこの経路を持たないため、本番の引数の表には1つも入らない。
+- **競合の7通りは rename / rename で3つまとめて作れる。** `DD` / `AU` / `UA` が1回のマージで同時に出る（`AA` は「両方が同じ位置を足す」で別に作る）── そして **`DD` だけが作業ツリーにファイルを持たない**ことが、`canOpenGitChange` を直した理由そのものになる。
+- **`git status` の `mW`（作業ツリー側のモード）は「ファイルが在るか」を言わない。** 無くても `100644` が入る（rename / delete の競合で確かめた）── 形（`XY`）の側で判断する。
+
 #### 実 git を起動するテストの待ち時間（Session 3-8-20 で明示した）
 
 3-8-20 で状態の読み取りに `rev-parse --verify MERGE_HEAD` が**1本増えた**（§14.28）。1回の書き込み操作は前後で状態を読み直すので、増えるのは操作あたり2本になる ── そのぶん実 git の塊が全体で1割ほど遅くなり、**vitest の既定（5 秒）で落ちるテストが出た。**
@@ -372,6 +420,8 @@ describeWithGit('applyGitMergeBranch', { timeout: REAL_GIT_TIMEOUT_MS }, () => {
 **vitest.config.ts の既定は動かさない。** 全体へ広げると、純粋なロジックのテスト（95 本ほど）まで 30 秒待つことになる ── あちらは 5 秒で落ちてくれた方がよく、本当に返ってこなくなったことに早く気づける。速さを確かめるテストではないので、上限は「固まったと分かる」までの長さで足りる。
 
 **hook は `#!/bin/sh` のスクリプトで置ける**（Git for Windows は付属の sh で走らせる）。`exit 1` で止める hook、何も言わずに落ちる hook、`sleep` で遅い hook の3つを作れば、分類・迂回しないこと・待ち時間の上限のすべてが確かめられる。
+
+**Session 3-8-22A で、状態の読み取りはさらに最大3本増えた**（§14.30.2）── 途中の操作を4つまで順に尋ねるためで、**見つかった時点で止まる**ので増えるのは「何も途中でないとき」だけになる（マージの途中なら 3-8-20 と同じ1本）。上限（30 秒）は動かしていない ── 3-8-20 で決めた理由（本当に返ってこなくなったことに気づけるまで）がそのまま当てはまる長さで、実測でも実 git の塊は 20 秒前後に収まっている。
 
 **差分（Session 3-8-9）で実物に確かめさせるのは、「どの側を、どこから取るか」になる。** `gitBlob.test.ts` が固定するのは「この出力をどう読むか」までで、**git が実際にどの出力を返すか**は誰も確かめていない ── 差分ではそこが答えのほとんどを占める。実物で見ているのは次の6つ。
 
@@ -1313,6 +1363,26 @@ Session 3-8-21（競合の ours / theirs の差分）では、**production ビ�
 - **「マージ中でない競合」は退避でしか作れない。** アプリの中から `merging !== true` の競合へ至る経路は `stash pop` だけになる（3-8-15）── ラベルの中立性はそこでしか確かめられないので、fixture を分けておく必要がある。
 - **ラベルの否定形も測る。** 「ours と出ている」だけでは、余分に「現在のブランチ」まで出ていても通ってしまう ── `not.toContain('現在のブランチ')` を同じ1回で読む。3-8-21 で守っているものの半分は**言っていないこと**にあたる。
 - **「一覧が崩れない」は件数で測る。** 差分を開いて閉じた後に競合の行が同じ数だけ残っていること・帯が残っていることの2つを読む ── 面が上に重なるだけで下は差し替わらない（3-8-9 からの構え）ことが、入口が3つになっても変わっていないかはここでしか分からない。
+
+Session 3-8-22A（Git の仕上げ）では、**production app での確認をまだ行っていない。** この回で行ったのは実装・自動テスト・実 git テスト・production build までで、**実アプリでの統合確認は Session 3-8-22B へ回してある**（意図的な分割で、3-8-19 〜 3-8-21 の実績から1セッションに収まらないことが分かっているため）。
+
+自動での確認結果（3-8-22A 時点）:
+
+| 確認                                        | 結果                                                                                          |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `npm run format:check`                      | PASS                                                                                          |
+| `npm run typecheck`（node / web）           | PASS                                                                                          |
+| `npm test`（vitest）                        | **115 files / 2487 passed / 1 skipped、全項目 PASS**（3-8-21 時点は 111 files / 2389 passed） |
+| 実 git テスト（`*Repository.test.ts` 23本） | 全項目 PASS（新規2本 = `gitInProgressRepository` 25項目 / `gitFetchRepository` 9項目を含む）  |
+| `npm run build`（production）               | PASS（41.34s）                                                                                |
+
+**Session 3-8-22B で確認すること**（production app・`_electron`）:
+
+- **3-8-15 / 3-8-16 / 3-8-17 の未確認分の回収** ── この3回は実 git テストは在るが、**`GitStashOverlay` と `GitRemoteOverlay` を実アプリで一度も押していない**（§4 の記録が 3-8-14 から 3-8-19 へ飛んでいる）。STEP 3 の Git を閉じる前に必ず通す。
+- **3-8-22A で足した4つの実物確認** ── Fetch（押すと remote の枝が現れる / 消える・追跡先が無くても押せる）、途中の操作の帯（4つの出し分けと、中止の口がマージにしか出ないこと）、禁止（マージ中に切り替え / 退避が押せないこと・Stage / Commit は押せること）、マージの Commit 欄に既定メッセージが入ること、`DD` の行に「エディタで開く」が出ないこと。
+- **統合フロー1本** ── `git init` → GitHub 公開 → 変更検出 → Stage → Commit → Push / Pull → branch 作成・切替 → remote 管理 → stash → Fetch → remote-tracking から local branch 作成 → merge → conflict → ours / theirs 確認 → 解決済みにする → Commit → Push。
+- **Esc の段** ── 帯の中止確認に Esc が効くこと（3-8-22A で足した1箇所）を含む全経路。
+- **回帰** ── Files / Editor / Terminal との共存、`window.fluvix.git` の公開範囲（`fetch` / `getMergeMessage` が増えていること・**rebase / cherry-pick / revert を動かす口が1つも無いこと**）、CSP 違反なし、console エラーなし。
 
 ---
 

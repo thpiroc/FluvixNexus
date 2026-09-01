@@ -657,7 +657,18 @@ describeWithGit('applyGitSwitchBranch', { timeout: REAL_GIT_TIMEOUT_MS }, () => 
    * 動かしても git は断るが、先に分けておけば「押したのに何も変わらない」を
    * 作らずに理由だけを出せる（Pull と同じ判断）。
    */
-  it('競合が残っていたら unresolved-conflicts', async () => {
+  /*
+    マージの途中で切り替えようとした場合（Session 3-8-22A で理由が変わった）。
+
+    3-8-20 までは競合の件数を見て `unresolved-conflicts` を返していたが、
+    途中の操作そのものを断る表ができたのでそちらが先に断る
+    （shared/git/inProgress.ts）── **解決し終えていても通さない**ので、
+    こちらの理由の方が正確にあたる。
+
+    競合はあるが途中の操作が無い場合（`stash pop` の競合）は
+    `unresolved-conflicts` のままになる ── 下の確かめが対になっている。
+  */
+  it('マージの途中は operation-in-progress', async () => {
     commit('a.txt', 'main\n', 'first')
     git('switch', '--quiet', '--create', 'feature/x')
     commit('a.txt', 'feature\n', 'on feature')
@@ -667,6 +678,33 @@ describeWithGit('applyGitSwitchBranch', { timeout: REAL_GIT_TIMEOUT_MS }, () => 
     // 競合させる（終了コードは非0になるので、失敗として扱わない）。
     try {
       git('merge', 'feature/x')
+    } catch {
+      // 競合は想定どおり。
+    }
+
+    const result = await applyGitSwitchBranch('feature/x')
+
+    expect(result.outcome).toEqual({ status: 'failed', reason: 'operation-in-progress' })
+  })
+
+  /*
+    途中の操作が無いのに競合だけが残っている形（`stash pop` の競合。3-8-15）。
+
+    ここは 3-8-6 からの `unresolved-conflicts` のまま ── **競合を理由に断る道が
+    残っていること**を固定しておく（3-8-22A の表がすべてを飲み込んだわけでは
+    ない、という線引きがここに出る）。
+  */
+  it('途中の操作が無い競合（stash pop）は unresolved-conflicts のまま', async () => {
+    commit('a.txt', 'base\n', 'first')
+    git('switch', '--quiet', '--create', 'feature/x')
+    git('switch', '--quiet', 'main')
+
+    writeFileSync(join(root, 'a.txt'), 'stashed\n', 'utf8')
+    git('stash', 'push', '--quiet')
+    commit('a.txt', 'other\n', 'other change')
+
+    try {
+      git('stash', 'pop')
     } catch {
       // 競合は想定どおり。
     }

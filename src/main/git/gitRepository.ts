@@ -1,5 +1,6 @@
-import { realpathSync } from 'fs'
-import type { GitHead, GitRepositoryState } from '@shared/git'
+import { existsSync, realpathSync } from 'fs'
+import { resolve } from 'path'
+import type { GitHead, GitInProgressOperation, GitRepositoryState } from '@shared/git'
 import { createLogger } from '../logger'
 import { currentPlatform } from '../platform'
 import { getCurrentWorkspaceFolder } from '../workspaceFolder/currentWorkspaceFolder'
@@ -8,15 +9,20 @@ import {
   listRemotes,
   showCurrentBranch,
   showHeadCommit,
+  showRebasePaths,
   showRepositoryRoot,
   showWorkingTreeStatus,
+  verifyCherryPickHead,
   verifyHeadCommit,
-  verifyMergeHead
+  verifyMergeHead,
+  verifyRevertHead,
+  type GitCommand
 } from './gitCommands'
 import { classifyGitFailure, isNotARepositoryMessage } from './gitFailure'
 import {
   isSameRepositoryPath,
   readBranchName,
+  readGitPathLines,
   readRepositoryRoot,
   readShortCommit
 } from './gitOutput'
@@ -43,7 +49,8 @@ import { runGit } from './runGit'
  * 3. root は Workspace root と同じか → 違えば操作しない（設計判断 10）
  * 4. HEAD はどこを指しているか      → ブランチ / detached
  * 5. remote は設定されているか      → 公開の入口を出すか（Session 3-8-10）
- * 6. MERGE_HEAD は在るか            → マージの途中か（Session 3-8-20）
+ * 6. 途中の操作の ref は在るか      → merge / rebase / cherry-pick / revert の
+ *                                     途中か（Session 3-8-20 / 3-8-22A）
  * 7. 作業ツリーはどう変わっているか → 変更ファイルの一覧（Session 3-8-2）
  * ```
  *
@@ -194,7 +201,7 @@ async function resolveRepositoryState(workspaceRoot: string): Promise<GitReposit
     return { status: 'nested', repositoryName: deriveWorkspaceDisplayName(repositoryRoot) }
   }
 
-  return await resolveReadyState()
+  return await resolveReadyState(workspaceRoot)
 }
 
 /**
@@ -210,10 +217,10 @@ async function resolveRepositoryState(workspaceRoot: string): Promise<GitReposit
  * それは「Commit するものが無い」と読まれるため、いちばん起こしてはいけない
  * 見え方にあたる。
  */
-async function resolveReadyState(): Promise<GitRepositoryState> {
+async function resolveReadyState(workspaceRoot: string): Promise<GitRepositoryState> {
   const head = await resolveHead()
   const hasRemote = await resolveHasRemote()
-  const merging = await resolveMerging()
+  const inProgress = await resolveInProgress(workspaceRoot)
   const status = await runGit(showWorkingTreeStatus())
 
   switch (status.status) {
@@ -247,41 +254,116 @@ async function resolveReadyState(): Promise<GitRepositoryState> {
     changes: reading.changes,
     upstream: reading.upstream,
     hasRemote,
-    merging
+    inProgress
   }
 }
 
 /**
- * マージの途中か（Session 3-8-20）。
+ * 途中で止まっている Git 操作（Session 3-8-20 の `merging` を 3-8-22A で広げたもの）。
  *
- * ## Renderer に推測させないための1回
+ * ## Renderer に推測させないための問い合わせ
  *
  * 「競合しているファイルがあるか」からは導けない ── 解決し終えた後も
- * Commit するまで MERGE_HEAD は残り、逆に `stash pop` の競合では
- * MERGE_HEAD が無いまま競合の行が並ぶ（shared/git/repository.ts）。
+ * Commit / `--continue` するまで ref は残り、逆に `stash pop` の競合では
+ * どの ref も無いまま競合の行が並ぶ（shared/git/repository.ts）。
  * 導ける形にしておくと、いつかどちらかの側で間違える。
  *
- * ## 読めなかったら「マージ中ではない」に倒す
+ * ## 見つかったら、そこで止める
+ *
+ * git は途中の操作があるうちに別の操作を始めさせないため、**同時に2つ在ることは
+ * 無い。** 順番に尋ねて、見つかった時点で残りを尋ねない ── マージの途中なら
+ * git は1回で済む（3-8-20 と同じ回数）。
+ *
+ * 何も途中でない場合だけ4回になる。増えた3回はどれも ref を1つ確かめるだけで、
+ * 作業ツリーにもネットワークにも触らない。
+ *
+ * ## 順番は「アプリが作れるものから」
+ *
+ * マージを先に尋ねるのは、アプリ自身が始められる唯一の状態だから ──
+ * いちばん多く通る道でいちばん少ない回数になる。残り3つはアプリの外
+ * （Terminal）でしか始まらない。
+ *
+ * ## 読めなかったら「途中ではない」に倒す
  *
  * `hasRemote` / `resolveHead` と同じで、**読めなかったことを失敗にしない。**
- * 倒す先を `false` にしてあるのは、その方の間違いが取り返しがつくため。
+ * 倒す先を null にしてあるのは、その方の間違いが取り返しがつくため。
  *
- *   false へ倒す … 帯が出ない。中止は押せないが、マージを押せば
- *                  git が `unresolved-conflicts` として断る（何も壊れない）
- *   true へ倒す  … マージしていないのに「マージの途中です」と出て、
- *                  中止を押すと `nothing-to-do` が返る ── **画面が嘘をつく**
+ *   null へ倒す … 帯が出ず、禁止も効かない。ただし Main の側でも同じ表を
+ *                 通すので（各 applyGit*）、実際に押されたときにもう一度読み直した
+ *                 状態で断られる ── 見えている画面が甘くなるだけで、
+ *                 状態が壊れる側へは倒れない
+ *   値へ倒す    … 途中でないのに「マージの途中です」と出て、中止を押すと
+ *                 `nothing-to-do` が返る ── **画面が嘘をつく**
  *
  * ## 読むのは終了コードだけ
  *
- * `rev-parse --verify --quiet MERGE_HEAD` は、在れば 0・無ければ 1 で終わる
+ * `rev-parse --verify --quiet <REF>` は、在れば 0・無ければ 1 で終わる
  * （commit が1つも無いリポジトリでも 1。実物で確かめてある）── 出力（hash）は
  * 使わずに捨てる。呼び出し側が hash を知る必要が無いのは、
- * 「どこからマージしているか」を出す画面が無いためになる。
+ * 「どこから取り込んでいるか」を出す画面が無いためになる。
  */
-async function resolveMerging(): Promise<boolean> {
-  const outcome = await runGit(verifyMergeHead())
+async function resolveInProgress(workspaceRoot: string): Promise<GitInProgressOperation | null> {
+  if (await hasPseudoRef(verifyMergeHead())) {
+    return 'merge'
+  }
+
+  /*
+    rebase だけ読み方が違う（下の `isRebaseInProgress`）── ref では
+    判定できないことが実物で分かっている（main/git/gitCommands.ts の
+    `showRebasePaths`）。
+  */
+  if (await isRebaseInProgress(workspaceRoot)) {
+    return 'rebase'
+  }
+
+  if (await hasPseudoRef(verifyCherryPickHead())) {
+    return 'cherry-pick'
+  }
+
+  return (await hasPseudoRef(verifyRevertHead())) ? 'revert' : null
+}
+
+/** その ref が在るか（`--verify --quiet` の終了コードだけを読む）。 */
+async function hasPseudoRef(command: GitCommand): Promise<boolean> {
+  const outcome = await runGit(command)
 
   return outcome.status === 'completed' && outcome.exitCode === 0
+}
+
+/**
+ * rebase の途中か（Session 3-8-22A）。
+ *
+ * ## ref ではなく、作業場所のフォルダを見る
+ *
+ * `REBASE_HEAD` は **rebase が終わっても消えない**（`--continue` で完了した
+ * 後も残る。`--abort` では消える。実物で確かめてある）── 使うと、1度 rebase を
+ * 完了した時点からパネルが永久に「rebase の途中です」になる。
+ *
+ * git 自身が見ているのは作業場所のフォルダで、`rebase-merge`（merge /
+ * interactive backend）と `rebase-apply`（apply backend）の2つある。
+ * どちらも `--continue` でも `--abort` でも片付けられる。
+ *
+ * ## 場所は git に聞き、在るかどうかだけ自分で見る
+ *
+ * `.git/rebase-merge` と決め打ちしない（`verifyMergeHead` と同じ構え）。
+ * git が返すのは**リポジトリ root からの相対パス**なので、起点を
+ * Workspace root にして解く ── ここまで来ている時点でその2つは同じ場所に
+ * なる（ARCHITECTURE.md §14.4）。`resolve` は絶対パスが返った場合も
+ * そのまま通す（`GIT_DIR` が外に在る形）。
+ *
+ * ## 読めなければ「途中ではない」に倒す
+ *
+ * `resolveInProgress` の冒頭に書いた理由のとおりで、倒す先が甘くなるだけ ──
+ * 実際に押されたときは Main が読み直した状態でもう一度断る。
+ */
+async function isRebaseInProgress(workspaceRoot: string): Promise<boolean> {
+  const outcome = await runGit(showRebasePaths())
+
+  if (outcome.status !== 'completed' || outcome.exitCode !== 0) {
+    return false
+  }
+
+  return readGitPathLines(outcome.stdout).some((path) => existsSync(resolve(workspaceRoot, path)))
 }
 
 /**

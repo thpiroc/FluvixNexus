@@ -1,8 +1,10 @@
 import type {
+  GitGuardedOperation,
   GitOperationFailureReason,
   GitOperationOutcome,
   GitRepositoryState
 } from '@shared/git'
+import { isGitOperationBlockedWhileInProgress } from '@shared/git'
 import { createLogger } from '../logger'
 import { summarizeGitStderr } from './gitFailure'
 import { readGitRepositoryOutcome, type GitRepositoryOutcome } from './gitRepository'
@@ -69,6 +71,49 @@ export function notReadyGitOperation(before: GitRepositoryOutcome): GitOperation
     workspaceId: before.workspaceId,
     repository: before.repository,
     outcome: { status: 'failed', reason: 'not-ready' }
+  }
+}
+
+/**
+ * 途中の Git 操作があるあいだ通さない操作なら、その断りを組み立てる
+ * （Session 3-8-22A）。通してよければ null。
+ *
+ * ## Renderer の判定は、許可の根拠にしない
+ *
+ * 同じ表（shared/git/inProgress.ts）を Renderer も読んでいて、押せないボタンは
+ * そもそも出ない。それでもここで確かめ直すのは、Files のドラッグ&ドロップと
+ * 同じ理由になる ── **Renderer 側の判定は「できない操作を見せない」ための
+ * ものであって、許可の根拠ではない。**
+ *
+ * しかも画面は古いまま押されうる。マージが端末で始まった直後・
+ * 中止された直後のどちらでも、押した瞬間の状態はここで読み直したものが正しい
+ * （3-8-9 の破棄・3-8-18 の解決が「届いた対象を読み直した状態で確かめ直す」と
+ * したのと同じ形）。
+ *
+ * ## git を1回も動かさない
+ *
+ * 断るのに必要なものは、既に読んである `before` の中に全部ある。
+ * `notReadyGitOperation` と同じく状態を取り直さずにそのまま返す ──
+ * 取り直しても同じで、一度多く git を起動する意味が無い。
+ */
+export function guardGitInProgress(
+  before: GitRepositoryOutcome,
+  operation: GitGuardedOperation
+): GitOperationResult | null {
+  if (before.repository.status !== 'ready') {
+    return null
+  }
+
+  if (!isGitOperationBlockedWhileInProgress(before.repository.inProgress, operation)) {
+    return null
+  }
+
+  log.info(`git ${operation} refused: ${before.repository.inProgress} is in progress.`)
+
+  return {
+    workspaceId: before.workspaceId,
+    repository: before.repository,
+    outcome: { status: 'failed', reason: 'operation-in-progress' }
   }
 }
 

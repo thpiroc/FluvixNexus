@@ -6,6 +6,7 @@ import {
   readBranchName,
   readCommitFileChanges,
   readCommitHistory,
+  readGitPathLines,
   readLocalBranches,
   readRemoteBranches,
   readRemoteEntries,
@@ -1055,5 +1056,39 @@ describe('readRemoteBranches', () => {
     )
 
     expect(reading.branches).toEqual([{ name: 'origin/main', branch: 'main' }])
+  })
+})
+
+describe('readGitPathLines', () => {
+  it('1行ずつの場所として読む', () => {
+    expect(readGitPathLines('.git/rebase-merge\n.git/rebase-apply\n')).toEqual([
+      '.git/rebase-merge',
+      '.git/rebase-apply'
+    ])
+  })
+
+  /*
+    末尾の改行が空文字として残ると、`resolve()` が Workspace root そのものを
+    指すことになる ── それは必ず存在するので、**rebase の途中が常に真**になる
+    （main/git/gitRepository.ts）。
+  */
+  it('空行を落とす（空文字を場所として返さない）', () => {
+    expect(readGitPathLines('\n\n.git/rebase-merge\n\n')).toEqual(['.git/rebase-merge'])
+    expect(readGitPathLines('')).toEqual([])
+    expect(readGitPathLines('   \n')).toEqual([])
+  })
+
+  it('CRLF でも読める', () => {
+    expect(readGitPathLines('.git/rebase-merge\r\n.git/rebase-apply\r\n')).toEqual([
+      '.git/rebase-merge',
+      '.git/rebase-apply'
+    ])
+  })
+
+  /* `GIT_DIR` が外に在れば絶対パスが返る ── そのまま通す。 */
+  it('絶対パスもそのまま返す', () => {
+    expect(readGitPathLines('C:/elsewhere/.git/rebase-merge\n')).toEqual([
+      'C:/elsewhere/.git/rebase-merge'
+    ])
   })
 })

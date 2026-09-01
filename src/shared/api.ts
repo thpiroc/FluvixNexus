@@ -462,6 +462,18 @@ export interface GitApi {
    */
   readonly pull: () => IpcInvokeResult<'git:pull'>
   /**
+   * remote から取ってくるだけ（`fetch --prune`。Session 3-8-22A）。
+   *
+   * **引数が無い**（Push / Pull と同じ）。相手を決めるのはリポジトリの設定で、
+   * remote 名も refspec も渡す欄が無い。
+   *
+   * Pull と違って**取り込まない** ── 動くのは remote-tracking ref だけで、
+   * HEAD も index も作業ツリーも1つも変わらない。追跡先が無いブランチでも
+   * 押せるのはそのためで、3-8-19 の remote の枝の一覧を新しくする唯一の口に
+   * あたる（shared/ipc/contracts/git.ts）。
+   */
+  readonly fetch: () => IpcInvokeResult<'git:fetch'>
+  /**
    * Commit してから Push する（Session 3-8-5）。
    *
    * Renderer から `commit()` → `push()` と続けて呼ぶのとは別物になる ──
@@ -598,7 +610,7 @@ export interface GitApi {
    * （main/git/gitMerge.ts が `branch --list` で確かめる）。
    *
    * 競合したときは `partly-applied`（`completed: 'merge'`）で返り、
-   * 応答の状態は `merging: true` になる ── そこから先は 3-8-18 の
+   * 応答の状態は `inProgress: 'merge'` になる ── そこから先は 3-8-18 の
    * 「解決済みにする」→ Commit がそのまま続きになる。
    */
   readonly mergeBranch: (request: MergeGitBranchRequest) => IpcInvokeResult<'git:merge-branch'>
@@ -614,6 +626,17 @@ export interface GitApi {
    * （renderer/src/git/GitView.tsx）。
    */
   readonly abortMerge: () => IpcInvokeResult<'git:abort-merge'>
+  /**
+   * git が用意したマージ commit のメッセージを尋ねる（Session 3-8-22A）。
+   *
+   * **引数が無い。** 途中のマージは高々1つで、その既定のメッセージも1つになる。
+   *
+   * 呼ぶのは**マージの途中に入った1回だけ**で、`.git` の変化では呼び直さない
+   * ── 書き換えている最中の入力欄を上書きしないため（3-8-12 の
+   * `getCommitDetail` と同じ形）。用意されていなければ `message` は null で、
+   * それは失敗ではない。
+   */
+  readonly getMergeMessage: () => IpcInvokeResult<'git:get-merge-message'>
   /**
    * remote-tracking branch の一覧を尋ねる（Session 3-8-19）。
    *

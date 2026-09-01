@@ -54,6 +54,7 @@ import {
   GIT_COMMIT_AND_PUSH_OPERATION_KEY,
   GIT_COMMIT_OPERATION_KEY,
   GIT_INIT_OPERATION_KEY,
+  GIT_FETCH_OPERATION_KEY,
   GIT_PULL_OPERATION_KEY,
   GIT_PUSH_OPERATION_KEY,
   toGitOperationKey
@@ -257,6 +258,22 @@ export interface GitRepositoryController {
   /** 追跡先の変更を取り込む（Session 3-8-5）。 */
   readonly pull: () => void
   /**
+   * remote から取ってくるだけ（Session 3-8-22A）。
+   *
+   * Pull と違って**取り込まない** ── 動くのは remote-tracking ref だけで、
+   * 追跡先が無いブランチでも押せる。3-8-19 の remote の枝の一覧を
+   * 新しくする唯一の口にあたる（shared/api.ts）。
+   */
+  readonly fetch: () => void
+  /**
+   * git が用意したマージ commit の既定メッセージ（Session 3-8-22A）。
+   *
+   * マージの途中でなければ null。**入力欄の中身そのものではない** ──
+   * 欄を持つのは GitView で、ここが渡すのは「最初に入れてよい文章」に
+   * なる（空の欄にだけ入る。GitView.tsx）。
+   */
+  readonly mergeMessage: string | null
+  /**
    * Commit してから Push する（Session 3-8-5）。
    *
    * `commit` と同じく**入力欄を空にしてよいか**を返す。返すのは
@@ -420,8 +437,8 @@ export interface GitRepositoryController {
   /**
    * 途中のマージをやめる（Session 3-8-20）。
    *
-   * 押す場所は面の中ではなくパネルの帯（`repository.merging` が真のときだけ
-   * 出る）になる ── 結末を返すのは、確認を出しているその場に理由を
+   * 押す場所は面の中ではなくパネルの帯（`repository.inProgress` が `merge` の
+   * ときだけ出る）になる ── 結末を返すのは、確認を出しているその場に理由を
    * 出すためで、削除 / rename と同じ形にあたる。
    */
   readonly abortMerge: () => Promise<GitOperationOutcome | null>
@@ -667,6 +684,33 @@ export function useGitRepository(): GitRepositoryController {
 
   /** 直近の操作が通り切らなかった結末。次の操作が通れば消える。 */
   const [failure, setFailure] = useState<GitOperationFailure | null>(null)
+
+  /**
+   * git が用意したマージ commit の既定メッセージ（Session 3-8-22A）。
+   *
+   * ## 状態（`repository`）に載せず、別に持つ
+   *
+   * `.git` が変わるたびに運ばれると、**利用者が書き換えている最中の欄を
+   * 上書きする理由**が生まれる（3-8-12 の commit の詳細と同じ形で、
+   * 開いた瞬間に1回だけ尋ねる）。
+   *
+   * ## null は「既定値が無い」であって、失敗ではない
+   *
+   * マージの途中でない・git が用意していない・読めなかった、はどれも
+   * ここでは同じ null になる。Commit そのものは今までどおり打てば通るので、
+   * 理由を出す場所を持たない（main/git/gitMergeMessage.ts）。
+   */
+  const [mergeMessage, setMergeMessage] = useState<string | null>(null)
+
+  /**
+   * この「マージの途中」について、既定メッセージを既に尋ねたか。
+   *
+   * state と別に ref で持つのは、尋ねる契機が useEffect の中にあり、
+   * **描き直しを待たずに二重の問い合わせを止める**必要があるため
+   * （`pendingRef` と同じ理由）。マージが終われば false へ戻る ── 次の
+   * マージでは、また1回だけ尋ねる。
+   */
+  const mergeMessageAskedRef = useRef(false)
 
   /**
    * ローカルブランチの一覧（Session 3-8-6）。
@@ -1418,6 +1462,55 @@ export function useGitRepository(): GitRepositoryController {
   }, [historyOpen, workspaceId, refreshHistory])
 
   /*
+    マージの途中に入ったら、既定のメッセージを1回だけ尋ねる（Session 3-8-22A）。
+
+    ## 追いつく形（`.git` の変化を購読する）にしていない
+
+    履歴・退避・remote の3つは開いている間ずっと `git:changed` を購読して
+    いるが、これはその仲間ではない ── **取り直すたびに入力欄を上書きする
+    理由が生まれる**（解決の途中で保存するたびに `.git` は変わる）。
+    尋ねるのは「マージの途中でなかったものが、途中になった」1点だけになる。
+
+    ## マージが終わったら捨てる
+
+    捨てないと、次のマージで前回の文章が既定値として出る。ref も一緒に
+    戻すので、次のマージではまた1回だけ尋ねる。
+  */
+  useEffect(() => {
+    const merging = state.repository.status === 'ready' && state.repository.inProgress === 'merge'
+
+    if (!merging) {
+      mergeMessageAskedRef.current = false
+      setMergeMessage(null)
+      return
+    }
+
+    if (mergeMessageAskedRef.current) {
+      return
+    }
+
+    mergeMessageAskedRef.current = true
+
+    void fluvix.git.getMergeMessage().then((result) => {
+      if (!result.ok) {
+        /*
+          読めなかったことを画面に出さない ── 既定値が出ないだけで、
+          Commit そのものは今までどおり打てば通る（main/git/gitMergeMessage.ts）。
+        */
+        console.warn('[git] マージ commit の既定メッセージを取得できませんでした。', result.error)
+        return
+      }
+
+      // 切り替えと行き違った答えは捨てる（他の問い合わせと同じ）。
+      if (result.data.workspaceId !== workspaceIdRef.current) {
+        return
+      }
+
+      setMergeMessage(result.data.message)
+    })
+  }, [state.repository])
+
+  /*
     退避の面が開いている間だけ、`.git` の変化に追いつく（Session 3-8-15）。
 
     形は履歴（上）とまったく同じで、購読するのは `git:changed` だけになる ──
@@ -1759,6 +1852,22 @@ export function useGitRepository(): GitRepositoryController {
 
   const pull = useCallback((): void => {
     void operate(GIT_PULL_OPERATION_KEY, () => fluvix.git.pull())
+  }, [operate])
+
+  /**
+   * 取ってくるだけ（Session 3-8-22A）。
+   *
+   * Push / Pull とまったく同じ経路（`operate`）に載る ── 動かした後に
+   * 状態を読み直すところまで含めて共通で、**この操作のためだけの経路を
+   * 1つも作っていない。**
+   *
+   * 取ってきた結果は2箇所に出る ── 上のバーの `↓1`（状態に載る）と、
+   * ブランチの面の remote の段（次に開いたときに取り直される）。
+   * どちらも**既にある経路がそのまま運ぶ**ので、ここから一覧を
+   * 取り直しに行かない（面が開いていなければ、取り直す相手も居ない）。
+   */
+  const fetchFromRemote = useCallback((): void => {
+    void operate(GIT_FETCH_OPERATION_KEY, () => fluvix.git.fetch())
   }, [operate])
 
   /**
@@ -2213,6 +2322,8 @@ export function useGitRepository(): GitRepositoryController {
     commit,
     push,
     pull,
+    fetch: fetchFromRemote,
+    mergeMessage,
     commitAndPush,
     branches,
     refreshBranches: requestBranches,

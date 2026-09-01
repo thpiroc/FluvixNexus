@@ -27,6 +27,7 @@ function change(overrides: Partial<GitFileChange> & { kind: GitChangeKind }): Gi
     relativePath: 'src/app.ts',
     originalPath: null,
     directory: false,
+    conflictShape: null,
     ...overrides
   }
 }

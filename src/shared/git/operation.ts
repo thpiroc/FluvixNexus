@@ -193,6 +193,37 @@ export type GitOperationFailureReason =
    */
   | 'unresolved-conflicts'
   /**
+   * 途中の Git 操作があるあいだは通さない操作だった（Session 3-8-22A）。
+   *
+   * merge / rebase / cherry-pick / revert の途中で、その状態を壊しうる操作が
+   * 届いた場合にあたる（何を通さないかは shared/git/inProgress.ts の表）。
+   *
+   * ## git が断るのを待たない
+   *
+   * 待てない理由が2つある。
+   *
+   *   - **git が通してしまうものがある。** 競合を全部解決して `git add` まで
+   *     済ませたマージでは index がきれいなので、`git stash push` が通り、
+   *     `MERGE_HEAD` が黙って消える（実物で確かめてある。切り替えの方は
+   *     git が最後まで断る ── **どちらを通すかは git が決めていて、
+   *     アプリが寄りかかれる規則になっていない**）
+   *   - 通らない場合でも、git の断り方は状態ごとにばらばらで、
+   *     **「途中の操作があるから」という1つの理由には集約されない**
+   *
+   * ## `unresolved-conflicts` と分けている
+   *
+   * あちらは「競合が残っているので、その操作の前提が成り立たない」で、
+   * 次の一手は**解決すること**になる。こちらは「解決し終えていても通さない」で、
+   * 次の一手は**その途中の操作を終わらせる / やめること**になる ── マージなら
+   * Commit か中止、rebase / cherry-pick / revert なら Terminal が行き先にあたる。
+   *
+   * 文言の側は、途中で止まっているのがどれかによって次の一手を出し分ける
+   * （renderer/src/git/gitInProgress.ts）── ここに種類を載せないのは、
+   * 押した瞬間の状態は同じ応答の `repository` に丸ごと入っているため
+   * （`GitOperationOutcome` の冒頭）。
+   */
+  | 'operation-in-progress'
+  /**
    * 競合マーカーが作業ツリーに残っている（Session 3-8-18）。
    *
    * 「解決済みにする」を押したが、そのファイルにはまだ `<<<<<<<` /

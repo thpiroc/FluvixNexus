@@ -24,6 +24,7 @@ import {
 } from './gitFailure'
 import {
   finishGitOperation,
+  guardGitInProgress,
   notReadyGitOperation,
   type GitOperationResult
 } from './gitOperationResult'
@@ -182,6 +183,20 @@ export async function applyGitSwitchBranch(name: string): Promise<GitOperationRe
       return notReadyGitOperation(before)
     }
 
+    /*
+      途中の操作があるあいだは切り替えない（Session 3-8-22A）。
+
+      切り替えについては **git も断る**（`cannot switch branch while merging`。
+      実物で確かめてある）── それでも手前で断つのは、断り方を1つに揃えるため
+      と、どちらを通すかを決めているのが git だからになる
+      （退避は同じ状態で通ってしまう。shared/git/inProgress.ts）。
+    */
+    const guarded = guardGitInProgress(before, 'switch-branch')
+
+    if (guarded !== null) {
+      return guarded
+    }
+
     const blocked = findSwitchBlockingState(before.repository, name)
 
     if (blocked !== null) {
@@ -257,6 +272,16 @@ export async function applyGitCreateBranch(
     }
 
     /*
+      作成は `switch --create` の1回で作って切り替えるため、切り替えと
+      まったく同じ危うさを持つ（Session 3-8-22A）。
+    */
+    const guarded = guardGitInProgress(before, 'create-branch')
+
+    if (guarded !== null) {
+      return guarded
+    }
+
+    /*
       始点が解けるかどうかを、ここで先に確かめない（Session 3-8-13）。
 
       3-8-12 の詳細では `show --no-patch` で先に解いているが、あちらは
@@ -306,6 +331,17 @@ export async function applyGitDeleteBranch(name: string): Promise<GitOperationRe
 
     if (before.repository.status !== 'ready') {
       return notReadyGitOperation(before)
+    }
+
+    /*
+      マージの途中では止めない（ref を1つ動かすだけで MERGE_HEAD に触らない）。
+      rebase / cherry-pick / revert の途中では止める ── あちらは
+      途中の状態がブランチの ref を指しているため（shared/git/inProgress.ts）。
+    */
+    const guarded = guardGitInProgress(before, 'delete-branch')
+
+    if (guarded !== null) {
+      return guarded
     }
 
     /*
@@ -371,6 +407,13 @@ export async function applyGitRenameBranch(
 
     if (before.repository.status !== 'ready') {
       return notReadyGitOperation(before)
+    }
+
+    // 削除と同じ線（Session 3-8-22A）。
+    const guarded = guardGitInProgress(before, 'rename-branch')
+
+    if (guarded !== null) {
+      return guarded
     }
 
     /*

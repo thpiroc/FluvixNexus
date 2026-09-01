@@ -1,6 +1,12 @@
 import { findGitBranchNameProblem, prepareGitBranchName } from '@shared/git'
-import type { GitBranchNameProblem, GitHead, GitLocalBranch } from '@shared/git'
+import type {
+  GitBranchNameProblem,
+  GitHead,
+  GitInProgressOperation,
+  GitLocalBranch
+} from '@shared/git'
 import type { GitActionReadiness } from './gitChanges'
+import { describeGitInProgressBlock } from './gitInProgress'
 
 /**
  * ブランチの一覧と作成 → 画面に並べる形（React / DOM 非依存・テスト対象・Session 3-8-6）。
@@ -316,12 +322,20 @@ export function describeGitBranchDeleteWarning(branch: GitLocalBranch): {
  * 呼ぶ側はこの関数の `enabled` を見て**出すかどうか**を決める
  * （`visible` を別に返さないのは、押せない理由が1つしか無いため）。
  *
- * ## マージ中は押せない
+ * ## 途中の操作があるあいだは押せない
  *
- * 途中のマージが在る間、git は次のマージを始めない（Main も先に断る。
- * main/git/gitMerge.ts）── 待っても押せるようになるわけではなく、
- * 先にすること（解決して Commit するか、中止する）が決まっている。
- * その2つはどちらもパネルの帯に出ている（GitView.tsx）。
+ * 3-8-20 では `merging` の真偽1つを受け取っていた。3-8-22A で、それが
+ * 4つの状態（merge / rebase / cherry-pick / revert）へ広がる ──
+ * **rebase の途中でも押せてしまっていた**のが、3-8-20 の形の穴になる
+ * （`MERGE_HEAD` が無いので `merging` は偽だった）。
+ *
+ * 押せない理由の文言はここに書かず、`describeGitInProgressBlock` から借りる
+ * （renderer/src/git/gitInProgress.ts）── 帯に出ている案内と同じ言葉に
+ * しておかないと、同じ状態が2通りに呼ばれることになる。
+ *
+ * 通してよいかを決めるのも、この面では判断しない。shared の表を読む
+ * （shared/git/inProgress.ts）── Main が届いた要求に対して見るのと
+ * 同じものになる。
  *
  * ## 競合が残っているかは、ここでは見ない
  *
@@ -335,7 +349,7 @@ export function describeGitBranchDeleteWarning(branch: GitLocalBranch): {
 export function toGitBranchMergeReadiness(
   branch: GitLocalBranch,
   head: GitHead,
-  merging: boolean,
+  inProgress: GitInProgressOperation | null,
   operating: boolean
 ): GitActionReadiness {
   const into = head.kind === 'branch' ? head.name : null
@@ -344,11 +358,10 @@ export function toGitBranchMergeReadiness(
     return { enabled: false, note: `${branch.name} は今このブランチに居るため取り込めません。` }
   }
 
-  if (merging) {
-    return {
-      enabled: false,
-      note: 'マージの途中です。解決して Commit するか、マージを中止してからお試しください。'
-    }
+  const blocked = describeGitInProgressBlock(inProgress, 'merge-branch')
+
+  if (blocked !== null) {
+    return { enabled: false, note: blocked }
   }
 
   return { enabled: !operating, note: `${branch.name} を ${into} に取り込みます。` }

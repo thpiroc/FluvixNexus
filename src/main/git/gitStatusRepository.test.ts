@@ -232,7 +232,13 @@ describeWithGit('本物の git の status を読む', { timeout: REAL_GIT_TIMEOU
     const reading = readStatus()
 
     expect(reading.changes.untracked).toEqual([
-      { relativePath: 'brand-new', kind: 'untracked', originalPath: null, directory: true }
+      {
+        relativePath: 'brand-new',
+        kind: 'untracked',
+        originalPath: null,
+        directory: true,
+        conflictShape: null
+      }
     ])
   })
 

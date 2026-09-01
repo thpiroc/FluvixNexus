@@ -468,6 +468,115 @@ describeWithGit('applyGitResolveConflict', { timeout: REAL_GIT_TIMEOUT_MS }, () 
   })
 
   /*
+    両方が同じ位置を新しく足した競合（`AA`。Session 3-8-22A）。
+
+    共通の元（stage 1）が無い形で、**マーカーは書かれる** ── そこは `UU` と
+    同じで、消さずに押せば断られる側になる。
+  */
+  it('両方が足した競合（AA）は、マーカーを消せば解決できる', async () => {
+    write('base.txt', 'x\n')
+    git('add', '--', 'base.txt')
+    git('commit', '--quiet', '-m', 'base')
+
+    git('switch', '--quiet', '--create', 'feat')
+    write('new.txt', 'THEIRS\n')
+    git('add', '--', 'new.txt')
+    git('commit', '--quiet', '-m', 'theirs')
+
+    git('switch', '--quiet', 'main')
+    write('new.txt', 'OURS\n')
+    git('add', '--', 'new.txt')
+    git('commit', '--quiet', '-m', 'ours')
+
+    try {
+      git('merge', 'feat')
+    } catch {
+      // 競合する。
+    }
+
+    expect(stateOf('new.txt')).toBe('u')
+    // 共通の元が無いので、段は 2 つ（ours / theirs）だけになる。
+    expect(unmergedStages('new.txt')).toBe(2)
+
+    // マーカーが残っている間は断る（`UU` とまったく同じ扱い）。
+    expect((await applyGitResolveConflict('new.txt')).outcome).toEqual({
+      status: 'failed',
+      reason: 'conflict-markers-present'
+    })
+
+    write('new.txt', 'OURS\n')
+
+    expect((await applyGitResolveConflict('new.txt')).outcome).toEqual({ status: 'applied' })
+    expect(unmergedStages('new.txt')).toBe(0)
+  })
+
+  /*
+    rename / rename の競合（Session 3-8-22A）。
+
+    **1回のマージで3つの形が同時に出る**（実物で確かめてある）──
+
+      `DD` … 元の位置（両方が動かしたので、そこには何も無い）
+      `AU` … ours が付けた新しい位置
+      `UA` … theirs が付けた新しい位置
+
+    3-8-22A で確かめたいのはこの3つの解決で、とくに `DD` は
+    **作業ツリーにファイルが無いまま `git add` を通す**ことになる。
+  */
+  it('rename / rename の競合（DD / AU / UA）を、3件とも解決できる', async () => {
+    write('orig.txt', 'a\nb\n')
+    git('add', '--', 'orig.txt')
+    git('commit', '--quiet', '-m', 'base')
+
+    git('switch', '--quiet', '--create', 'feat')
+    git('mv', 'orig.txt', 'theirs.txt')
+    git('commit', '--quiet', '-m', 'rename-theirs')
+
+    git('switch', '--quiet', 'main')
+    git('mv', 'orig.txt', 'ours.txt')
+    git('commit', '--quiet', '-m', 'rename-ours')
+
+    try {
+      git('merge', 'feat')
+    } catch {
+      // 競合する。
+    }
+
+    expect(stateOf('orig.txt')).toBe('u')
+    expect(stateOf('ours.txt')).toBe('u')
+    expect(stateOf('theirs.txt')).toBe('u')
+
+    /*
+      段の数がそのまま形を表す（`gitBlob.ts` の `toGitConflictShape` と
+      同じ読み方）── 元の位置は共通の元だけ、新しい位置は片側だけになる。
+    */
+    expect(unmergedStages('orig.txt')).toBe(1)
+    expect(unmergedStages('ours.txt')).toBe(1)
+    expect(unmergedStages('theirs.txt')).toBe(1)
+
+    /*
+      `DD` の位置には**ファイルが無い。** ここが 3-8-22A で
+      `canOpenGitChange` を直した理由そのものにあたる
+      （renderer/src/git/gitChanges.ts）。
+    */
+    expect(existsSync(join(root, 'orig.txt'))).toBe(false)
+    expect(existsSync(join(root, 'ours.txt'))).toBe(true)
+    expect(existsSync(join(root, 'theirs.txt'))).toBe(true)
+
+    /*
+      3件とも通る。**`DD` も通る**のが確かめたいところで、
+      `git add` は消えている位置に対して「削除を記録する」として働く
+      （通らなければ、利用者はこの競合から出られない）。
+    */
+    for (const path of ['orig.txt', 'ours.txt', 'theirs.txt']) {
+      expect((await applyGitResolveConflict(path)).outcome, path).toEqual({ status: 'applied' })
+      expect(unmergedStages(path), path).toBe(0)
+    }
+
+    // 3件とも畳めば、競合は1件も残らない（次は Commit で完結する）。
+    expect(statusRecords().filter((record) => record.startsWith('u '))).toHaveLength(0)
+  })
+
+  /*
     バイナリの競合。git はマーカーを書き込めないので `--check` は何も言わない ──
     ここでも断ってはいけない。
   */

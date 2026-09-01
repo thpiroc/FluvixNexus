@@ -41,7 +41,13 @@ function entry(overrides: Partial<GitStashEntry> = {}): GitStashEntry {
 
 /** 変更ファイル1件を組む（種類は数えるだけなので何でもよい）。 */
 function change(relativePath: string): GitFileChange {
-  return { relativePath, kind: 'modified', originalPath: null, directory: false }
+  return {
+    relativePath,
+    kind: 'modified',
+    originalPath: null,
+    directory: false,
+    conflictShape: null
+  }
 }
 
 /** 作業ツリーの状態を組む。 */

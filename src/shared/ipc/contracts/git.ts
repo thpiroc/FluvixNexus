@@ -829,6 +829,26 @@ export interface RemoveGitRemoteRequest {
  * しかも退避では**その嘘が押し間違いに直結する**（番号がずれる。
  * shared/git/stash.ts）ため、履歴よりさらに追いつく必要が強い。
  */
+/**
+ * git が用意したマージ commit のメッセージ（Session 3-8-22A）。
+ */
+export interface GetGitMergeMessageResponse {
+  /** どの Workspace について答えたか。未選択なら null（他の応答と同じ理由）。 */
+  readonly workspaceId: string | null
+  /**
+   * 既定のメッセージ。用意されていなければ null。
+   *
+   * **コメント行（`#` で始まる行）は落としてある。** git 自身が
+   * `--cleanup` で落とすものを、そのまま入力欄に出すと利用者が消す作業に
+   * なる ── アプリの Commit は `--cleanup=whitespace` 固定（3-8-4）なので、
+   * 落とさずに渡すと**コメント行がそのまま履歴に入る。**
+   *
+   * 競合したマージでは、git が競合したファイルの一覧をコメント行として
+   * 書いている（`# Conflicts:` 以下）── それも落ちる。
+   */
+  readonly message: string | null
+}
+
 export interface ListGitStashesResponse {
   /** どの Workspace について答えたか。未選択なら null（他の応答と同じ理由）。 */
   readonly workspaceId: string | null
@@ -1140,6 +1160,41 @@ export interface GitIpcContract {
     response: GitOperationResponse
   }
   /**
+   * remote から取ってくるだけ（`fetch --prune`。Session 3-8-22A）。
+   *
+   * ## Pull の中の `fetch` と、同じ相手・違う引数
+   *
+   * 3-8-5 から `git fetch` は在ったが、走るのは Pull の中だけだった ──
+   * そして Pull は追跡先が無ければ押せない（`no-upstream`）。つまり
+   * **追跡先の無いブランチに居るあいだ、remote-tracking ref を新しくする
+   * 手立てがアプリの中に1つも無かった。** 3-8-19 の「remote の枝から手元に
+   * ブランチを作る」一覧が「最後に取得した時点の写し」だと面に書きながら、
+   * その取得を行う口だけが無い状態にあたる（3-8-15 / 3-8-16 / 3-8-18 と
+   * 同じ「自分が閉じた道の先を、後から用意する」形）。
+   *
+   * ## `--prune` を付ける（Pull の中の fetch には付けない）
+   *
+   * この口の用途は**一覧を今の remote に合わせること**で、そこには
+   * 「もう相手に無い枝が消えること」まで含まれる ── 付けないと、消えた枝が
+   * 一覧に残り続け、選ぶと「同名のローカルブランチを作る」だけの行になる。
+   *
+   * Pull の中の `fetch` は付けないまま（`fetchFromRemote`）にしてある。
+   * あちらの用途は**取り込むために取ってくる**ことで、ref を消す働きが
+   * 混ざると「Pull を押したら一覧から枝が消えた」になる ── 同じ `git fetch`
+   * でも、押した人の予想が違う（main/git/gitCommands.ts）。
+   *
+   * ## 要求は `void`（Push / Pull と同じ）
+   *
+   * remote 名も refspec も渡す欄が無い。相手を決めるのはリポジトリの設定で、
+   * Main も名前を組み立てない ── 3-8-16 / 3-8-17 で remote の登録簿を編集
+   * できるようになっても、**指せる欄は1つも増えていない**という線をここでも
+   * 引いている。
+   */
+  'git:fetch': {
+    request: void
+    response: GitOperationResponse
+  }
+  /**
    * Commit してから Push する（Session 3-8-5）。
    *
    * ## なぜ2本を Renderer から続けて呼ばせないか
@@ -1345,7 +1400,7 @@ export interface GitIpcContract {
    * ## 応答には**マージ中かどうか**が載る
    *
    * `GetGitRepositoryResponse` と同じ `GitRepositoryState` が返るので、
-   * 競合したときは `merging: true` がその場で載る ── Renderer が
+   * 競合したときは `inProgress: 'merge'` がその場で載る ── Renderer が
    * 別の問い合わせでマージ中かを確かめ直す形にはしない（shared/git/repository.ts）。
    */
   'git:merge-branch': {
@@ -1377,6 +1432,44 @@ export interface GitIpcContract {
   'git:abort-merge': {
     request: void
     response: GitOperationResponse
+  }
+  /**
+   * git が用意したマージ commit のメッセージを尋ねる（Session 3-8-22A）。
+   *
+   * ## Commit 欄が空から始まる問題を、既定値で埋める
+   *
+   * 3-8-20 でマージを始められるようになり、3-8-18 の解決 → 3-8-4 の Commit で
+   * マージを完結できるようになった。ただしその Commit は**利用者が文章を
+   * 打たないと押せない**（`toGitCommitReadiness` は空のメッセージを通さない）
+   * ── 端末の `git merge` なら `Merge branch 'feature'` が既定で入るところに、
+   * アプリでは白紙が出ていたことになる。
+   *
+   * ## `--no-edit` で git に任せる形にしなかった理由
+   *
+   * Commit の引数を分岐させ、欄が空ならメッセージを渡さない（`--no-edit`）
+   * という形も取れる。取らなかったのは、**押す前に読めなくなる**ため ──
+   * 入力欄には何も出ていないのに、履歴には文章が入ることになる。
+   * 3-8-4 が「メッセージは標準入力へ渡す」形にしたのは、
+   * **画面に出ているものがそのまま commit になる**ためだった。
+   *
+   * したがって渡すのは既定値だけで、Commit の経路は1本のまま変わらない。
+   * 利用者はその場で書き換えられるし、消して自分の文章にもできる。
+   *
+   * ## 呼ぶのは、マージの途中に入った1回だけ
+   *
+   * 状態（`git:get-repository`）には載せない。載せると `.git` が変わるたびに
+   * 運ばれ、**利用者が書き換えている最中の欄を上書きする理由**が生まれる。
+   * commit 1件の詳細（`git:get-commit-detail`）と同じで、開いた瞬間に1回
+   * 尋ねる形にしてある。
+   *
+   * ## 無ければ null（失敗にしない）
+   *
+   * マージの途中でない・git が用意していない・読めなかった、はどれも
+   * 「既定値が無い」だけで、Commit そのものは今までどおり打てば通る。
+   */
+  'git:get-merge-message': {
+    request: void
+    response: GetGitMergeMessageResponse
   }
   /**
    * remote-tracking branch の一覧を尋ねる（Session 3-8-19）。

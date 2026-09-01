@@ -435,6 +435,39 @@ export function fetchFromRemote(): GitCommand {
 }
 
 /**
+ * remote から取ってくるだけ（Session 3-8-22A）。
+ *
+ * ## `fetchFromRemote` と別の関数にしてある
+ *
+ * 引数が1つ違うだけだが、**押した人の予想が違う。**
+ *
+ *   Pull の中の fetch … 取り込むために取ってくる。ref を消されると
+ *                       「Pull を押したら一覧から枝が消えた」になる
+ *   この口           … 一覧を今の remote に合わせる。消えた枝が残ると、
+ *                       選んでも「同名のローカルブランチを作る」だけの行になる
+ *
+ * 引数に条件分岐（`prune: boolean`）を持たせると、**どちらの用途で呼ばれたか**が
+ * 呼び出し側にしか無い状態になる。表の側で2行に分けておけば、
+ * それぞれの理由がその場に書ける（`pushToUpstream` と `pushSettingUpstream` と
+ * 同じ分け方）。
+ *
+ * ## `--all` は付けない
+ *
+ * 相手は「今のブランチの remote（`branch.<name>.remote`、無ければ既定）」の
+ * まま ── `fetchFromRemote` と同じで、**相手を決めるのはリポジトリの設定**に
+ * なる。`--all` を付けると、3-8-16 で足した remote すべてに対して
+ * `--prune` が走ることになり、**押した人が名前を1つも見ていない相手の ref を
+ * 消す**ことになる。remote を選べる欄を作らない線（3-8-16 / 3-8-17）は、
+ * 「全部」という選び方に対しても同じように引いてある。
+ */
+export function fetchAndPruneFromRemote(): GitCommand {
+  return {
+    label: 'fetch --prune',
+    args: [...NON_INTERACTIVE_CREDENTIALS, 'fetch', '--quiet', '--prune']
+  }
+}
+
+/**
  * 取ってきたものを早送りで取り込む（Session 3-8-5）。
  *
  * ## `git pull` を使わない
@@ -981,10 +1014,133 @@ export function abortMerge(): GitCommand {
  * 出力を解釈する必要が無い。
  */
 export function verifyMergeHead(): GitCommand {
+  return verifyPseudoRef('MERGE_HEAD')
+}
+
+/**
+ * rebase の作業場所がどこかを尋ねる（Session 3-8-22A）。
+ *
+ * ## `REBASE_HEAD` では判定できない（実物で分かったこと）
+ *
+ * 他の3つと揃えて `rev-parse --verify --quiet REBASE_HEAD` で読もうとしたが、
+ * **rebase が終わってもこの ref は消えない**（`--continue` で完了した後も
+ * `.git/REBASE_HEAD` が残る。`--abort` では消える。実物で確かめてある）。
+ *
+ * 使ってしまうと、**1度 rebase を完了した時点から Git パネルが永久に
+ * 「rebase の途中です」になる** ── 帯が出たまま、書き込みが1つも通らなくなる。
+ * 3-8-22A でいちばん大きい誤検出にあたり、写しを相手にしていたら気づけなかった。
+ *
+ * ## git 自身と同じものを見る
+ *
+ * git が「rebase の途中か」を決めているのは**作業場所のフォルダ**になる
+ * （`rebase-merge` … merge / interactive backend、`rebase-apply` … apply
+ * backend）。どちらも `--continue` でも `--abort` でも片付けられる
+ * （実物で確かめてある）。
+ *
+ * ## 置き場所は git に聞く
+ *
+ * `.git/rebase-merge` と決め打ちしない（`verifyMergeHead` と同じ理由）。
+ * `--git-path` は**無くてもそのパスを出して 0 で終わる**ので、
+ * 在るかどうかは読む側が決める（main/git/gitRepository.ts）。
+ *
+ * 2つを1回の呼び出しで尋ねられる（1行ずつ、渡した順に出る。実物で
+ * 確かめてある）── git を1回増やさずに両方の backend を見られる。
+ */
+export function showRebasePaths(): GitCommand {
   return {
-    label: 'rev-parse --verify MERGE_HEAD',
-    args: ['rev-parse', '--verify', '--quiet', 'MERGE_HEAD']
+    label: 'rev-parse --git-path rebase-merge / rebase-apply',
+    args: ['rev-parse', '--git-path', 'rebase-merge', '--git-path', 'rebase-apply']
   }
+}
+
+/**
+ * cherry-pick の途中かを尋ねる（Session 3-8-22A）。
+ *
+ * こちらは ref で読める ── `--continue` で完了すると git が消す
+ * （実物で確かめてある。rebase とはここが違う）。
+ */
+export function verifyCherryPickHead(): GitCommand {
+  return verifyPseudoRef('CHERRY_PICK_HEAD')
+}
+
+/**
+ * revert の途中かを尋ねる（Session 3-8-22A）。
+ *
+ * cherry-pick と同じく、完了すると git が消す（実物で確かめてある）。
+ */
+export function verifyRevertHead(): GitCommand {
+  return verifyPseudoRef('REVERT_HEAD')
+}
+
+/**
+ * 途中の操作を表す ref が在るかを尋ねる、4つに共通の形（Session 3-8-22A）。
+ *
+ * ## 1回でまとめて尋ねる形にはできなかった
+ *
+ * `rev-parse --verify --quiet` は revision を1つしか受け取らない
+ * （2つ渡すと `fatal: Needed a single revision`）。まとめて尋ねられそうな
+ * 書き方も試したが、どちらも使えなかった（実物で確かめてある）──
+ *
+ *   `rev-parse --revs-only --symbolic-full-name <複数>` … MERGE_HEAD は出るが
+ *                                                         出ない ref がある
+ *   `for-each-ref <複数>`                               … 1行も出ない
+ *                                                         （ref store に居ない）
+ *
+ * したがって1つずつ尋ねる。呼ぶ側は**見つかった時点で残りを尋ねない**
+ * （同時に2つ在ることは無い。main/git/gitRepository.ts）。
+ *
+ * 名前は**このファイルの中の固定の文字列**で、境界を渡ってきた値は入らない
+ * （引数を1つ取る形にしてあるのは4つの重複を避けるためで、公開している
+ * 関数は4つとも引数を取らない）。
+ */
+function verifyPseudoRef(name: string): GitCommand {
+  return {
+    label: `rev-parse --verify ${name}`,
+    args: ['rev-parse', '--verify', '--quiet', name]
+  }
+}
+
+/**
+ * git が用意したマージ commit のメッセージの**置き場所**を尋ねる（Session 3-8-22A）。
+ *
+ * ## `.git/MERGE_MSG` と決め打ちしない
+ *
+ * `verifyMergeHead` が `.git/MERGE_HEAD` を直接見に行かない理由と同じで、
+ * `.git` の中の置き方をアプリが知っていることにはしない（`.git` が
+ * ファイル1つの worktree 形式・`GIT_DIR` が別の場所、のどちらでも外れる）。
+ *
+ * ただし今回は**中身**が要るので、終了コードだけでは済まない。そこで
+ * 「どこに在るか」を git に聞き、**返ってきた場所を読む**形にしてある ──
+ * 置き方を知っているのは最後まで git で、アプリはその答えを使うだけになる
+ * （main/git/gitMergeMessage.ts）。
+ *
+ * `--git-path` は**ファイルが無くても**そのパスを出して 0 で終わる
+ * （在るかどうかは読む側が決める）。
+ */
+export function showMergeMessagePath(): GitCommand {
+  return { label: 'rev-parse --git-path MERGE_MSG', args: ['rev-parse', '--git-path', 'MERGE_MSG'] }
+}
+
+/**
+ * メッセージからコメント行と余分な空行を落とす（Session 3-8-22A）。
+ *
+ * ## 自分で `#` を落とさない
+ *
+ * `MERGE_MSG` には git が書いたコメント行が入る（競合したマージなら
+ * `# Conflicts:` とその一覧）。アプリの Commit は **`--cleanup=whitespace`
+ * 固定**（3-8-4）── あれは「空白は整えるが、コメントは落とさない」指定
+ * なので、そのまま入力欄へ出すと**コメント行がそのまま履歴に入る。**
+ *
+ * 落とす規則を自分で書かないのは、コメントの印が `#` とは限らないため
+ * （`core.commentChar`）。**規則を知っているのは git 自身**なので、
+ * その設定を読んで自分で判断する代わりに、git に落とさせる ──
+ * `@{upstream}` や `push.default` を git に解かせているのと同じ形になる。
+ *
+ * 中身は標準入力から渡し、結果は標準出力に出る（`commitStagedChanges` と
+ * 同じく、長い文章を引数に載せない）。
+ */
+export function stripMessageComments(): GitCommand {
+  return { label: 'stripspace --strip-comments', args: ['stripspace', '--strip-comments'] }
 }
 
 /* ------------------------ remote-tracking branch（Session 3-8-19） */

@@ -638,12 +638,34 @@
   padding: var(--fx-space-1) var(--fx-space-3);
 }
 
-/* 何が起きているかの1行。中止のボタンに押されて折り返してよい。 */
+/* 何が起きているか。中止のボタンに押されて折り返してよい。 */
 .fx-git__merge-label {
   flex: 1 1 auto;
   min-width: 0;
   color: var(--fx-color-text);
   line-height: 1.5;
+}
+
+/*
+ * 「何の途中か」と、その説明（Session 3-8-22A）。
+ *
+ * 3-8-20 の帯は1文で足りていたが、4つの状態を出し分けるようになって
+ * 説明が長くなった（アプリに出口が無い3つでは、端末で打つコマンドまで入る）。
+ * **見出しだけを強くする** ── 色は変えず太さだけで差を付けるのは、
+ * 帯そのものが既に橙の線で「状態の知らせ」だと言っているため
+ * （同じ帯の中で色をもう1つ使うと、どちらが主か分からなくなる）。
+ *
+ * 中止のボタンが無い状態（rebase / cherry-pick / revert）では説明が
+ * 帯の幅いっぱいに回り込む ── そのために `display: inline` のままにしてある
+ * （block にすると、短いマージの文でも必ず2行になる）。
+ */
+.fx-git__merge-title {
+  color: var(--fx-color-text-strong);
+  font-weight: 600;
+}
+
+.fx-git__merge-description {
+  color: var(--fx-color-text);
 }
 
 /*

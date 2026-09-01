@@ -48,7 +48,7 @@ function change(
   kind: GitChangeKind,
   extra: Partial<GitFileChange> = {}
 ): GitFileChange {
-  return { relativePath, kind, originalPath: null, directory: false, ...extra }
+  return { relativePath, kind, originalPath: null, directory: false, conflictShape: null, ...extra }
 }
 
 const EMPTY: GitWorkingTreeChanges = {
@@ -170,6 +170,37 @@ describe('canOpenGitChange', () => {
 
   it('rename では移動後のファイルとして開ける', () => {
     expect(canOpenGitChange(change('new.txt', 'renamed', { originalPath: 'old.txt' }))).toBe(true)
+  })
+
+  /*
+    競合の行（Session 3-8-22A）。
+
+    3-8-2 から競合は「フォルダでも削除でもない」ので素通りしていたが、
+    **`both-deleted`（`DD`）だけは作業ツリーにファイルが無い**（実物で
+    確かめてある。rename / rename の競合で作れる。
+    main/git/gitConflictRepository.test.ts）── 押すと Editor に
+    「読めませんでした」のタブが増えるだけで、「押しても何も起きない
+    ボタンを置かない」という 3-8-2 からの線がこの1つの形でだけ破れていた。
+  */
+  it('両方が消した競合（both-deleted）は開けない', () => {
+    expect(
+      canOpenGitChange(change('gone.txt', 'conflicted', { conflictShape: 'both-deleted' }))
+    ).toBe(false)
+  })
+
+  /*
+    残り6つの形では、どちらかの側の中身が作業ツリーに在る（実物で7通り
+    すべて確かめてある）── 「片方が削除された」形でも開ける。
+  */
+  it.each([
+    'both-modified',
+    'both-added',
+    'deleted-by-them',
+    'deleted-by-us',
+    'added-by-us',
+    'added-by-them'
+  ] as const)('%s の競合は開ける', (conflictShape) => {
+    expect(canOpenGitChange(change('c.txt', 'conflicted', { conflictShape }))).toBe(true)
   })
 })
 
@@ -352,6 +383,7 @@ describe('describeGitOperationFailure', () => {
     'identity-missing',
     'hook-rejected',
     'unresolved-conflicts',
+    'operation-in-progress',
     'conflict-markers-present',
     'path-not-found',
     'not-on-branch',

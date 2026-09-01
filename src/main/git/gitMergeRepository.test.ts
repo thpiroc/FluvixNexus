@@ -268,7 +268,7 @@ describeWithGit('applyGitMergeBranch', { timeout: REAL_GIT_TIMEOUT_MS }, () => {
       // 進んだのは feat のぶんの1つだけ（merge commit は増えていない）。
       expect(commitCount()).toBe(before + 1)
       expect(parentCount()).toBe(1)
-      expect(readyOf(result.repository).merging).toBe(false)
+      expect(readyOf(result.repository).inProgress).toBeNull()
       expect(read('g.txt')).toBe('from feat\n')
     })
 
@@ -282,7 +282,7 @@ describeWithGit('applyGitMergeBranch', { timeout: REAL_GIT_TIMEOUT_MS }, () => {
       // どちらの枝のファイルも揃っている。
       expect(read('a.txt')).toBe('from feat\n')
       expect(read('b.txt')).toBe('from main\n')
-      expect(readyOf(result.repository).merging).toBe(false)
+      expect(readyOf(result.repository).inProgress).toBeNull()
     })
 
     /*
@@ -425,7 +425,7 @@ describeWithGit('applyGitMergeBranch', { timeout: REAL_GIT_TIMEOUT_MS }, () => {
       const result = await applyGitMergeBranch('feat')
 
       expect(hasMergeHead()).toBe(true)
-      expect(readyOf(result.repository).merging).toBe(true)
+      expect(readyOf(result.repository).inProgress).toBe('merge')
     })
 
     /*
@@ -449,12 +449,12 @@ describeWithGit('applyGitMergeBranch', { timeout: REAL_GIT_TIMEOUT_MS }, () => {
       expect(resolved.outcome).toEqual({ status: 'applied' })
       expect(readyOf(resolved.repository).changes.conflicted).toEqual([])
       // 解決しても、Commit するまではマージの途中のまま。
-      expect(readyOf(resolved.repository).merging).toBe(true)
+      expect(readyOf(resolved.repository).inProgress).toBe('merge')
 
       const committed = await applyGitCommit('merge feat')
 
       expect(committed.outcome).toEqual({ status: 'applied' })
-      expect(readyOf(committed.repository).merging).toBe(false)
+      expect(readyOf(committed.repository).inProgress).toBeNull()
       expect(hasMergeHead()).toBe(false)
       // マージ commit になっている（親が2つ）。
       expect(parentCount()).toBe(2)
@@ -541,14 +541,38 @@ describeWithGit('applyGitMergeBranch', { timeout: REAL_GIT_TIMEOUT_MS }, () => {
     /*
       既にマージの途中。git も断るが（`Merging is not possible because you
       have unmerged files`）、アプリは読んだ状態だけで先に分ける。
+
+      **理由は 3-8-22A で `operation-in-progress` に変わった。** 3-8-20 では
+      `findMergeBlockingState` が `merging` を見て `unresolved-conflicts` を
+      返していたが、途中の操作そのものを断る表ができたのでそちらが先に断る
+      （shared/git/inProgress.ts）── **競合が残っていなくても通さない**ので、
+      こちらの理由の方が正確にあたる（解決し終えたマージでも同じ答えになる。
+      下の確かめ）。
     */
-    it('マージの途中は unresolved-conflicts', async () => {
+    it('マージの途中は operation-in-progress', async () => {
       createConflicting()
       await applyGitMergeBranch('feat')
 
       const result = await applyGitMergeBranch('feat')
 
-      expect(result.outcome).toEqual({ status: 'failed', reason: 'unresolved-conflicts' })
+      expect(result.outcome).toEqual({ status: 'failed', reason: 'operation-in-progress' })
+    })
+
+    /*
+      競合を解決し終えても、Commit するまでは同じ理由で断る ── 3-8-20 の形
+      （競合の件数を見る）では、ここで**通ってしまっていた。**
+    */
+    it('解決し終えた（競合が0件の）マージの途中でも断る', async () => {
+      createConflicting()
+      await applyGitMergeBranch('feat')
+
+      write('f.txt', 'line1\nRESOLVED\nline3\n')
+      git('add', '--', 'f.txt')
+
+      const result = await applyGitMergeBranch('feat')
+
+      expect(result.outcome).toEqual({ status: 'failed', reason: 'operation-in-progress' })
+      expect(readyOf(result.repository).changes.conflicted).toEqual([])
     })
   })
 
@@ -621,7 +645,7 @@ describeWithGit('applyGitAbortMerge', { timeout: REAL_GIT_TIMEOUT_MS }, () => {
 
     expect(result.outcome).toEqual({ status: 'applied' })
     expect(hasMergeHead()).toBe(false)
-    expect(readyOf(result.repository).merging).toBe(false)
+    expect(readyOf(result.repository).inProgress).toBeNull()
   })
 
   it('中止するとマージ前のファイルの内容へ戻る', async () => {

@@ -347,7 +347,7 @@ describe('toGitBranchMergeReadiness', () => {
   const feature = { name: 'feature/x', current: false }
 
   it('今そこに居ないブランチは取り込める', () => {
-    const readiness = toGitBranchMergeReadiness(feature, onMain, false, false)
+    const readiness = toGitBranchMergeReadiness(feature, onMain, null, false)
 
     expect(readiness.enabled).toBe(true)
     // 相手と行き先の両方を名指しする（どちらへ入るのかが押す前に読める）。
@@ -359,7 +359,7 @@ describe('toGitBranchMergeReadiness', () => {
     const readiness = toGitBranchMergeReadiness(
       { name: 'main', current: true },
       onMain,
-      false,
+      null,
       false
     )
 
@@ -374,7 +374,7 @@ describe('toGitBranchMergeReadiness', () => {
     const branch = { name: 'main', current: true }
 
     expect(toGitBranchSwitchReadiness(branch, false).enabled).toBe(true)
-    expect(toGitBranchMergeReadiness(branch, onMain, false, false).enabled).toBe(false)
+    expect(toGitBranchMergeReadiness(branch, onMain, null, false).enabled).toBe(false)
   })
 
   /*
@@ -384,7 +384,7 @@ describe('toGitBranchMergeReadiness', () => {
   it('detached HEAD では取り込めない', () => {
     const detached: GitHead = { kind: 'detached', commit: 'abc1234' }
 
-    expect(toGitBranchMergeReadiness(feature, detached, false, false).enabled).toBe(false)
+    expect(toGitBranchMergeReadiness(feature, detached, null, false).enabled).toBe(false)
   })
 
   /*
@@ -393,14 +393,28 @@ describe('toGitBranchMergeReadiness', () => {
     その2つを理由に書く。
   */
   it('マージの途中は押せず、先にすることが理由に出る', () => {
-    const readiness = toGitBranchMergeReadiness(feature, onMain, true, false)
+    const readiness = toGitBranchMergeReadiness(feature, onMain, 'merge', false)
 
     expect(readiness.enabled).toBe(false)
     expect(readiness.note).toContain('中止')
   })
 
+  /*
+    Session 3-8-22A で塞いだ穴 ── 3-8-20 の形（`merging: boolean`）では
+    `MERGE_HEAD` が無いので偽になり、**rebase の途中でも押せていた。**
+  */
+  it.each(['rebase', 'cherry-pick', 'revert'] as const)(
+    '%s の途中でも押せない（3-8-20 では素通りしていた）',
+    (inProgress) => {
+      const readiness = toGitBranchMergeReadiness(feature, onMain, inProgress, false)
+
+      expect(readiness.enabled).toBe(false)
+      expect(readiness.note).toContain(inProgress)
+    }
+  )
+
   it('他の Git 操作が動いている間は押せない', () => {
-    expect(toGitBranchMergeReadiness(feature, onMain, false, true).enabled).toBe(false)
+    expect(toGitBranchMergeReadiness(feature, onMain, null, true).enabled).toBe(false)
   })
 })
 

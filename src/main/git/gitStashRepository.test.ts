@@ -352,8 +352,15 @@ describeWithGit('applyGitStashPush', { timeout: REAL_GIT_TIMEOUT_MS }, () => {
   /**
    * merge の途中で `git stash push` を動かすと `error: could not write index` で
    * 断られる（確かめた）── その文言は分類の役に立たないうえ、押す前に分かる。
+   *
+   * **理由は 3-8-22A で `operation-in-progress` に変わった。** 途中の操作
+   * そのものを断る表が先に効くためで、こちらの方が正確にあたる ── 競合を
+   * 解決し終えたマージでは **git が `stash push` を通してしまい**、
+   * `MERGE_HEAD` が黙って消える（実物で確かめてある。
+   * main/git/gitInProgressRepository.test.ts）。競合の件数だけを見ていると、
+   * まさにその一瞬で素通りする。
    */
-  it('競合が残っている間は git を動かさずに断る', async () => {
+  it('マージの途中は operation-in-progress として断る', async () => {
     commit('a.txt', 'base\n', 'first')
     git('switch', '--quiet', '--create', 'other')
     commit('a.txt', 'theirs\n', 'other change')
@@ -364,8 +371,29 @@ describeWithGit('applyGitStashPush', { timeout: REAL_GIT_TIMEOUT_MS }, () => {
 
     const result = await applyGitStashPush()
 
-    expect(result.outcome).toEqual({ status: 'failed', reason: 'unresolved-conflicts' })
+    expect(result.outcome).toEqual({ status: 'failed', reason: 'operation-in-progress' })
     expect(stashSubjects()).toHaveLength(0)
+  })
+
+  /*
+    途中の操作が無いのに競合だけが残っている形（`stash pop` の競合）。
+    ここは 3-8-15 からの `unresolved-conflicts` のまま ── **競合を理由に断る道が
+    残っていること**を固定しておく。
+  */
+  it('途中の操作が無い競合（stash pop）は unresolved-conflicts のまま', async () => {
+    commit('a.txt', 'base\n', 'first')
+    stash('mine\n', 'my work')
+    commit('a.txt', 'other\n', 'other change')
+
+    try {
+      git('stash', 'pop')
+    } catch {
+      // 競合は想定どおり。
+    }
+
+    const result = await applyGitStashPush()
+
+    expect(result.outcome).toEqual({ status: 'failed', reason: 'unresolved-conflicts' })
   })
 
   it('Workspace が開かれていなければ not-ready（git を動かさない）', async () => {
@@ -494,13 +522,39 @@ describeWithGit('applyGitStashPop', { timeout: REAL_GIT_TIMEOUT_MS }, () => {
     expect(readFile('a.txt')).toBe('work in progress\n')
   })
 
-  it('競合が残っている間は git を動かさずに断る', async () => {
+  /*
+    マージの途中で戻そうとした場合（Session 3-8-22A で理由が変わった）──
+    退避すると同じく、途中の操作そのものを断る表が先に効く。
+  */
+  it('マージの途中は operation-in-progress として断る', async () => {
     commit('a.txt', 'base\n', 'first')
     stash('mine\n', 'my work')
     commit('b.txt', 'base\n', 'add b')
     git('switch', '--quiet', '--create', 'other', 'HEAD~1')
     commit('b.txt', 'theirs\n', 'other b')
     expect(() => git('merge', 'main')).toThrow()
+
+    const [entry] = await readEntries()
+    const result = await applyGitStashPop(entry.index, entry.shortHash)
+
+    expect(result.outcome).toEqual({ status: 'failed', reason: 'operation-in-progress' })
+    expect(stashSubjects()).toHaveLength(1)
+  })
+
+  /*
+    途中の操作が無いのに競合だけが残っている形（`stash pop` の競合）。
+    ここは 3-8-15 からの `unresolved-conflicts` のまま。
+  */
+  it('途中の操作が無い競合（stash pop）は unresolved-conflicts のまま', async () => {
+    commit('a.txt', 'base\n', 'first')
+    stash('mine\n', 'my work')
+    commit('a.txt', 'other\n', 'other change')
+
+    try {
+      git('stash', 'pop')
+    } catch {
+      // 競合は想定どおり（退避は一覧に残る）。
+    }
 
     const [entry] = await readEntries()
     const result = await applyGitStashPop(entry.index, entry.shortHash)
