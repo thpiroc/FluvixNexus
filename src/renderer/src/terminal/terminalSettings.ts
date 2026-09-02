@@ -1,4 +1,4 @@
-import { TERMINAL_SETTINGS_SCHEMA_VERSION, type TerminalSettingsDocument } from '@shared/settings'
+import type { StoredTerminalSettings } from '@shared/settings'
 import {
   clampTerminalFontSize,
   clampTerminalScrollback,
@@ -19,9 +19,10 @@ import {
  * ```
  * terminalDisplay.ts     既定値・範囲・丸め方
  * terminalSettings.ts    その値を、保存形式と行き来させる（ここ）
- * useTerminalSettings.ts いつ読み、いつ書くか
- * shared/settings/terminalSettings.ts  ディスクに置く形
- * main/store/terminalSettings.ts       保存先
+ * useTerminalSettings.ts 見え方の正本（どこがこの値を持つか）
+ * settings/useSettingsSection.ts  いつ読み、いつ書くか（Session 4-3A で3箇所から集約）
+ * shared/settings/sections.ts     ディスクに置く形（`terminal` section）
+ * main/store/settings.ts          保存先（settings.json）
  * ```
  *
  * ## 読めなければ既定で始める
@@ -51,46 +52,35 @@ export const DEFAULT_TERMINAL_DISPLAY_SETTINGS: TerminalDisplaySettings = {
 /* ------------------------------------------------------ 保存形式との変換 */
 
 /**
- * 保存された文書から、実行時の設定へ。
+ * 保存された section から、実行時の設定へ。
  *
- * 文書として読めるかは Main が確かめており（store/terminalSettingsDocument.ts）、
- * ここが見るのは**値として扱ってよい範囲か**だけ。分担は Editor 設定（§12.4）・
- * Files 設定（§10.14）と同じ。
+ * key ごとに読める形かは Main が確かめており（store/settingsSections.ts）、
+ * **読めなかった key はここへ届く時点で無い**。ここが見るのは値として扱ってよい
+ * 範囲かだけで、分担は Editor 設定（§12.4）・Files 設定（§10.14）と同じ。
  */
-export function toTerminalDisplaySettings(
-  document: TerminalSettingsDocument | null
-): TerminalDisplaySettings {
-  const display = document?.display
-
-  if (display === undefined) {
-    return DEFAULT_TERMINAL_DISPLAY_SETTINGS
-  }
-
+export function toTerminalDisplaySettings(stored: StoredTerminalSettings): TerminalDisplaySettings {
   return {
-    fontSize: clampTerminalFontSize(display.fontSize),
-    scrollback: clampTerminalScrollback(display.scrollback)
+    fontSize: clampTerminalFontSize(stored.fontSize),
+    scrollback: clampTerminalScrollback(stored.scrollback)
   }
 }
 
 /**
- * 実行時の設定から、保存する文書へ。
+ * 実行時の設定から、保存する section へ。
  *
- * 保存形式を別の型にしてある理由は shared/settings/terminalSettings.ts。
+ * 保存形式を別の型にしてある理由は shared/settings/sections.ts。
  * 変換をこの1箇所に置いておくと、実行時モデルを変えたときに
  * 直すべき場所が必ずここに現れる。
  *
  * 書く前にも丸めるのは、**範囲の外の値をディスクへ残さない**ため
  * （読むときだけ丸めると、次に読む側が必ずいることを当てにすることになる）。
  */
-export function toTerminalSettingsDocument(
+export function toTerminalSettingsSection(
   settings: TerminalDisplaySettings
-): TerminalSettingsDocument {
+): StoredTerminalSettings {
   return {
-    schemaVersion: TERMINAL_SETTINGS_SCHEMA_VERSION,
-    display: {
-      fontSize: clampTerminalFontSize(settings.fontSize),
-      scrollback: clampTerminalScrollback(settings.scrollback)
-    }
+    fontSize: clampTerminalFontSize(settings.fontSize),
+    scrollback: clampTerminalScrollback(settings.scrollback)
   }
 }
 

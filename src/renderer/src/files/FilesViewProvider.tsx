@@ -1,23 +1,12 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type JSX,
-  type ReactNode
-} from 'react'
-import { fluvix } from '../api/fluvix'
+import { createContext, useCallback, useContext, useMemo, type JSX, type ReactNode } from 'react'
+import { useSettingsSection } from '../settings/useSettingsSection'
 import { type FilesLayoutPreference } from './filesLayoutMode'
 import {
   clampColumnWidth,
   DEFAULT_FILES_VIEW_SETTINGS,
   isSameFilesViewSettings,
-  toFilesSettingsDocument,
-  toFilesViewSettings,
-  type FilesViewSettings
+  toFilesSettingsSection,
+  toFilesViewSettings
 } from './filesSettings'
 
 /**
@@ -55,7 +44,11 @@ import {
  * （useFilesLayout / FileColumns）に置くと、パネルの数だけ保存の口ができる。
  *
  * 読むのは起動時に1度だけで、Workspace には依存しない（アプリの設定であって
- * プロジェクトの設定ではない。shared/settings/filesSettings.ts）。
+ * プロジェクトの設定ではない。shared/settings/sections.ts）。
+ *
+ * Session 4-3A で、読み書きの段取りそのものは settings/useSettingsSection.ts へ移した
+ * ── **正本がここであることは変わらない**（移したのは「いつ読み、いつ書くか」だけで、
+ * Editor / Terminal と一字一句同じだった部分にあたる）。
  */
 
 interface FilesViewContextValue {
@@ -70,70 +63,48 @@ interface FilesViewContextValue {
 const FilesViewContext = createContext<FilesViewContextValue | null>(null)
 
 export function FilesViewProvider({ children }: { readonly children: ReactNode }): JSX.Element {
-  const [settings, setSettings] = useState<FilesViewSettings>(DEFAULT_FILES_VIEW_SETTINGS)
-
   /*
-    起動時に1度だけ読む。読めなければ既定（パネルの形に任せる・208px）のまま。
+    起動時に1度だけ読み、変わったら書く。読めなければ既定（パネルの形に任せる・208px）
+    のまま。その段取りは settings/useSettingsSection.ts が持ち、ここが渡すのは
+    「どの section を、どう行き来させるか」だけ（Session 4-3A）。
 
     Renderer は保存先を知らない（settings ドメインの API はパスを取らない。
-    ARCHITECTURE.md §5）。useEditorSession.ts の Auto Save とまったく同じ形。
+    ARCHITECTURE.md §5）。
   */
-  const loadedRef = useRef(false)
+  const { value: settings, update: updateSettings } = useSettingsSection({
+    section: 'files',
+    initial: DEFAULT_FILES_VIEW_SETTINGS,
+    fromStored: toFilesViewSettings,
+    toStored: toFilesSettingsSection,
+    label: 'Files の見え方'
+  })
 
-  useEffect(() => {
-    let cancelled = false
+  const setPreference = useCallback(
+    (preference: FilesLayoutPreference): void => {
+      updateSettings((previous) => {
+        const next = { ...previous, preference }
 
-    void fluvix.settings.loadFiles().then((result) => {
-      if (cancelled) {
-        return
-      }
-
-      if (result.ok) {
-        setSettings(toFilesViewSettings(result.data.document))
-      } else {
-        console.warn('[settings] Files の見え方を読み込めませんでした。', result.error)
-      }
-
-      /*
-        読み込みが終わってから保存を許す。先に許すと、**既定値で上書きした後に
-        読み込みが届く**（起動のたびに選択が消える）。
-      */
-      loadedRef.current = true
-    })
-
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!loadedRef.current) {
-      return
-    }
-
-    void fluvix.settings.saveFiles({ document: toFilesSettingsDocument(settings) })
-  }, [settings])
-
-  const setPreference = useCallback((preference: FilesLayoutPreference): void => {
-    setSettings((previous) => {
-      const next = { ...previous, preference }
-
-      return isSameFilesViewSettings(previous, next) ? previous : next
-    })
-  }, [])
+        return isSameFilesViewSettings(previous, next) ? previous : next
+      })
+    },
+    [updateSettings]
+  )
 
   /*
     幅は**掴んで動かしている間ずっと**届く。同じ値になったら据え置くことで、
     1px 未満の動き（ポインタの座標は小数）で再描画と保存が走り続けないようにする
     ── 丸めと上下限は clampColumnWidth が持つ（filesSettings.ts）。
   */
-  const setColumnWidth = useCallback((width: number): void => {
-    setSettings((previous) => {
-      const next = { ...previous, columnWidth: clampColumnWidth(width) }
+  const setColumnWidth = useCallback(
+    (width: number): void => {
+      updateSettings((previous) => {
+        const next = { ...previous, columnWidth: clampColumnWidth(width) }
 
-      return isSameFilesViewSettings(previous, next) ? previous : next
-    })
-  }, [])
+        return isSameFilesViewSettings(previous, next) ? previous : next
+      })
+    },
+    [updateSettings]
+  )
 
   const value = useMemo(
     () => ({

@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { TERMINAL_SETTINGS_SCHEMA_VERSION } from '@shared/settings'
 import {
   TERMINAL_FONT_SIZE_DEFAULT,
   TERMINAL_FONT_SIZE_MAX,
@@ -12,11 +11,12 @@ import {
   DEFAULT_TERMINAL_DISPLAY_SETTINGS,
   isSameTerminalDisplaySettings,
   toTerminalDisplaySettings,
-  toTerminalSettingsDocument
+  toTerminalSettingsSection
 } from './terminalSettings'
 
 /**
- * Terminal の見え方の設定と、保存形式との行き来（Session 3-7-5）。
+ * Terminal の見え方の設定と、保存形式との行き来
+ * （Session 3-7-5 / 保存形式は Session 4-3A の `terminal` section）。
  *
  * 確かめたいのは2つ。
  *   - **壊れた設定ファイルで端末が使えなくならないこと**。読めない値は既定へ落ちる
@@ -25,68 +25,68 @@ import {
 
 describe('toTerminalDisplaySettings', () => {
   it('保存が無ければ既定', () => {
-    expect(toTerminalDisplaySettings(null)).toEqual(DEFAULT_TERMINAL_DISPLAY_SETTINGS)
+    expect(toTerminalDisplaySettings({})).toEqual(DEFAULT_TERMINAL_DISPLAY_SETTINGS)
   })
 
   it('保存された値をそのまま読む', () => {
-    expect(
-      toTerminalDisplaySettings({
-        schemaVersion: TERMINAL_SETTINGS_SCHEMA_VERSION,
-        display: { fontSize: 18, scrollback: 12_000 }
-      })
-    ).toEqual({ fontSize: 18, scrollback: 12_000 })
+    expect(toTerminalDisplaySettings({ fontSize: 18, scrollback: 12_000 })).toEqual({
+      fontSize: 18,
+      scrollback: 12_000
+    })
   })
 
   it('範囲の外の値は丸める', () => {
-    expect(
-      toTerminalDisplaySettings({
-        schemaVersion: TERMINAL_SETTINGS_SCHEMA_VERSION,
-        display: { fontSize: 999, scrollback: 10_000_000 }
-      })
-    ).toEqual({ fontSize: TERMINAL_FONT_SIZE_MAX, scrollback: TERMINAL_SCROLLBACK_MAX })
+    expect(toTerminalDisplaySettings({ fontSize: 999, scrollback: 10_000_000 })).toEqual({
+      fontSize: TERMINAL_FONT_SIZE_MAX,
+      scrollback: TERMINAL_SCROLLBACK_MAX
+    })
 
-    expect(
-      toTerminalDisplaySettings({
-        schemaVersion: TERMINAL_SETTINGS_SCHEMA_VERSION,
-        display: { fontSize: 0, scrollback: -1 }
-      })
-    ).toEqual({ fontSize: TERMINAL_FONT_SIZE_MIN, scrollback: TERMINAL_SCROLLBACK_MIN })
+    expect(toTerminalDisplaySettings({ fontSize: 0, scrollback: -1 })).toEqual({
+      fontSize: TERMINAL_FONT_SIZE_MIN,
+      scrollback: TERMINAL_SCROLLBACK_MIN
+    })
   })
 
   /*
     手で書き換えたファイルや、アプリのダウングレードで起きうる。**片方が読めなくても
     もう片方は活かす** ── 端末が開けなくなる理由にしない。
+
+    数として読めない値（NaN）は Main が落とすため、ここへは「無い」として届く
+    （store/settingsSections.ts）。どちらの経路でも結果は同じになる。
   */
-  it('数として読めない値だけが既定へ落ちる', () => {
-    expect(
-      toTerminalDisplaySettings({
-        schemaVersion: TERMINAL_SETTINGS_SCHEMA_VERSION,
-        display: { fontSize: Number.NaN, scrollback: 9000 }
-      })
-    ).toEqual({ fontSize: TERMINAL_FONT_SIZE_DEFAULT, scrollback: 9000 })
+  it('片方が無くても、もう片方は活きる', () => {
+    expect(toTerminalDisplaySettings({ scrollback: 9000 })).toEqual({
+      fontSize: TERMINAL_FONT_SIZE_DEFAULT,
+      scrollback: 9000
+    })
+
+    expect(toTerminalDisplaySettings({ fontSize: Number.NaN, scrollback: 9000 })).toEqual({
+      fontSize: TERMINAL_FONT_SIZE_DEFAULT,
+      scrollback: 9000
+    })
   })
 })
 
-describe('toTerminalSettingsDocument', () => {
-  it('今の schemaVersion で書く', () => {
-    expect(toTerminalSettingsDocument({ fontSize: 15, scrollback: 7000 })).toEqual({
-      schemaVersion: TERMINAL_SETTINGS_SCHEMA_VERSION,
-      display: { fontSize: 15, scrollback: 7000 }
+describe('toTerminalSettingsSection', () => {
+  it('値をそのまま保存形式へ写す', () => {
+    expect(toTerminalSettingsSection({ fontSize: 15, scrollback: 7000 })).toEqual({
+      fontSize: 15,
+      scrollback: 7000
     })
   })
 
   /* 書く前にも丸める（読む側が必ずいることを当てにしない）。 */
   it('範囲の外の値をディスクへ残さない', () => {
-    expect(toTerminalSettingsDocument({ fontSize: 999, scrollback: 0 }).display).toEqual({
+    expect(toTerminalSettingsSection({ fontSize: 999, scrollback: 0 })).toEqual({
       fontSize: TERMINAL_FONT_SIZE_MAX,
       scrollback: TERMINAL_SCROLLBACK_MIN
     })
   })
 
   it('読んで書いても変わらない', () => {
-    const document = toTerminalSettingsDocument({ fontSize: 20, scrollback: 20_000 })
+    const stored = toTerminalSettingsSection({ fontSize: 20, scrollback: 20_000 })
 
-    expect(toTerminalSettingsDocument(toTerminalDisplaySettings(document))).toEqual(document)
+    expect(toTerminalSettingsSection(toTerminalDisplaySettings(stored))).toEqual(stored)
   })
 })
 

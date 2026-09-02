@@ -1,81 +1,68 @@
-import type { EditorSettingsDocument } from '../../settings/editorSettings'
-import type { FilesSettingsDocument } from '../../settings/filesSettings'
-import type { TerminalSettingsDocument } from '../../settings/terminalSettings'
+import type { SettingsSections, SettingsSectionUpdate } from '../../settings/sections'
 
 /**
- * settings ドメインの IPC 契約（アプリの設定の永続化）。
+ * settings ドメインの IPC 契約（アプリの設定の永続化。Session 4-3A で2本へ集約）。
  *
- * ## 用途専用の API にする
+ * ## チャンネルは2本だけ
  *
- * `workspace:save-layout` と同じ形で、**保存先のパスもファイル名も Renderer からは
- * 指定できない**（main/store/editorSettings.ts が決める）。汎用の
- * 「JSON を1つ保存する」API を公開すると、Renderer を OS から切り離している前提が
- * そこで崩れる（ARCHITECTURE.md §5）。
+ * Session 3-5 〜 3-7-5 では、設定が増えるたびに読み書きの対を足していた
+ * （`settings:load-editor` / `settings:save-editor` … 計6本）。用途ごとに API を切る
+ * 方針（ARCHITECTURE.md §5）に従ったものだったが、**切れていたのは用途ではなく
+ * 同じ形の写しだった** ── 6本のどれもやることは「文書を1つ読む / 書く」で、
+ * 違うのは保存先のファイル名だけだった。
  *
- * そのため、別のものを保存したくなったらこのドメインに**チャンネルを足す**形にする。
- * Editor の設定（Auto Save）・Files の見え方（Session 3-6-8）・Terminal の見え方
- * （Session 3-7-5）はそれぞれ別のチャンネル・別のファイルで、Git の設定が要るように
- * なったら同じ形で増やす。**既にあるチャンネルへ相乗りさせない** ── 相乗りを1つ
- * 許した時点で「Editor の設定」という限定が消え、保存の失敗が無関係な機能へ波及する。
+ * 方針が本当に守りたかったのは「**Renderer が保存先を選べないこと**」であって、
+ * それは section を閉じた集合にすれば同じだけ守れる。そこで
+ *
+ *   settings:load          … 既知の section をすべて読む
+ *   settings:save-section  … 既知の section を1つ書く
+ *
+ * の2本にする。増えるのはチャンネルではなく `SettingsSectionId` になった。
+ *
+ * ## 任意の JSON は渡らない
+ *
+ * `settings:save-section` の要求は `SettingsSectionUpdate`（判別可能なユニオン）で、
+ * `section` が判別子・`value` の型はそれに従う。**「名前と JSON を渡すと保存される」
+ * 汎用 API にはしない** ── それを許すと、Renderer が好きな内容をディスクへ残せる
+ * 場所になり、Renderer を OS から切り離している前提がそこで崩れる。
+ *
+ * 型は入口にすぎないので、Main 側でも必ず確かめる（main/store/settingsSections.ts）。
+ * 既知でない section 名・object でない値・読めない key は保存に進まない。
+ *
+ * ## 保存は section 単位、読み込みは全部まとめて
+ *
+ * 書く側が section 単位なのは、**別の section を巻き込まないため**にほかならない
+ * （Terminal の文字を大きくしただけで Editor の設定を書き直さない）。
+ * 読む側をまとめてあるのは、読むのが起動時に1度だけで、section ごとに往復させても
+ * 得るものが無いため。
  *
  * ## 読めなければ既定で始める
  *
- * 保存が無い / 壊れている場合は `document: null` を返す。失敗にしないのは、
- * 設定が読めないことがアプリを使えない理由にならないため（レイアウトと同じ扱い）。
- * 知らない mode などの**中身の解釈**は Renderer 側（editor/autoSave.ts）が行い、
- * Main は「後で解釈できる形か」だけを見る。
+ * 保存が無い / 壊れている場合でも失敗にはせず、その分だけ空の section を返す。
+ * 設定が読めないことはアプリを使えない理由にならない（レイアウトと同じ扱い）。
+ * key が無い ＝ 既定であり、既定の値そのものを知っているのは Renderer だけ。
  */
 
-export interface LoadEditorSettingsResponse {
-  /** 保存済みの設定。未保存・破損・想定外の内容なら null（＝既定で始める）。 */
-  readonly document: EditorSettingsDocument | null
+export interface LoadSettingsResponse {
+  /**
+   * 既知の section すべて。**必ず全部の section が入る**（中身は空でありうる）。
+   *
+   * 知らない section・知らない key は入らない ── それらは Main が
+   * 書き戻すために持っているだけで、Renderer が解釈してよいものではない。
+   */
+  readonly sections: SettingsSections
 }
 
-export interface SaveEditorSettingsRequest {
-  readonly document: EditorSettingsDocument
-}
-
-export interface LoadFilesSettingsResponse {
-  /** 保存済みの設定。未保存・破損・想定外の内容なら null（＝既定で始める）。 */
-  readonly document: FilesSettingsDocument | null
-}
-
-export interface SaveFilesSettingsRequest {
-  readonly document: FilesSettingsDocument
-}
-
-export interface LoadTerminalSettingsResponse {
-  /** 保存済みの設定。未保存・破損・想定外の内容なら null（＝既定で始める）。 */
-  readonly document: TerminalSettingsDocument | null
-}
-
-export interface SaveTerminalSettingsRequest {
-  readonly document: TerminalSettingsDocument
-}
+/** 「どの section を、どんな値にするか」の1件。 */
+export type SaveSettingsSectionRequest = SettingsSectionUpdate
 
 export interface SettingsIpcContract {
-  'settings:load-editor': {
+  'settings:load': {
     request: void
-    response: LoadEditorSettingsResponse
+    response: LoadSettingsResponse
   }
-  'settings:save-editor': {
-    request: SaveEditorSettingsRequest
-    response: void
-  }
-  'settings:load-files': {
-    request: void
-    response: LoadFilesSettingsResponse
-  }
-  'settings:save-files': {
-    request: SaveFilesSettingsRequest
-    response: void
-  }
-  'settings:load-terminal': {
-    request: void
-    response: LoadTerminalSettingsResponse
-  }
-  'settings:save-terminal': {
-    request: SaveTerminalSettingsRequest
+  'settings:save-section': {
+    request: SaveSettingsSectionRequest
     response: void
   }
 }

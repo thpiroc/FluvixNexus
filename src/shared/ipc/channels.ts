@@ -73,12 +73,8 @@ export const IPC_CHANNELS = {
   GIT_RESOLVE_CONFLICT: 'git:resolve-conflict',
   GITHUB_GET_STATUS: 'github:get-status',
   GITHUB_PUBLISH: 'github:publish',
-  SETTINGS_LOAD_EDITOR: 'settings:load-editor',
-  SETTINGS_SAVE_EDITOR: 'settings:save-editor',
-  SETTINGS_LOAD_FILES: 'settings:load-files',
-  SETTINGS_SAVE_FILES: 'settings:save-files',
-  SETTINGS_LOAD_TERMINAL: 'settings:load-terminal',
-  SETTINGS_SAVE_TERMINAL: 'settings:save-terminal'
+  SETTINGS_LOAD: 'settings:load',
+  SETTINGS_SAVE_SECTION: 'settings:save-section'
 } as const satisfies Record<string, IpcChannel>
 
 /**

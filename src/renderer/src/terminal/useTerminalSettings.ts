@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { fluvix } from '../api/fluvix'
+import { useCallback, useMemo } from 'react'
+import { useSettingsSection } from '../settings/useSettingsSection'
 import {
   clampTerminalFontSize,
   clampTerminalScrollback,
@@ -10,7 +10,7 @@ import {
   DEFAULT_TERMINAL_DISPLAY_SETTINGS,
   isSameTerminalDisplaySettings,
   toTerminalDisplaySettings,
-  toTerminalSettingsDocument,
+  toTerminalSettingsSection,
   type TerminalDisplaySettings
 } from './terminalSettings'
 
@@ -32,19 +32,17 @@ import {
  * ```
  * terminalDisplay.ts     既定値・範囲・丸め方
  * terminalSettings.ts    保存形式との行き来
- * ここ                   いつ読み、いつ書くか
+ * ここ                   見え方の正本と、変えるための入口
+ * settings/useSettingsSection.ts  いつ読み、いつ書くか
  * useTerminalTabs.ts     読んだ値を画面（terminalScreenStore）へ配る
  * ```
  *
- * ## 読み込みが終わるまで保存を許さない
+ * ## 読み書きの段取りは持たない（Session 4-3A）
  *
- * 先に許すと、**既定値で上書きした後に読み込みが届く**（起動のたびに 13px へ戻る）。
- * Editor の Auto Save・Files の見え方とまったく同じ形で、この順序だけは崩さない。
- *
- * ## 読めなくても端末は開く
- *
- * 読み込みに失敗しても既定のまま先へ進む。設定はターミナルを使うための前提ではない
- * ── ここで止めると、壊れた JSON 1つでシェルが1本も立たなくなる。
+ * 「読み終わるまで書かない」「読めなくても既定で進む」は Editor の Auto Save・
+ * Files の見え方とまったく同じ形をしていた ── 写しが3つあるということは
+ * 間違え方も3通りあるということで、settings/useSettingsSection.ts へ集約した。
+ * ここに残るのは**値をどう変えるか**（下の `apply`）だけになる。
  */
 
 export interface TerminalSettingsController {
@@ -58,42 +56,18 @@ export interface TerminalSettingsController {
 }
 
 export function useTerminalSettings(): TerminalSettingsController {
-  const [settings, setSettings] = useState<TerminalDisplaySettings>(
-    DEFAULT_TERMINAL_DISPLAY_SETTINGS
-  )
-
-  /** 読み込みが終わったか（終わるまで書かない。このファイルの冒頭）。 */
-  const loadedRef = useRef(false)
-
-  useEffect(() => {
-    let cancelled = false
-
-    void fluvix.settings.loadTerminal().then((result) => {
-      if (cancelled) {
-        return
-      }
-
-      if (result.ok) {
-        setSettings(toTerminalDisplaySettings(result.data.document))
-      } else {
-        console.warn('[settings] Terminal の見え方を読み込めませんでした。', result.error)
-      }
-
-      loadedRef.current = true
-    })
-
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!loadedRef.current) {
-      return
-    }
-
-    void fluvix.settings.saveTerminal({ document: toTerminalSettingsDocument(settings) })
-  }, [settings])
+  /*
+    読み込みと保存の段取りは settings/useSettingsSection.ts が持つ（Session 4-3A）。
+    Editor / Files と一字一句同じだった部分で、**読み終わるまで書かない**順序も
+    そちらが守る。
+  */
+  const { value: settings, update } = useSettingsSection({
+    section: 'terminal',
+    initial: DEFAULT_TERMINAL_DISPLAY_SETTINGS,
+    fromStored: toTerminalDisplaySettings,
+    toStored: toTerminalSettingsSection,
+    label: 'Terminal の見え方'
+  })
 
   /*
     どの入口も「直前の値から次を作り、同じなら据え置く」形にする。
@@ -105,13 +79,13 @@ export function useTerminalSettings(): TerminalSettingsController {
   */
   const apply = useCallback(
     (change: (previous: TerminalDisplaySettings) => TerminalDisplaySettings): void => {
-      setSettings((previous) => {
+      update((previous) => {
         const next = change(previous)
 
         return isSameTerminalDisplaySettings(previous, next) ? previous : next
       })
     },
-    []
+    [update]
   )
 
   const changeFontSize = useCallback(

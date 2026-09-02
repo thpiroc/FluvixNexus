@@ -45,8 +45,22 @@ export type {
 
 export type { GitFailureReason, GitHead, GitRepositoryState } from './git'
 
-export { EDITOR_SETTINGS_DOCUMENT_MAX_BYTES, EDITOR_SETTINGS_SCHEMA_VERSION } from './settings'
-export type { EditorSettingsDocument, StoredAutoSaveSettings } from './settings'
+export {
+  SETTINGS_DOCUMENT_MAX_BYTES,
+  SETTINGS_SCHEMA_VERSION,
+  SETTINGS_SECTION_IDS,
+  emptySettingsSections,
+  isSettingsSectionId
+} from './settings'
+export type {
+  SettingsDocument,
+  SettingsSectionId,
+  SettingsSectionUpdate,
+  SettingsSections,
+  StoredEditorSettings,
+  StoredFilesSettings,
+  StoredTerminalSettings
+} from './settings'
 
 export {
   WORKSPACE_FOLDER_DOCUMENT_MAX_BYTES,
@@ -92,7 +106,7 @@ export type {
   IpcResponse,
   IpcResult,
   IpcSuccess,
-  LoadEditorSettingsResponse,
+  LoadSettingsResponse,
   LoadWorkspaceLayoutResponse,
   OpenWorkspaceFolderResponse,
   PingRequest,
@@ -104,7 +118,7 @@ export type {
   RenameWorkspaceEntryRequest,
   RenameWorkspaceEntryResponse,
   RespondWindowCloseRequest,
-  SaveEditorSettingsRequest,
+  SaveSettingsSectionRequest,
   SaveWorkspaceLayoutRequest,
   WindowCloseDecision,
   WindowCloseRequestedEvent,

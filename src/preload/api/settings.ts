@@ -7,12 +7,11 @@ import { invokeIpc } from '../ipc/invoke'
  *
  * workspace（レイアウト）と同じ形の薄いラッパ。**保存先のパスもファイル名も
  * 引数に無い**ことが要点で、Renderer から任意の場所へ書ける経路にはならない。
+ *
+ * Session 4-3A で6つのメソッドが2つになったが、Preload が薄いままなのは変わらない
+ * ── ここは IPC を包むだけで、section の中身も既定値も知らない。
  */
 export const settingsApi: SettingsApi = {
-  loadEditor: () => invokeIpc(IPC_CHANNELS.SETTINGS_LOAD_EDITOR),
-  saveEditor: (request) => invokeIpc(IPC_CHANNELS.SETTINGS_SAVE_EDITOR, request),
-  loadFiles: () => invokeIpc(IPC_CHANNELS.SETTINGS_LOAD_FILES),
-  saveFiles: (request) => invokeIpc(IPC_CHANNELS.SETTINGS_SAVE_FILES, request),
-  loadTerminal: () => invokeIpc(IPC_CHANNELS.SETTINGS_LOAD_TERMINAL),
-  saveTerminal: (request) => invokeIpc(IPC_CHANNELS.SETTINGS_SAVE_TERMINAL, request)
+  load: () => invokeIpc(IPC_CHANNELS.SETTINGS_LOAD),
+  saveSection: (request) => invokeIpc(IPC_CHANNELS.SETTINGS_SAVE_SECTION, request)
 }

@@ -55,7 +55,7 @@ src/
 │   │       ├── files.ts           Workspace 内の列挙・読み込み・作成 / 改名 / 削除（§9・§10）
 │   │       ├── terminal.ts        シェルの起動 / 入力 / 大きさ / 片付け（§13）
 │   │       ├── git.ts             リポジトリの検出・変更ファイルの一覧・Stage / Unstage・Commit・Push / Pull・ブランチ・差分 / 破棄（§14）
-│   │       └── settings.ts        アプリの設定の永続化（Editor は §12.4・Files は §10.14・Terminal は §13.4）
+│   │       └── settings.ts        アプリの設定の永続化（section 単位。§12.4）
 │   ├── workspaceFolder/      開いているプロジェクトフォルダ（§8）
 │   │   ├── currentWorkspaceFolder.ts  現在の Workspace の正本（開く・閉じる・復元・購読）
 │   │   └── folderPath.ts              パスの検証と表示名（Electron 非依存・テスト対象）
@@ -123,19 +123,20 @@ src/
 │   │   ├── ghRepositoryPublisher.ts   その GitHub CLI 実装
 │   │   └── publishRepository.ts       公開の噛み合わせ（作る → remote → 初回 Push）
 │   ├── store/
-│   │   ├── jsonStore.ts      userData 配下への JSON 永続化（共通部分）
+│   │   ├── jsonFile.ts       JSON ファイル1つの読み書き（Electron 非依存・原子的な差し替えと間引き）
+│   │   ├── jsonStore.ts      userData 配下への JSON 永続化（保存先の決定とログ）
 │   │   ├── windowBounds.ts   ウィンドウ状態の検証（Electron 非依存・テスト対象）
 │   │   ├── windowState.ts    ウィンドウ状態の保存と復元
 │   │   ├── workspaceLayoutDocument.ts  レイアウト文書の検証（Electron 非依存・テスト対象）
 │   │   ├── workspaceLayout.ts          レイアウトの保存先（userData 配下）
 │   │   ├── workspaceFolderDocument.ts  Workspace 文書の検証（Electron 非依存・テスト対象）
 │   │   ├── workspaceFolder.ts          Workspace の保存先（userData 配下）
-│   │   ├── editorSettingsDocument.ts   Editor 設定の検証（Electron 非依存・テスト対象）
-│   │   ├── editorSettings.ts           Editor 設定の保存先（userData 配下・§12.4）
-│   │   ├── filesSettingsDocument.ts    Files の見え方の検証（Electron 非依存・テスト対象）
-│   │   ├── filesSettings.ts            Files の見え方の保存先（userData 配下・§10.14）
-│   │   ├── terminalSettingsDocument.ts Terminal の見え方の検証（Electron 非依存・テスト対象）
-│   │   └── terminalSettings.ts         Terminal の見え方の保存先（userData 配下・§13.4）
+│   │   ├── settingsSections.ts         section / key ごとの検証（Electron 非依存・テスト対象・§12.4）
+│   │   ├── settingsMigration.ts        schemaVersion の移行の入口（同上・§12.4）
+│   │   ├── settingsDocument.ts         設定文書の検証と組み立て（同上・§12.4）
+│   │   ├── legacySettings.ts           旧 3 ファイルからの取り込み（同上・§12.4）
+│   │   ├── settingsStore.ts            settings.json の読み書き（フォルダを受け取る・テスト対象・§12.4）
+│   │   └── settings.ts                 設定の保存先（userData 配下・§12.4）
 │   ├── logger/index.ts       Main 側のログ出力
 │   └── platform/
 │       ├── index.ts          OS 依存判定の抽象化
@@ -249,6 +250,8 @@ src/
 │       │   ├── GitHubPublishForm.tsx    GitHub に公開する面（畳んである・§14.17）
 │       │   ├── GitIcons.tsx            Stage / Unstage / 差分 / 破棄 のアイコン（Files と同じ描き方・§14.11・§14.16）
 │       │   └── git.css
+│       ├── settings/           設定を読み書きする段取り（§12.4）
+│       │   └── useSettingsSection.ts  section 1つを持ち、いつ読み・いつ書くかを決める
 │       ├── ui/                 パネルをまたいで使う器
 │       │   ├── Popover.tsx          ボタンの真下に開く面（開閉と閉じ方だけを持つ）
 │       │   ├── DropdownMenu.tsx     その面に項目を並べたもの（上部バー / Terminal のタブ列）
@@ -269,7 +272,7 @@ src/
     ├── terminal/              セッションの型・上限・大きさの正規化・シェルの選択肢（§13）
     ├── git/                   リポジトリの状態・HEAD・失敗の分類・変更ファイルの一覧・操作の対象と結末・Commit メッセージの規則・ブランチの一覧と名前の規則・commit の履歴（§14）
     ├── github/                公開範囲・GitHub CLI の状態・repository 名の規則（§14.17）
-    └── settings/             アプリ設定の保存形式（Editor は §12.4・Files の見え方は §10.14）
+    └── settings/             アプリ設定の保存形式（section の閉じた集合と文書の形。§12.4）
 ```
 
 **「Workspace」という語は3つの意味に使われる**（DESIGN.md §3 の用語表）。実装での呼び分けは次のとおりで、ディレクトリ名・IPC ドメイン名もこれに従う。
@@ -369,18 +372,18 @@ Renderer            window.fluvix.files.onChanged(listener) → 解除の関数
 
 保存されるものはどれも `app.getPath('userData')`（Windows では `%APPDATA%/Fluvix Nexus`）配下の小さな JSON になる。インストール先にもプロジェクトフォルダにも書かない。
 
-| ファイル                 | 内容                                     | 検証（Electron 非依存）             | 保存を決める場所            |
-| ------------------------ | ---------------------------------------- | ----------------------------------- | --------------------------- |
-| `window-state.json`      | ウィンドウのサイズ・位置・最大化         | `store/windowBounds.ts`             | `store/windowState.ts`      |
-| `workspace-layout.json`  | Workspace レイアウト（§7.8）             | `store/workspaceLayoutDocument.ts`  | `store/workspaceLayout.ts`  |
-| `workspace-folder.json`  | 最後に開いていたフォルダ（§8.5）         | `store/workspaceFolderDocument.ts`  | `store/workspaceFolder.ts`  |
-| `editor-settings.json`   | Editor の設定（Auto Save。§12.4）        | `store/editorSettingsDocument.ts`   | `store/editorSettings.ts`   |
-| `files-settings.json`    | Files の見え方（表示方式・幅。§10.14）   | `store/filesSettingsDocument.ts`    | `store/filesSettings.ts`    |
-| `terminal-settings.json` | Terminal の見え方（大きさ・行数。§13.4） | `store/terminalSettingsDocument.ts` | `store/terminalSettings.ts` |
+| ファイル                | 内容                                | 検証（Electron 非依存）            | 保存を決める場所           |
+| ----------------------- | ----------------------------------- | ---------------------------------- | -------------------------- |
+| `window-state.json`     | ウィンドウのサイズ・位置・最大化    | `store/windowBounds.ts`            | `store/windowState.ts`     |
+| `workspace-layout.json` | Workspace レイアウト（§7.8）        | `store/workspaceLayoutDocument.ts` | `store/workspaceLayout.ts` |
+| `workspace-folder.json` | 最後に開いていたフォルダ（§8.5）    | `store/workspaceFolderDocument.ts` | `store/workspaceFolder.ts` |
+| `settings.json`         | アプリの設定（section ごと。§12.4） | `store/settingsDocument.ts`        | `store/settings.ts`        |
 
-**用途ごとに1ファイル・1チャンネルにする。** 設定が2つになった時点で `editor-settings.json` へ相乗りさせる選択肢はあったが、そうすると「Editor の設定」という限定が最初の相乗りで消え、片方の保存の失敗がもう片方を巻き込む（§5「永続化の API を用途ごとに切る」）。増やすのはファイルとチャンネルであって、既存の文書の項目ではない。3つめ（Terminal。Session 3-7-5）も同じ形をそのままなぞっており、**同じ形が3つ並んだ**ことでこれがこのアプリの設定の形になった。
+**設定は1ファイル・section 分けにする**（Session 4-3A）。Session 3-5 〜 3-7-5 では用途ごとに1ファイル・2チャンネルを足していた（`editor-settings.json` / `files-settings.json` / `terminal-settings.json`）。用途ごとに API を切る方針（§5）に従ったものだったが、3つ並んだ時点で分かったのは**増えていたのが設定ではなく同じ形の写しだった**ことにほかならない ── 方針が守りたかったのは「Renderer が保存先を選べないこと」で、それは section を閉じた集合にすれば同じだけ守れる。増えるのはファイルでもチャンネルでもなく `SettingsSectionId` になった。
 
-共通の作法は `jsonStore.ts` が持つ。
+旧3ファイルは `settings.json` が無いときだけ読み、取り込んだ後も**消さない**（戻れる道を残す。`store/legacySettings.ts`）。
+
+共通の作法は `jsonFile.ts`（ファイルの読み書き）と `jsonStore.ts`（保存先の決定）が持つ。
 
 - 保存は変化のたびに予約し、400ms 間引いてから一時ファイル経由で書き換える（書き込み中に落ちても既存ファイルが壊れない）。
 - **読み込み時は必ず検証する。** 保存ファイルは利用者が手で編集できる場所にあり、アプリのバージョン差で形も変わる。壊れていれば既定値へ戻す（ウィンドウなら標準サイズ、レイアウトなら Default プリセット）。
@@ -434,7 +437,7 @@ Renderer            window.fluvix.files.onChanged(listener) → 解除の関数
 
 Session 3-1 の Workspace（開いているフォルダ）もこの方針に従い、レイアウトの API に相乗りさせず `workspace-folder:*` として別に足した（保存先も別ファイル）。こちらは Renderer が保存内容を組み立てることすらせず、Main が自分で作って書く（§8.4）。
 
-Session 3-6-8 の Files の見え方（表示方式・カラムの幅）も同じで、既にある `settings:load-editor` / `settings:save-editor` に項目を足すのではなく `settings:load-files` / `settings:save-files` を足した（§10.14）。**同じドメインの中でも用途は切る** ── 「settings」は保存先の種類ではなく、保存を扱う場所の名前にすぎない。
+アプリの設定は Session 4-3A で `settings:load` / `settings:save-section` の2本に集約した（§12.4）。用途ごとにチャンネルを足していた形（`settings:load-editor` …）をやめたのは、**方針が守りたかったのが「Renderer が保存先を選べないこと」だったから**で、それは section を閉じた集合（`SettingsSectionId`）にすれば同じだけ守れる ── 保存要求は section 名で値の型が決まる判別可能なユニオンで、Main 側でも既知の section・既知の key かを必ず確かめる。**「名前と JSON を渡すと保存される」汎用 API にはしない**という線は、チャンネルの数ではなくここで守られている。
 
 ### CSP の運用
 
@@ -454,7 +457,7 @@ Session 3-6-8 の Files の見え方（表示方式・カラムの幅）も同�
 | Monaco Editor                      | **§11 / §12 として実装済み**（Worker・Model 管理・言語判定・保存・別名で保存・外部変更・Conflict・Auto Save）                                                                                     |
 | LSP                                | 言語 id は `editor/monaco/language.ts` が決める（§11.4）。サーバのプロセス起動は Main（`platform/` に OS 依存部分）、通知は §3.3 の経路                                                           |
 | Files                              | **§9 / §10 として実装済み**（列挙・読み込み・作成 / 改名 / 移動 / コピー / 削除・保存・外部変更の追従・検索）                                                                                     |
-| Settings（設定の永続化）           | **§12.4 として実装済み**（`settings:*` ドメイン）。設定を足すならチャンネルを増やす。画面は後続                                                                                                   |
+| Settings（設定の永続化）           | **§12.4 として実装済み**（`settings:load` / `settings:save-section`）。設定を足すなら section か key を増やす。画面は後続                                                                         |
 | Terminal                           | **§13 として実装済み**（node-pty は Main・作業ディレクトリは §8・出力は §3.3 の経路）。複数タブは同じ表に足す                                                                                     |
 | Git / GitHub パネル                | **§14 として実装済み**（git の実行基盤・検出・一覧・Stage / Unstage・Commit・Push / Pull・ブランチ・`.git` の監視・差分と破棄・`git init` と GitHub への公開）。増やすときは操作ごとに1本ずつ切る |
 | GitHub パネルの独立ウィンドウ化    | セキュリティガードは webContents 単位、IPC は送信元ウィンドウを `IpcContext` で受け取れる。イベントは全ウィンドウへ届く（§3.3）                                                                   |
@@ -1996,7 +1999,7 @@ ARIA は両方とも `tree`。カラムでは列の位置が階層なので `ari
 | 項目                      | 現状                                                             |
 | ------------------------- | ---------------------------------------------------------------- |
 | カラムの幅の変更          | **Session 3-6-8 で実装**（§10.14）。列ごとではなく1つの幅        |
-| 表示方式の保存            | **Session 3-6-8 で実装**（§10.14）。`files-settings.json`        |
+| 表示方式の保存            | **Session 3-6-8 で実装**（§10.14）。保存先は §12.4               |
 | プレビュー列（Finder 風） | 一番右にファイルの中身を出す列は持たない（それは Editor の仕事） |
 | カラムでの複数選択        | ツリーと同じく単一のまま                                         |
 
@@ -2008,7 +2011,7 @@ Session 3-6-1 〜 3-6-7 で足した機能そのものは変えず、**使い続
 
 | 埋めたもの                 | Session 3-6-7 までの状態                       | どこに書いたか                              |
 | -------------------------- | ---------------------------------------------- | ------------------------------------------- |
-| 見え方が次の起動に残らない | 選んだ表示方式はアプリを閉じると忘れる         | `files-settings.json` と `settings:*-files` |
+| 見え方が次の起動に残らない | 選んだ表示方式はアプリを閉じると忘れる         | `settings.json` の `files` section（§12.4） |
 | カラムの幅が変えられない   | 208px 固定                                     | 同じ文書の `columnWidth`                    |
 | 画面の外へ運べない         | 行き先が見えていないと、離して掴み直すしかない | `filesAutoScroll.ts` と `useFileDrag.ts`    |
 
@@ -2017,14 +2020,15 @@ Session 3-6-1 〜 3-6-7 で足した機能そのものは変えず、**使い続
 保存するのは**表示方式（auto / tree / columns）とカラムの幅**の2つだけで、Workspace ごとには持たない。開いているフォルダを切り替えても、選んだ見え方は変わらないのが正しい ── 選択も展開も Workspace と一緒に捨てられるが（§9.6）、見え方はそれらと別のものにあたる（§10.13「選んだことはパネルより長く生きる」の延長で、今回それが**アプリの起動より長く**なった）。
 
 ```
-FilesViewProvider.tsx           選んだ表示方式と幅の正本。ここだけが読み書きする
+FilesViewProvider.tsx           選んだ表示方式と幅の正本
 files/filesSettings.ts          保存形式との変換・幅の上下限（React も IPC も知らない）
-shared/settings/filesSettings.ts  ディスクに置く形
-main/store/filesSettingsDocument.ts  形として読めるかの検証
-main/store/filesSettings.ts     保存先（files-settings.json）
+settings/useSettingsSection.ts  いつ読み、いつ書くか（Session 4-3A で3箇所から集約）
+shared/settings/sections.ts     ディスクに置く形（`files` section）
+main/store/settingsSections.ts  key ごとに読める形かの検証
+main/store/settings.ts          保存先（settings.json）
 ```
 
-読み書きを Provider に置いたのは、**そこが見え方の正本だから**にほかならない。使う側（`useFilesLayout` / `FileColumns`）に置くと、パネルの数だけ保存の口ができる。読むのは起動時に1度だけで、**読み終わるまで保存を許さない**（先に許すと既定値で上書きした後に読み込みが届き、起動のたびに選択が消える。§12.4 の Auto Save と同じ形）。
+正本を Provider に置いたのは、**そこが見え方の持ち主だから**にほかならない。使う側（`useFilesLayout` / `FileColumns`）に置くと、パネルの数だけ保存の口ができる。読むのは起動時に1度だけで、**読み終わるまで保存を許さない**（先に許すと既定値で上書きした後に読み込みが届き、起動のたびに選択が消える）── その段取りは Session 4-3A で `useSettingsSection.ts` へ移した（§12.4）。Editor / Terminal と一字一句同じだった部分にあたる。
 
 #### 「選んでいない」も保存する
 
@@ -2451,33 +2455,68 @@ missing（ディスクから消えた）            …  missing
 
 #### 保存先
 
+Session 4-3A で、設定の保存先は `settings.json` 1つになった。
+
 ```
-useEditorSession（設定の持ち主）
-   ↓  変わった / 起動した
-window.fluvix.settings          Preload の薄いラッパ
-   ↓  IPC（settings:load-editor / settings:save-editor）
-main/ipc/handlers/settings.ts   文書として妥当かを検証
+useEditorSession / FilesViewProvider / useTerminalSettings   値の持ち主
    ↓
-main/store/editorSettings.ts    %APPDATA%/Fluvix Nexus/editor-settings.json
+renderer/src/settings/useSettingsSection.ts   いつ読み、いつ書くか（3箇所で共通）
+   ↓
+window.fluvix.settings          Preload の薄いラッパ
+   ↓  IPC（settings:load / settings:save-section）
+main/ipc/handlers/settings.ts   既知の section・既知の key かを検証
+   ↓
+main/store/settings.ts          %APPDATA%/Fluvix Nexus/settings.json
 ```
 
-用途ごとに API を切る方針（§5）に従い、レイアウト・Workspace とは別ファイル・別チャンネルにしてある。**Renderer は保存先を知らない**（パスもファイル名も引数に無い）。検証の分担もレイアウト（§7.8）と同じで、Main は「後で解釈できる形か」まで、意味（mode として成立するか）は Renderer が決める。
+```json
+{
+  "schemaVersion": 1,
+  "sections": {
+    "editor": { "autoSaveMode": "afterDelay", "autoSaveDelayMs": 1000 },
+    "files": { "viewMode": "columns", "columnWidth": 240 },
+    "terminal": { "fontSize": 15, "scrollback": 5000 }
+  }
+}
+```
 
-**読み込みが終わるまで保存を許さない。** 先に許すと、既定値で上書きした後に読み込みが届き、起動のたびに設定が OFF へ戻る。
+**Renderer は保存先を知らない**（パスもファイル名も引数に無い）。加えて**書ける先は閉じた集合**で、`settings:save-section` の要求は section 名で値の型が決まる判別可能なユニオンになる ── 任意の名前・任意の JSON を渡す口は無い（§5）。検証の分担はレイアウト（§7.8）と同じで、Main は「後で解釈できる形か」まで、意味（mode として成立するか・上下限）は Renderer が決める。
 
-Session 3-6-8 で足した Files の見え方（`settings:load-files` / `settings:save-files`）も、Session 3-7-5 で足した Terminal の見え方（`settings:load-terminal` / `settings:save-terminal`）も、この形をそのまま写している ── **同じチャンネルへ項目を足していない**のが要点で、理由は §10.14 / §13.4。
+**読み込みが終わるまで保存を許さない。** 先に許すと、既定値で上書きした後に読み込みが届き、起動のたびに設定が既定へ戻る。Session 3-5 / 3-6-8 / 3-7-5 では3箇所に同じ写しがあり、**間違え方も3通りあった** ── `useSettingsSection.ts` にまとめてある。
 
-3つとも同じ形になったことで、設定を1つ増やす手順も決まった形になる。
+#### 壊れていても、壊れたところだけを捨てる
 
-| 足すもの                         | 置き場所                                             |
-| -------------------------------- | ---------------------------------------------------- |
-| ディスクに置く形（型と上限だけ） | `shared/settings/<用途>Settings.ts`                  |
-| 形として読めるかの検証           | `main/store/<用途>SettingsDocument.ts`（テスト対象） |
-| 保存先（`<用途>-settings.json`） | `main/store/<用途>Settings.ts`                       |
-| 読み書きの対                     | `settings:load-<用途>` / `settings:save-<用途>`      |
-| 値の意味（既定・範囲・丸め方）   | その機能の Renderer 側                               |
+| 壊れている場所          | 失われるもの           |
+| ----------------------- | ---------------------- |
+| 文書全体（JSON でない） | すべて（既定で始まる） |
+| `schemaVersion`         | すべて                 |
+| `sections`              | すべて                 |
+| 1つの section           | その section だけ      |
+| 1つの key               | その key だけ          |
 
-**アプリ全体の Settings 画面はまだ無い**（DESIGN.md §9）。値の持ち主はどれも機能の側にあるので、画面を作るときに移るのは「並べる場所」だけになる。
+旧形式は入れ子（`{ autoSave: { mode, delayMs } }`）で all-or-nothing だったため、`delayMs` が1つ壊れているだけで Editor の設定が丸ごと既定へ戻っていた。section の中を**平らにした**のはこのためで、読む側が key ごとに独立して落とせる（`store/settingsSections.ts`）。
+
+**知らない section・知らない key は捨てずに書き戻す。** 新しい版で足した設定が、古い版で一度起動しただけで消えるのを避けるため。逆に **Renderer から届いた知らない key は保存しない** ── ディスクにある未知の値は新しい版が書いたものでありうるが、Renderer から届く未知の値は契約に無い値でしかない。
+
+#### 版と、旧ファイルからの移行
+
+`schemaVersion` は「現在 / 古い / 新しすぎる / 読めない」を区別する（`classifySettingsSchemaVersion`）。古い版は `store/settingsMigration.ts` の入口を通す（**段はまだ1つも無い**。現在の版が 1 で、それより古い版が存在しないため）。新しすぎる版は既知の key だけを読み、知らない内容を書き戻す ── これは「**既にある key の意味は版をまたいで変えない。変えるときは新しい key 名にする**」という約束の上に成り立っている。版を上げるのは構造を変えるときだけ。
+
+旧3ファイル（`editor-settings.json` / `files-settings.json` / `terminal-settings.json`）は **`settings.json` が無いときだけ**読み、読める設定だけを取り込んでその場で1度書く（`store/legacySettings.ts`）。1つが壊れていても他は移り、key 単位でも同じ。**旧ファイルは消さない**（戻れる道を残す）。壊れた `settings.json` があるときは旧ファイルへ戻らない ── 壊れているのは「この形式のファイルが既にある」ということで、そこへ古い内容を混ぜると利用者が最後に選んだ設定より古いものが復活しうる。
+
+#### 設定を1つ増やす手順
+
+| 足すもの                       | 置き場所                                                |
+| ------------------------------ | ------------------------------------------------------- |
+| section の名前（増やすとき）   | `shared/settings/sections.ts` の `SETTINGS_SECTION_IDS` |
+| ディスクに置く形（key の型）   | `shared/settings/sections.ts` の `Stored*Settings`      |
+| key ごとの検証                 | `main/store/settingsSections.ts` の表（テスト対象）     |
+| 値の意味（既定・範囲・丸め方） | その機能の Renderer 側                                  |
+| 読み書きの段取り               | `renderer/src/settings/useSettingsSection.ts`（共通）   |
+
+`appearance`（Theme）・`git`・`workspace` などはこの形で入る。**中身が決まっていない section を先に作らない** ── 空の section は「まだ何も無い場所」をディスクに残すだけになる。
+
+**アプリ全体の Settings 画面はまだ無い**（DESIGN.md §9）。値の持ち主はどれも機能の側にあるので、画面を作るときに移るのは「並べる場所」だけになる。設定の変更を別ウィンドウへ知らせる仕組み（`settings:changed`）も無い ── 今は単一の Renderer が Context で同期できており、独立ウィンドウが要るようになった時点で考える。
 
 ### 12.5 文字コード
 
@@ -2838,7 +2877,7 @@ Main へ送るのはさらに絞る ── 文字数に直して**前回と同�
 
 **shared ではなく Renderer に置く。** 大きさ（桁数・行数）は Main と Renderer が同じ答えを見る必要があるため shared にあるが（§13.4）、文字の大きさとスクロールバックは **IPC を1度も渡らない** ── 前者はピクセルの話で、Main が受け取るのは桁数と行数だけ。後者は Renderer 側のメモリの話にほかならない。Main が知る必要の無いものを shared へ置くと「shared にあるのだから Main も見てよい」が後から生える。
 
-保存形式（`shared/settings/terminalSettings.ts`）だけが shared にあるのは、それが**ディスクに置く形**であって見え方の意味ではないため（Editor / Files と同じ扱い。§12.4）。Main はその形しか見ず、8〜32px に収まっているかは見ない。
+保存形式（`shared/settings/sections.ts` の `terminal` section）だけが shared にあるのは、それが**ディスクに置く形**であって見え方の意味ではないため（Editor / Files と同じ扱い。§12.4）。Main はその形しか見ず、8〜32px に収まっているかは見ない。
 
 **文字の大きさもスクロールバックも全部のタブで同じ。** タブごとに持つと、切り替えるたびに見え方が変わることになる。ストア（`terminalScreenStore.ts`）が今の値を覚えていて、**後から作られる画面にも同じ値が渡る** ── 新しく開いたタブだけ既定のまま、が起きない。
 
@@ -2855,12 +2894,13 @@ xterm 側の窓口は `attachCustomKeyEventHandler`（false を返すとシェ�
 ```
 terminalDisplay.ts        既定値・範囲・丸め方（React も IPC も知らない）
 terminalSettings.ts       実行時の設定 ↔ 保存形式の変換（同上）
-useTerminalSettings.ts    いつ読み、いつ書くか
+useTerminalSettings.ts    見え方の正本と、変えるための入口
+settings/useSettingsSection.ts  いつ読み、いつ書くか（Session 4-3A で3箇所から集約）
 useTerminalTabs.ts        読んだ値を画面（terminalScreenStore）へ配る
 TerminalSettingsMenu.tsx  変えるための入口（Terminal のタブ列の ⚙）
-shared/settings/terminalSettings.ts  ディスクに置く形
-main/store/terminalSettingsDocument.ts  形として読めるかの検証
-main/store/terminalSettings.ts       保存先（terminal-settings.json）
+shared/settings/sections.ts     ディスクに置く形（`terminal` section）
+main/store/settingsSections.ts  key ごとに読める形かの検証
+main/store/settings.ts          保存先（settings.json）
 ```
 
 - **器（Provider）を増やしていない。** Files は見え方のために `FilesViewProvider` を足したが、それは選択がパネルの中にあり、パネルを動かすと消えたためだった（§10.14）。Terminal の持ち主（`TerminalProvider`）は Session 3-7-1 の時点で Workspace Shell の外側にあるので、そこへ載せれば同じ寿命が得られる ── 寿命の同じ Provider を2つ並べない

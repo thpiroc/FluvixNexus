@@ -48,9 +48,10 @@ Vitest を使い、**Electron に依存しない純粋なロジック**だけを
 - `src/main/store/windowBounds.test.ts` — 保存値の検証、画面外判定
 - `src/main/store/workspaceLayoutDocument.test.ts` — レイアウト文書のエンベロープ検証（Main が見る範囲）
 - `src/main/store/workspaceFolderDocument.test.ts` — Workspace 文書の検証（Main が中身まで見る範囲）
-- `src/main/store/editorSettingsDocument.test.ts` — **Editor 設定文書の検証**（Main が見る範囲。意味は見ない）
-- `src/main/store/filesSettingsDocument.test.ts` — **Files の見え方の文書の検証**（同上。知らない mode も桁外れの幅も形として通し、意味は Renderer が決める）
-- `src/main/store/terminalSettingsDocument.test.ts` — **Terminal の見え方の文書の検証**（同上。範囲の外の px も行数も形として通し、丸めるのは Renderer）
+- `src/main/store/settingsSections.test.ts` — **設定の section / key の検証**（Main が見る範囲。意味は見ない ── 知らない mode も範囲外の数も形として通し、**1つの key が壊れても他は残ること**・知らない key を書き戻すために持つこと・**Renderer からは既知の section と既知の key しか保存できないこと**）
+- `src/main/store/settingsDocument.test.ts` — **設定文書の検証**（落とす単位が文書 / section / key の段階になっていること・`schemaVersion` の4通りの区別・**新しすぎる版でも既知の設定を読み、知らない内容を書き戻すこと**・migration の入口が働くこと・1つの section を保存しても他を巻き込まないこと）
+- `src/main/store/legacySettings.test.ts` — **旧3ファイルからの取り込み**（読める設定だけが移ること・1つが壊れていても他は移ること・移すものが無ければ移行と数えないこと）
+- `src/main/store/settingsStore.test.ts` — **`settings.json` の読み書きと移行**（実ディスク。`settings.json` が無いときだけ旧3ファイルを読むこと・移行が一度きりで終わること・`.tmp` を残さないこと・一部が壊れていても読める section が生き残ること）
 - `src/main/workspaceFolder/folderPath.test.ts` — rootPath の正規化・受け付けない値・表示名の導出
 - `src/main/files/workspacePath.test.ts` — **Workspace 境界の検証**（`..` / 絶対パス / ドライブ相対 / `:` / NUL / 長さ / 前方一致 / **利用者が指した名前を変形しないこと**）
 - `src/main/files/mutateWorkspaceEntry.test.ts` — **作成 / 改名 / 削除**（実在するものを操作できるか・境界・ジャンクション。下記のとおりここだけ実ディスクを使う）
@@ -124,11 +125,11 @@ Vitest を使い、**Electron に依存しない純粋なロジック**だけを
 
 Files の検証（`main/files/workspacePath.ts`）は Electron にも fs にも依存しない形に切り出してある。symlink による脱出だけはパス文字列では判断できないため、realpath を取ってから同じ関数へ通す側（`readWorkspaceDirectory.ts` / `readWorkspaceFile.ts` / `mutateWorkspaceEntry.ts`）が担う。
 
-#### 例外: 実ディスクを触るテスト（Session 3-5.1 / 3-6-2 / 3-6-4 / 3-6-5 / 3-8-2 / 3-8-3 / 3-8-4 / 3-8-5 / 3-8-6 / 3-8-9 / 3-8-10 / 3-8-11 / 3-8-12 / 3-8-13 / 3-8-14 / 3-8-15 / 3-8-16 / 3-8-17 / 3-8-18 / 3-8-19 / 3-8-20 / 3-8-22A）
+#### 例外: 実ディスクを触るテスト（Session 3-5.1 / 3-6-2 / 3-6-4 / 3-6-5 / 3-8-2 / 3-8-3 / 3-8-4 / 3-8-5 / 3-8-6 / 3-8-9 / 3-8-10 / 3-8-11 / 3-8-12 / 3-8-13 / 3-8-14 / 3-8-15 / 3-8-16 / 3-8-17 / 3-8-18 / 3-8-19 / 3-8-20 / 3-8-22A / 4-3A）
 
-「純粋なロジックだけを対象にする」方針に対する例外が23ある ── `mutateWorkspaceEntry.test.ts`（作成 / 改名 / 移動 / 削除）、`copyTree.test.ts`（再帰コピー）、`searchWorkspaceFiles.test.ts`（Workspace 全体の走査）、`searchWorkspaceFileContents.test.ts`（全文検索の走査）、`gitStatusRepository.test.ts`（本物の git の出力）、`gitStageRepository.test.ts`（本物の git への Stage / Unstage）、`gitCommitRepository.test.ts`（本物の git への Commit）、`gitSyncRepository.test.ts`（本物の git への Push / Pull）、`gitBranchRepository.test.ts`（本物の git へのブランチ操作）、`gitDiffRepository.test.ts`（本物の git から読む差分）、`gitDiscardRepository.test.ts`（本物の git に対する破棄）、`gitInitRepository.test.ts`（本物の git での初期化）、`publishRepository.test.ts`（本物の git での公開の一連）、`gitHistoryRepository.test.ts`（本物の git から読む履歴）、`gitCommitDetailRepository.test.ts`（本物の git から読む commit 1件の中身）、`gitStashRepository.test.ts`（本物の git に対する退避）、`gitRemoteRepository.test.ts`（本物の git に対する remote の管理）、`gitConflictRepository.test.ts`（本物の git に対する競合の解決）、`gitRemoteBranchRepository.test.ts`（本物の git での remote の枝からの作成）、`gitMergeRepository.test.ts`（本物の git に対するマージの開始 / 中止）、`gitConflictDiffRepository.test.ts`（本物の git から読む競合の ours / theirs）、`gitInProgressRepository.test.ts`（本物の git での途中の操作の検出と禁止。Session 3-8-22A）、`gitFetchRepository.test.ts`（本物の git への fetch。同）。確かめたいのがパスの文字列処理ではなく **「実際にそこに在るものを操作できるか」** だからで、モックしたファイルシステムでは何も確かめられない ── 判定と実体がずれることこそが Session 3-5.1 で直した不具合の中身だった。`aux.ts` や末尾に空白を持つ名前を Windows がどう扱うかは実装ではなく OS が決めるため、写しを相手にするとその答えを自分で書くことになる。
+「純粋なロジックだけを対象にする」方針に対する例外が24ある ── `mutateWorkspaceEntry.test.ts`（作成 / 改名 / 移動 / 削除）、`copyTree.test.ts`（再帰コピー）、`searchWorkspaceFiles.test.ts`（Workspace 全体の走査）、`searchWorkspaceFileContents.test.ts`（全文検索の走査）、`gitStatusRepository.test.ts`（本物の git の出力）、`gitStageRepository.test.ts`（本物の git への Stage / Unstage）、`gitCommitRepository.test.ts`（本物の git への Commit）、`gitSyncRepository.test.ts`（本物の git への Push / Pull）、`gitBranchRepository.test.ts`（本物の git へのブランチ操作）、`gitDiffRepository.test.ts`（本物の git から読む差分）、`gitDiscardRepository.test.ts`（本物の git に対する破棄）、`gitInitRepository.test.ts`（本物の git での初期化）、`publishRepository.test.ts`（本物の git での公開の一連）、`gitHistoryRepository.test.ts`（本物の git から読む履歴）、`gitCommitDetailRepository.test.ts`（本物の git から読む commit 1件の中身）、`gitStashRepository.test.ts`（本物の git に対する退避）、`gitRemoteRepository.test.ts`（本物の git に対する remote の管理）、`gitConflictRepository.test.ts`（本物の git に対する競合の解決）、`gitRemoteBranchRepository.test.ts`（本物の git での remote の枝からの作成）、`gitMergeRepository.test.ts`（本物の git に対するマージの開始 / 中止）、`gitConflictDiffRepository.test.ts`（本物の git から読む競合の ours / theirs）、`gitInProgressRepository.test.ts`（本物の git での途中の操作の検出と禁止。Session 3-8-22A）、`gitFetchRepository.test.ts`（本物の git への fetch。同）、`settingsStore.test.ts`（`settings.json` の読み書きと、旧3ファイルからの取り込み。Session 4-3A）。確かめたいのがパスの文字列処理ではなく **「実際にそこに在るものを操作できるか」** だからで、モックしたファイルシステムでは何も確かめられない ── 判定と実体がずれることこそが Session 3-5.1 で直した不具合の中身だった。`aux.ts` や末尾に空白を持つ名前を Windows がどう扱うかは実装ではなく OS が決めるため、写しを相手にするとその答えを自分で書くことになる。
 
-どれも一時フォルダを Workspace root に見立てる。走査（検索）のテストでは、深い階層・大量ファイル・除外フォルダ・**外を指すジャンクション**を実際に作って、リンクの中へ潜っていないことを「指し先の中身が結果に出ていないこと」で確かめる ── 「潜らないつもり」を実物で確かめるため。上限（件数 / 深さ / 走査数）は引数で差し替えて小さくし、時間の上限だけは `now` を差し替えて固定する（実時間に依存させると、速いマシンでは通り遅いマシンでは落ちるテストになる）。
+どれも一時フォルダを Workspace root に見立てる（`settingsStore.test.ts` だけは userData に見立てる ── 保存先をフォルダで受け取る形にしてあるのは、実際の `%APPDATA%` に触れずに確かめられるようにするため）。走査（検索）のテストでは、深い階層・大量ファイル・除外フォルダ・**外を指すジャンクション**を実際に作って、リンクの中へ潜っていないことを「指し先の中身が結果に出ていないこと」で確かめる ── 「潜らないつもり」を実物で確かめるため。上限（件数 / 深さ / 走査数）は引数で差し替えて小さくし、時間の上限だけは `now` を差し替えて固定する（実時間に依存させると、速いマシンでは通り遅いマシンでは落ちるテストになる）。
 
 全文検索（Session 3-6-5）でも同じ形を採る。こちらで実ディスクでしか確かめられないのは、**バイナリを読み飛ばすこと**・**大きすぎるファイルを開かないこと**・**Workspace の外を指すリンクの中身が preview に載らないこと**の3つ ── どれも「読んだ結果」で決まるため、写しの fs では何も言えない。外に置いたファイルの中身（`needle in the outside file`）が結果に現れないことを、実際にリンクを張って確かめている。
 
@@ -1484,6 +1485,34 @@ await app.evaluate(({ dialog }, target) => {
 - BOM / CRLF / LF が別名で保存でも変わらないこと、保存先の拡張子に言語が追従すること
 - Renderer から直に `window.fluvix.files.saveAs` を叩き、絶対パス・`..`・root 自身の助言と、文字列でない中身が断られること（断った要求で何も作られないこと）
 - Files / Terminal / Git への回帰が無いこと、console エラー / CSP 違反が無いこと
+
+### Session 4-3A（設定の保存基盤）
+
+**production build 版 38項目、全項目 PASS。** 確かめたいのが「アプリを閉じて開き直しても残るか」「壊れたファイルから立ち上がれるか」なので、**5つの状態を作っては起動する**流れを1本のスクリプトで通している（`_electron.launch` は `app.close()` の後にもう一度呼べる）。
+
+| 起動前に作る状態                         | 確かめたこと                                                                                   |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| 設定ファイルが1つも無い                  | 既定（OFF / パネルの形に任せる / 13px・5000行）で始まること、`.tmp` を残さないこと             |
+| 旧3ファイルだけがある                    | 3つとも取り込まれること、`settings.json` が section 形式でできること、旧ファイルを消さないこと |
+| 何も無いところから UI で変える           | 3つの section が1つのファイルに揃うこと、**開き直して復元される**こと                          |
+| `settings.json` の一部が壊れている       | 壊れた section だけが既定へ落ち、読める section と key は生き残ること                          |
+| `settings.json` が JSON として壊れている | 落ちずに既定で始まり、次の保存で正しい形に書き直されること                                     |
+
+- Auto Save: `afterDelay` を選んで Monaco に打ち込むと、待ち時間の後に**実ファイルの中身が変わる**こと（設定が保存されるだけでなく、その設定どおりに動くこと）
+- Terminal: シェルが起動して打てること（打ったコマンドの完了は Workspace の外に置いた marker ファイルで待つ）、**`.xterm-rows` の文字の大きさが設定どおり**であること
+- IPC の検証: 知らない section（`appearance`）・読めない値（`fontSize: 'big'`）・object でない要求が `INVALID_REQUEST` で断られること、**知らない key（`languageServerPath`）は要求ごと通っても保存されず、ディスクにも残らない**こと、`settings:load` が既知の3つの section だけを返すこと
+- 知らない section（`appearance`）を手で書いておくと、**この版が保存した後も消えずに残る**こと（書き戻し）
+- セキュリティ: `window.require` / `window.process` / `window.electron` / `window.Buffer` がすべて `undefined`、`window.fluvix.settings` の口が `load` / `saveSection` の2つだけであること
+- 回帰: Files（ツリー / カラム）・Editor（開く・保存）・Terminal・Git パネル、console エラー / pageerror なし、CSP 違反なし
+
+注意点:
+
+- **Terminal の文字の大きさは `.xterm-rows` で測る。** `.xterm` と `.xterm-screen` はアプリ素の 13px のままで、設定を変えても動かない ── そちらで測ると常に 13px が返り、アプリが正しくても FAIL に見える
+- **Terminal を開く確認は最後に回す。** 走っているシェルがあると `app.close()` が返らないので、その回だけは `taskkill /F /T` で終える（確認そのものは終わっている）
+- **ファイル行のクリックは押し直せるようにする。** 描画の途中で押すと当たらず、Editor の工具列（`[data-testid="editor-autosave"]`）がいつまでも出ない。開くまで数回押し直すと安定する
+- **確認の前後で `settings.json` と旧3ファイルを消す。** 前回の値から始まると「既定で始まる」を確かめられず、残したままだと利用者の環境に確認の副産物が残る
+
+**初回起動でも `settings.json` はできる。** Main は移すものが無ければ何も書かないが（`store/settingsStore.ts`）、Renderer は読み込みが終わった時点で既定値を1度保存する ── 中身は既定と同じで、Session 3-5 〜 3-7-5 の3つの hook も同じ形だった（4-3A で変わった挙動ではない）。
 
 ---
 

@@ -47,11 +47,7 @@ import type {
 } from './ipc/contracts/git'
 import type { PublishGitHubRepositoryRequest } from './ipc/contracts/github'
 import type { IpcEventListener, IpcEventUnsubscribe } from './ipc/event'
-import type {
-  SaveEditorSettingsRequest,
-  SaveFilesSettingsRequest,
-  SaveTerminalSettingsRequest
-} from './ipc/contracts/settings'
+import type { SaveSettingsSectionRequest } from './ipc/contracts/settings'
 import type { PingRequest } from './ipc/contracts/system'
 import type {
   CreateTerminalSessionRequest,
@@ -121,31 +117,23 @@ export interface WindowApi {
 }
 
 /**
- * アプリの設定の永続化 API。
+ * アプリの設定の永続化 API（Session 4-3A）。
  *
  * Workspace レイアウトと同じ形で、**保存先のパスもファイル名も Renderer からは
- * 指定できない**。用途ごとにチャンネルを切る方針（ARCHITECTURE.md §5）に従い、
- * Editor の設定（Auto Save）・Files の見え方（表示方式・カラムの幅。Session 3-6-8）・
- * Terminal の見え方（文字の大きさ・さかのぼれる行数。Session 3-7-5）は
- * 別々のチャンネル・別々のファイルになる。
+ * 指定できない**。加えて、書ける先は既知の section（`SettingsSectionId`）だけで、
+ * 任意の名前・任意の JSON を渡す口は無い（shared/ipc/contracts/settings.ts）。
+ *
+ * 設定を足すときに増えるのはこの API のメソッドではなく section の key になる ──
+ * Session 3-7-5 までは設定1つごとに読み書きの対を足していたが、
+ * それは同じ形を写していただけだった。
  */
 export interface SettingsApi {
-  /** 保存済みの Editor 設定を読む。未保存・破損時は document が null。 */
-  readonly loadEditor: () => IpcInvokeResult<'settings:load-editor'>
-  /** Editor 設定を保存する。書き込みの間引きは Main 側が行う。 */
-  readonly saveEditor: (
-    request: SaveEditorSettingsRequest
-  ) => IpcInvokeResult<'settings:save-editor'>
-  /** 保存済みの Files の見え方を読む。未保存・破損時は document が null。 */
-  readonly loadFiles: () => IpcInvokeResult<'settings:load-files'>
-  /** Files の見え方を保存する。書き込みの間引きは Main 側が行う。 */
-  readonly saveFiles: (request: SaveFilesSettingsRequest) => IpcInvokeResult<'settings:save-files'>
-  /** 保存済みの Terminal の見え方を読む。未保存・破損時は document が null。 */
-  readonly loadTerminal: () => IpcInvokeResult<'settings:load-terminal'>
-  /** Terminal の見え方を保存する。書き込みの間引きは Main 側が行う。 */
-  readonly saveTerminal: (
-    request: SaveTerminalSettingsRequest
-  ) => IpcInvokeResult<'settings:save-terminal'>
+  /** 保存済みの設定をすべて読む。未保存・破損の section は空で返る（＝既定で始まる）。 */
+  readonly load: () => IpcInvokeResult<'settings:load'>
+  /** 1つの section を保存する。書き込みの間引きは Main 側が行う。 */
+  readonly saveSection: (
+    request: SaveSettingsSectionRequest
+  ) => IpcInvokeResult<'settings:save-section'>
 }
 
 /**

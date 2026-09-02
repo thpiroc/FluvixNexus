@@ -1,4 +1,4 @@
-import { FILES_SETTINGS_SCHEMA_VERSION, type FilesSettingsDocument } from '@shared/settings'
+import type { StoredFilesSettings } from '@shared/settings'
 import {
   AUTO_LAYOUT_PREFERENCE,
   chooseLayoutMode,
@@ -22,9 +22,10 @@ import {
  * ```
  * filesLayoutMode.ts            表示方式の決め方（提案と選択）
  * filesSettings.ts              その選択とカラムの幅を、保存形式と行き来させる
- * FilesViewProvider.tsx         いつ読み、いつ書くか
- * shared/settings/filesSettings.ts  ディスクに置く形
- * main/store/filesSettings.ts   保存先
+ * settings/useSettingsSection.ts  いつ読み、いつ書くか（Session 4-3A で3箇所から集約）
+ * FilesViewProvider.tsx         見え方の正本（どこがこの値を持つか）
+ * shared/settings/sections.ts   ディスクに置く形（`files` section）
+ * main/store/settings.ts        保存先（settings.json）
  * ```
  *
  * ## 「選んでいない」も保存する
@@ -63,39 +64,36 @@ function isLayoutMode(value: unknown): value is FilesLayoutMode {
 /* ------------------------------------------------------ 保存形式との変換 */
 
 /**
- * 保存された文書から、実行時の設定へ。
+ * 保存された section から、実行時の設定へ。
  *
- * 文書として読めるかは Main が確かめており（store/filesSettingsDocument.ts）、
- * ここが見るのは**中身の意味**だけ。分担は Editor 設定（§12.4）と同じ。
+ * key ごとに読める形かは Main が確かめており（store/settingsSections.ts）、
+ * **読めなかった key はここへ届く時点で無い**。ここが見るのは中身の意味だけで、
+ * 分担は Editor 設定（§12.4）と同じ。
+ *
+ * 落とすのも key ごとに独立している ── mode だけが壊れたファイルから
+ * 幅まで捨てない（Session 4-3A）。
  */
-export function toFilesViewSettings(document: FilesSettingsDocument | null): FilesViewSettings {
-  const view = document?.view
-
-  if (view === undefined) {
-    return DEFAULT_FILES_VIEW_SETTINGS
-  }
-
+export function toFilesViewSettings(stored: StoredFilesSettings): FilesViewSettings {
   return {
     // 知らない mode（`auto` でも `tree` でも `columns` でもない）は既定へ落とす。
-    preference: isLayoutMode(view.mode) ? chooseLayoutMode(view.mode) : AUTO_LAYOUT_PREFERENCE,
-    columnWidth: clampColumnWidth(view.columnWidth)
+    preference: isLayoutMode(stored.viewMode)
+      ? chooseLayoutMode(stored.viewMode)
+      : AUTO_LAYOUT_PREFERENCE,
+    columnWidth: clampColumnWidth(stored.columnWidth)
   }
 }
 
 /**
- * 実行時の設定から、保存する文書へ。
+ * 実行時の設定から、保存する section へ。
  *
- * 保存形式を別の型にしてある理由は shared/settings/filesSettings.ts。
+ * 保存形式を別の型にしてある理由は shared/settings/sections.ts。
  * 変換をこの1箇所に置いておくと、実行時モデルを変えたときに
  * 直すべき場所が必ずここに現れる。
  */
-export function toFilesSettingsDocument(settings: FilesViewSettings): FilesSettingsDocument {
+export function toFilesSettingsSection(settings: FilesViewSettings): StoredFilesSettings {
   return {
-    schemaVersion: FILES_SETTINGS_SCHEMA_VERSION,
-    view: {
-      mode: settings.preference.kind === 'explicit' ? settings.preference.mode : AUTO_MODE,
-      columnWidth: clampColumnWidth(settings.columnWidth)
-    }
+    viewMode: settings.preference.kind === 'explicit' ? settings.preference.mode : AUTO_MODE,
+    columnWidth: clampColumnWidth(settings.columnWidth)
   }
 }
 
@@ -128,8 +126,8 @@ export function isSameFilesViewSettings(a: FilesViewSettings, b: FilesViewSettin
  * 端数を丸めるのは、1px 未満の差で保存が走り続けないようにするため
  * （ポインタの座標は小数になりうる）。
  */
-export function clampColumnWidth(value: number): number {
-  if (!Number.isFinite(value)) {
+export function clampColumnWidth(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) {
     return DEFAULT_FILES_COLUMN_WIDTH
   }
 

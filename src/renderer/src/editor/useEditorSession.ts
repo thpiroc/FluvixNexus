@@ -2,12 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FileEncoding, FileLineEnding, FileRevision } from '@shared/files'
 import { fluvix } from '../api/fluvix'
 import { describeIpcError } from '../api/result'
+import { useSettingsSection } from '../settings/useSettingsSection'
 import {
   DEFAULT_AUTO_SAVE_SETTINGS,
   isSameAutoSaveSettings,
   normalizeAutoSaveSettings,
   toAutoSaveSettings,
-  toEditorSettingsDocument,
+  toEditorSettingsSection,
   type AutoSaveMode,
   type AutoSaveSettings
 } from './autoSave'
@@ -233,7 +234,19 @@ export function useEditorSession(workspaceId: string | null): EditorController {
   const documents = documentsRef.current
 
   const [saveStates, setSaveStates] = useState<Readonly<Record<string, EditorSaveState>>>({})
-  const [autoSave, setAutoSave] = useState<AutoSaveSettings>(DEFAULT_AUTO_SAVE_SETTINGS)
+
+  /*
+    Auto Save の設定は**アプリの設定**（Workspace ごとではない）なので、
+    workspaceId には依存しない。読み書きの段取りは settings/useSettingsSection.ts
+    が持ち、ここは「何を、どう保存形式と行き来させるか」だけを渡す。
+  */
+  const { value: autoSave, update: updateAutoSave } = useSettingsSection({
+    section: 'editor',
+    initial: DEFAULT_AUTO_SAVE_SETTINGS,
+    fromStored: toAutoSaveSettings,
+    toStored: toEditorSettingsSection,
+    label: 'Editor の設定'
+  })
 
   /*
     描画のたびに最新を控える。イベント（キー入力・タイマー・IPC の応答）は
@@ -844,58 +857,23 @@ export function useEditorSession(workspaceId: string | null): EditorController {
     }
   }, [documents, autoSave.mode, saveFile])
 
-  /* ------------------------------------------------- Auto Save の永続化 */
+  /* ------------------------------------------------- Auto Save の設定を変える */
 
   /*
-    起動時に1度だけ読む。読めなければ既定（OFF）のまま。
-
-    Renderer は保存先を知らない（settings ドメインの API はパスを取らない。
-    ARCHITECTURE.md §5）。**Workspace ごとではなくアプリの設定**なので、
-    workspaceId には依存しない。
+    読み込みと保存そのものは useSettingsSection が持つ（上）。ここに残るのは
+    「同じなら据え置く」判断だけで、それは**設定の意味を知っている側にしか
+    決められない** ── 同じ値で更新し続けると保存と再描画が走り続ける。
   */
-  const settingsLoadedRef = useRef(false)
+  const setAutoSaveMode = useCallback(
+    (mode: AutoSaveMode): void => {
+      updateAutoSave((previous) => {
+        const next = normalizeAutoSaveSettings({ ...previous, mode })
 
-  useEffect(() => {
-    let cancelled = false
-
-    void fluvix.settings.loadEditor().then((result) => {
-      if (cancelled) {
-        return
-      }
-
-      if (result.ok) {
-        setAutoSave(toAutoSaveSettings(result.data.document))
-      } else {
-        console.warn('[settings] Editor の設定を読み込めませんでした。', result.error)
-      }
-
-      /*
-        読み込みが終わってから保存を許す。先に許すと、**既定値で上書きした後に
-        読み込みが届く**（起動のたびに設定が OFF へ戻る）。
-      */
-      settingsLoadedRef.current = true
-    })
-
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!settingsLoadedRef.current) {
-      return
-    }
-
-    void fluvix.settings.saveEditor({ document: toEditorSettingsDocument(autoSave) })
-  }, [autoSave])
-
-  const setAutoSaveMode = useCallback((mode: AutoSaveMode): void => {
-    setAutoSave((previous) => {
-      const next = normalizeAutoSaveSettings({ ...previous, mode })
-
-      return isSameAutoSaveSettings(previous, next) ? previous : next
-    })
-  }, [])
+        return isSameAutoSaveSettings(previous, next) ? previous : next
+      })
+    },
+    [updateAutoSave]
+  )
 
   /* --------------------------------------- タブを閉じる / 読み直す */
 

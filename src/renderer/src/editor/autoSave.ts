@@ -1,4 +1,4 @@
-import { EDITOR_SETTINGS_SCHEMA_VERSION, type EditorSettingsDocument } from '@shared/settings'
+import type { StoredEditorSettings } from '@shared/settings'
 
 /**
  * Auto Save の設定モデル。
@@ -13,8 +13,9 @@ import { EDITOR_SETTINGS_SCHEMA_VERSION, type EditorSettingsDocument } from '@sh
  * ```
  * autoSave.ts             設定の形と、その正規化 / 保存形式との変換
  * useEditorSession.ts     その設定に従って、いつ saveFile を呼ぶか
- * shared/settings/        ディスクに置く形
- * main/store/editorSettings.ts  保存先
+ * settings/useSettingsSection.ts  いつ読み、いつ書くか（Session 4-3A で3箇所から集約）
+ * shared/settings/        ディスクに置く形（`editor` section）
+ * main/store/settings.ts  保存先（settings.json）
  * ```
  *
  * ## 既定は必ず OFF
@@ -107,27 +108,31 @@ export function normalizeAutoSaveSettings(raw: unknown): AutoSaveSettings {
 /* ------------------------------------------------------ 保存形式との変換 */
 
 /**
- * 保存された文書から、実行時の設定へ。
+ * 保存された section から、実行時の設定へ。
  *
- * 文書として読めるかは Main が確かめており（store/editorSettingsDocument.ts）、
- * ここが見るのは**中身の意味**だけ。分担はレイアウト（§7.8）と同じ。
+ * key ごとに読める形かは Main が確かめており（store/settingsSections.ts）、
+ * **読めなかった key はここへ届く時点で無い**。ここが見るのは中身の意味だけで、
+ * 分担はレイアウト（§7.8）と同じ。
+ *
+ * 無い key を既定へ落とすのも key ごとに独立している ── mode だけが壊れた
+ * ファイルから、待ち時間まで捨てない（Session 4-3A）。
  */
-export function toAutoSaveSettings(document: EditorSettingsDocument | null): AutoSaveSettings {
-  return normalizeAutoSaveSettings(document?.autoSave)
+export function toAutoSaveSettings(stored: StoredEditorSettings): AutoSaveSettings {
+  return normalizeAutoSaveSettings({
+    mode: stored.autoSaveMode,
+    delayMs: stored.autoSaveDelayMs
+  })
 }
 
 /**
- * 実行時の設定から、保存する文書へ。
+ * 実行時の設定から、保存する section へ。
  *
- * 保存形式を別の型にしてある理由は shared/settings/editorSettings.ts。
+ * 保存形式を別の型にしてある理由は shared/settings/sections.ts。
  * 変換をこの1箇所に置いておくと、実行時モデルを変えたときに
  * 直すべき場所が必ずここに現れる。
  */
-export function toEditorSettingsDocument(settings: AutoSaveSettings): EditorSettingsDocument {
-  return {
-    schemaVersion: EDITOR_SETTINGS_SCHEMA_VERSION,
-    autoSave: { mode: settings.mode, delayMs: settings.delayMs }
-  }
+export function toEditorSettingsSection(settings: AutoSaveSettings): StoredEditorSettings {
+  return { autoSaveMode: settings.mode, autoSaveDelayMs: settings.delayMs }
 }
 
 /** 同じ設定か（保存を予約するかどうかの判断）。 */

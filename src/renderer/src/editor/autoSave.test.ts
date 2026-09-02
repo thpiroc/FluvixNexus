@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { EDITOR_SETTINGS_SCHEMA_VERSION } from '@shared/settings'
 import {
   AUTO_SAVE_DELAY_MAX_MS,
   AUTO_SAVE_DELAY_MIN_MS,
@@ -8,7 +7,7 @@ import {
   isSameAutoSaveSettings,
   normalizeAutoSaveSettings,
   toAutoSaveSettings,
-  toEditorSettingsDocument
+  toEditorSettingsSection
 } from './autoSave'
 
 describe('Auto Save の既定', () => {
@@ -61,46 +60,52 @@ describe('normalizeAutoSaveSettings', () => {
 })
 
 /*
-  保存形式との往復（Session 3-5）。
+  保存形式（`editor` section）との往復（Session 3-5 / 形は Session 4-3A）。
 
   ここが崩れると「設定したのに再起動で戻る」が起きる。
-  保存形式そのものの検証（後で読める形か）は Main 側
-  （src/main/store/editorSettingsDocument.test.ts）の担当。
+  section として読める形かの検証は Main 側
+  （src/main/store/settingsSections.test.ts）の担当。
 */
 describe('保存形式との変換', () => {
   it('保存して読み直すと同じ設定になる', () => {
     for (const mode of AUTO_SAVE_MODES) {
       const settings = normalizeAutoSaveSettings({ mode, delayMs: 3000 })
 
-      expect(toAutoSaveSettings(toEditorSettingsDocument(settings))).toEqual(settings)
+      expect(toAutoSaveSettings(toEditorSettingsSection(settings))).toEqual(settings)
     }
-  })
-
-  it('保存する文書は今の schemaVersion を持つ', () => {
-    expect(toEditorSettingsDocument(DEFAULT_AUTO_SAVE_SETTINGS).schemaVersion).toBe(
-      EDITOR_SETTINGS_SCHEMA_VERSION
-    )
   })
 
   it('mode を切り替えても待ち時間は保たれる', () => {
     const settings = normalizeAutoSaveSettings({ mode: 'afterDelay', delayMs: 5000 })
     const switched = normalizeAutoSaveSettings({ ...settings, mode: 'off' })
 
-    expect(toAutoSaveSettings(toEditorSettingsDocument(switched)).delayMs).toBe(5000)
+    expect(toAutoSaveSettings(toEditorSettingsSection(switched)).delayMs).toBe(5000)
   })
 
   // 保存が無い / 読めない場合は既定（OFF）で始める。
   it('保存が無ければ既定になる', () => {
-    expect(toAutoSaveSettings(null)).toEqual(DEFAULT_AUTO_SAVE_SETTINGS)
+    expect(toAutoSaveSettings({})).toEqual(DEFAULT_AUTO_SAVE_SETTINGS)
   })
 
   it('知らない mode が保存されていても既定へ落ちる（ダウングレード）', () => {
-    expect(
-      toAutoSaveSettings({
-        schemaVersion: EDITOR_SETTINGS_SCHEMA_VERSION,
-        autoSave: { mode: 'onSomethingNew', delayMs: 1000 }
-      }).mode
-    ).toBe('off')
+    expect(toAutoSaveSettings({ autoSaveMode: 'onSomethingNew', autoSaveDelayMs: 1000 }).mode).toBe(
+      'off'
+    )
+  })
+
+  /*
+    key 単位で落ちること（Session 4-3A）。旧形式では `autoSave` が入れ子だったため、
+    mode が壊れていると待ち時間まで一緒に失われていた。
+  */
+  it('mode だけが読めなくても、待ち時間は残る', () => {
+    expect(toAutoSaveSettings({ autoSaveDelayMs: 5000 })).toEqual({ mode: 'off', delayMs: 5000 })
+  })
+
+  it('待ち時間だけが無くても、mode は残る', () => {
+    expect(toAutoSaveSettings({ autoSaveMode: 'onFocusChange' })).toEqual({
+      mode: 'onFocusChange',
+      delayMs: DEFAULT_AUTO_SAVE_SETTINGS.delayMs
+    })
   })
 })
 

@@ -150,8 +150,8 @@ export function nextTerminalFontSize(current: number, command: TerminalFontSizeC
  * 打ち込まれた値を読むとき、壊れたファイル1つ・打ち間違い1つで端末が
  * 開けなくなる形にしないため。
  */
-export function clampTerminalFontSize(value: number): number {
-  if (!Number.isFinite(value)) {
+export function clampTerminalFontSize(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) {
     return TERMINAL_FONT_SIZE_DEFAULT
   }
 
@@ -171,8 +171,8 @@ export function clampTerminalFontSize(value: number): number {
  * 通り道が2つあると「設定 UI からは止まるのに、保存ファイルを直接書けば通る」
  * という食い違いが生まれるため（files/filesSettings.ts の clampColumnWidth と同じ線）。
  */
-export function clampTerminalScrollback(value: number): number {
-  if (!Number.isFinite(value)) {
+export function clampTerminalScrollback(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) {
     return TERMINAL_SCROLLBACK_DEFAULT
   }
 

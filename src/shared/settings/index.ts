@@ -2,23 +2,27 @@
  * 設定の保存形式の公開窓口。
  *
  * shared 層のルールどおり、ここは型と定数だけを持つ。検証は保存先を持つ側
- * （main/store/editorSettingsDocument.ts）と、意味を知っている側
- * （renderer/src/editor/autoSave.ts）が分担する。
+ * （main/store/settingsDocument.ts）と、意味を知っている側
+ * （renderer/src/editor/autoSave.ts など）が分担する。
  */
+export { emptySettingsSections, isSettingsSectionId, SETTINGS_SECTION_IDS } from './sections'
+
+export type {
+  SettingsSectionId,
+  SettingsSections,
+  SettingsSectionUpdate,
+  SettingsSectionValue,
+  StoredEditorSettings,
+  StoredFilesSettings,
+  StoredTerminalSettings
+} from './sections'
+
 export {
-  EDITOR_SETTINGS_DOCUMENT_MAX_BYTES,
-  EDITOR_SETTINGS_SCHEMA_VERSION
-} from './editorSettings'
+  classifySettingsSchemaVersion,
+  SETTINGS_DOCUMENT_MAX_BYTES,
+  SETTINGS_PRESERVED_MAX_BYTES,
+  SETTINGS_SCHEMA_VERSION,
+  SETTINGS_TEXT_MAX_LENGTH
+} from './settingsDocument'
 
-export type { EditorSettingsDocument, StoredAutoSaveSettings } from './editorSettings'
-
-export { FILES_SETTINGS_DOCUMENT_MAX_BYTES, FILES_SETTINGS_SCHEMA_VERSION } from './filesSettings'
-
-export type { FilesSettingsDocument, StoredFilesViewSettings } from './filesSettings'
-
-export {
-  TERMINAL_SETTINGS_DOCUMENT_MAX_BYTES,
-  TERMINAL_SETTINGS_SCHEMA_VERSION
-} from './terminalSettings'
-
-export type { StoredTerminalDisplaySettings, TerminalSettingsDocument } from './terminalSettings'
+export type { PreservedSettings, SettingsDocument, SettingsSchemaVersion } from './settingsDocument'

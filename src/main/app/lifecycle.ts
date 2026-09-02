@@ -5,9 +5,7 @@ import { registerIpcHandlers } from '../ipc'
 import { createLogger } from '../logger'
 import { isMacOS } from '../platform'
 import { applySessionSecurityPolicy, applyWebContentsSecurityPolicy } from '../security'
-import { flushEditorSettingsDocument } from '../store/editorSettings'
-import { flushFilesSettingsDocument } from '../store/filesSettings'
-import { flushTerminalSettingsDocument } from '../store/terminalSettings'
+import { flushSettingsDocument } from '../store/settings'
 import { flushWorkspaceFolderDocument } from '../store/workspaceFolder'
 import { flushWorkspaceLayoutDocument } from '../store/workspaceLayout'
 import { stopTerminalSessions } from '../terminal/terminalSessions'
@@ -94,9 +92,7 @@ export function bootstrapApp(): void {
 
     flushWorkspaceLayoutDocument()
     flushWorkspaceFolderDocument()
-    flushEditorSettingsDocument()
-    flushFilesSettingsDocument()
-    flushTerminalSettingsDocument()
+    flushSettingsDocument()
   })
 
   app.on('window-all-closed', () => {

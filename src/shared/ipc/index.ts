@@ -73,12 +73,8 @@ export type {
   WriteWorkspaceFileStatus
 } from './contracts/files'
 export type {
-  LoadEditorSettingsResponse,
-  LoadFilesSettingsResponse,
-  LoadTerminalSettingsResponse,
-  SaveEditorSettingsRequest,
-  SaveFilesSettingsRequest,
-  SaveTerminalSettingsRequest,
+  LoadSettingsResponse,
+  SaveSettingsSectionRequest,
   SettingsIpcContract
 } from './contracts/settings'
 export type {
