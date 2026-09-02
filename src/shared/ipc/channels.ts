@@ -21,6 +21,7 @@ export const IPC_CHANNELS = {
   FILES_READ_DIRECTORY: 'files:read-directory',
   FILES_READ_FILE: 'files:read-file',
   FILES_WRITE_FILE: 'files:write-file',
+  FILES_SAVE_AS: 'files:save-as',
   FILES_CREATE: 'files:create',
   FILES_RENAME: 'files:rename',
   FILES_MOVE: 'files:move',

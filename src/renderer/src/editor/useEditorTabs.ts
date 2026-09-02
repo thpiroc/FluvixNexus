@@ -9,7 +9,9 @@ import {
   applyFileChanges,
   closeTab,
   findActiveTab,
+  isPathOpenInOtherTab,
   listUnsavedTabs,
+  moveTabToPath,
   openTab,
   setTabStateByPath,
   setTabDocument,
@@ -82,6 +84,17 @@ export interface EditorTabsController {
    * 鍵がタブ id ではなく relativePath なのはそのため（editorTabsModel.ts）。
    */
   readonly setTabState: (relativePath: string, state: EditorTabState) => void
+  /**
+   * 開いているファイルの位置を差し替える（別名で保存。Session 4-2）。
+   *
+   * 開き直しにはしない（同じタブが、別のファイルを指すようになる）。
+   * 保存先が別のタブに開かれている場合は何もしない（editorTabsModel.moveTabToPath）。
+   */
+  readonly moveTab: (tabId: string, input: { relativePath: string; name: string }) => void
+  /** その位置が、指定したタブ以外に開かれているか（移す前の確認）。 */
+  readonly isPathOpenElsewhere: (tabId: string, relativePath: string) => boolean
+  /** 中身の差し替え（別名で保存の後、そのタブが指す中身を保存したものへ揃える）。 */
+  readonly setDocument: (tabId: string, document: EditorDocument) => void
 }
 
 /** 応答の status を、タブが持つ中身の状態へ落とす。 */
@@ -282,6 +295,28 @@ export function useEditorTabs(workspaceId: string | null): EditorTabsController 
     setState((previous) => setTabStateByPath(previous, relativePath, tabState))
   }, [])
 
+  const moveTab = useCallback(
+    (tabId: string, input: { relativePath: string; name: string }): void => {
+      setState((previous) => moveTabToPath(previous, tabId, input))
+    },
+    []
+  )
+
+  /*
+    移す前の確認は state ではなく ref から読む。呼ぶのは IPC の応答が届いた後
+    （＝描画とは別の時間軸）で、そこから見た「今」が要るため。
+  */
+  const stateRef = useRef(state)
+  stateRef.current = state
+
+  const isPathOpenElsewhere = useCallback((tabId: string, relativePath: string): boolean => {
+    return isPathOpenInOtherTab(stateRef.current, tabId, relativePath)
+  }, [])
+
+  const setDocument = useCallback((tabId: string, document: EditorDocument): void => {
+    setState((previous) => setTabDocument(previous, tabId, document))
+  }, [])
+
   /*
     ディスク側の変化への追従（Main → Renderer のイベント）。
 
@@ -324,6 +359,9 @@ export function useEditorTabs(workspaceId: string | null): EditorTabsController 
     activate,
     close,
     reload,
-    setTabState
+    setTabState,
+    moveTab,
+    isPathOpenElsewhere,
+    setDocument
   }
 }

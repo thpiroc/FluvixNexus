@@ -23,8 +23,15 @@ import type { EditorDiskContent } from './useEditorSession'
  * ## 削除されている場合は選択肢が違う
  *
  * ディスクから消えているなら、比べる相手も読み直す先も無い。
- * 出せるのは「Editor の内容はここにある」という事実だけで、
- * 書き戻す先を選ぶ（Save As）のは Session 3-6 以降。
+ * 出せるのは**書き戻す先を選ぶ（別名で保存）1つだけ**になる（Session 4-2）。
+ *
+ * ここが「押せる選択肢が1つも無い」状態だったのが、このタブの内容が
+ * 確実に失われる唯一の経路だった ── 閉じる前の確認が
+ * 「救えません」と出していたのも同じ理由（unsaved/lossMessage.ts の `unsavable`）。
+ *
+ * **Reload と Compare は出さない。** どちらも相手がディスク側の内容で、
+ * それが無いのがこの状態そのものになる。押せるのに必ず失敗する選択肢を出さないのは、
+ * 閉じる前の確認と同じ約束。
  */
 
 const MonacoDiffEditor = lazy(async () => {
@@ -41,6 +48,8 @@ interface EditorConflictBarProps {
   readonly busy: boolean
   readonly onReload: () => void
   readonly onOverwrite: () => void
+  /** 別名で保存（Session 4-2）。削除されたタブの内容を救い出す唯一の経路。 */
+  readonly onSaveAs: () => void
   readonly readDiskContent: (relativePath: string) => Promise<EditorDiskContent>
 }
 
@@ -51,6 +60,7 @@ export function EditorConflictBar({
   busy,
   onReload,
   onOverwrite,
+  onSaveAs,
   readDiskContent
 }: EditorConflictBarProps): JSX.Element {
   const [comparison, setComparison] = useState<EditorDiskContent | null>(null)
@@ -80,6 +90,19 @@ export function EditorConflictBar({
         <p className="fx-editor__conflict-title">
           このファイルはディスク上から削除されました。編集中の内容はここにだけ残っています。
         </p>
+
+        <div className="fx-editor__conflict-actions">
+          <button
+            type="button"
+            className="fx-editor__conflict-button"
+            disabled={busy}
+            data-testid="conflict-save-as"
+            title="保存先を選んで、編集中の内容を新しいファイルとして書き出します。"
+            onClick={onSaveAs}
+          >
+            別名で保存<span className="fx-editor__conflict-note">内容を救い出す</span>
+          </button>
+        </div>
       </div>
     )
   }

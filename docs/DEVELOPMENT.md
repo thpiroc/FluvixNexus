@@ -1459,6 +1459,32 @@ Session 3-8-22B（STEP 3 Git 全体の production app 統合確認）では、**
 | 実 git テスト（`*Repository.test.ts` 18本） | **396項目、全項目 PASS**（`src/main/git` 全体では 35 files / 827項目 PASS）  |
 | `npm run build`（production）               | PASS（32.93s）                                                               |
 
+### Session 4-2（別名で保存）
+
+ネイティブの保存ダイアログは Playwright から操作できない。**Main 側の `dialog.showSaveDialog` / `showOpenDialog` を `app.evaluate` で差し替える**ことで、production build のまま経路全体を通せる。
+
+```js
+await app.evaluate(({ dialog }, target) => {
+  dialog.showSaveDialog = async () => ({ canceled: false, filePath: target })
+}, destinationPath)
+```
+
+差し替えるのは**利用者の指の代わり**だけで、アプリ側（要求の検証・書き込み・場所の判定・タブの付け替え）は素のまま動く。取り消しは `{ canceled: true, filePath: undefined }` を返せば作れる。
+
+注意点:
+
+- **`--user-data-dir` を渡して userData を使い捨てにする。** 渡さないと実際の `%APPDATA%/Fluvix Nexus` を書き換えるうえ、単一インスタンスのロックが普段使いのアプリと衝突する
+- Workspace は毎回 `mkdtemp` で作る。**開発リポジトリを対象にしない**
+- Git パネルは `files:changed` を受けてから `CHANGE_SETTLE_MS`（400ms）待って読み直す。書いた直後に読むと古い一覧が返る
+
+確認済み（build 版・2本で 49項目、全項目 PASS）:
+
+- 救済の一連（開く → 編集 → 外部削除 → deleted 検出 → 別名で保存 → 内容一致 → タブ追従 → 続けて編集 → 通常 Save → 内容一致）
+- 通常タブの別名で保存、Workspace 外への保存、保存先が別のタブの場合、取り消し、既存ファイルの上書き
+- BOM / CRLF / LF が別名で保存でも変わらないこと、保存先の拡張子に言語が追従すること
+- Renderer から直に `window.fluvix.files.saveAs` を叩き、絶対パス・`..`・root 自身の助言と、文字列でない中身が断られること（断った要求で何も作られないこと）
+- Files / Terminal / Git への回帰が無いこと、console エラー / CSP 違反が無いこと
+
 ---
 
 ## 5. 進め方

@@ -121,5 +121,16 @@ export function describeLossNote(item: LossItem): string | null {
     return '実行中のコマンドがあります'
   }
 
-  return item.unsavable ? 'ディスク上から削除されています' : null
+  /*
+    削除されている場合は、次の一手も添える（Session 4-2）。
+
+    この確認から救い出すことはできない ── ここの「保存」が呼ぶのは
+    元の位置へ書き戻す経路（EditorProvider.tsx の saveAll）で、
+    書き戻す先が無いのがこの状態そのものだから。
+    救えるのは Editor の帯（EditorConflictBar.tsx）にある「別名で保存」だけなので、
+    **押せない理由と一緒に、押せる場所を書く。**
+  */
+  return item.unsavable
+    ? 'ディスク上から削除されています（Editor の「別名で保存」で救い出せます）'
+    : null
 }

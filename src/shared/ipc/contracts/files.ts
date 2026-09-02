@@ -186,6 +186,94 @@ export interface WriteWorkspaceFileResponse {
   readonly revision: FileRevision
 }
 
+/* ------------------------------------------------------ 別名で保存（Save As） */
+
+/**
+ * 中身を、利用者が選んだ場所へ書き出す（Session 4-2）。
+ *
+ * ## `files:write-file` と別のチャンネルにする
+ *
+ * あちらは「**今開いているファイル**へ書き戻す」に閉じてあり、
+ * 対象が実在することを前提に版を突き合わせる（`'stale'`）。こちらは
+ * **まだ存在しないかもしれない場所**へ書く操作で、確かめる相手も無い。
+ * 1本にまとめると、要求に「上書きなのか新規なのか」を表す欄が増え、
+ * どちらの検証を通すかが要求の中身で変わることになる。
+ *
+ * ## 行き先を Renderer が決めない
+ *
+ * 要求に保存先が無いのが要点。**書き込む場所を決めるのはネイティブの保存
+ * ダイアログだけ**で、Renderer が言えるのは「出して」までに留まる
+ * （Workspace を開く `workspace-folder:open` と同じ線。ARCHITECTURE.md §8.4）。
+ *
+ * `suggestedRelativePath` はダイアログを**どこで開くか**の助言でしかなく、
+ * Workspace 相対としてしか書けない（Main 側で正規化に通す）。
+ * ここから Workspace の外は指せず、指したところで利用者が選び直さない限り
+ * 何も書かれない。
+ *
+ * ## Workspace の外へも書ける
+ *
+ * 利用者がダイアログで外を選んだ場合は、そこへ書く。信頼の根拠は
+ * 「Renderer が渡したパス」ではなく「**利用者が Main のダイアログで選んだ**」
+ * ことにある。ただし応答に絶対パスは載せない（下記）。
+ */
+export interface SaveWorkspaceFileAsRequest {
+  /**
+   * 書き込む中身。
+   *
+   * 改行はこの文字列の形のまま書く（`files:write-file` と同じ。Main は変換しない）。
+   */
+  readonly content: string
+  /**
+   * 書き込む文字コード（shared/files/content.ts）。
+   *
+   * 開いたときのものをそのまま返す。null なら `utf8`（BOM 無し）。
+   * 上書き保存と同じ扱いにしてあるので、**別名で保存しても BOM の有無は変わらない**。
+   */
+  readonly encoding: FileEncoding | null
+  /**
+   * ダイアログを開く位置の助言（今開いているファイルの相対位置）。
+   *
+   * Workspace 相対としてしか解釈しない。空文字（root 自身）は指定できない。
+   */
+  readonly suggestedRelativePath: string
+}
+
+/**
+ * 別名で保存の結末。
+ *
+ * 取り消しは失敗ではなく通常の結末（`workspace-folder:open` と同じ扱い）。
+ */
+export type SaveWorkspaceFileAsResponse =
+  | { readonly status: 'cancelled' }
+  | {
+      readonly status: 'saved'
+      readonly workspaceId: string
+      /**
+       * 保存したファイルの名前（拡張子つき）。
+       *
+       * **絶対パスは載せない。** Workspace の外へ保存した場合でも Renderer が
+       * 受け取るのは利用者が今しがた打った名前だけで、そこから場所は組み立て直せない
+       * （Files が絶対パスを渡さない §9.2 と同じ線）。
+       */
+      readonly name: string
+      /** 実際に書いたバイト数（BOM を含む）。 */
+      readonly byteLength: number
+      /**
+       * 保存先が Workspace の中だった場合の相対位置。**外だった場合は null。**
+       *
+       * null は「書けなかった」ではなく「**このアプリが開ける範囲の外へ書けた**」を表す。
+       * Editor が開けるのは Workspace の中だけなので、null のときタブは移らない。
+       */
+      readonly relativePath: string | null
+      /**
+       * 書けた時点の版。Workspace の中の場合のみ。
+       *
+       * Renderer はこれを次の `baseRevision` にする（`files:write-file` の
+       * `'written'` と同じ役割）。
+       */
+      readonly revision: FileRevision | null
+    }
+
 /* ------------------------------------------------------------------ 作成 */
 
 export interface CreateWorkspaceEntryRequest {
@@ -508,6 +596,10 @@ export interface FilesIpcContract {
   'files:write-file': {
     request: WriteWorkspaceFileRequest
     response: WriteWorkspaceFileResponse
+  }
+  'files:save-as': {
+    request: SaveWorkspaceFileAsRequest
+    response: SaveWorkspaceFileAsResponse
   }
   'files:create': {
     request: CreateWorkspaceEntryRequest

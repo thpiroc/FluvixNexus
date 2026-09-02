@@ -109,6 +109,7 @@ export function EditorDocumentView({
   onReload,
   onReloadFromDisk,
   onOverwrite,
+  onSaveAs,
   readDiskContent,
   reveal = null,
   onRevealed
@@ -121,6 +122,8 @@ export function EditorDocumentView({
   /** Conflict の Reload（Model の中身だけを差し替える）。 */
   readonly onReloadFromDisk: (relativePath: string) => void
   readonly onOverwrite: (relativePath: string) => void
+  /** 別名で保存（Session 4-2）。鍵がタブ id なのは、保存の後に位置が変わるため。 */
+  readonly onSaveAs: (tabId: string) => void
   readonly readDiskContent: (relativePath: string) => Promise<EditorDiskContent>
   /**
    * 見せてほしい位置（editor/editorReveal.ts）。
@@ -173,6 +176,7 @@ export function EditorDocumentView({
           busy={saveState?.status === 'saving'}
           onReload={() => onReloadFromDisk(tab.relativePath)}
           onOverwrite={() => onOverwrite(tab.relativePath)}
+          onSaveAs={() => onSaveAs(tab.id)}
           readDiskContent={readDiskContent}
         />
       )}

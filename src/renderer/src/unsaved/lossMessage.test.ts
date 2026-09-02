@@ -91,8 +91,15 @@ describe('describeLossNote', () => {
     expect(describeLossNote(unsavedFile('a.ts'))).toBeNull()
   })
 
-  it('消えたファイルには理由を添える', () => {
-    expect(describeLossNote(deletedFile('gone.ts'))).toBe('ディスク上から削除されています')
+  it('消えたファイルには理由と、救い出せる場所を添える', () => {
+    /*
+      理由だけでは行き止まりに読める（この確認からは救えない）。
+      救える経路は Editor の帯にしか無いので、押せない理由と一緒にそこを書く
+      （Session 4-2）。
+    */
+    expect(describeLossNote(deletedFile('gone.ts'))).toBe(
+      'ディスク上から削除されています（Editor の「別名で保存」で救い出せます）'
+    )
   })
 
   it('実行中のターミナルには、なぜ並んでいるかを添える', () => {

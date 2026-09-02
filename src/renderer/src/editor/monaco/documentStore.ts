@@ -116,8 +116,23 @@ export interface EditorSaveSnapshot {
 
 interface DocumentEntry {
   readonly model: monaco.editor.ITextModel
+  /**
+   * 今この Model が対応している位置（＝ Map の鍵と同じもの）。
+   *
+   * **鍵を2箇所に持っているのは、購読が位置を知る必要があるため。**
+   * 中身の変化の購読はここが張る（下の `subscription`）が、知らせる相手（タブ）の
+   * 鍵も位置なので、通知には「今の位置」が要る。
+   *
+   * これを持たずに `acquire` の引数を閉じ込めると、**位置が変わった後も
+   * 古い位置を知らせ続ける**。そこにはもうタブが居ないため通知は捨てられ、
+   * 打っても未保存の印が出ないタブができる ── 印が出ないだけで中身は
+   * 未保存のままなので、閉じる前の確認にも並ばず、黙って失われる。
+   *
+   * 付け替えるのは `rekey` の1箇所だけ（鍵と必ず一緒に動く）。
+   */
+  relativePath: string
   /** 中身の変化を見る購読。Model と一緒に捨てる。 */
-  readonly subscription: monaco.IDisposable
+  subscription: monaco.IDisposable
   /**
    * 最後にディスクと一致していた版番号。
    *
@@ -198,7 +213,9 @@ export class EditorDocumentStore {
 
     const entry: DocumentEntry = {
       model,
-      subscription: model.onDidChangeContent(() => this.notifyState(relativePath)),
+      relativePath,
+      // 張り直すのは下（entry を作ってからでないと「今の位置」を読めない）。
+      subscription: { dispose: () => undefined },
       // 作られた直後の状態を「ディスクと同じ」の基準にする。
       savedVersionId: model.getAlternativeVersionId(),
       revision: source.revision,
@@ -208,9 +225,37 @@ export class EditorDocumentStore {
       viewState: null
     }
 
+    /*
+      引数の `relativePath` を閉じ込めず、**entry が持つ「今の位置」を読む**。
+      閉じ込めると、位置が変わった後も古い位置を知らせ続ける
+      （DocumentEntry.relativePath の但し書き）。
+    */
+    entry.subscription = model.onDidChangeContent(() => this.notifyState(entry.relativePath))
+
     this.entries.set(relativePath, entry)
 
     return model
+  }
+
+  /**
+   * 鍵を付け替える（`rename` と `applyFileChanges` の改名が共有する1箇所）。
+   *
+   * **Map の鍵と `entry.relativePath` は必ず一緒に動く。** 片方だけを動かすと、
+   * 中身は新しい位置にあるのに通知は古い位置へ飛ぶ状態ができる
+   * ── その状態のタブは、打っても未保存の印が出ない。
+   *
+   * 行き先が埋まっていないことは呼ぶ側が確かめる（何をするかが2つで違うため）。
+   */
+  private rekey(fromRelativePath: string, toRelativePath: string): void {
+    const entry = this.entries.get(fromRelativePath)
+
+    if (entry === undefined) {
+      return
+    }
+
+    this.entries.delete(fromRelativePath)
+    entry.relativePath = toRelativePath
+    this.entries.set(toRelativePath, entry)
   }
 
   /** その位置の Model。開いていなければ null。 */
@@ -327,6 +372,59 @@ export class EditorDocumentStore {
     entry.missing = false
 
     this.notifyState(relativePath)
+  }
+
+  /**
+   * 中身の鍵を別の位置へ付け替える（別名で保存。Session 4-2）。
+   *
+   * 改名の追従（`applyFileChanges` の `renamed`）と同じことをするが、
+   * 入口を分けてある理由は `editorTabsModel.moveTabToPath` と同じ
+   * ── あちらは届いた変化を写す経路で、こちらは利用者の操作から直に呼ばれる。
+   *
+   * ## Model を作り直さない
+   *
+   * 移すのは鍵だけで、Model はそのまま使い続ける。作り直すと Undo 履歴が消え、
+   * **別名で保存した瞬間に、それまでの編集を取り消せなくなる**。
+   * 改名で作り直さないのと同じ判断（このクラスの `applyFileChanges`）。
+   *
+   * ## 見ていた位置を、移す前に控える
+   *
+   * 今エディタに載っているのがこの Model なら、`viewState` をここで控える。
+   * 控えないと、器の側（MonacoEditor.tsx）が「離れる前に控える」ときには
+   * 既に鍵が変わっていて控え先が無く、**保存した拍子にカーソルが先頭へ戻る。**
+   *
+   * ## 行き先が埋まっていれば移さない
+   *
+   * 同じ位置に2つの Model が対応する状態を作らない。呼ぶ側（useEditorSession.ts）が
+   * タブの側で同じ判断をしてから呼ぶため通常は起きないが、
+   * **この不変条件はこの層が自分で守る**（守れないなら移さない）。
+   * 戻り値は移せたかどうか。
+   *
+   * ## 状態は知らせない
+   *
+   * `notifyState` を呼ばない。知らせる相手（タブ）の鍵も位置で、
+   * **この瞬間だけは2つの層の位置がずれている**（Model は移り、タブはまだ元の位置）。
+   * ここで知らせると、移す前のタブへ移した後の状態が届く。
+   * 移し終えた後に揃えるのは、2つの層をつなぐ側の仕事（useEditorSession.ts）。
+   */
+  rename(fromRelativePath: string, toRelativePath: string): boolean {
+    if (fromRelativePath === toRelativePath) {
+      return true
+    }
+
+    const entry = this.entries.get(fromRelativePath)
+
+    if (entry === undefined || this.entries.has(toRelativePath)) {
+      return false
+    }
+
+    if (this.editor !== null && this.editor.getModel() === entry.model) {
+      entry.viewState = this.editor.saveViewState()
+    }
+
+    this.rekey(fromRelativePath, toRelativePath)
+
+    return true
   }
 
   /* --------------------------------------------- ディスク側との食い違い */
@@ -554,9 +652,7 @@ export class EditorDocumentStore {
           continue
         }
 
-        const entry = this.entries.get(relativePath)
-
-        if (entry === undefined) {
+        if (!this.entries.has(relativePath)) {
           continue
         }
 
@@ -565,8 +661,7 @@ export class EditorDocumentStore {
           そちらを捨ててから移す。同じ位置に2つの Model が対応する状態を作らない。
         */
         this.release(rebased)
-        this.entries.delete(relativePath)
-        this.entries.set(rebased, entry)
+        this.rekey(relativePath, rebased)
       }
     }
   }

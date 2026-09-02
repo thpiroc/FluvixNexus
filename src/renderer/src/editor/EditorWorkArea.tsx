@@ -3,6 +3,7 @@ import { AUTO_SAVE_MODES, describeAutoSaveMode, type AutoSaveMode } from './auto
 import { useEditorContext } from './context'
 import { EditorDocumentView } from './EditorDocumentView'
 import { EditorTabs } from './EditorTabs'
+import { describeSaveAsNotice } from './saveAsMessage'
 import { TabCloseConfirm } from './TabCloseConfirm'
 import { useTabCloseGuard } from './useTabCloseGuard'
 import './editor.css'
@@ -47,6 +48,9 @@ export function EditorWorkArea(): JSX.Element {
     documents,
     saveStates,
     saveFile,
+    saveFileAs,
+    saveAsNotice,
+    dismissSaveAsNotice,
     autoSave,
     setAutoSaveMode,
     pendingReveal,
@@ -73,6 +77,32 @@ export function EditorWorkArea(): JSX.Element {
         />
 
         {/*
+          別名で保存（Session 4-2）。
+
+          削除されたタブの帯（EditorConflictBar.tsx）にも同じ入口があるが、
+          あちらは「救い出す」1つだけの選択肢で、こちらは**どのタブでも押せる**
+          通常の操作にあたる。呼ぶ先は同じ `saveFileAs` で、
+          削除されているかどうかで経路を分けていない。
+
+          専用のショートカットは置かない ── アプリ全体のショートカット基盤は
+          STEP 4-7 で入れる予定で、それより先に1つだけ生やすと入口が2通りになる。
+        */}
+        <button
+          type="button"
+          className="fx-editor__save-as"
+          data-testid="editor-save-as"
+          disabled={activeTab === null || activeTab.document.status !== 'ready'}
+          title="保存先を選んで、このタブの内容を書き出します。"
+          onClick={() => {
+            if (activeTab !== null) {
+              void saveFileAs(activeTab.id)
+            }
+          }}
+        >
+          別名で保存
+        </button>
+
+        {/*
           4つの mode すべてが動く（Session 3-5）。設定はアプリの設定として
           保存されるため、選び直した状態が次回起動でもそのまま出る。
         */}
@@ -91,6 +121,34 @@ export function EditorWorkArea(): JSX.Element {
         </select>
       </div>
 
+      {/*
+        別名で保存の結末を1行で伝える（Session 4-2）。
+
+        **書けたのにタブが動かない場合がある**（Workspace の外・保存先が別のタブに
+        開かれている）ため、成功も黙らない ── 黙ると、押した側からは
+        「何も起きなかった」と区別が付かない。
+
+        手前のタブのものだけを出す。知らせの鍵がタブ id なのは、
+        保存の後にそのタブの位置が変わるため（useEditorSession.ts）。
+      */}
+      {saveAsNotice !== null && saveAsNotice.tabId === activeTabId && (
+        <p
+          className="fx-editor__save-as-notice"
+          data-followed={saveAsNotice.followed}
+          data-testid="editor-save-as-notice"
+        >
+          <span>{describeSaveAsNotice(saveAsNotice)}</span>
+          <button
+            type="button"
+            className="fx-editor__save-as-dismiss"
+            aria-label="閉じる"
+            onClick={dismissSaveAsNotice}
+          >
+            ×
+          </button>
+        </p>
+      )}
+
       {activeTab !== null && (
         <EditorDocumentView
           tab={activeTab}
@@ -99,6 +157,7 @@ export function EditorWorkArea(): JSX.Element {
           onReload={reload}
           onReloadFromDisk={(relativePath) => void reloadFromDisk(relativePath)}
           onOverwrite={(relativePath) => void saveFile(relativePath, { overwrite: true })}
+          onSaveAs={(tabId) => void saveFileAs(tabId)}
           readDiskContent={readDiskContent}
           /*
             位置の依頼は、**手前に出ているタブのものだけ**を下へ渡す

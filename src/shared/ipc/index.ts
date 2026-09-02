@@ -62,6 +62,8 @@ export type {
   ReadWorkspaceFileResponse,
   RenameWorkspaceEntryRequest,
   RenameWorkspaceEntryResponse,
+  SaveWorkspaceFileAsRequest,
+  SaveWorkspaceFileAsResponse,
   SearchWorkspaceFileContentsRequest,
   SearchWorkspaceFileContentsResponse,
   SearchWorkspaceFilesRequest,

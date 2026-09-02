@@ -88,6 +88,51 @@ export type EditorSaveState =
  */
 export type EditorSaveOutcome = 'saved' | 'conflict' | 'failed'
 
+/**
+ * 別名で保存の結末（Session 4-2）。
+ *
+ * `EditorSaveOutcome` と分けてあるのは、**知らせる相手が違う**ため。
+ * 通常の保存は失敗したときだけ画面に出るが、こちらは成功しても
+ * 「どこへ書けたか」「このタブはそこへ移ったか」を伝える必要がある
+ * ── 書けたのにタブが動かない場合があり、黙っていると失敗に見える。
+ */
+export type EditorSaveAsOutcome =
+  /** ダイアログを閉じた。**何一つ変えていない。** */
+  | { readonly status: 'cancelled' }
+  | {
+      readonly status: 'saved'
+      /** 書けたファイルの名前（絶対パスは Renderer に無い）。 */
+      readonly name: string
+      /** このタブが保存先へ移ったか。 */
+      readonly followed: boolean
+      /**
+       * 移らなかった理由。移った場合は null。
+       *
+       * どちらも「書けたが、このタブでは続けられない」であって、
+       * **書けなかったわけではない。**
+       *
+       * | 理由                 | 中身                                                     |
+       * | -------------------- | -------------------------------------------------------- |
+       * | `outside-workspace`  | Workspace の外。Editor が開けるのは中だけ                |
+       * | `already-open`       | その位置は別のタブが開いている（2枚にも、閉じさせもしない） |
+       */
+      readonly reason: 'outside-workspace' | 'already-open' | null
+    }
+  | { readonly status: 'failed'; readonly message: string }
+
+/**
+ * 別名で保存の結果の知らせ（画面に1行出すためだけのもの）。
+ *
+ * 鍵がタブ id なのは、**保存の後にタブの位置が変わる**ため
+ * （位置を鍵にすると、移った瞬間に自分の知らせを見失う）。
+ */
+export interface EditorSaveAsNotice {
+  readonly tabId: string
+  readonly name: string
+  readonly followed: boolean
+  readonly reason: 'outside-workspace' | 'already-open' | null
+}
+
 /** ディスク上の今の中身（Compare のもとになる）。 */
 export type EditorDiskContent =
   | {
@@ -145,6 +190,18 @@ export interface EditorController {
   readonly saveActiveTab: () => void
   /** 未保存のタブをすべて保存する。1つでも成立しなければ false。 */
   readonly saveAllUnsaved: () => Promise<boolean>
+
+  /* ------ 別名で保存（Session 4-2） */
+  /**
+   * このタブの中身を、利用者が選んだ場所へ書き出す。
+   *
+   * ディスクから消えているタブでも呼べる（**それがこの経路の主目的**）。
+   * 未保存の変更が無くても書ける（同じ中身を別の名前で置く、は成立する操作）。
+   */
+  readonly saveFileAs: (tabId: string) => Promise<EditorSaveAsOutcome>
+  /** 直前の別名で保存の知らせ。無ければ null。 */
+  readonly saveAsNotice: EditorSaveAsNotice | null
+  readonly dismissSaveAsNotice: () => void
 
   /* ------ 競合の解決 */
   /** ディスクの内容を取り込み、未保存の変更を捨てる。 */
@@ -368,6 +425,166 @@ export function useEditorSession(workspaceId: string | null): EditorController {
 
     return allSaved
   }, [saveFile])
+
+  /* ------------------------------------------------- 別名で保存（4-2） */
+
+  const [saveAsNotice, setSaveAsNotice] = useState<EditorSaveAsNotice | null>(null)
+
+  const dismissSaveAsNotice = useCallback((): void => {
+    setSaveAsNotice(null)
+  }, [])
+
+  /**
+   * このタブの中身を、利用者が選んだ場所へ書き出す。
+   *
+   * ## 通常の保存と経路を分ける
+   *
+   * `saveFile` は「今の位置へ書き戻す」で、**対象が実在することが前提**になっている。
+   * その前提のせいで、外から消されたファイルの内容はどこへも書けない
+   * ── 閉じる前の確認が「救えません」と出していたのはこれが理由で
+   * （unsaved/lossMessage.ts の `unsavable`）、ここがその経路を閉じる。
+   *
+   * 順番待ち（`savingRef`）にも並べない。位置が違えば書く相手も違い、
+   * 待つ理由が無いため。
+   *
+   * ## 書けてから、タブを移す
+   *
+   * ```
+   * documents.readForSave     中身 + 版番号 + 文字コード（通常の保存と同じ一式）
+   *    ↓
+   * fluvix.files.saveAs       ダイアログ → 書き込み（どちらも Main）
+   *    ↓  relativePath（Workspace の外なら null）
+   * documents.rename          Model の鍵を移す（Undo 履歴は保つ）
+   * tabs.moveTab              タブの位置と名前を差し替える
+   * documents.markSaved       未保存と「消えていた」を解く
+   * ```
+   *
+   * **順番が意味を持つ。** Model を先に移すのは、タブの位置が変わった時点で
+   * 器（MonacoEditor.tsx）が新しい位置の Model を取りに来るため
+   * ── 移す前にタブを動かすと、そこには Model が無く、**読み込んだ時点の中身から
+   * 作り直された空の Model** が載る（＝編集が消える）。
+   *
+   * ## 移せない場合でも、書けた事実は取り消さない
+   *
+   * Workspace の外だった / 保存先が別のタブに開かれていた場合はタブを移さないが、
+   * **書き込みは済んでいる**（利用者がダイアログで選び、上書きなら OS の確認も
+   * 通っている）。ここで dirty を解かないのは、このタブが指している位置には
+   * まだその中身が無いため ── 解くと「保存したのに、次に開いたら古い」が起きる。
+   */
+  const saveFileAs = useCallback(
+    async (tabId: string): Promise<EditorSaveAsOutcome> => {
+      const tab = tabsRef.current.find((candidate) => candidate.id === tabId)
+
+      if (tab === undefined) {
+        return { status: 'failed', message: 'そのタブはもう開かれていません。' }
+      }
+
+      const snapshot = documents.readForSave(tab.relativePath)
+
+      if (snapshot === null) {
+        // 中身がまだ載っていない（読み込み中・バイナリ・読めなかった）。
+        return { status: 'failed', message: '書き出せる中身がありません。' }
+      }
+
+      const workspaceIdAtRequest = workspaceIdRef.current
+
+      setSaveState(tab.relativePath, { status: 'saving' })
+
+      const result = await fluvix.files.saveAs({
+        content: snapshot.content,
+        encoding: snapshot.encoding,
+        // ダイアログをどこで開くかの助言。行き先を決めるのは利用者。
+        suggestedRelativePath: tab.relativePath
+      })
+
+      // 要求と応答の間に Workspace が切り替わっていたら、今のタブへ混ぜない。
+      if (workspaceIdRef.current !== workspaceIdAtRequest) {
+        return { status: 'failed', message: 'Workspace が切り替わりました。' }
+      }
+
+      if (!result.ok) {
+        const message = describeIpcError(result.error)
+
+        setSaveState(tab.relativePath, { status: 'error', message })
+
+        return { status: 'failed', message }
+      }
+
+      if (result.data.status === 'cancelled') {
+        /*
+          取り消し。**何一つ変えない。**
+          直前に立てた「保存中」も畳んで、押す前の見え方へ戻す。
+        */
+        setSaveState(tab.relativePath, null)
+
+        return { status: 'cancelled' }
+      }
+
+      const { name, relativePath, revision, byteLength } = result.data
+
+      setSaveState(tab.relativePath, null)
+
+      const finish = (
+        followed: boolean,
+        reason: 'outside-workspace' | 'already-open' | null
+      ): EditorSaveAsOutcome => {
+        setSaveAsNotice({ tabId, name, followed, reason })
+
+        return { status: 'saved', name, followed, reason }
+      }
+
+      // Workspace の外。書けているが、Editor は外のファイルを開けない。
+      if (relativePath === null || revision === null) {
+        return finish(false, 'outside-workspace')
+      }
+
+      // 保存先が別のタブに開かれている。2枚にも、相手を閉じもしない。
+      if (tabs.isPathOpenElsewhere(tabId, relativePath)) {
+        return finish(false, 'already-open')
+      }
+
+      /*
+        Model → タブ → 保存済みの印、の順（上記）。
+        同じ位置を選んだ場合（rename が何もしない）も、この流れをそのまま通る。
+      */
+      if (!documents.rename(tab.relativePath, relativePath)) {
+        return finish(false, 'already-open')
+      }
+
+      tabs.moveTab(tabId, { relativePath, name })
+
+      /*
+        読み込んだときの中身も、今書き出したもので揃えておく。
+        揃えないと、器が作り直されたとき（パネルを閉じて開く）に
+        **保存前の中身**を材料に Model を作り直そうとする。
+      */
+      tabs.setDocument(tabId, {
+        status: 'ready',
+        content: snapshot.content,
+        byteLength,
+        lineEnding: tab.document.status === 'ready' ? tab.document.lineEnding : 'lf',
+        encoding: snapshot.encoding,
+        revision
+      })
+
+      /*
+        「取り出した時点」の版番号を渡す（通常の保存と同じ）。
+        ここで未保存と「ディスク上から削除された」の両方が解ける
+        （documentStore.markSaved）。
+      */
+      documents.markSaved(relativePath, snapshot.versionId, revision)
+
+      /*
+        2つの層の位置が揃った後に、状態を写す。
+        `markSaved` の通知はタブが移る前に飛んでいるため、ここで改めて揃える
+        （documentStore.rename が状態を知らせない理由）。
+      */
+      tabs.setTabState(relativePath, documents.getState(relativePath))
+
+      return finish(true, null)
+    },
+    [documents, setSaveState, tabs]
+  )
 
   /* ------------------------------------------------- ディスクを読み直す */
 
@@ -737,6 +954,9 @@ export function useEditorSession(workspaceId: string | null): EditorController {
       saveFile,
       saveActiveTab,
       saveAllUnsaved,
+      saveFileAs,
+      saveAsNotice,
+      dismissSaveAsNotice,
       reloadFromDisk,
       readDiskContent,
       autoSave,
@@ -759,6 +979,9 @@ export function useEditorSession(workspaceId: string | null): EditorController {
       saveFile,
       saveActiveTab,
       saveAllUnsaved,
+      saveFileAs,
+      saveAsNotice,
+      dismissSaveAsNotice,
       reloadFromDisk,
       readDiskContent,
       autoSave,

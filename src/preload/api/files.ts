@@ -22,6 +22,13 @@ export const filesApi: FilesApi = {
   readDirectory: (request) => invokeIpc(IPC_CHANNELS.FILES_READ_DIRECTORY, request),
   readFile: (request) => invokeIpc(IPC_CHANNELS.FILES_READ_FILE, request),
   writeFile: (request) => invokeIpc(IPC_CHANNELS.FILES_WRITE_FILE, request),
+  /*
+    別名で保存（Session 4-2）。ここも他と同じく IPC を包むだけで、
+    **保存先を組み立てる引数が無い**ことがそのまま境界になる。
+    行き先を決めるのは Main が出すネイティブの保存ダイアログだけで、
+    ここから渡せるのは中身・文字コードと、ダイアログを開く位置の助言（相対位置）に留まる。
+  */
+  saveAs: (request) => invokeIpc(IPC_CHANNELS.FILES_SAVE_AS, request),
   create: (request) => invokeIpc(IPC_CHANNELS.FILES_CREATE, request),
   rename: (request) => invokeIpc(IPC_CHANNELS.FILES_RENAME, request),
   move: (request) => invokeIpc(IPC_CHANNELS.FILES_MOVE, request),

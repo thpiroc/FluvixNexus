@@ -262,6 +262,67 @@ export function setTabStateByPath(
   }
 }
 
+/**
+ * タブを別の位置へ移す（別名で保存。Session 4-2）。
+ *
+ * 改名の追従（`applyFileChanges` の `renamed`）と**同じことをする**が、入口を分けてある。
+ * あちらはディスク側で起きたことを写す受け身の経路で、こちらは利用者の操作から
+ * 直に呼ばれる ── 混ぜると、`files:changed` を受け取っていないのに
+ * 変化の追従の関数を呼ぶ形になり、どちらが正本かが読めなくなる。
+ *
+ * ## タブを増やさず、捨てもしない
+ *
+ * 保存先が**別のタブに既に開かれている**場合は、何もせずに元の状態を返す。
+ *
+ * 移してしまうと `relativePath` が同じタブが2枚並ぶ（`openTab` が守っている
+ * 一意性が、別の入口から崩れる）。かといって相手のタブを閉じるのは、
+ * そこに未保存の変更があれば**利用者が一度も選んでいないのに失う**ことになる。
+ * 書き込み自体は既に済んでいるので、移さないことで失われるものは無い
+ * ── 断ったことを利用者に伝えるのは呼び出し側（useEditorSession.ts）。
+ *
+ * **自分自身の位置へ移すのは移動ではない**（別名で保存で同じ場所を選んだ場合）。
+ * 一意性は崩れないため、名前だけを揃えてそのまま返す。
+ */
+export function moveTabToPath(
+  state: EditorTabsState,
+  tabId: string,
+  input: { readonly relativePath: string; readonly name: string }
+): EditorTabsState {
+  const target = state.tabs.find((tab) => tab.id === tabId)
+
+  if (target === undefined) {
+    return state
+  }
+
+  const occupant = findTabByPath(state, input.relativePath)
+
+  if (occupant !== null && occupant.id !== tabId) {
+    return state
+  }
+
+  if (target.relativePath === input.relativePath && target.name === input.name) {
+    return state
+  }
+
+  return {
+    ...state,
+    tabs: state.tabs.map((tab) =>
+      tab.id === tabId ? { ...tab, relativePath: input.relativePath, name: input.name } : tab
+    )
+  }
+}
+
+/** その位置が、指定したタブ以外に開かれているか（移す前に確かめる）。 */
+export function isPathOpenInOtherTab(
+  state: EditorTabsState,
+  tabId: string,
+  relativePath: string
+): boolean {
+  const occupant = findTabByPath(state, relativePath)
+
+  return occupant !== null && occupant.id !== tabId
+}
+
 /* -------------------------------------------- ディスク側の変化への追従 */
 
 /**

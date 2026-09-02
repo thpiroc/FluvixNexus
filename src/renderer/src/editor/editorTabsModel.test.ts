@@ -7,8 +7,10 @@ import {
   EMPTY_EDITOR_TABS,
   findActiveTab,
   findTabByPath,
+  isPathOpenInOtherTab,
   isTabActive,
   listUnsavedTabs,
+  moveTabToPath,
   openTab,
   setTabDocument,
   setTabStateByPath,
@@ -393,5 +395,133 @@ describe('listUnsavedTabs', () => {
     state = setTabStateByPath(state, 'c.ts', 'deleted')
 
     expect(listUnsavedTabs(state).map((tab) => tab.relativePath)).toEqual(['a.ts', 'b.ts', 'c.ts'])
+  })
+})
+
+/*
+  別名で保存（Session 4-2）。
+
+  確かめたいのは3つで、どれも「データを失わない」ことに直結する。
+    - 移した後も**同じタブ**であり続ける（開き直しにならない）
+    - 保存先が別のタブに開かれていたら**移さない**（2枚にも、閉じもしない）
+    - 自分自身の位置を選んだ場合は移動にならない
+*/
+describe('moveTabToPath', () => {
+  it('タブの位置と名前を差し替える（id は変わらない）', () => {
+    let state = open(EMPTY_EDITOR_TABS, 'notes.txt')
+    state = setTabStateByPath(state, 'notes.txt', 'deleted')
+
+    const tabId = idOf(state, 'notes.txt')
+    const moved = moveTabToPath(state, tabId, {
+      relativePath: 'sub/rescued.md',
+      name: 'rescued.md'
+    })
+
+    expect(describeTabs(moved)).toEqual(['*sub/rescued.md<loading>'])
+    expect(findTabByPath(moved, 'notes.txt')).toBeNull()
+
+    const tab = findTabByPath(moved, 'sub/rescued.md')
+
+    // 同じタブであり続ける（開き直しにしない）。
+    expect(tab?.id).toBe(tabId)
+    expect(tab?.name).toBe('rescued.md')
+    /*
+      状態はここでは変えない。未保存が解けたかどうかを知っているのは
+      中身を持つ層（documentStore）で、写すのはつなぐ側（useEditorSession）。
+    */
+    expect(tab?.state).toBe('deleted')
+  })
+
+  it('タブは1枚のまま増えない', () => {
+    const state = open(open(EMPTY_EDITOR_TABS, 'a.ts'), 'b.ts')
+
+    const moved = moveTabToPath(state, idOf(state, 'a.ts'), {
+      relativePath: 'c.ts',
+      name: 'c.ts'
+    })
+
+    expect(moved.tabs).toHaveLength(2)
+    expect(describeTabs(moved)).toEqual(['c.ts<loading>', '*b.ts<loading>'])
+  })
+
+  it('保存先が別のタブに開かれていたら、何もしない', () => {
+    let state = open(open(EMPTY_EDITOR_TABS, 'a.ts'), 'b.ts')
+    state = setTabStateByPath(state, 'a.ts', 'deleted')
+    state = setTabStateByPath(state, 'b.ts', 'dirty')
+
+    const moved = moveTabToPath(state, idOf(state, 'a.ts'), {
+      relativePath: 'b.ts',
+      name: 'b.ts'
+    })
+
+    // 元のオブジェクトがそのまま返る（相手のタブも、その未保存の状態も無傷）。
+    expect(moved).toBe(state)
+    expect(findTabByPath(moved, 'b.ts')?.state).toBe('dirty')
+    expect(moved.tabs).toHaveLength(2)
+  })
+
+  it('自分自身の位置へ移すのは移動にならない', () => {
+    const state = open(EMPTY_EDITOR_TABS, 'a.ts')
+
+    const moved = moveTabToPath(state, idOf(state, 'a.ts'), {
+      relativePath: 'a.ts',
+      name: 'a.ts'
+    })
+
+    expect(moved).toBe(state)
+  })
+
+  it('自分自身の位置でも、名前だけが違えば揃える', () => {
+    const state = openTab(EMPTY_EDITOR_TABS, { relativePath: 'a.ts', name: 'stale' })
+
+    const moved = moveTabToPath(state, idOf(state, 'a.ts'), {
+      relativePath: 'a.ts',
+      name: 'a.ts'
+    })
+
+    expect(findTabByPath(moved, 'a.ts')?.name).toBe('a.ts')
+  })
+
+  it('無い id なら何もしない', () => {
+    const state = open(EMPTY_EDITOR_TABS, 'a.ts')
+
+    expect(moveTabToPath(state, 'tab-999', { relativePath: 'b.ts', name: 'b.ts' })).toBe(state)
+  })
+
+  it('移した後も、閉じる前の確認の一覧には状態どおりに並ぶ', () => {
+    let state = open(EMPTY_EDITOR_TABS, 'notes.txt')
+    state = setTabStateByPath(state, 'notes.txt', 'deleted')
+    state = moveTabToPath(state, idOf(state, 'notes.txt'), {
+      relativePath: 'rescued.txt',
+      name: 'rescued.txt'
+    })
+
+    // 位置が変わっても、印は位置ではなくタブに付いている。
+    expect(listUnsavedTabs(state).map((tab) => tab.relativePath)).toEqual(['rescued.txt'])
+
+    // 保存が済んだことを写せば、確認の一覧から消える（＝救い出せた状態）。
+    state = setTabStateByPath(state, 'rescued.txt', 'clean')
+
+    expect(listUnsavedTabs(state)).toEqual([])
+  })
+})
+
+describe('isPathOpenInOtherTab', () => {
+  it('自分自身の位置は「別のタブ」ではない', () => {
+    const state = open(EMPTY_EDITOR_TABS, 'a.ts')
+
+    expect(isPathOpenInOtherTab(state, idOf(state, 'a.ts'), 'a.ts')).toBe(false)
+  })
+
+  it('別のタブが開いている位置を見つける', () => {
+    const state = open(open(EMPTY_EDITOR_TABS, 'a.ts'), 'b.ts')
+
+    expect(isPathOpenInOtherTab(state, idOf(state, 'a.ts'), 'b.ts')).toBe(true)
+  })
+
+  it('どのタブも開いていない位置は false', () => {
+    const state = open(EMPTY_EDITOR_TABS, 'a.ts')
+
+    expect(isPathOpenInOtherTab(state, idOf(state, 'a.ts'), 'c.ts')).toBe(false)
   })
 })

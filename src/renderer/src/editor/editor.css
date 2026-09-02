@@ -64,6 +64,72 @@
   cursor: pointer;
 }
 
+/* 別名で保存（Session 4-2）。Auto Save の選択と同じ見え方に揃える。 */
+.fx-editor__save-as {
+  flex: 0 0 auto;
+  align-self: center;
+  margin-left: var(--fx-space-2);
+  padding: 1px var(--fx-space-2);
+  color: var(--fx-color-text-muted);
+  background: var(--fx-color-surface-raised);
+  border: 1px solid var(--fx-color-border);
+  border-radius: 3px;
+  font: inherit;
+  font-size: var(--fx-font-size-sm);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.fx-editor__save-as:hover:not(:disabled) {
+  color: var(--fx-color-text);
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-editor__save-as:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/*
+  保存の結末の知らせ。
+
+  タブが移らなかった場合（Workspace の外・保存先が別のタブ）だけ色を変える。
+  失敗ではないので警告色は使わず、「読んでほしい」ぶんだけ地を起こす。
+*/
+.fx-editor__save-as-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--fx-space-2);
+  margin: 0;
+  padding: var(--fx-space-1) var(--fx-space-2);
+  color: var(--fx-color-text-muted);
+  background: var(--fx-color-surface-raised);
+  border-bottom: 1px solid var(--fx-color-border);
+  font-size: var(--fx-font-size-sm);
+  line-height: 1.5;
+}
+
+.fx-editor__save-as-notice[data-followed='false'] {
+  color: var(--fx-color-text);
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-editor__save-as-dismiss {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 0 var(--fx-space-1);
+  color: inherit;
+  background: none;
+  border: none;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.fx-editor__save-as-dismiss:hover {
+  color: var(--fx-color-text);
+}
+
 .fx-editor-tab {
   display: flex;
   align-items: center;

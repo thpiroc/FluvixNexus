@@ -1,3 +1,4 @@
+import { dialog } from 'electron'
 import {
   COPY_LINK_SOURCE_DETAIL,
   COPY_PARTIAL_DETAIL,
@@ -17,6 +18,7 @@ import {
   type ReadWorkspaceDirectoryResponse,
   type ReadWorkspaceFileResponse,
   type RenameWorkspaceEntryResponse,
+  type SaveWorkspaceFileAsResponse,
   type SearchWorkspaceFileContentsResponse,
   type SearchWorkspaceFilesResponse,
   type WriteWorkspaceFileResponse
@@ -32,6 +34,12 @@ import {
 } from '../../files/mutateWorkspaceEntry'
 import { readWorkspaceDirectory } from '../../files/readWorkspaceDirectory'
 import { readWorkspaceFile } from '../../files/readWorkspaceFile'
+import {
+  describeSaveAsLocation,
+  prepareSaveAsBytes,
+  resolveSaveAsDialogPath,
+  writeFileAtPath
+} from '../../files/saveFileAs'
 import { searchWorkspaceFileContents } from '../../files/searchWorkspaceFileContents'
 import { searchWorkspaceFiles } from '../../files/searchWorkspaceFiles'
 import {
@@ -365,6 +373,126 @@ export function registerFilesHandlers(): void {
         throw new IpcError('INTERNAL', 'failed to write the file.', outcome.detail)
     }
   })
+
+  /* ------------------------------------------------ 別名で保存（Save As） */
+
+  /*
+    利用者が選んだ場所へ書き出す（Session 4-2）。
+
+    ## このハンドラだけが Workspace の外へ書ける
+
+    files ドメインの他の口は、要求に含まれるのが相対位置だけで、
+    そこから Workspace の外へは手が届かない（このファイルの冒頭）。
+    ここも**要求に保存先が無い**点は同じで、違うのは
+    「Main が出したダイアログで利用者が選んだ場所」を書く相手にすることだけになる。
+
+    したがって信頼の根拠は Renderer ではなく利用者の選択にある。
+    絶対パスを受け取る引数を足さないこと ── 足した時点で、
+    このハンドラは「Renderer から任意の場所へ書ける口」に変わる。
+
+    ## 断るなら、選ばせる前に断る
+
+    中身の検証（文字列か・上限を超えないか）と、助言の相対位置の正規化は
+    ダイアログより先に済ませる。選んでから断ると、利用者は保存先を選ぶ手間を
+    無駄にしたうえで、何が悪かったのかをダイアログの外で知ることになる。
+
+    ## 変化は自分で配る
+
+    書けた位置が Workspace の中なら `files:changed` を1件配る。
+    新しく作ったなら `created`、上書きしたなら `modified` で、
+    どちらも `notifyChanged` を通す（＝監視側を短い間だけ黙らせる）。
+
+    **上書きの `modified` を配ることに意味がある。** その位置を別のタブが
+    開いていた場合、そのタブは既存の外部変更の経路で追従する（未保存なら
+    Conflict として残る）── 別名保存が他のタブの内容を黙って古くしない。
+    自分のタブは版を突き合わせて捨てる（documentStore.markExternalChange）。
+  */
+  handleIpc(
+    IPC_CHANNELS.FILES_SAVE_AS,
+    async (request, context): Promise<SaveWorkspaceFileAsResponse> => {
+      const workspace = requireWorkspace()
+
+      const prepared = prepareSaveAsBytes(field(request, 'content'), field(request, 'encoding'))
+
+      if (prepared.status !== 'ok') {
+        throw invalidRequest('the requested content is not writable text.')
+      }
+
+      const dialogPath = resolveSaveAsDialogPath(
+        workspace.rootPath,
+        field(request, 'suggestedRelativePath')
+      )
+
+      if (dialogPath === null) {
+        throw invalidRequest('the suggested path is not a valid workspace-relative file path.')
+      }
+
+      // 呼び出し元のウィンドウに対してモーダルにする（registry が送信元を検証済み）。
+      const selection = await dialog.showSaveDialog(context.window, {
+        title: '別名で保存',
+        defaultPath: dialogPath,
+        /*
+          上書きの確認は OS のダイアログに任せる（アプリ側で二重に訊かない）。
+          Windows では既定で出るが、明示しておく方が「誰が確認しているか」が読める。
+        */
+        properties: ['createDirectory', 'showOverwriteConfirmation']
+      })
+
+      const chosenPath = selection.filePath
+
+      // 取り消しは失敗ではなく通常の結末（契約の SaveWorkspaceFileAsResponse を参照）。
+      if (selection.canceled || chosenPath === undefined || chosenPath === '') {
+        return { status: 'cancelled' }
+      }
+
+      const outcome = await writeFileAtPath(chosenPath, prepared.bytes)
+
+      switch (outcome.status) {
+        case 'ok':
+          break
+
+        case 'not-found':
+          throw new IpcError('NOT_FOUND', 'the folder to save into no longer exists.')
+
+        case 'not-a-file':
+          throw invalidRequest('the selected path is a folder.')
+
+        case 'permission-denied':
+          throw new IpcError('PERMISSION_DENIED', 'the selected location cannot be written.')
+
+        case 'invalid-path':
+          throw invalidRequest('the selected path cannot be used as a file.')
+
+        case 'failed':
+          throw new IpcError('INTERNAL', 'failed to write the file.', outcome.detail)
+      }
+
+      const location = await describeSaveAsLocation(workspace.rootPath, outcome.realPath)
+
+      if (location.relativePath !== null) {
+        notifyChanged(workspace.id, [
+          outcome.created
+            ? { kind: 'created', relativePath: location.relativePath, entryType: 'file' }
+            : {
+                kind: 'modified',
+                relativePath: location.relativePath,
+                entryType: 'file',
+                revision: outcome.revision
+              }
+        ])
+      }
+
+      return {
+        status: 'saved',
+        workspaceId: workspace.id,
+        name: outcome.name,
+        byteLength: outcome.byteLength,
+        relativePath: location.relativePath,
+        // 中の場合だけ。外は Editor が開けないため、次の保存の起点にもならない。
+        revision: location.relativePath === null ? null : outcome.revision
+      }
+    }
+  )
 
   /* ------------------------------------------------------------ 作成 */
 

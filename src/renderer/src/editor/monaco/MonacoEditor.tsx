@@ -202,6 +202,24 @@ export function MonacoEditor({
       createEditorModel
     )
 
+    /*
+      言語を今の位置に合わせ直す（Session 4-2）。
+
+      Model は位置が変わっても作り直さない（改名・別名で保存とも、鍵だけを
+      付け替えて Undo 履歴を保つ ── documentStore.ts）。そのため Model が持つ
+      言語は**作られたときの位置**のままで、`notes.txt` を `notes.md` として
+      保存し直すと、色が付かないまま残る。
+
+      作り直さずに済ませられるのは Monaco がこの1本を持っているためで、
+      これを知っているのは器の側だけになる（documentStore は型としてしか
+      Monaco を見ない）。改名の追従にも同じだけ効く。
+    */
+    const languageId = resolveEditorLanguageId(relativePath)
+
+    if (model.getLanguageId() !== languageId) {
+      monaco.editor.setModelLanguage(model, languageId)
+    }
+
     mountedPathRef.current = relativePath
     editor.setModel(model)
     documents.restoreViewState(relativePath, editor)

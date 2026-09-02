@@ -16,6 +16,7 @@ import type {
   ReadWorkspaceDirectoryRequest,
   ReadWorkspaceFileRequest,
   RenameWorkspaceEntryRequest,
+  SaveWorkspaceFileAsRequest,
   SearchWorkspaceFileContentsRequest,
   SearchWorkspaceFilesRequest,
   WriteWorkspaceFileRequest
@@ -216,6 +217,21 @@ export interface FilesApi {
    * 要求に添える `baseRevision` が今ディスクにある版と違えば、書かずに `'stale'` が返る。
    */
   readonly writeFile: (request: WriteWorkspaceFileRequest) => IpcInvokeResult<'files:write-file'>
+  /**
+   * 中身を、利用者が選んだ場所へ書き出す（別名で保存。Session 4-2）。
+   *
+   * **保存先を渡す引数が無い**のがこの口の要点。行き先を決めるのはネイティブの
+   * 保存ダイアログ（Main が出す）だけで、Renderer は「出して」としか言えない
+   * ── `workspaceFolder.open` と同じ形にしてある。
+   *
+   * `writeFile` と違い、**まだ存在しない場所へも書ける**（新しいファイルを作る）。
+   * 既にあるファイルを選んだ場合の上書き確認は OS のダイアログが行い、
+   * アプリ側で二重に訊かない。
+   *
+   * 利用者が Workspace の外を選んだ場合もそこへ書く。応答に絶対パスは載らず、
+   * 外へ書けたときは `relativePath` が null になる。
+   */
+  readonly saveAs: (request: SaveWorkspaceFileAsRequest) => IpcInvokeResult<'files:save-as'>
   /** フォルダの中に新しいファイル / フォルダを作る。既に同名があれば CONFLICT。 */
   readonly create: (request: CreateWorkspaceEntryRequest) => IpcInvokeResult<'files:create'>
   /** 名前を変える（同じフォルダの中で完結する。移動は含まない）。 */
