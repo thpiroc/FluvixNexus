@@ -69,7 +69,6 @@ export function TerminalView(): JSX.Element {
     screens,
     display,
     setFontSize,
-    setScrollback,
     openTab,
     activateTab,
     refreshShells,
@@ -111,7 +110,6 @@ export function TerminalView(): JSX.Element {
         onShellMenuOpen={refreshShells}
         display={display}
         onFontSizeChange={setFontSize}
-        onScrollbackChange={setScrollback}
       />
 
       {activeTab !== null && (activeTab.status === 'exited' || activeTab.status === 'failed') && (

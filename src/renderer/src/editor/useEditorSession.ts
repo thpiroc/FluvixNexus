@@ -213,6 +213,13 @@ export interface EditorController {
   /* ------ 自動保存 */
   readonly autoSave: AutoSaveSettings
   readonly setAutoSaveMode: (mode: AutoSaveMode) => void
+  /**
+   * `afterDelay` の待ち時間を変える（上下限は `normalizeAutoSaveSettings` が掛ける）。
+   *
+   * Session 4-3B で足した。値そのものは Session 3-5 から保存されていたが、
+   * **変える口がどこにも無かった**（保存ファイルを手で書き換えるしかなかった）。
+   */
+  readonly setAutoSaveDelayMs: (delayMs: number) => void
 }
 
 export function useEditorSession(workspaceId: string | null): EditorController {
@@ -875,6 +882,22 @@ export function useEditorSession(workspaceId: string | null): EditorController {
     [updateAutoSave]
   )
 
+  /*
+    待ち時間も同じ形で変える（Session 4-3B）。上下限と丸めは
+    `normalizeAutoSaveSettings` が持つ ── Settings 画面の欄も、保存ファイルの
+    読み込みも**同じ関数**を通る（片方だけに掛けると食い違う）。
+  */
+  const setAutoSaveDelayMs = useCallback(
+    (delayMs: number): void => {
+      updateAutoSave((previous) => {
+        const next = normalizeAutoSaveSettings({ ...previous, delayMs })
+
+        return isSameAutoSaveSettings(previous, next) ? previous : next
+      })
+    },
+    [updateAutoSave]
+  )
+
   /* --------------------------------------- タブを閉じる / 読み直す */
 
   /*
@@ -938,7 +961,8 @@ export function useEditorSession(workspaceId: string | null): EditorController {
       reloadFromDisk,
       readDiskContent,
       autoSave,
-      setAutoSaveMode
+      setAutoSaveMode,
+      setAutoSaveDelayMs
     }),
     [
       tabs.tabs,
@@ -963,7 +987,8 @@ export function useEditorSession(workspaceId: string | null): EditorController {
       reloadFromDisk,
       readDiskContent,
       autoSave,
-      setAutoSaveMode
+      setAutoSaveMode,
+      setAutoSaveDelayMs
     ]
   )
 }

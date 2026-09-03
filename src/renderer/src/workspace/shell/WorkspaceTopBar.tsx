@@ -14,6 +14,13 @@ import { DropdownMenu, type DropdownMenuItem } from '../../ui/DropdownMenu'
  *   Workspace … 開いているプロジェクトフォルダ（開く / 閉じる）と、その名前の表示
  *   View      … パネルの表示 / 非表示。閉じたパネルを見つけて戻せる唯一の入口
  *   Layout    … レイアウトプリセットの切り替え
+ *   Settings  … アプリ全体の設定（Session 4-3B）
+ *
+ * Settings だけはレイアウトを何も変えない。それでもここに置いたのは、
+ * 設定が Editor / Files / Terminal の3つにまたがっていて**どのパネルのものでもない**
+ * ためで、Workspace を開く / 閉じるが既にここにあるのと同じ扱いになる
+ * （上部バーはレイアウト専用の場所ではなく、アプリ全体に関わる入口の場所）。
+ * 面そのものは Shell が出す（WorkspaceShell.tsx）── ここが持つのは入口だけ。
  *
  * View メニューが**登録されているパネルすべて**を並べるのが要点。
  * レイアウトから外れても Panel Registry の定義は残るため、閉じたパネルもここに出続ける
@@ -37,6 +44,10 @@ interface WorkspaceTopBarProps {
   readonly onTogglePanel: (panelId: PanelId) => void
   readonly onApplyPreset: (presetId: LayoutPresetId) => void
   readonly onResetLayout: () => void
+  /** Settings を開いているか（ボタンの見た目に出す）。 */
+  readonly settingsOpen: boolean
+  /** アプリ全体の設定を開く（Session 4-3B）。 */
+  readonly onOpenSettings: () => void
 }
 
 export function WorkspaceTopBar({
@@ -45,7 +56,9 @@ export function WorkspaceTopBar({
   modified,
   onTogglePanel,
   onApplyPreset,
-  onResetLayout
+  onResetLayout,
+  settingsOpen,
+  onOpenSettings
 }: WorkspaceTopBarProps): JSX.Element {
   const { status, workspace, busy, openFolder, closeWorkspace } = useWorkspaceFolder()
 
@@ -106,6 +119,34 @@ export function WorkspaceTopBar({
       {modified && <span className="fx-topbar__slot">変更あり</span>}
 
       <span className="fx-topbar__spacer" />
+
+      {/*
+        アプリ全体の設定（Session 4-3B）。
+
+        ## 上部バーに置く
+
+        設定は Editor / Files / Terminal の3つにまたがるので、どのパネルの中にも
+        置けない ── パネルに置くと、そのパネルを閉じた人から設定が消える。
+        上部バーは「レイアウトそのものを操作するもの」の場所だが、Workspace を
+        開く / 閉じるが既にここにあるとおり、**アプリ全体に関わる入口**も
+        ここが引き受けている（レイアウト専用の場所ではない）。
+
+        ## 右端に置く
+
+        左から Workspace → View → Layout と、扱う範囲が狭いものから並んでいる。
+        Settings はその並びに属さない（レイアウトを何も変えない）ので、
+        「レイアウトを初期化」と同じく余白の向こう側に置く。
+      */}
+      <button
+        type="button"
+        className="fx-topbar__button"
+        data-testid="topbar-settings"
+        data-open={settingsOpen}
+        onClick={onOpenSettings}
+        title="アプリ全体の設定を開きます。"
+      >
+        Settings
+      </button>
 
       {/*
         ドラッグ&ドロップ・リサイズで崩した配置の戻り先。

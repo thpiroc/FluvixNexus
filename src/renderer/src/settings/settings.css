@@ -1,0 +1,232 @@
+/**
+ * Settings 画面の見た目（settings/SettingsOverlay.tsx）。
+ *
+ * Git の面（差分・履歴・退避）と同じ組み立て ── 上に細いバー、その下に本体。
+ * 違うのは敷く範囲だけで、あちらはパネルの中（`position: absolute`）、
+ * こちらは窓いっぱい（`position: fixed`）になる。アプリ全体についての面なので、
+ * 上部バーもステータスバーも覆う。
+ *
+ * 色・間隔は styles/theme.css の変数を使い、ここで生の値を書かないこと。
+ * 数の欄そのものの見た目は ui/field.css が持つ。
+ */
+
+.fx-settings {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--fx-color-surface);
+  color: var(--fx-color-text);
+  font-size: var(--fx-font-size-md);
+}
+
+/* 上のバー（Git の面と同じ高さ・同じ並び）。 */
+.fx-settings__bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--fx-space-2);
+  padding: var(--fx-space-2) var(--fx-space-3);
+  border-bottom: 1px solid var(--fx-color-border);
+}
+
+.fx-settings__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fx-color-text-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 閉じる（Esc でも閉じる）。Git の面の × と同じ形。 */
+.fx-settings__close {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--fx-color-text-muted);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.fx-settings__close:hover {
+  background: var(--fx-color-surface-hover);
+  color: var(--fx-color-text-strong);
+}
+
+.fx-settings__body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/*
+ * カテゴリの一覧（左）。
+ *
+ * 幅を決め打つのは、カテゴリ名の長さで設定の並ぶ側の幅が動かないようにするため。
+ */
+.fx-settings__nav {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 2px;
+  width: 160px;
+  padding: var(--fx-space-2);
+  border-right: 1px solid var(--fx-color-border);
+  background: var(--fx-color-surface-sunken);
+  overflow-y: auto;
+}
+
+.fx-settings__nav-item {
+  padding: var(--fx-space-1) var(--fx-space-2);
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--fx-color-text-muted);
+  font: inherit;
+  font-size: var(--fx-font-size-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.fx-settings__nav-item:hover {
+  background: var(--fx-color-surface-hover);
+  color: var(--fx-color-text);
+}
+
+.fx-settings__nav-item[data-active='true'] {
+  background: var(--fx-color-surface-raised);
+  color: var(--fx-color-text-strong);
+}
+
+/*
+ * 設定が並ぶ側（右）。
+ *
+ * 読む幅の上限を決めてあるのは、窓を広げるほど名前と操作 UI が
+ * 離れていくのを避けるため（説明文も長い行にすると読みにくい）。
+ */
+.fx-settings__content {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: var(--fx-space-4);
+  overflow-y: auto;
+}
+
+.fx-settings__heading {
+  max-width: 640px;
+  margin-bottom: var(--fx-space-4);
+  padding-bottom: var(--fx-space-2);
+  border-bottom: 1px solid var(--fx-color-border);
+}
+
+.fx-settings__heading-title {
+  margin: 0;
+  color: var(--fx-color-text-strong);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.fx-settings__heading-note {
+  margin: var(--fx-space-1) 0 0;
+  color: var(--fx-color-text-faint);
+  font-size: var(--fx-font-size-sm);
+}
+
+/* 設定1つ分。名前と説明が左、操作 UI が右。 */
+.fx-settings__row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--fx-space-4);
+  max-width: 640px;
+  padding: var(--fx-space-3) 0;
+  border-bottom: 1px solid var(--fx-color-border);
+}
+
+.fx-settings__row:last-child {
+  border-bottom: none;
+}
+
+.fx-settings__row-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.fx-settings__row-title {
+  display: block;
+  color: var(--fx-color-text-strong);
+  font-size: var(--fx-font-size-md);
+}
+
+.fx-settings__row-note {
+  margin: var(--fx-space-1) 0 0;
+  color: var(--fx-color-text-faint);
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-settings__row-control {
+  flex: 0 0 auto;
+  min-width: 200px;
+}
+
+.fx-settings__select {
+  width: 100%;
+  padding: 2px var(--fx-space-1);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 2px;
+  background: var(--fx-color-surface-sunken);
+  color: var(--fx-color-text-strong);
+  font: inherit;
+  font-size: var(--fx-font-size-sm);
+  cursor: pointer;
+}
+
+.fx-settings__select:focus {
+  outline: 1px solid var(--fx-accent-neutral);
+  outline-offset: -1px;
+}
+
+/* 選択肢を横に並べる（Files の表示方式）。 */
+.fx-settings__choices {
+  display: flex;
+  gap: 2px;
+}
+
+.fx-settings__choice {
+  flex: 1 1 auto;
+  padding: 2px var(--fx-space-2);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 2px;
+  background: var(--fx-color-surface-sunken);
+  color: var(--fx-color-text-muted);
+  font: inherit;
+  font-size: var(--fx-font-size-sm);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.fx-settings__choice:hover {
+  background: var(--fx-color-surface-hover);
+  color: var(--fx-color-text);
+}
+
+.fx-settings__choice[data-active='true'] {
+  background: var(--fx-color-surface-raised);
+  border-color: var(--fx-accent-blue);
+  color: var(--fx-color-text-strong);
+}
+
+/* 目録に足したのに操作 UI が無い項目（SettingsOverlay.tsx の既定の分岐）。 */
+.fx-settings__missing {
+  color: var(--fx-color-danger);
+  font-size: var(--fx-font-size-sm);
+}

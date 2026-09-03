@@ -198,53 +198,12 @@
   padding: var(--fx-space-2) var(--fx-space-3);
 }
 
-.fx-terminal-settings__field {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  gap: 0 var(--fx-space-2);
-}
-
-.fx-terminal-settings__label {
-  color: var(--fx-color-text);
-  font-size: var(--fx-font-size-sm);
-  white-space: nowrap;
-}
-
-.fx-terminal-settings__value {
-  display: flex;
-  align-items: baseline;
-  gap: var(--fx-space-1);
-}
-
-.fx-terminal-settings__input {
-  width: 72px;
-  padding: 2px var(--fx-space-1);
-  border: 1px solid var(--fx-color-border-strong);
-  border-radius: 2px;
-  background: var(--fx-color-surface-sunken);
-  color: var(--fx-color-text-strong);
-  font-family: inherit;
-  font-size: var(--fx-font-size-sm);
-  text-align: right;
-}
-
-.fx-terminal-settings__input:focus {
-  outline: 1px solid var(--fx-panel-accent, var(--fx-accent-neutral));
-  outline-offset: -1px;
-}
-
-.fx-terminal-settings__unit {
-  color: var(--fx-color-text-muted);
-  font-size: var(--fx-font-size-sm);
-}
-
-/* 範囲の案内。欄の下（ラベルの列）に小さく添える。 */
-.fx-terminal-settings__hint {
-  grid-column: 1 / -1;
-  color: var(--fx-color-text-faint);
-  font-size: var(--fx-font-size-sm);
-}
+/*
+ * 欄そのものの見た目（.fx-number-field__*）は ui/field.css へ移した（Session 4-3B）。
+ * Settings 画面が2つめ・3つめの使い手になったためで、ui/menu.css が
+ * DropdownMenu の見た目を引き受けたのとまったく同じ経緯にあたる。
+ * ここに残すと、Settings 画面が Terminal の CSS の読み込みに頼ることになる。
+ */
 
 .fx-terminal-settings__note {
   margin: 0;

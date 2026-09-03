@@ -1,0 +1,58 @@
+/**
+ * 数を1つ受け取る欄の見た目（ui/NumberField.tsx）。
+ *
+ * Session 3-7-5 では terminal.css の中にあったもので、Session 4-3B で
+ * Settings 画面が2つめ・3つめの使い手になったためここへ移した
+ * （ui/menu.css が DropdownMenu の見た目を引き受けたのと同じ経緯）。
+ *
+ * 置かれる面の地の色は器の側（Popover / Settings 画面）が決める。
+ * ここが持つのは欄そのものの形だけで、色・間隔は styles/theme.css の変数を使う。
+ */
+
+.fx-number-field {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 0 var(--fx-space-2);
+}
+
+.fx-number-field__label {
+  color: var(--fx-color-text);
+  font-size: var(--fx-font-size-sm);
+  white-space: nowrap;
+}
+
+.fx-number-field__value {
+  display: flex;
+  align-items: baseline;
+  gap: var(--fx-space-1);
+}
+
+.fx-number-field__input {
+  width: 72px;
+  padding: 2px var(--fx-space-1);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 2px;
+  background: var(--fx-color-surface-sunken);
+  color: var(--fx-color-text-strong);
+  font-family: inherit;
+  font-size: var(--fx-font-size-sm);
+  text-align: right;
+}
+
+.fx-number-field__input:focus {
+  outline: 1px solid var(--fx-panel-accent, var(--fx-accent-neutral));
+  outline-offset: -1px;
+}
+
+.fx-number-field__unit {
+  color: var(--fx-color-text-muted);
+  font-size: var(--fx-font-size-sm);
+}
+
+/* 範囲の案内。欄の下（ラベルの列）に小さく添える。 */
+.fx-number-field__hint {
+  grid-column: 1 / -1;
+  color: var(--fx-color-text-faint);
+  font-size: var(--fx-font-size-sm);
+}

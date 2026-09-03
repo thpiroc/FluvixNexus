@@ -44,27 +44,11 @@
 }
 
 /*
- * 自動保存の切り替え。
- *
- * 設定画面（DESIGN.md §9）が入るまでの置き場所。パネルが狭くても
- * タブ列の側が縮むだけで、ここは幅を保つ。
+ * 自動保存の切り替え（.fx-editor__autosave）は Session 4-3B で消えた。
+ * 置き場所が Settings 画面の Editor へ移ったため（settings/settings.css）。
  */
-.fx-editor__autosave {
-  flex: 0 0 auto;
-  align-self: center;
-  max-width: 180px;
-  margin: 0 var(--fx-space-2);
-  padding: 1px var(--fx-space-1);
-  color: var(--fx-color-text-muted);
-  background: var(--fx-color-surface-raised);
-  border: 1px solid var(--fx-color-border);
-  border-radius: 3px;
-  font: inherit;
-  font-size: var(--fx-font-size-sm);
-  cursor: pointer;
-}
 
-/* 別名で保存（Session 4-2）。Auto Save の選択と同じ見え方に揃える。 */
+/* 別名で保存（Session 4-2）。工具列のボタンの見え方。 */
 .fx-editor__save-as {
   flex: 0 0 auto;
   align-self: center;

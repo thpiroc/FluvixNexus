@@ -1,4 +1,5 @@
-import { useMemo, type CSSProperties, type JSX } from 'react'
+import { useCallback, useMemo, useState, type CSSProperties, type JSX } from 'react'
+import { SettingsOverlay } from '../settings/SettingsOverlay'
 import { useWorkspaceFolder } from '../workspaceFolder/context'
 import { usePanelDrag } from './dnd/usePanelDrag'
 import { DOCK_SIZE_CONSTRAINTS } from './layout/constraints'
@@ -91,6 +92,24 @@ export function WorkspaceShell(): JSX.Element {
   // View メニューのチェック状態。レイアウトから導出するため、閉じ忘れ・出し忘れが起きない。
   const visiblePanelIds = useMemo(() => new Set(listVisiblePanelIds(layout)), [layout])
 
+  /*
+    Settings（アプリ全体の設定）が開いているか（Session 4-3B）。
+
+    ## なぜ Shell が持つか
+
+    面はウィンドウ全体を覆い、レイアウトの外にある ── Dock の対象ではないので
+    レイアウトの木には現れず、`layout` から導出できない（パネルの表示 / 非表示が
+    レイアウトから導出できるのとは別のもの）。開く入口は上部バーにあり、
+    出す先は Shell 全体なので、その2つを知っている**ここ**が持つ。
+
+    保存もしない。次の起動で Settings が開いたまま出ることに意味が無い
+    （レイアウトと違い、これは「今している操作」であって配置ではない）。
+  */
+  const [settingsOpen, setSettingsOpen] = useState(false)
+
+  const openSettings = useCallback((): void => setSettingsOpen(true), [])
+  const closeSettings = useCallback((): void => setSettingsOpen(false), [])
+
   // 保存済みレイアウトを読み終えるまでは枠だけを出す（数十 ms）。
   // Default を描いてから差し替えると、起動のたびに配置が飛んで見えるうえ、
   // その間に操作されると復元で上書きすることになる。
@@ -123,6 +142,8 @@ export function WorkspaceShell(): JSX.Element {
         }
         onApplyPreset={applyPreset}
         onResetLayout={resetLayout}
+        settingsOpen={settingsOpen}
+        onOpenSettings={openSettings}
       />
 
       <div className="fx-workspace__main">
@@ -137,6 +158,16 @@ export function WorkspaceShell(): JSX.Element {
       </div>
 
       <WorkspaceStatusBar />
+
+      {/*
+        アプリ全体の設定（Session 4-3B）。
+
+        レイアウトの木の**外**に置く ── Dock の対象ではなく、上部バーも
+        ステータスバーも覆う（settings/SettingsOverlay.tsx）。値は1つも
+        持っておらず、Shell より外側の Context（Editor / Files / Terminal）から
+        読んで、既存の setter へ返すだけになる。
+      */}
+      {settingsOpen && <SettingsOverlay onClose={closeSettings} />}
     </div>
   )
 }

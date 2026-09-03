@@ -82,7 +82,6 @@ interface TerminalTabsProps {
    */
   readonly display: TerminalDisplaySettings
   readonly onFontSizeChange: (fontSize: number) => void
-  readonly onScrollbackChange: (scrollback: number) => void
 }
 
 export function TerminalTabs({
@@ -97,8 +96,7 @@ export function TerminalTabs({
   onOpen,
   onShellMenuOpen,
   display,
-  onFontSizeChange,
-  onScrollbackChange
+  onFontSizeChange
 }: TerminalTabsProps): JSX.Element {
   const available = shells.filter((shell) => shell.available)
 
@@ -197,11 +195,7 @@ export function TerminalTabs({
         これから開くターミナルにも効くもので、開いてからでないと変えられない
         理由が無い。
       */}
-      <TerminalSettingsMenu
-        display={display}
-        onFontSizeChange={onFontSizeChange}
-        onScrollbackChange={onScrollbackChange}
-      />
+      <TerminalSettingsMenu display={display} onFontSizeChange={onFontSizeChange} />
     </div>
   )
 }

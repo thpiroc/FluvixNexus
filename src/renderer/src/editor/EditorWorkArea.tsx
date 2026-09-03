@@ -1,5 +1,4 @@
 import type { JSX } from 'react'
-import { AUTO_SAVE_MODES, describeAutoSaveMode, type AutoSaveMode } from './autoSave'
 import { useEditorContext } from './context'
 import { EditorDocumentView } from './EditorDocumentView'
 import { EditorTabs } from './EditorTabs'
@@ -25,13 +24,18 @@ import './editor.css'
  * 通し、未保存があれば確認を挟む。入口を1つにしておくと、
  * タブの × 以外の閉じ方（今後のキーボード操作など）が増えても保護が抜けない。
  *
- * ## Auto Save の切り替えをここに置く理由
+ * ## Auto Save の切り替えは、ここには無い（Session 4-3B）
  *
- * 設定画面（DESIGN.md §9）はまだ無い。上部バー（Workspace Shell）に置くこともできるが、
- * あそこは**レイアウトそのものを操作するもの**の場所で、パネル固有の設定を置くと
- * 「Shell はパネルの事情を持たない」という分担（ARCHITECTURE.md §7.2）が崩れる。
- * Settings が入った時点でそちらへ移す（設定の**値**は既にアプリの設定として
- * 保存されている ── editor/autoSave.ts）。
+ * Session 3-5 では工具列に置いていた ── 設定画面がまだ無く、上部バー
+ * （Workspace Shell）はレイアウトそのものを操作する場所だったため、
+ * ほかに置ける場所が無かった。「Settings が入った時点でそちらへ移す」ことは
+ * そのときから決めてあり、Session 4-3B で実際に移した
+ * （settings/SettingsOverlay.tsx の Editor）。
+ *
+ * 移ったのは**並べる場所だけ**で、値の持ち主は前から useEditorSession.ts のまま
+ * にほかならない（editor/autoSave.ts）。工具列に残っているのは、タブ列と
+ * 「別名で保存」── どちらも**今開いているタブに対する操作**で、
+ * アプリ全体の設定とは別のものになる。
  */
 export function EditorWorkArea(): JSX.Element {
   const controller = useEditorContext()
@@ -51,8 +55,6 @@ export function EditorWorkArea(): JSX.Element {
     saveFileAs,
     saveAsNotice,
     dismissSaveAsNotice,
-    autoSave,
-    setAutoSaveMode,
     pendingReveal,
     consumeReveal
   } = controller
@@ -103,22 +105,14 @@ export function EditorWorkArea(): JSX.Element {
         </button>
 
         {/*
-          4つの mode すべてが動く（Session 3-5）。設定はアプリの設定として
-          保存されるため、選び直した状態が次回起動でもそのまま出る。
+          自動保存の選択はここから Settings 画面の Editor へ移した（Session 4-3B）。
+
+          工具列に置いていたのは**設定画面がまだ無かったから**で、
+          「Settings が入った時点でそちらへ移す」ことは Session 3-5 の時点で
+          決めてあった（このファイルの冒頭）。同じ設定を変える口を2つ残すと、
+          どちらが効いているかを利用者に確かめさせることになる
+          ── 設定の**値**は前から変わっておらず、移ったのは並べる場所だけ。
         */}
-        <select
-          className="fx-editor__autosave"
-          aria-label="自動保存"
-          data-testid="editor-autosave"
-          value={autoSave.mode}
-          onChange={(event) => setAutoSaveMode(event.target.value as AutoSaveMode)}
-        >
-          {AUTO_SAVE_MODES.map((mode) => (
-            <option key={mode} value={mode}>
-              {describeAutoSaveMode(mode)}
-            </option>
-          ))}
-        </select>
       </div>
 
       {/*

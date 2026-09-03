@@ -61,6 +61,52 @@ function isLayoutMode(value: unknown): value is FilesLayoutMode {
   return value === 'tree' || value === 'columns'
 }
 
+/* ------------------------------------------------ 選択肢としての表示方式 */
+
+/**
+ * 利用者が選べる3つ（Session 4-3B）。
+ *
+ * Files のツールバー（FilesExplorer.tsx）は2つのボタンで表していて、
+ * 「今出ている方をもう一度押すと `auto` へ戻る」という**押し方**で3つ目を表す。
+ * ツールバーは細く、押す頻度が高い場所なので、それでよかった。
+ *
+ * Settings 画面はそうしない ── **一覧として3つ並べる。** 設定画面に来た人は
+ * 「今どれになっているか」を確かめに来ており、押し方でしか表せない状態は
+ * 見ただけでは分からない。器が違えば表し方も変わってよいが、**値は1つ**で、
+ * どちらから変えても同じ setter（FilesViewProvider の `setPreference`）を通る。
+ *
+ * `FilesLayoutPreference` をそのまま UI に持たせないのは、あれが判別可能な
+ * ユニオンで、ボタンの `value` にも `key` にもできないため。
+ */
+export type FilesViewChoice = typeof AUTO_MODE | FilesLayoutMode
+
+/** UI に並べる順序（左が既定）。 */
+export const FILES_VIEW_CHOICES: readonly FilesViewChoice[] = [AUTO_MODE, 'tree', 'columns']
+
+/** 今の選択を、3つのうちのどれかとして読む。 */
+export function toFilesViewChoice(preference: FilesLayoutPreference): FilesViewChoice {
+  return preference.kind === 'explicit' ? preference.mode : AUTO_MODE
+}
+
+/** 選ばれた1つを、保持する形（`FilesLayoutPreference`）へ。 */
+export function fromFilesViewChoice(choice: FilesViewChoice): FilesLayoutPreference {
+  return choice === AUTO_MODE ? AUTO_LAYOUT_PREFERENCE : chooseLayoutMode(choice)
+}
+
+/** UI に出す名前。 */
+export function describeFilesViewChoice(choice: FilesViewChoice): string {
+  switch (choice) {
+    case AUTO_MODE:
+      return 'パネルの形に任せる'
+
+    case 'tree':
+      return 'ツリー'
+
+    case 'columns':
+      return 'カラム'
+  }
+}
+
 /* ------------------------------------------------------ 保存形式との変換 */
 
 /**
