@@ -49,7 +49,13 @@ async function writeJson(fileName: string, value: unknown): Promise<void> {
 
 describe('settings.json の読み書き', () => {
   it('保存が無ければ、空の section で始まる（ファイルも作らない）', async () => {
-    expect(storeWith().read()).toEqual({ editor: {}, files: {}, terminal: {}, appearance: {} })
+    expect(storeWith().read()).toEqual({
+      general: {},
+      appearance: {},
+      editor: {},
+      files: {},
+      terminal: {}
+    })
 
     expect(await readdir(directory)).toEqual([])
   })
@@ -77,7 +83,13 @@ describe('settings.json の読み書き', () => {
 
     expect(await readSettingsFile()).toEqual({
       schemaVersion: SETTINGS_SCHEMA_VERSION,
-      sections: { editor: { autoSaveMode: 'afterDelay' }, files: {}, terminal: {}, appearance: {} }
+      sections: {
+        general: {},
+        appearance: {},
+        editor: { autoSaveMode: 'afterDelay' },
+        files: {},
+        terminal: {}
+      }
     })
   })
 
@@ -104,10 +116,11 @@ describe('settings.json の読み書き', () => {
     })
 
     expect(storeWith().read()).toEqual({
+      general: {},
+      appearance: {},
       editor: {},
       files: { viewMode: 'columns' },
-      terminal: { fontSize: 20, scrollback: 1000 },
-      appearance: {}
+      terminal: { fontSize: 20, scrollback: 1000 }
     })
   })
 
@@ -118,7 +131,13 @@ describe('settings.json の読み書き', () => {
       display: { fontSize: 20, scrollback: 1000 }
     })
 
-    expect(storeWith().read()).toEqual({ editor: {}, files: {}, terminal: {}, appearance: {} })
+    expect(storeWith().read()).toEqual({
+      general: {},
+      appearance: {},
+      editor: {},
+      files: {},
+      terminal: {}
+    })
   })
 })
 
@@ -143,20 +162,22 @@ describe('旧 3 ファイルからの移行', () => {
     await writeLegacy()
 
     expect(storeWith().read()).toEqual({
+      general: {},
+      appearance: {},
       editor: { autoSaveMode: 'afterDelay', autoSaveDelayMs: 3000 },
       files: { viewMode: 'columns', columnWidth: 240 },
-      terminal: { fontSize: 20, scrollback: 1000 },
-      appearance: {}
+      terminal: { fontSize: 20, scrollback: 1000 }
     })
 
     // 読んだだけで（保存を1度もせずに）ファイルができている。
     expect(await readSettingsFile()).toEqual({
       schemaVersion: SETTINGS_SCHEMA_VERSION,
       sections: {
+        general: {},
+        appearance: {},
         editor: { autoSaveMode: 'afterDelay', autoSaveDelayMs: 3000 },
         files: { viewMode: 'columns', columnWidth: 240 },
-        terminal: { fontSize: 20, scrollback: 1000 },
-        appearance: {}
+        terminal: { fontSize: 20, scrollback: 1000 }
       }
     })
   })
@@ -188,10 +209,11 @@ describe('旧 3 ファイルからの移行', () => {
     await writeJson('terminal-settings.json', terminalFile)
 
     expect(storeWith().read()).toEqual({
+      general: {},
+      appearance: {},
       editor: {},
       files: {},
-      terminal: { fontSize: 20, scrollback: 1000 },
-      appearance: {}
+      terminal: { fontSize: 20, scrollback: 1000 }
     })
   })
 
@@ -204,10 +226,11 @@ describe('旧 3 ファイルからの移行', () => {
     })
 
     expect(storeWith().read()).toEqual({
+      general: {},
+      appearance: {},
       editor: {},
       files: {},
-      terminal: { fontSize: 11 },
-      appearance: {}
+      terminal: { fontSize: 11 }
     })
   })
 
@@ -223,7 +246,13 @@ describe('旧 3 ファイルからの移行', () => {
   })
 
   it('旧ファイルが1つも無ければ、何も書かない', async () => {
-    expect(storeWith().read()).toEqual({ editor: {}, files: {}, terminal: {}, appearance: {} })
+    expect(storeWith().read()).toEqual({
+      general: {},
+      appearance: {},
+      editor: {},
+      files: {},
+      terminal: {}
+    })
 
     expect(await readdir(directory)).toEqual([])
   })

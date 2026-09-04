@@ -1,6 +1,7 @@
 import { useEffect, useState, type JSX } from 'react'
 import type { AppInfoResponse } from '@shared/ipc'
 import { fluvix } from '../../api/fluvix'
+import { useI18n } from '../../i18n/context'
 import { useWorkspaceFolder } from '../../workspaceFolder/context'
 
 /**
@@ -24,6 +25,7 @@ import { useWorkspaceFolder } from '../../workspaceFolder/context'
 export function WorkspaceStatusBar(): JSX.Element {
   const { platform, versions } = fluvix.env
   const { status, workspace } = useWorkspaceFolder()
+  const { t } = useI18n()
   const [appInfo, setAppInfo] = useState<AppInfoResponse | null>(null)
 
   useEffect(() => {
@@ -50,10 +52,10 @@ export function WorkspaceStatusBar(): JSX.Element {
         }
         title={workspace?.rootPath}
       >
-        {status === 'loading' ? '' : (workspace?.rootPath ?? 'Workspace 未選択')}
+        {status === 'loading' ? '' : (workspace?.rootPath ?? t('workspace.noWorkspace'))}
       </span>
       <span className="fx-statusbar__item">
-        {appInfo === null ? '接続中…' : `${appInfo.name} v${appInfo.version}`}
+        {appInfo === null ? t('workspace.connecting') : `${appInfo.name} v${appInfo.version}`}
       </span>
       <span className="fx-statusbar__spacer" />
       <span className="fx-statusbar__item">

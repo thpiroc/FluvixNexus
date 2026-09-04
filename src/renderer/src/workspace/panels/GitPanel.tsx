@@ -1,5 +1,6 @@
 import type { JSX } from 'react'
 import { GitView } from '../../git/GitView'
+import { useI18n } from '../../i18n/context'
 import { useWorkspaceFolder } from '../../workspaceFolder/context'
 import '../../git/git.css'
 
@@ -27,6 +28,7 @@ import '../../git/git.css'
  */
 export function GitPanel(): JSX.Element {
   const { status, workspace, busy, openFolder } = useWorkspaceFolder()
+  const { t } = useI18n()
 
   if (status === 'loading') {
     return <div className="fx-git" />
@@ -35,9 +37,9 @@ export function GitPanel(): JSX.Element {
   if (workspace === null) {
     return (
       <div className="fx-git fx-git--notice">
-        <p className="fx-git__title">Workspace が開かれていません。</p>
+        <p className="fx-git__title">{t('workspace.noWorkspaceOpen')}</p>
         <button type="button" className="fx-git__action" onClick={openFolder} disabled={busy}>
-          フォルダを開く
+          {t('workspace.openFolder')}
         </button>
       </div>
     )

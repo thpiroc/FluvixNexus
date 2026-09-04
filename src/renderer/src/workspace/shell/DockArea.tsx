@@ -1,4 +1,5 @@
 import { useCallback, type CSSProperties, type JSX } from 'react'
+import { useI18n } from '../../i18n/context'
 import type { PanelDragController } from '../dnd/usePanelDrag'
 import { resolveActivePanelId } from '../layout/tree'
 import type { DockGroupNode, DockNodeId } from '../layout/types'
@@ -42,6 +43,7 @@ export function DockArea({
   onClosePanel,
   drag
 }: DockAreaProps): JSX.Element {
+  const { t } = useI18n()
   const activePanelId = resolveActivePanelId(group)
   const { registerDockArea } = drag
 
@@ -76,9 +78,7 @@ export function DockArea({
         戻し方が分からなくなる行き止まりにしないよう、入口を文言で示しておく。
       */}
       {activePanelId === null ? (
-        <span className="fx-dock-area__empty-label">
-          パネルがありません（View メニューから表示できます）
-        </span>
+        <span className="fx-dock-area__empty-label">{t('workspace.emptyDock')}</span>
       ) : (
         <PanelGroup
           panelIds={group.panelIds}

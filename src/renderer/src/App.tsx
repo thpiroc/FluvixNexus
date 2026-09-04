@@ -1,6 +1,7 @@
 import type { JSX } from 'react'
 import { EditorProvider } from './editor/EditorProvider'
 import { FilesViewProvider } from './files/FilesViewProvider'
+import { LanguageProvider } from './i18n/LanguageProvider'
 import { TerminalProvider } from './terminal/TerminalProvider'
 import { ThemeProvider } from './theme/ThemeProvider'
 import { UnsavedChangesProvider } from './unsaved/UnsavedChangesProvider'
@@ -57,18 +58,20 @@ import { WorkspaceFolderProvider } from './workspaceFolder/WorkspaceFolderProvid
 function App(): JSX.Element {
   return (
     <ThemeProvider>
-      <UnsavedChangesProvider>
-        <WorkspaceFolderProvider>
-          <EditorProvider>
-            <TerminalProvider>
-              {/* 表示方式の選択は他の4つに依存しない。一番内側で足りる。 */}
-              <FilesViewProvider>
-                <WorkspaceShell />
-              </FilesViewProvider>
-            </TerminalProvider>
-          </EditorProvider>
-        </WorkspaceFolderProvider>
-      </UnsavedChangesProvider>
+      <LanguageProvider>
+        <UnsavedChangesProvider>
+          <WorkspaceFolderProvider>
+            <EditorProvider>
+              <TerminalProvider>
+                {/* 表示方式の選択は他の4つに依存しない。一番内側で足りる。 */}
+                <FilesViewProvider>
+                  <WorkspaceShell />
+                </FilesViewProvider>
+              </TerminalProvider>
+            </EditorProvider>
+          </WorkspaceFolderProvider>
+        </UnsavedChangesProvider>
+      </LanguageProvider>
     </ThemeProvider>
   )
 }

@@ -41,6 +41,12 @@ import {
   type TerminalDisplaySettings
 } from '../terminal/terminalSettings'
 import {
+  DEFAULT_LANGUAGE_SETTINGS,
+  toGeneralSection,
+  toLanguageSettings,
+  type LanguageSettings
+} from '../i18n/languageSettings'
+import {
   APPEARANCE_THEME_CHOICES,
   DEFAULT_APPEARANCE_SETTINGS,
   toAppearanceSection,
@@ -97,6 +103,7 @@ import { listSettingsItems } from './settingsCatalog'
  * 同じ setter を呼ぶ**ことを見えるようにする。
  */
 class Store {
+  language: LanguageSettings = DEFAULT_LANGUAGE_SETTINGS
   autoSave: AutoSaveSettings = DEFAULT_AUTO_SAVE_SETTINGS
   files: FilesViewSettings = DEFAULT_FILES_VIEW_SETTINGS
   terminal: TerminalDisplaySettings = DEFAULT_TERMINAL_DISPLAY_SETTINGS
@@ -136,24 +143,30 @@ class Store {
     this.appearance = toAppearanceSettings({ theme })
   }
 
+  setLanguage(language: string): void {
+    this.language = toLanguageSettings({ language })
+  }
+
   /* -------- ディスクへ（useSettingsSection が値の変化ごとに書くもの） */
 
   toSections(): SettingsSections {
     return {
+      general: toGeneralSection(this.language),
+      appearance: toAppearanceSection(this.appearance),
       editor: toEditorSettingsSection(this.autoSave),
       files: toFilesSettingsSection(this.files),
-      terminal: toTerminalSettingsSection(this.terminal),
-      appearance: toAppearanceSection(this.appearance)
+      terminal: toTerminalSettingsSection(this.terminal)
     }
   }
 
   /* -------- ディスクから（起動時に1度だけ読むもの） */
 
   loadSections(sections: SettingsSections): void {
+    this.language = toLanguageSettings(sections.general)
+    this.appearance = toAppearanceSettings(sections.appearance)
     this.autoSave = toAutoSaveSettings(sections.editor)
     this.files = toFilesViewSettings(sections.files)
     this.terminal = toTerminalDisplaySettings(sections.terminal)
-    this.appearance = toAppearanceSettings(sections.appearance)
   }
 }
 
@@ -189,8 +202,10 @@ function readSettingsScreen(store: Store): {
   terminalFontSize: number
   terminalScrollback: number
   theme: ThemeId
+  language: LanguageSettings['language']
 } {
   return {
+    language: store.language.language,
     autoSaveMode: store.autoSave.mode,
     autoSaveDelayMs: store.autoSave.delayMs,
     filesViewChoice: toFilesViewChoice(store.files.preference),
@@ -203,11 +218,12 @@ function readSettingsScreen(store: Store): {
 /* -------------------------------------------------------------------------- */
 
 describe('Settings 画面の既定', () => {
-  it('保存が1つも無ければ、6項目すべてが既定で出る', () => {
+  it('保存が1つも無ければ、7項目すべてが既定で出る', () => {
     const store = new Store()
     store.loadSections(emptySettingsSections())
 
     expect(readSettingsScreen(store)).toEqual({
+      language: 'ja',
       autoSaveMode: 'off',
       autoSaveDelayMs: 1000,
       filesViewChoice: 'auto',
@@ -217,20 +233,21 @@ describe('Settings 画面の既定', () => {
     })
   })
 
-  /* 画面に並ぶ6項目と、この統合テストが触る6項目が食い違わないようにする。 */
+  /* 画面に並ぶ7項目と、この統合テストが触る7項目が食い違わないようにする。 */
   it('画面に並ぶ項目と、ここで確かめる項目が一致する', () => {
     expect(listSettingsItems().map((item) => item.id)).toEqual([
+      'general.language',
+      'appearance.theme',
       'editor.autoSaveMode',
       'editor.autoSaveDelayMs',
       'files.viewMode',
       'terminal.fontSize',
-      'terminal.scrollback',
-      'appearance.theme'
+      'terminal.scrollback'
     ])
   })
 })
 
-describe('Settings 画面から6項目を変える', () => {
+describe('Settings 画面から7項目を変える', () => {
   it('変えた値が、閉じて開き直しても、再起動しても残る', () => {
     const store = new Store()
     store.loadSections(emptySettingsSections())
@@ -242,10 +259,12 @@ describe('Settings 画面から6項目を変える', () => {
     store.setFontSize(16)
     store.setScrollback(12_000)
     store.setTheme('light')
+    store.setLanguage('en')
 
     const opened = readSettingsScreen(store)
 
     expect(opened).toEqual({
+      language: 'en',
       autoSaveMode: 'afterDelay',
       autoSaveDelayMs: 2500,
       filesViewChoice: 'columns',
@@ -261,7 +280,7 @@ describe('Settings 画面から6項目を変える', () => {
     expect(readSettingsScreen(restart(store))).toEqual(opened)
   })
 
-  it('1項目だけ変えても、他の5項目を巻き込まない', () => {
+  it('1項目だけ変えても、他の6項目を巻き込まない', () => {
     const store = new Store()
     store.loadSections(emptySettingsSections())
 
@@ -271,6 +290,7 @@ describe('Settings 画面から6項目を変える', () => {
     store.setFontSize(20)
     store.setScrollback(800)
     store.setTheme('light')
+    store.setLanguage('en')
 
     const before = readSettingsScreen(store)
 
@@ -446,10 +466,11 @@ describe('Settings 画面から入る値の正規化', () => {
     store.setColumnWidth(99_999)
 
     expect(store.toSections()).toEqual({
+      general: { language: 'ja' },
+      appearance: { theme: 'dark' },
       editor: { autoSaveMode: 'off', autoSaveDelayMs: AUTO_SAVE_DELAY_MIN_MS },
       files: { viewMode: 'auto', columnWidth: FILES_COLUMN_WIDTH_MAX },
-      terminal: { fontSize: TERMINAL_FONT_SIZE_MAX, scrollback: TERMINAL_SCROLLBACK_MIN },
-      appearance: { theme: 'dark' }
+      terminal: { fontSize: TERMINAL_FONT_SIZE_MAX, scrollback: TERMINAL_SCROLLBACK_MIN }
     })
   })
 
@@ -467,6 +488,16 @@ describe('Settings 画面から入る値の正規化', () => {
     expect(store.toSections().appearance).toEqual({ theme: 'dark' })
   })
 
+  it('知らない Language 名は日本語として扱い、ディスクへ残らない', () => {
+    const store = new Store()
+    store.loadSections(emptySettingsSections())
+
+    store.setLanguage('fr')
+
+    expect(store.language.language).toBe('ja')
+    expect(store.toSections().general).toEqual({ language: 'ja' })
+  })
+
   /*
     アプリをダウングレードした場合（後の版が足した方式が保存されている）。
     Settings 画面はそれを「知らない値」として既定へ落とす ── 画面が
@@ -476,13 +507,15 @@ describe('Settings 画面から入る値の正規化', () => {
     const store = new Store()
 
     store.loadSections({
+      general: { language: 'fr' },
+      appearance: { theme: 'solarized' },
       editor: { autoSaveMode: 'onEveryKeystroke', autoSaveDelayMs: 1500 },
       files: { viewMode: 'gallery', columnWidth: DEFAULT_FILES_COLUMN_WIDTH },
-      terminal: { fontSize: 15, scrollback: 5000 },
-      appearance: { theme: 'solarized' }
+      terminal: { fontSize: 15, scrollback: 5000 }
     })
 
     expect(readSettingsScreen(store)).toEqual({
+      language: 'ja',
       autoSaveMode: 'off',
       // 方式だけが読めなかった場合も、待ち時間は落とさない（key ごとに独立）。
       autoSaveDelayMs: 1500,

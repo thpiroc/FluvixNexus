@@ -1,4 +1,5 @@
 import type { JSX } from 'react'
+import { useI18n } from '../i18n/context'
 import { useWorkspaceFolder } from './context'
 
 /**
@@ -15,21 +16,20 @@ import { useWorkspaceFolder } from './context'
  */
 export function WorkspaceWelcome(): JSX.Element {
   const { unavailableRootPath, error, busy, openFolder } = useWorkspaceFolder()
+  const { t } = useI18n()
 
   return (
     <div className="fx-welcome">
       <p className="fx-welcome__title">Fluvix Nexus</p>
-      <p className="fx-welcome__lead">
-        開発するフォルダを開くと、Files / Editor / Terminal / Git がそのフォルダを対象に動きます。
-      </p>
+      <p className="fx-welcome__lead">{t('workspace.welcomeLead')}</p>
 
       <button type="button" className="fx-welcome__action" onClick={openFolder} disabled={busy}>
-        フォルダを開く
+        {t('workspace.openFolder')}
       </button>
 
       {unavailableRootPath !== null && (
         <p className="fx-welcome__note" data-kind="unavailable">
-          前回の Workspace が見つかりませんでした: {unavailableRootPath}
+          {t('workspace.unavailablePrevious', { path: unavailableRootPath })}
         </p>
       )}
 

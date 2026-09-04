@@ -25,12 +25,15 @@ import type { PanelId } from '../workspace/panels/types'
 import { FilesViewProvider } from '../files/FilesViewProvider'
 import { useFilesLayout } from '../files/useFilesLayout'
 import { toFilesViewChoice } from '../files/filesSettings'
+import { LanguageProvider } from '../i18n/LanguageProvider'
+import { readDocumentLanguage } from '../i18n/documentLanguage'
 import { ThemeProvider } from '../theme/ThemeProvider'
 import { readDocumentTheme } from '../theme/documentTheme'
 import { SettingsOverlay } from './SettingsOverlay'
 
 const settingsStore = vi.hoisted(() => ({
   sections: {
+    general: {},
     editor: {},
     files: {},
     terminal: {},
@@ -146,50 +149,58 @@ function SettingsDomHarness(): ReactElement {
     ThemeProvider,
     null,
     createElement(
-      WorkspaceFolderContext.Provider,
-      { value: mockWorkspace() },
+      LanguageProvider,
+      null,
       createElement(
-        EditorContext.Provider,
-        { value: editorController },
+        WorkspaceFolderContext.Provider,
+        { value: mockWorkspace() },
         createElement(
-          TerminalContext.Provider,
-          { value: terminalController },
+          EditorContext.Provider,
+          { value: editorController },
           createElement(
-            FilesViewProvider,
-            null,
+            TerminalContext.Provider,
+            { value: terminalController },
             createElement(
-              'div',
+              FilesViewProvider,
               null,
-              createElement(WorkspaceTopBar, {
-                visiblePanelIds,
-                presetId: 'default',
-                modified: false,
-                onTogglePanel: vi.fn(),
-                onApplyPreset: vi.fn(),
-                onResetLayout: vi.fn(),
-                settingsOpen,
-                onOpenSettings: () => setSettingsOpen(true)
-              }),
-              createElement(FilesToolbarProbe),
-              createElement(TerminalSettingsMenu, {
-                display: terminal,
-                onFontSizeChange: (fontSize) =>
-                  setTerminal((previous) => ({ ...previous, fontSize }))
-              }),
-              createElement('span', { 'data-testid': 'editor-auto-save-mode' }, autoSave.mode),
-              createElement('span', { 'data-testid': 'editor-auto-save-delay' }, autoSave.delayMs),
               createElement(
-                'span',
-                { 'data-testid': 'terminal-font-size-value' },
-                terminal.fontSize
-              ),
-              createElement(
-                'span',
-                { 'data-testid': 'terminal-scrollback-value' },
-                terminal.scrollback
-              ),
-              settingsOpen &&
-                createElement(SettingsOverlay, { onClose: () => setSettingsOpen(false) })
+                'div',
+                null,
+                createElement(WorkspaceTopBar, {
+                  visiblePanelIds,
+                  presetId: 'default',
+                  modified: false,
+                  onTogglePanel: vi.fn(),
+                  onApplyPreset: vi.fn(),
+                  onResetLayout: vi.fn(),
+                  settingsOpen,
+                  onOpenSettings: () => setSettingsOpen(true)
+                }),
+                createElement(FilesToolbarProbe),
+                createElement(TerminalSettingsMenu, {
+                  display: terminal,
+                  onFontSizeChange: (fontSize) =>
+                    setTerminal((previous) => ({ ...previous, fontSize }))
+                }),
+                createElement('span', { 'data-testid': 'editor-auto-save-mode' }, autoSave.mode),
+                createElement(
+                  'span',
+                  { 'data-testid': 'editor-auto-save-delay' },
+                  autoSave.delayMs
+                ),
+                createElement(
+                  'span',
+                  { 'data-testid': 'terminal-font-size-value' },
+                  terminal.fontSize
+                ),
+                createElement(
+                  'span',
+                  { 'data-testid': 'terminal-scrollback-value' },
+                  terminal.scrollback
+                ),
+                settingsOpen &&
+                  createElement(SettingsOverlay, { onClose: () => setSettingsOpen(false) })
+              )
             )
           )
         )
@@ -222,6 +233,8 @@ afterEach(() => {
     Preload が起動のたびに当て直すので、剥がす経路はここにしか要らない。
   */
   document.documentElement.removeAttribute('data-fx-theme')
+  document.documentElement.removeAttribute('data-fx-language')
+  document.documentElement.removeAttribute('lang')
   vi.clearAllMocks()
 })
 
@@ -285,6 +298,16 @@ describe('SettingsOverlay DOM', () => {
     expect(byTestId('settings').getAttribute('aria-modal')).toBe('false')
     expect(byTestId('topbar-settings').dataset.open).toBe('true')
     expect(container.querySelector('.fx-settings__content')?.getAttribute('data-category')).toBe(
+      'general'
+    )
+
+    await click('settings-category-appearance')
+    expect(container.querySelector('.fx-settings__content')?.getAttribute('data-category')).toBe(
+      'appearance'
+    )
+
+    await click('settings-category-editor')
+    expect(container.querySelector('.fx-settings__content')?.getAttribute('data-category')).toBe(
       'editor'
     )
 
@@ -298,12 +321,6 @@ describe('SettingsOverlay DOM', () => {
       'terminal'
     )
 
-    // Session 4-4 で末尾に足したカテゴリ。
-    await click('settings-category-appearance')
-    expect(container.querySelector('.fx-settings__content')?.getAttribute('data-category')).toBe(
-      'appearance'
-    )
-
     await click('settings-close')
     expect(container.querySelector('[data-testid="settings"]')).toBeNull()
 
@@ -314,10 +331,48 @@ describe('SettingsOverlay DOM', () => {
     expect(container.querySelector('[data-testid="settings"]')).toBeNull()
   })
 
+  it('Language を選ぶと Settings と Topbar がその場で切り替わり、保存される', async () => {
+    await renderHarness()
+
+    expect(readDocumentLanguage()).toBe('ja')
+    expect(byTestId('topbar-settings').textContent).toBe('設定')
+
+    await click('topbar-settings')
+    expect(container.querySelector('.fx-settings__title')?.textContent).toBe('設定')
+    expect(byTestId('settings-general-language-ja').dataset.active).toBe('true')
+
+    await click('settings-general-language-en')
+
+    expect(readDocumentLanguage()).toBe('en')
+    expect(document.documentElement.getAttribute('lang')).toBe('en')
+    expect(container.querySelector('.fx-settings__title')?.textContent).toBe('Settings')
+    expect(byTestId('topbar-settings').textContent).toBe('Settings')
+    expect(byTestId('settings-category-general').textContent).toBe('General')
+    expect(byTestId('settings-general-language-en').dataset.active).toBe('true')
+    expect(settingsStore.saveSection).toHaveBeenCalledWith({
+      section: 'general',
+      value: { language: 'en' }
+    })
+  })
+
+  it('保存されている Language が知らない値なら、日本語で出る', async () => {
+    settingsStore.sections = { ...emptySettingsSections(), general: { language: 'fr' } }
+    settingsStore.load.mockResolvedValue({ ok: true, data: { sections: settingsStore.sections } })
+
+    await renderHarness()
+
+    expect(readDocumentLanguage()).toBe('ja')
+
+    await click('topbar-settings')
+    expect(container.querySelector('.fx-settings__title')?.textContent).toBe('設定')
+    expect(byTestId('settings-general-language-ja').dataset.active).toBe('true')
+  })
+
   it('各設定コントロールが既存 setter と同じ値へ接続される', async () => {
     await renderHarness()
     await click('topbar-settings')
 
+    await click('settings-category-editor')
     await selectValue('settings-editor-auto-save-mode', 'afterDelay')
     expect(byTestId('editor-auto-save-mode').textContent).toBe('afterDelay')
 

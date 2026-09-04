@@ -21,10 +21,11 @@ import { migrateStoredSettings } from './settingsMigration'
 const valid = {
   schemaVersion: SETTINGS_SCHEMA_VERSION,
   sections: {
+    general: { language: 'en' },
+    appearance: { theme: 'light' },
     editor: { autoSaveMode: 'afterDelay', autoSaveDelayMs: 1000 },
     files: { viewMode: 'columns', columnWidth: 240 },
-    terminal: { fontSize: 15, scrollback: 7000 },
-    appearance: { theme: 'light' }
+    terminal: { fontSize: 15, scrollback: 7000 }
   }
 }
 
@@ -40,10 +41,11 @@ describe('parseSettingsDocument', () => {
   it('文書として読めなければ、全 section が既定', () => {
     for (const raw of [null, undefined, 42, 'x', [], true]) {
       expect(parseSettingsDocument(raw).document.sections).toEqual({
+        general: {},
+        appearance: {},
         editor: {},
         files: {},
-        terminal: {},
-        appearance: {}
+        terminal: {}
       })
     }
   })
@@ -59,10 +61,11 @@ describe('parseSettingsDocument', () => {
   it('sections が object でなければ、全 section が既定', () => {
     for (const sections of [null, 42, 'x', [], true]) {
       expect(parseSettingsDocument({ ...valid, sections }).document.sections).toEqual({
+        general: {},
+        appearance: {},
         editor: {},
         files: {},
-        terminal: {},
-        appearance: {}
+        terminal: {}
       })
     }
   })
@@ -97,10 +100,11 @@ describe('parseSettingsDocument', () => {
     })
 
     expect(document.sections).toEqual({
+      general: {},
+      appearance: {},
       editor: {},
       files: {},
-      terminal: { fontSize: 15 },
-      appearance: {}
+      terminal: { fontSize: 15 }
     })
     expect(issues).toEqual([])
   })
@@ -231,7 +235,7 @@ describe('toStoredSettings / withSettingsSection', () => {
   it('既定の文書は、空の section を持つ形で書かれる', () => {
     expect(toStoredSettings(defaultSettingsDocument())).toEqual({
       schemaVersion: SETTINGS_SCHEMA_VERSION,
-      sections: { editor: {}, files: {}, terminal: {}, appearance: {} }
+      sections: { general: {}, appearance: {}, editor: {}, files: {}, terminal: {} }
     })
   })
 
@@ -259,10 +263,11 @@ describe('toStoredSettings / withSettingsSection', () => {
     )
 
     expect(stored.sections).toEqual({
+      general: valid.sections.general,
+      appearance: valid.sections.appearance,
       editor: valid.sections.editor,
       files: valid.sections.files,
       terminal: { cursorStyle: 'bar', fontSize: 20 },
-      appearance: valid.sections.appearance,
       keybindings: { profile: 'vim' }
     })
   })

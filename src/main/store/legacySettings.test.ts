@@ -19,10 +19,11 @@ describe('migrateLegacySettings', () => {
     const { sections, migrated } = migrateLegacySettings({ editor, files, terminal })
 
     expect(sections).toEqual({
+      general: {},
+      appearance: {},
       editor: { autoSaveMode: 'afterDelay', autoSaveDelayMs: 3000 },
       files: { viewMode: 'columns', columnWidth: 240 },
-      terminal: { fontSize: 20, scrollback: 1000 },
-      appearance: {}
+      terminal: { fontSize: 20, scrollback: 1000 }
     })
     expect(migrated).toEqual(['editor', 'files', 'terminal'])
   })
@@ -35,7 +36,9 @@ describe('migrateLegacySettings', () => {
   it('旧ファイルを持たない section は空のまま（移行の対象にもならない）', () => {
     const { sections, migrated } = migrateLegacySettings({ editor, files, terminal })
 
+    expect(sections.general).toEqual({})
     expect(sections.appearance).toEqual({})
+    expect(migrated).not.toContain('general')
     expect(migrated).not.toContain('appearance')
   })
 

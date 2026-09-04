@@ -1,4 +1,5 @@
 import type { JSX } from 'react'
+import { useI18n } from '../../i18n/context'
 import { TerminalView } from '../../terminal/TerminalView'
 import { useWorkspaceFolder } from '../../workspaceFolder/context'
 import '../../terminal/terminal.css'
@@ -39,6 +40,7 @@ import '../../terminal/terminal.css'
  */
 export function TerminalPanel(): JSX.Element {
   const { status, workspace, busy, openFolder } = useWorkspaceFolder()
+  const { t } = useI18n()
 
   if (status === 'loading') {
     return <div className="fx-terminal" />
@@ -47,9 +49,9 @@ export function TerminalPanel(): JSX.Element {
   if (workspace === null) {
     return (
       <div className="fx-terminal fx-terminal--notice">
-        <p className="fx-terminal__message">Workspace が開かれていません。</p>
+        <p className="fx-terminal__message">{t('workspace.noWorkspaceOpen')}</p>
         <button type="button" className="fx-terminal__action" onClick={openFolder} disabled={busy}>
-          フォルダを開く
+          {t('workspace.openFolder')}
         </button>
       </div>
     )

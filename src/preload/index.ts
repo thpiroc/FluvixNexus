@@ -1,6 +1,7 @@
 import { contextBridge } from 'electron'
 import { FLUVIX_API_KEY } from '@shared/api'
 import { api } from './api'
+import { applyInitialLanguage } from './language'
 import { applyInitialTheme } from './theme'
 
 /**
@@ -19,6 +20,7 @@ import { applyInitialTheme } from './theme'
   始まる前に見張りを掛けたい）、こちらは Renderer が動き出すまで使われない。
 */
 applyInitialTheme()
+applyInitialLanguage()
 
 if (process.contextIsolated) {
   contextBridge.exposeInMainWorld(FLUVIX_API_KEY, api)

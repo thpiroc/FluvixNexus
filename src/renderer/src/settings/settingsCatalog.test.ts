@@ -17,10 +17,9 @@ import {
  * （vitest.config.ts）。目録を settingsCatalog.ts へ出してあるのはそのためで、
  * ここで確かめるのは**画面を起動せずに確かめられること**に絞る。
  *
- *   - 4つのカテゴリが、決めた順で並ぶこと（**Appearance は末尾**）
+ *   - 5つのカテゴリが、決めた順で並ぶこと
  *   - **中身の無いカテゴリが1つも無いこと**（v1 で作らないと決めたもの）
- *   - まだ作らないと決めたカテゴリ（General / Git / Workspace /
- *     Language / Debug）が紛れ込んでいないこと
+ *   - まだ作らないと決めたカテゴリ（Git / Workspace / LSP / Debug）が紛れ込んでいないこと
  *   - 載せないと決めたもの（Files のカラムの幅）が並んでいないこと
  *   - 目録の section 名が、保存側の閉じた集合と食い違っていないこと
  *
@@ -28,24 +27,20 @@ import {
  */
 
 describe('SETTINGS_CATEGORIES', () => {
-  it('Editor / Files / Terminal / Appearance がこの順に並ぶ', () => {
+  it('General / Appearance / Editor / Files / Terminal がこの順に並ぶ', () => {
     expect(listSettingsCategories().map((category) => category.id)).toEqual([
+      'general',
+      'appearance',
       'editor',
       'files',
-      'terminal',
-      'appearance'
+      'terminal'
     ])
   })
 
-  /*
-    Appearance が末尾であること（Session 4-4 の B）。前の3つは「その機能の
-    見え方・振る舞い」で、Appearance はアプリ全体の見た目にあたる ──
-    機能の並びの途中に挟むと、どの機能の話か分からない場所ができる。
-  */
-  it('Appearance は末尾に置く', () => {
+  it('General は先頭に置く', () => {
     const ids = listSettingsCategories().map((category) => category.id)
 
-    expect(ids[ids.length - 1]).toBe('appearance')
+    expect(ids[0]).toBe('general')
   })
 
   /* 保存ファイルの section の並びとも同じにしてある。 */
@@ -57,8 +52,8 @@ describe('SETTINGS_CATEGORIES', () => {
 
   it('カテゴリの名前が画面に出せる形で入っている', () => {
     for (const category of SETTINGS_CATEGORIES) {
-      expect(category.title.length).toBeGreaterThan(0)
-      expect(category.description.length).toBeGreaterThan(0)
+      expect(category.titleKey.length).toBeGreaterThan(0)
+      expect(category.descriptionKey.length).toBeGreaterThan(0)
     }
   })
 
@@ -75,8 +70,8 @@ describe('SETTINGS_CATEGORIES', () => {
   it('まだ中身の無いカテゴリを先に置いていない', () => {
     const ids = SETTINGS_CATEGORIES.map((category) => category.id) as readonly string[]
 
-    // `appearance` は Session 4-4 で中身ができたので、ここからは外れている。
-    for (const absent of ['general', 'git', 'workspace', 'language', 'lsp', 'debug', 'dap']) {
+    // `general` は Session 4-5A で中身ができたので、ここからは外れている。
+    for (const absent of ['git', 'workspace', 'language', 'lsp', 'debug', 'dap']) {
       expect(ids).not.toContain(absent)
     }
   })
@@ -90,17 +85,18 @@ describe('SETTINGS_CATEGORIES', () => {
 
 describe('listSettingsItems', () => {
   /*
-    Session 4-3B の5つ ＋ Session 4-4 の Theme。保存されている設定は7つあるが、
+    Session 4-3B の5つ ＋ Theme ＋ Language。保存されている設定は8つあるが、
     Files のカラムの幅だけは画面に載せない（settingsCatalog.ts の冒頭）。
   */
-  it('6つの設定が、カテゴリの順に並ぶ', () => {
+  it('7つの設定が、カテゴリの順に並ぶ', () => {
     expect(listSettingsItems().map((item) => item.id)).toEqual([
+      'general.language',
+      'appearance.theme',
       'editor.autoSaveMode',
       'editor.autoSaveDelayMs',
       'files.viewMode',
       'terminal.fontSize',
-      'terminal.scrollback',
-      'appearance.theme'
+      'terminal.scrollback'
     ])
   })
 
@@ -116,8 +112,8 @@ describe('listSettingsItems', () => {
 
   it('名前と説明が空でない', () => {
     for (const item of listSettingsItems()) {
-      expect(item.title.length).toBeGreaterThan(0)
-      expect(item.description.length).toBeGreaterThan(0)
+      expect(item.titleKey.length).toBeGreaterThan(0)
+      expect(item.descriptionKey.length).toBeGreaterThan(0)
     }
   })
 
@@ -144,12 +140,12 @@ describe('listSettingsItems', () => {
 
 describe('getSettingsCategory', () => {
   it('名前でカテゴリを取り出せる', () => {
-    expect(getSettingsCategory('terminal').title).toBe('Terminal')
+    expect(getSettingsCategory('terminal').titleKey).toBe('settings.categories.terminal.title')
   })
 
-  it('既定は Editor', () => {
-    expect(DEFAULT_SETTINGS_CATEGORY_ID).toBe('editor')
-    expect(getSettingsCategory(DEFAULT_SETTINGS_CATEGORY_ID).id).toBe('editor')
+  it('既定は General', () => {
+    expect(DEFAULT_SETTINGS_CATEGORY_ID).toBe('general')
+    expect(getSettingsCategory(DEFAULT_SETTINGS_CATEGORY_ID).id).toBe('general')
   })
 })
 
@@ -157,7 +153,7 @@ describe('isSettingsCategoryId', () => {
   it('今あるカテゴリだけを受け入れる', () => {
     expect(isSettingsCategoryId('files')).toBe(true)
     expect(isSettingsCategoryId('appearance')).toBe(true)
-    expect(isSettingsCategoryId('general')).toBe(false)
+    expect(isSettingsCategoryId('general')).toBe(true)
     expect(isSettingsCategoryId(null)).toBe(false)
     expect(isSettingsCategoryId(3)).toBe(false)
   })

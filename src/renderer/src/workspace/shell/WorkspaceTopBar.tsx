@@ -1,6 +1,9 @@
 import type { JSX } from 'react'
+import { useI18n } from '../../i18n/context'
 import { useWorkspaceFolder } from '../../workspaceFolder/context'
-import { getLayoutPreset, listLayoutPresets, type LayoutPresetId } from '../layout/presets'
+import { getLayoutPresetDescription, getLayoutPresetTitle } from '../layout/presetLabels'
+import { listLayoutPresets, type LayoutPresetId } from '../layout/presets'
+import { getPanelTitle } from '../panels/panelLabels'
 import { listPanelDefinitions } from '../panels/registry'
 import type { PanelId } from '../panels/types'
 import { DropdownMenu, type DropdownMenuItem } from '../../ui/DropdownMenu'
@@ -61,6 +64,7 @@ export function WorkspaceTopBar({
   onOpenSettings
 }: WorkspaceTopBarProps): JSX.Element {
   const { status, workspace, busy, openFolder, closeWorkspace } = useWorkspaceFolder()
+  const { t } = useI18n()
 
   /*
     「閉じる」は Workspace が開いているときだけ並べる。
@@ -68,23 +72,23 @@ export function WorkspaceTopBar({
     「そのとき選べるものだけを出す」方が、メニューの意味が読み取りやすいため。
   */
   const workspaceItems: readonly DropdownMenuItem[] = [
-    { key: 'open', label: 'フォルダを開く…', onSelect: openFolder },
+    { key: 'open', label: t('workspace.openFolderEllipsis'), onSelect: openFolder },
     ...(workspace === null
       ? []
-      : [{ key: 'close', label: 'Workspace を閉じる', onSelect: closeWorkspace }])
+      : [{ key: 'close', label: t('workspace.closeWorkspace'), onSelect: closeWorkspace }])
   ]
 
   const panelItems: readonly DropdownMenuItem[] = listPanelDefinitions().map((definition) => ({
     key: definition.id,
-    label: definition.title,
+    label: getPanelTitle(definition.id, t),
     state: visiblePanelIds.has(definition.id) ? 'checked' : 'unchecked',
     onSelect: () => onTogglePanel(definition.id)
   }))
 
   const presetItems: readonly DropdownMenuItem[] = listLayoutPresets().map((preset) => ({
     key: preset.id,
-    label: preset.title,
-    hint: preset.description,
+    label: getLayoutPresetTitle(preset.id, t),
+    hint: getLayoutPresetDescription(preset.id, t),
     state: preset.id === presetId ? 'selected' : 'unselected',
     onSelect: () => onApplyPreset(preset.id)
   }))
@@ -102,21 +106,25 @@ export function WorkspaceTopBar({
         data-workspace-state={workspaceState(status, workspace !== null)}
         title={workspace?.rootPath}
       >
-        {status === 'loading' ? '' : (workspace?.displayName ?? 'Workspace 未選択')}
+        {status === 'loading' ? '' : (workspace?.displayName ?? t('workspace.noWorkspace'))}
       </span>
 
       <DropdownMenu label="Workspace" buttonClassName="fx-topbar__button" items={workspaceItems} />
-      {busy && <span className="fx-topbar__slot">処理中…</span>}
+      {busy && <span className="fx-topbar__slot">{t('workspace.busy')}</span>}
 
-      <DropdownMenu label="View" buttonClassName="fx-topbar__button" items={panelItems} />
       <DropdownMenu
-        label={`Layout: ${getLayoutPreset(presetId).title}`}
+        label={t('workspace.viewMenu')}
+        buttonClassName="fx-topbar__button"
+        items={panelItems}
+      />
+      <DropdownMenu
+        label={t('workspace.layoutMenu', { title: getLayoutPresetTitle(presetId, t) })}
         buttonClassName="fx-topbar__button"
         items={presetItems}
       />
 
       {/* 初期化ボタンが何のためにあるかを示す（プリセットのままなら押す意味が無い）。 */}
-      {modified && <span className="fx-topbar__slot">変更あり</span>}
+      {modified && <span className="fx-topbar__slot">{t('workspace.modified')}</span>}
 
       <span className="fx-topbar__spacer" />
 
@@ -143,9 +151,9 @@ export function WorkspaceTopBar({
         data-testid="topbar-settings"
         data-open={settingsOpen}
         onClick={onOpenSettings}
-        title="アプリ全体の設定を開きます。"
+        title={t('workspace.settingsTitle')}
       >
-        Settings
+        {t('workspace.settingsButton')}
       </button>
 
       {/*
@@ -158,7 +166,7 @@ export function WorkspaceTopBar({
         onClick={onResetLayout}
         disabled={!modified}
       >
-        レイアウトを初期化
+        {t('workspace.resetLayout')}
       </button>
     </header>
   )

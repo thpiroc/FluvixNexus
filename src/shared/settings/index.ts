@@ -15,6 +15,7 @@ export type {
   StoredAppearanceSettings,
   StoredEditorSettings,
   StoredFilesSettings,
+  StoredGeneralSettings,
   StoredTerminalSettings
 } from './sections'
 

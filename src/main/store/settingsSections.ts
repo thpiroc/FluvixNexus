@@ -51,9 +51,7 @@ type SectionFieldSpec<Id extends SettingsSectionId> = {
  * だけになる。key を書き忘れると型が通らない（`-?` で必須にしてある）。
  */
 const SECTION_FIELDS: { readonly [Id in SettingsSectionId]: SectionFieldSpec<Id> } = {
-  editor: { autoSaveMode: 'string', autoSaveDelayMs: 'number' },
-  files: { viewMode: 'string', columnWidth: 'number' },
-  terminal: { fontSize: 'number', scrollback: 'number' },
+  general: { language: 'string' },
   /*
     Session 4-4 で足した section。`theme` を**文字列であること**しか見ないのは
     `autoSaveMode` ・`viewMode` と同じ分担にほかならない ── `dark` / `light` の
@@ -64,7 +62,10 @@ const SECTION_FIELDS: { readonly [Id in SettingsSectionId]: SectionFieldSpec<Id>
     最初の1枚を塗る色を決めるため）が、それは**検証ではなく描画の都合**で、
     読めない値でも既定の色を塗るだけで済む。
   */
-  appearance: { theme: 'string' }
+  appearance: { theme: 'string' },
+  editor: { autoSaveMode: 'string', autoSaveDelayMs: 'number' },
+  files: { viewMode: 'string', columnWidth: 'number' },
+  terminal: { fontSize: 'number', scrollback: 'number' }
 }
 
 /** ファイルから読んだ section 1つの結果。 */

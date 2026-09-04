@@ -1,5 +1,6 @@
 import { BrowserWindow } from 'electron'
 import { join } from 'path'
+import { normalizeLanguageId, toLanguageArgument } from '@shared/language'
 import { normalizeThemeId, THEME_WINDOW_BACKGROUND, toThemeArgument } from '@shared/theme'
 import { devServerUrl } from '../app/runtime'
 import { readSettingsSections } from '../store/settings'
@@ -46,6 +47,10 @@ function resolveInitialTheme(): ReturnType<typeof normalizeThemeId> {
   return normalizeThemeId(readSettingsSections().appearance.theme)
 }
 
+function resolveInitialLanguage(): ReturnType<typeof normalizeLanguageId> {
+  return normalizeLanguageId(readSettingsSections().general.language)
+}
+
 /**
  * 現在のメインウィンドウ。
  *
@@ -82,6 +87,7 @@ export function focusMainWindow(): void {
 export function createMainWindow(): BrowserWindow {
   const initialState = resolveInitialWindowState()
   const initialTheme = resolveInitialTheme()
+  const initialLanguage = resolveInitialLanguage()
 
   const window = new BrowserWindow({
     // 前回終了時のサイズ・位置を引き継ぐ（保存が無い / 位置が画面外の場合は既定値）。
@@ -107,7 +113,7 @@ export function createMainWindow(): BrowserWindow {
         （preload/theme.ts）。渡るのは Theme の名前1つだけで、
         Renderer から Node / fs / process へ触れる経路は増えていない。
       */
-      additionalArguments: [toThemeArgument(initialTheme)],
+      additionalArguments: [toThemeArgument(initialTheme), toLanguageArgument(initialLanguage)],
       contextIsolation: true,
       nodeIntegration: false,
       // Preload は contextBridge / ipcRenderer しか使わないため sandbox を有効にできる。

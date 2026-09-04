@@ -1,4 +1,6 @@
 import type { JSX, PointerEvent as ReactPointerEvent } from 'react'
+import { useI18n } from '../../i18n/context'
+import { getPanelTitle } from '../panels/panelLabels'
 import { getPanelDefinition } from '../panels/registry'
 import type { PanelId } from '../panels/types'
 
@@ -51,6 +53,7 @@ export function PanelGroup({
   onClose,
   onPanelDragStart
 }: PanelGroupProps): JSX.Element {
+  const { t } = useI18n()
   const active = getPanelDefinition(activePanelId)
   const ActivePanel = active.Component
 
@@ -70,6 +73,7 @@ export function PanelGroup({
       >
         {panelIds.map((panelId) => {
           const definition = getPanelDefinition(panelId)
+          const title = getPanelTitle(panelId, t)
           const isActive = panelId === activePanelId
 
           return (
@@ -89,7 +93,7 @@ export function PanelGroup({
                 onPointerDown={(event) => onPanelDragStart(panelId, event)}
                 onClick={() => onActivate(panelId)}
               >
-                {definition.title}
+                {title}
               </button>
 
               {/*
@@ -99,8 +103,8 @@ export function PanelGroup({
               <button
                 type="button"
                 className="fx-panel-tab__close"
-                aria-label={`${definition.title} を閉じる`}
-                title={`${definition.title} を閉じる`}
+                aria-label={t('workspace.closePanel', { title })}
+                title={t('workspace.closePanel', { title })}
                 onClick={() => onClose(panelId)}
               >
                 ×

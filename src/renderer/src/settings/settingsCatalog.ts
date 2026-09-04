@@ -1,4 +1,5 @@
 import { isSettingsSectionId, type SettingsSectionId } from '@shared/settings'
+import type { TranslationKey } from '../i18n/messages'
 
 /**
  * Settings 画面に何がどの順で並ぶか（Session 4-3B）。
@@ -47,7 +48,7 @@ import { isSettingsSectionId, type SettingsSectionId } from '@shared/settings'
  */
 
 /** Settings 画面のカテゴリ。**中身のあるものだけ**を並べる。 */
-export type SettingsCategoryId = 'editor' | 'files' | 'terminal' | 'appearance'
+export type SettingsCategoryId = 'general' | 'appearance' | 'editor' | 'files' | 'terminal'
 
 /**
  * 1つの設定項目。
@@ -58,9 +59,9 @@ export type SettingsCategoryId = 'editor' | 'files' | 'terminal' | 'appearance'
 export interface SettingsItemDescriptor {
   readonly id: string
   /** 設定の名前（画面に出る）。 */
-  readonly title: string
+  readonly titleKey: TranslationKey
   /** 1行の説明。**無くても意味が通る名前**にしたうえで、補足だけを書く。 */
-  readonly description: string
+  readonly descriptionKey: TranslationKey
   /** この項目の値が入る section（shared/settings/sections.ts）。 */
   readonly section: SettingsSectionId
 }
@@ -68,9 +69,9 @@ export interface SettingsItemDescriptor {
 export interface SettingsCategoryDescriptor {
   readonly id: SettingsCategoryId
   /** カテゴリの名前（左の一覧に出る）。 */
-  readonly title: string
+  readonly titleKey: TranslationKey
   /** カテゴリの1行説明（右の見出しの下に出る）。 */
-  readonly description: string
+  readonly descriptionKey: TranslationKey
   /** 並べる項目。**空にはできない**（中身の無いカテゴリを作らない）。 */
   readonly items: readonly SettingsItemDescriptor[]
 }
@@ -89,75 +90,86 @@ export interface SettingsCategoryDescriptor {
  */
 export const SETTINGS_CATEGORIES: readonly SettingsCategoryDescriptor[] = [
   {
+    id: 'general',
+    titleKey: 'settings.categories.general.title',
+    descriptionKey: 'settings.categories.general.description',
+    items: [
+      {
+        id: 'general.language',
+        titleKey: 'settings.items.general.language.title',
+        descriptionKey: 'settings.items.general.language.description',
+        section: 'general'
+      }
+    ]
+  },
+  {
+    id: 'appearance',
+    titleKey: 'settings.categories.appearance.title',
+    descriptionKey: 'settings.categories.appearance.description',
+    items: [
+      {
+        id: 'appearance.theme',
+        titleKey: 'settings.items.appearance.theme.title',
+        descriptionKey: 'settings.items.appearance.theme.description',
+        section: 'appearance'
+      }
+    ]
+  },
+  {
     id: 'editor',
-    title: 'Editor',
-    description: '編集中のファイルをいつ保存するか。',
+    titleKey: 'settings.categories.editor.title',
+    descriptionKey: 'settings.categories.editor.description',
     items: [
       {
         id: 'editor.autoSaveMode',
-        title: '自動保存',
-        description: '自動で保存する場面を選びます。しない場合も Ctrl+S はいつでも効きます。',
+        titleKey: 'settings.items.editor.autoSaveMode.title',
+        descriptionKey: 'settings.items.editor.autoSaveMode.description',
         section: 'editor'
       },
       {
         id: 'editor.autoSaveDelayMs',
-        title: '自動保存までの待ち時間',
-        description: '「入力が止まったら」を選んでいるときに、止まってから保存するまでの長さです。',
+        titleKey: 'settings.items.editor.autoSaveDelayMs.title',
+        descriptionKey: 'settings.items.editor.autoSaveDelayMs.description',
         section: 'editor'
       }
     ]
   },
   {
     id: 'files',
-    title: 'Files',
-    description: 'ファイル一覧の見え方。',
+    titleKey: 'settings.categories.files.title',
+    descriptionKey: 'settings.categories.files.description',
     items: [
       {
         id: 'files.viewMode',
-        title: '表示方式',
-        description:
-          'パネルの形に任せると、横に広ければカラム、縦に長ければツリーになります。カラムの幅は境界を掴んで変えます。',
+        titleKey: 'settings.items.files.viewMode.title',
+        descriptionKey: 'settings.items.files.viewMode.description',
         section: 'files'
       }
     ]
   },
   {
     id: 'terminal',
-    title: 'Terminal',
-    description: 'ターミナルの見え方。開いているタブすべてに効きます。',
+    titleKey: 'settings.categories.terminal.title',
+    descriptionKey: 'settings.categories.terminal.description',
     items: [
       {
         id: 'terminal.fontSize',
-        title: '文字の大きさ',
-        description: 'ターミナルのタブ列（⚙）からも変えられます。Ctrl + ＋ / － でも動きます。',
+        titleKey: 'settings.items.terminal.fontSize.title',
+        descriptionKey: 'settings.items.terminal.fontSize.description',
         section: 'terminal'
       },
       {
         id: 'terminal.scrollback',
-        title: 'さかのぼれる行数',
-        description: '減らすと、そのぶん古い出力はその場で捨てられます。',
+        titleKey: 'settings.items.terminal.scrollback.title',
+        descriptionKey: 'settings.items.terminal.scrollback.description',
         section: 'terminal'
-      }
-    ]
-  },
-  {
-    id: 'appearance',
-    title: 'Appearance',
-    description: 'アプリ全体の見た目。',
-    items: [
-      {
-        id: 'appearance.theme',
-        title: 'テーマ',
-        description:
-          '選ぶとすぐに切り替わります。エディタ・ファイル一覧・ターミナル・Git のすべてに効きます。',
-        section: 'appearance'
       }
     ]
   }
 ]
 
 /** 開いたときに最初に出るカテゴリ。 */
-export const DEFAULT_SETTINGS_CATEGORY_ID: SettingsCategoryId = 'editor'
+export const DEFAULT_SETTINGS_CATEGORY_ID: SettingsCategoryId = 'general'
 
 /** 並べる順に取り出す。 */
 export function listSettingsCategories(): readonly SettingsCategoryDescriptor[] {

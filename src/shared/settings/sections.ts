@@ -59,10 +59,22 @@
  * 「その機能の見え方・振る舞い」で、Appearance は**アプリ全体の見た目**にあたる
  * ── 前の3つに挟むと、どの機能の話をしているのか分からない場所ができる。
  */
-export const SETTINGS_SECTION_IDS = ['editor', 'files', 'terminal', 'appearance'] as const
+export const SETTINGS_SECTION_IDS = [
+  'general',
+  'appearance',
+  'editor',
+  'files',
+  'terminal'
+] as const
 
 /** 既知の section の名前。ここに無い名前は section ではない。 */
 export type SettingsSectionId = (typeof SETTINGS_SECTION_IDS)[number]
+
+/** アプリ全体の基本設定（Language。Session 4-5A）。 */
+export interface StoredGeneralSettings {
+  /** `ja` / `en`。知らない値は読む側が既定（日本語）へ落とす。 */
+  readonly language?: string
+}
 
 /** Editor の設定（Auto Save。§12.4）。 */
 export interface StoredEditorSettings {
@@ -115,10 +127,11 @@ export interface StoredAppearanceSettings {
  * 読む側が区別する必要は無く、どちらも「key が無い ＝ 既定」で足りるため。
  */
 export interface SettingsSections {
+  readonly general: StoredGeneralSettings
+  readonly appearance: StoredAppearanceSettings
   readonly editor: StoredEditorSettings
   readonly files: StoredFilesSettings
   readonly terminal: StoredTerminalSettings
-  readonly appearance: StoredAppearanceSettings
 }
 
 /** section 名から、その section の値の型へ。 */
@@ -141,7 +154,7 @@ export type SettingsSectionUpdate = {
 
 /** 何も保存されていない状態（section はすべて空）。 */
 export function emptySettingsSections(): SettingsSections {
-  return { editor: {}, files: {}, terminal: {}, appearance: {} }
+  return { general: {}, appearance: {}, editor: {}, files: {}, terminal: {} }
 }
 
 /** 素の文字列が既知の section 名か。 */

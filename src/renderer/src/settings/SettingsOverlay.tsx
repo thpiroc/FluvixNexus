@@ -3,22 +3,23 @@ import {
   AUTO_SAVE_DELAY_MAX_MS,
   AUTO_SAVE_DELAY_MIN_MS,
   AUTO_SAVE_MODES,
-  describeAutoSaveMode,
   normalizeAutoSaveSettings,
   type AutoSaveMode
 } from '../editor/autoSave'
 import { useEditorContext } from '../editor/context'
 import {
-  describeFilesViewChoice,
   FILES_VIEW_CHOICES,
   fromFilesViewChoice,
   toFilesViewChoice,
   type FilesViewChoice
 } from '../files/filesSettings'
 import { useFilesViewPreference } from '../files/FilesViewProvider'
+import { useI18n } from '../i18n/context'
+import { LANGUAGE_CHOICES } from '../i18n/languageSettings'
+import type { TranslationKey } from '../i18n/messages'
 import { useTerminal } from '../terminal/context'
 import { useTheme } from '../theme/context'
-import { APPEARANCE_THEME_CHOICES, describeTheme } from '../theme/appearanceSettings'
+import { APPEARANCE_THEME_CHOICES } from '../theme/appearanceSettings'
 import {
   clampTerminalFontSize,
   clampTerminalScrollback,
@@ -98,6 +99,7 @@ import './settings.css'
  * 文言と押せる条件を持たないのと同じ分担になる。
  */
 export function SettingsOverlay({ onClose }: { readonly onClose: () => void }): JSX.Element {
+  const { t } = useI18n()
   const categories = listSettingsCategories()
 
   /*
@@ -137,17 +139,17 @@ export function SettingsOverlay({ onClose }: { readonly onClose: () => void }): 
       data-testid="settings"
       role="dialog"
       aria-modal="false"
-      aria-label="Settings"
+      aria-label={t('settings.title')}
     >
       <div className="fx-settings__bar">
-        <span className="fx-settings__title">Settings</span>
+        <span className="fx-settings__title">{t('settings.title')}</span>
         <button
           type="button"
           className="fx-settings__close"
           data-testid="settings-close"
           onClick={onClose}
-          title="Settings を閉じる（Esc）"
-          aria-label="Settings を閉じる"
+          title={t('settings.closeTitle')}
+          aria-label={t('settings.closeLabel')}
         >
           ×
         </button>
@@ -159,7 +161,7 @@ export function SettingsOverlay({ onClose }: { readonly onClose: () => void }): 
           **今どこを見ているかが常に見えている**方がよいため ── 3つしか無いので
           畳む必要が無く、畳むと切り替えのたびに2回押すことになる。
         */}
-        <nav className="fx-settings__nav" aria-label="設定のカテゴリ">
+        <nav className="fx-settings__nav" aria-label={t('settings.categoryNavLabel')}>
           {categories.map((entry) => (
             <button
               key={entry.id}
@@ -170,15 +172,15 @@ export function SettingsOverlay({ onClose }: { readonly onClose: () => void }): 
               aria-current={entry.id === categoryId}
               onClick={() => setCategoryId(entry.id)}
             >
-              {entry.title}
+              {t(entry.titleKey)}
             </button>
           ))}
         </nav>
 
         <div className="fx-settings__content" data-category={category.id}>
           <div className="fx-settings__heading">
-            <h2 className="fx-settings__heading-title">{category.title}</h2>
-            <p className="fx-settings__heading-note">{category.description}</p>
+            <h2 className="fx-settings__heading-title">{t(category.titleKey)}</h2>
+            <p className="fx-settings__heading-note">{t(category.descriptionKey)}</p>
           </div>
 
           {category.items.map((item) => (
@@ -198,11 +200,13 @@ export function SettingsOverlay({ onClose }: { readonly onClose: () => void }): 
  * 持たせると、React を知らないはずの目録が React の都合を持つことになる。
  */
 function SettingsRow({ item }: { readonly item: SettingsItemDescriptor }): JSX.Element {
+  const { t } = useI18n()
+
   return (
     <section className="fx-settings__row" data-item={item.id}>
       <div className="fx-settings__row-main">
-        <span className="fx-settings__row-title">{item.title}</span>
-        <p className="fx-settings__row-note">{item.description}</p>
+        <span className="fx-settings__row-title">{t(item.titleKey)}</span>
+        <p className="fx-settings__row-note">{t(item.descriptionKey)}</p>
       </div>
       <div className="fx-settings__row-control">
         <SettingsControl item={item} />
@@ -212,7 +216,12 @@ function SettingsRow({ item }: { readonly item: SettingsItemDescriptor }): JSX.E
 }
 
 function SettingsControl({ item }: { readonly item: SettingsItemDescriptor }): JSX.Element {
+  const { t } = useI18n()
+
   switch (item.id) {
+    case 'general.language':
+      return <LanguageControl />
+
     case 'editor.autoSaveMode':
       return <AutoSaveModeControl />
 
@@ -237,8 +246,38 @@ function SettingsControl({ item }: { readonly item: SettingsItemDescriptor }): J
         黙って空の行を出すと「操作 UI が出ないだけの設定」ができるので、
         画面に出す（テストでは目録と分岐の対応を確かめている）。
       */
-      return <span className="fx-settings__missing">この設定を操作する UI がありません。</span>
+      return <span className="fx-settings__missing">{t('settings.missingControl')}</span>
   }
+}
+
+/* ------------------------------------------------------------- General */
+
+function LanguageControl(): JSX.Element {
+  const { language, setLanguage, t } = useI18n()
+
+  return (
+    <div
+      className="fx-settings__choices"
+      role="radiogroup"
+      aria-label={t('settings.controls.language.aria')}
+      data-testid="settings-general-language"
+    >
+      {LANGUAGE_CHOICES.map((choice) => (
+        <button
+          key={choice}
+          type="button"
+          role="radio"
+          className="fx-settings__choice"
+          data-testid={`settings-general-language-${choice}`}
+          data-active={choice === language}
+          aria-checked={choice === language}
+          onClick={() => setLanguage(choice)}
+        >
+          {t(`language.${choice}`)}
+        </button>
+      ))}
+    </div>
+  )
 }
 
 /* -------------------------------------------------------------- Editor */
@@ -251,18 +290,19 @@ function SettingsControl({ item }: { readonly item: SettingsItemDescriptor }): J
  */
 function AutoSaveModeControl(): JSX.Element {
   const { autoSave, setAutoSaveMode } = useEditorContext()
+  const { t } = useI18n()
 
   return (
     <select
       className="fx-settings__select"
-      aria-label="自動保存"
+      aria-label={t('settings.controls.autoSaveMode.aria')}
       data-testid="settings-editor-auto-save-mode"
       value={autoSave.mode}
       onChange={(event) => setAutoSaveMode(event.target.value as AutoSaveMode)}
     >
       {AUTO_SAVE_MODES.map((mode) => (
         <option key={mode} value={mode}>
-          {describeAutoSaveMode(mode)}
+          {t(autoSaveModeLabelKey(mode))}
         </option>
       ))}
     </select>
@@ -287,10 +327,11 @@ function AutoSaveModeControl(): JSX.Element {
  */
 function AutoSaveDelayControl(): JSX.Element {
   const { autoSave, setAutoSaveDelayMs } = useEditorContext()
+  const { t } = useI18n()
 
   return (
     <NumberField
-      label="待ち時間"
+      label={t('settings.controls.autoSaveDelay.label')}
       unit="ms"
       value={autoSave.delayMs}
       min={AUTO_SAVE_DELAY_MIN_MS}
@@ -300,8 +341,14 @@ function AutoSaveDelayControl(): JSX.Element {
       onCommit={setAutoSaveDelayMs}
       hint={
         autoSave.mode === 'afterDelay'
-          ? `${AUTO_SAVE_DELAY_MIN_MS}〜${AUTO_SAVE_DELAY_MAX_MS}ms`
-          : `${AUTO_SAVE_DELAY_MIN_MS}〜${AUTO_SAVE_DELAY_MAX_MS}ms（今の方式では使われません）`
+          ? t('settings.controls.autoSaveDelay.hintActive', {
+              min: AUTO_SAVE_DELAY_MIN_MS,
+              max: AUTO_SAVE_DELAY_MAX_MS
+            })
+          : t('settings.controls.autoSaveDelay.hintInactive', {
+              min: AUTO_SAVE_DELAY_MIN_MS,
+              max: AUTO_SAVE_DELAY_MAX_MS
+            })
       }
       testId="settings-editor-auto-save-delay"
     />
@@ -323,13 +370,14 @@ function AutoSaveDelayControl(): JSX.Element {
  */
 function FilesViewModeControl(): JSX.Element {
   const { preference, setPreference } = useFilesViewPreference()
+  const { t } = useI18n()
   const current = toFilesViewChoice(preference)
 
   return (
     <div
       className="fx-settings__choices"
       role="radiogroup"
-      aria-label="Files の表示方式"
+      aria-label={t('settings.controls.filesViewMode.aria')}
       data-testid="settings-files-view-mode"
     >
       {FILES_VIEW_CHOICES.map((choice: FilesViewChoice) => (
@@ -343,7 +391,7 @@ function FilesViewModeControl(): JSX.Element {
           aria-checked={choice === current}
           onClick={() => setPreference(fromFilesViewChoice(choice))}
         >
-          {describeFilesViewChoice(choice)}
+          {t(filesViewChoiceLabelKey(choice))}
         </button>
       ))}
     </div>
@@ -361,11 +409,12 @@ function FilesViewModeControl(): JSX.Element {
  */
 function TerminalFontSizeControl(): JSX.Element {
   const { display, setFontSize } = useTerminal()
+  const { t } = useI18n()
 
   return (
     <NumberField
-      label="文字の大きさ"
-      unit="px"
+      label={t('settings.controls.terminalFontSize.label')}
+      unit={t('settings.controls.terminalFontSize.unit')}
       value={display.fontSize}
       min={TERMINAL_FONT_SIZE_MIN}
       max={TERMINAL_FONT_SIZE_MAX}
@@ -385,11 +434,12 @@ function TerminalFontSizeControl(): JSX.Element {
  */
 function TerminalScrollbackControl(): JSX.Element {
   const { display, setScrollback } = useTerminal()
+  const { t } = useI18n()
 
   return (
     <NumberField
-      label="さかのぼれる行数"
-      unit="行"
+      label={t('settings.controls.terminalScrollback.label')}
+      unit={t('settings.controls.terminalScrollback.unit')}
       value={display.scrollback}
       min={TERMINAL_SCROLLBACK_MIN}
       max={TERMINAL_SCROLLBACK_MAX}
@@ -427,12 +477,13 @@ function TerminalScrollbackControl(): JSX.Element {
  */
 function AppearanceThemeControl(): JSX.Element {
   const { settings, setTheme } = useTheme()
+  const { t } = useI18n()
 
   return (
     <div
       className="fx-settings__choices"
       role="radiogroup"
-      aria-label="テーマ"
+      aria-label={t('settings.controls.theme.aria')}
       data-testid="settings-appearance-theme"
     >
       {APPEARANCE_THEME_CHOICES.map((theme) => (
@@ -446,9 +497,21 @@ function AppearanceThemeControl(): JSX.Element {
           aria-checked={theme === settings.theme}
           onClick={() => setTheme(theme)}
         >
-          {describeTheme(theme)}
+          {t(themeLabelKey(theme))}
         </button>
       ))}
     </div>
   )
+}
+
+function autoSaveModeLabelKey(mode: AutoSaveMode): TranslationKey {
+  return `settings.values.autoSave.${mode}`
+}
+
+function filesViewChoiceLabelKey(choice: FilesViewChoice): TranslationKey {
+  return `settings.values.filesView.${choice}`
+}
+
+function themeLabelKey(theme: (typeof APPEARANCE_THEME_CHOICES)[number]): TranslationKey {
+  return `settings.values.theme.${theme}`
 }

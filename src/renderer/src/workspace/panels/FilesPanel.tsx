@@ -1,5 +1,6 @@
 import type { JSX } from 'react'
 import { FilesView } from '../../files/FilesView'
+import { useI18n } from '../../i18n/context'
 import { useFilesLayout } from '../../files/useFilesLayout'
 import { useWorkspaceFolder } from '../../workspaceFolder/context'
 
@@ -34,15 +35,16 @@ import { useWorkspaceFolder } from '../../workspaceFolder/context'
  */
 export function FilesPanel(): JSX.Element {
   const { status, workspace, busy, openFolder } = useWorkspaceFolder()
+  const { t } = useI18n()
   const layout = useFilesLayout()
 
   return (
     <div className="fx-files-panel" ref={layout.registerContainer}>
       {status === 'loading' ? null : workspace === null ? (
         <div className="fx-files fx-files--empty">
-          <p className="fx-files__message">Workspace が開かれていません。</p>
+          <p className="fx-files__message">{t('workspace.noWorkspaceOpen')}</p>
           <button type="button" className="fx-files__action" onClick={openFolder} disabled={busy}>
-            フォルダを開く
+            {t('workspace.openFolder')}
           </button>
         </div>
       ) : (
