@@ -121,6 +121,9 @@ Vitest を使い、**Electron に依存しない純粋なロジック**だけを
 - `src/shared/git/branchName.test.ts` — **ブランチ名の規則**（空 / 上限の境界と超過 / 空白 / 制御文字 / `~^:?*[]` / `"<>|` を**弾く**こと・`..` / `@{` / `/` の位置 / `.lock` 終わり / **先頭の `-`** / `HEAD` を弾くこと・日本語や `feature/x` を**通す**こと・前後の空白だけを落とし**中の空白は落とさない**こと・文字列でない値を弾くこと）
 - `src/shared/git/commitMessage.test.ts` — **Commit メッセージの規則**（空 / 空白だけ / 上限の境界と超過 / NUL と制御文字を**弾く**こと・改行 / タブ / 日本語 / 引用符 / `#` を**通す**こと・CRLF を LF へ揃えること・前後の空白を落としても途中の空行は残すこと・文字列でない値を弾くこと）
 - `src/renderer/src/git/gitRepositoryMessage.test.ts` — **Git パネルの文言**（どの状態にも次の一手が書かれていること・**git の生の英文が UI に漏れていないこと**・detached をブランチ名として出さないこと）
+- `src/renderer/src/settings/settingsCatalog.test.ts` — **Settings 画面に何が並ぶか**（Editor / Files / Terminal がこの順であること・**中身の無いカテゴリが1つも無いこと**・まだ作らないと決めたカテゴリ（`appearance` / `general` / `git` / `workspace` / `language` / `debug`）が紛れ込んでいないこと・**載せないと決めた `files.columnWidth` が並んでいないこと**・目録の section 名が保存側の閉じた集合と食い違っていないこと）
+- `src/renderer/src/settings/settings.integration.test.ts` — **Settings 画面の統合テスト**（既定で始まる → 5項目を変える → 閉じて開き直す → 再起動、を1本で通す。**ツールバー / ⚙ から変えても Settings から変えても同じ値になること**・1項目を変えても他を巻き込まないこと・方式を切り替えても待ち時間が持ち回されること・**Settings で表示方式を変えてもカラムの幅が失われないこと**・上下限へ丸まった結果がそのまま保存されること・知らない値が保存されていても既定を出すこと）
+- `src/renderer/src/settings/SettingsOverlay.dom.test.ts` — **Settings 画面の実際の描画と操作**（下記の jsdom の例外。トップバーから開く・カテゴリ切り替え・`×` と Esc で閉じる・5つの操作 UI が既存 setter へ繋がること・**Files ツールバー ↔ Settings / Terminal の ⚙ ↔ Settings が双方向に同期すること**）
 - `src/renderer/src/workspace/workspace.integration.test.ts` — **STEP 2 全体の統合テスト**（下記）
 
 Files の検証（`main/files/workspacePath.ts`）は Electron にも fs にも依存しない形に切り出してある。symlink による脱出だけはパス文字列では判断できないため、realpath を取ってから同じ関数へ通す側（`readWorkspaceDirectory.ts` / `readWorkspaceFile.ts` / `mutateWorkspaceEntry.ts`）が担う。
@@ -403,6 +406,12 @@ fetch（`gitFetchRepository.test.ts`）:
 - **`rebase --continue` はエディタを開く。** テストの中では開く相手が居ないので `-c core.editor=true` を渡す ── アプリはこの経路を持たないため、本番の引数の表には1つも入らない。
 - **競合の7通りは rename / rename で3つまとめて作れる。** `DD` / `AU` / `UA` が1回のマージで同時に出る（`AA` は「両方が同じ位置を足す」で別に作る）── そして **`DD` だけが作業ツリーにファイルを持たない**ことが、`canOpenGitChange` を直した理由そのものになる。
 - **`git status` の `mW`（作業ツリー側のモード）は「ファイルが在るか」を言わない。** 無くても `100644` が入る（rename / delete の競合で確かめた）── 形（`XY`）の側で判断する。
+
+#### 例外: DOM を触るテスト（Session 4-3B）
+
+実ディスクとは別の種類の例外が1つある。`SettingsOverlay.dom.test.ts` だけは jsdom（`@vitest-environment jsdom` をファイル冒頭の docblock で指定）で React を実際に描く。**Settings 画面で確かめたいことが「値が2箇所から同じ1つを指しているか」だから**にほかならない ── 値のモデルだけを見ても、Context の繋ぎ方を1本間違えれば「Settings で変えたのに Files パネルが変わらない」は起きるし、それは型でも捕まらない（props が増えていないのだから型は通る。Session 3-8-22B で退避の面に `inProgress` を渡し忘れていたのと同じ抜け方にあたる）。IPC（`api/fluvix`）だけは `vi.mock` で差し替える ── Electron をテストへ持ち込まない線は変えていない。
+
+DOM を使うのはこの1本だけに留める。**ここで見るのは繋ぎ方であって、見た目ではない** ── 描画そのものの確認は実機（次節）に任せる方針は変わらない。
 
 #### 実 git を起動するテストの待ち時間（Session 3-8-20 で明示した）
 
@@ -1513,6 +1522,32 @@ await app.evaluate(({ dialog }, target) => {
 - **確認の前後で `settings.json` と旧3ファイルを消す。** 前回の値から始まると「既定で始まる」を確かめられず、残したままだと利用者の環境に確認の副産物が残る
 
 **初回起動でも `settings.json` はできる。** Main は移すものが無ければ何も書かないが（`store/settingsStore.ts`）、Renderer は読み込みが終わった時点で既定値を1度保存する ── 中身は既定と同じで、Session 3-5 〜 3-7-5 の3つの hook も同じ形だった（4-3A で変わった挙動ではない）。
+
+### Session 4-3B（Settings 画面）
+
+**production build 版 74項目、全項目 PASS。** 確かめたいのが「同じ設定が2箇所から動くこと」「閉じても再起動しても残ること」なので、**3回起動する**流れを1本のスクリプトで通している。
+
+| 回    | 通したこと                                                                      |
+| ----- | ------------------------------------------------------------------------------- |
+| 1回目 | 既定で始まる → Settings で5項目を変える → 既存 UI からも変える → 閉じて開き直す |
+| 2回目 | 再起動で5項目が復元される → Terminal の実物に効いている → 最後にディスクを汚す  |
+| 3回目 | 汚した値が**表示方式として解釈されない**こと、選び直せば正しい値に戻ること      |
+
+- 面: トップバーの `Settings` で開く、`aria-modal="false"`、`×` と Esc で閉じる、カテゴリが **Editor / Files / Terminal の3つだけ**で切り替わること、開き直すと Editor から始まること
+- Editor: Auto Save の方式を `afterDelay` へ、待ち時間を 2500ms へ変えられること。**範囲の外が丸まること**（999999 → 60000 / 0 → 200）。**Editor の工具列から Auto Save の選択が消えていること**（`[data-testid="editor-autosave"]` が 0 個）
+- Files: Settings でカラムを選ぶと**開いている Files パネルがカラム表示になる**こと、ツールバーでツリーへ戻した後に Settings に現在値が出ること
+- Terminal: Settings で文字の大きさ・さかのぼれる行数を変えられること、**⚙ に文字の大きさが残り、さかのぼれる行数が消えている**こと（欄が1つ）、⚙ で 11px にすると Settings 側にも 11 が出ること、再起動後に `.xterm-rows` が実際に 11px であること
+- 保存: `settings.json` が section 形式で、5項目が入り、**Settings に載せていない `files.columnWidth` も消えていない**こと
+- セキュリティ: `window.require` / `window.process` / `window.electron` / `window.Buffer` / `window.module` がすべて `undefined`、`window.fluvix.settings` の口が `load` / `saveSection` の2つだけ、知らない section（`appearance`）・読めない値（`fontSize: 'big'`）・object でない要求・配列・`section: null` がすべて `INVALID_REQUEST`、`settings:load` が既知の3 section だけを返すこと
+- 回帰: Files / Editor / Terminal / Git の4パネル、console エラー / pageerror なし、CSP 違反なし
+
+注意点（この Session で踏んだもの）:
+
+- **`[data-testid="editor-autosave"]` はもう無い。** Session 4-3A の確認スクリプトはこれを「ファイルが開けた印」に使っていたが、4-3B で Auto Save の選択ごと Settings へ移した。代わりに `[data-testid="editor-save-as"]` を待つ
+- **確認スクリプトが自分でディスクを汚す順序に注意する。** 知らない key を送る検証（`{ section: 'files', value: { languageServerPath: … } }`）は仕様どおり**要求は通り、その key は落ちる**ので、`files` セクションが空で上書きされる。保存内容の確認より**後**に置かないと、アプリが正しくても FAIL に見える
+- **Renderer は設定を読み直さない。** `settings:changed` が無い設計（[docs/ARCHITECTURE.md](ARCHITECTURE.md) §12.4）なので、IPC で直接書いた値は開いている画面には出ない ── 解釈のされ方を見るには**次の起動**まで待つ
+- **`setPreference` は同じ値なら保存しない。** 「同じなら据え置く」が効くため、既に選ばれている選択肢を押してもディスクは変わらない（書き戻しを当てにした確認は成立しない）
+- 前回と同じく、**確認の前後で `settings.json` と旧3ファイルを退避 / 復元する**。Workspace は確認用の一時フォルダを `workspace-folder.json` に仕込んでから起動する（ネイティブのフォルダ選択を通さずに Files / Editor を触るため）
 
 ---
 
