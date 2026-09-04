@@ -3,7 +3,8 @@ import type { FileEncoding, FileLineEnding, FileRevision } from '@shared/files'
 import type { EditorRevealRequest } from '../editorReveal'
 import type { EditorDocumentSource, EditorDocumentStore } from './documentStore'
 import { resolveEditorLanguageId } from './language'
-import { EDITOR_OPTIONS, monaco, setupMonaco } from './monacoSetup'
+import { useTheme } from '../../theme/context'
+import { applyMonacoTheme, EDITOR_OPTIONS, monaco, setupMonaco } from './monacoSetup'
 
 /**
  * Monaco Editor の器。
@@ -128,6 +129,24 @@ export function MonacoEditor({
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
   /** 今エディタに載っている位置。離れるときに viewState を控える相手。 */
   const mountedPathRef = useRef<string | null>(null)
+  const { settings: appearance } = useTheme()
+
+  /*
+    Theme を当てる（Session 4-4）。
+
+    エディタの生成（下）とは別の effect にしてある ── **切り替えでエディタを
+    作り直さない**ため。作り直すと、その時点の Undo / Redo 履歴こそ Model 側に
+    残るが、カーソルとスクロール位置は控えのタイミング次第で飛ぶ。
+    Monaco のテーマはエディタとは独立した（アプリに1つの）ものなので、
+    当て直すだけで開いているエディタ全部に効く。
+
+    Monaco がまだ読み込まれていない間は、ここも走らない（このファイル自体が
+    遅延読み込みされる）── 後から開いたときに現在の Theme が当たる。
+  */
+  useEffect(() => {
+    setupMonaco()
+    applyMonacoTheme(appearance.theme)
+  }, [appearance.theme])
 
   /*
     エディタの生成と破棄。

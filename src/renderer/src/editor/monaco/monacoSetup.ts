@@ -4,6 +4,8 @@ import EditorWorker from 'monaco-editor/editor/common/services/editorWebWorkerMa
 import HtmlWorker from 'monaco-editor/languages/features/html/html.worker.js?worker'
 import JsonWorker from 'monaco-editor/languages/features/json/json.worker.js?worker'
 import TsWorker from 'monaco-editor/languages/features/typescript/ts.worker.js?worker'
+import type { ThemeId } from '@shared/theme'
+import { monacoThemeBase, readThemeTokens, toMonacoThemeColors } from '../../theme/themeTokens'
 
 /**
  * Monaco Editor をこのアプリの前提に合わせる、唯一の場所。
@@ -104,35 +106,45 @@ function createMonacoWorker(label: string): Worker {
 /* ------------------------------------------------------------------- テーマ */
 
 /**
- * Fluvix Nexus のダークテーマ。
+ * このアプリのテーマ（Session 4-4 で Theme に追従するようになった）。
  *
- * 値を直接書いてよいのは styles/theme.css だけ、という約束の例外にあたる。
- * Monaco は CSS 変数を読まず、色を JavaScript の値として要求するため。
- * **theme.css と同じ値を書き写している**ので、片方を変えるときは両方を直すこと。
+ * Monaco は CSS 変数を読まず、色を JavaScript の値として要求する。
+ * Session 4-3B までは**そのために `theme.css` と同じ 16進数をここへ書き写して**
+ * いて、「片方を変えるときは両方を直すこと」という注意書きが付いていた ──
+ * Theme が2つになれば写しは倍になり、直し忘れは「Light にしたのに
+ * エディタの中だけ黒い」という形で出る。
  *
- * `vs-dark` を継承しているのは、トークンの色（構文ハイライト）を自前で持たないため。
- * 独自の配色を決めるのは、色の設計をひととおり終えてからでよい。
+ * 今は `theme/themeTokens.ts` が `theme.css` の変数を読んで組み立てる。
+ * **このファイルに色は1つも無い。**
+ *
+ * 名前を Theme ごとに分けないのは、Monaco のテーマが**その id で
+ * 上書き定義できる**ため（`defineTheme` は同じ id なら差し替えになる）。
+ * 分けると、切り替えのたびに使われない定義が積み上がる。
+ *
+ * 継承元（`vs` / `vs-dark`）だけは Theme によって変わる。トークンの色
+ * （構文ハイライト）を自前で持たないための土台で、その対応は themeTokens.ts が持つ。
  */
-const FLUVIX_DARK_THEME_ID = 'fluvix-dark'
+const FLUVIX_THEME_ID = 'fluvix'
 
-const fluvixDarkTheme: monaco.editor.IStandaloneThemeData = {
-  base: 'vs-dark',
-  inherit: true,
-  rules: [],
-  colors: {
-    'editor.background': '#1e1e1e', // --fx-color-surface
-    'editor.foreground': '#d4d4d4', // --fx-color-text
-    'editorLineNumber.foreground': '#6a6a6a', // --fx-color-text-faint
-    'editorLineNumber.activeForeground': '#d4d4d4', // --fx-color-text
-    'editorCursor.foreground': '#d4d4d4',
-    'editor.lineHighlightBorder': '#2d2d2d', // --fx-color-surface-hover
-    'editorWidget.background': '#252526', // --fx-color-surface-raised
-    'editorWidget.border': '#3c3c3c', // --fx-color-border-strong
-    'editorSuggestWidget.background': '#252526',
-    'editorSuggestWidget.border': '#3c3c3c',
-    'input.background': '#1e1e1e',
-    'input.border': '#3c3c3c'
-  }
+/**
+ * 今の Theme を Monaco へ当てる。
+ *
+ * **Monaco のテーマはアプリに1つ**（`setTheme` はグローバル）なので、
+ * 通常のエディタと Compare の差分エディタのどちらから呼んでも同じ結果になる。
+ * 何度呼んでも構わない。
+ *
+ * 呼ばれる時点で `<html>` の `data-fx-theme` は既に新しい値になっている
+ * （theme/ThemeProvider.tsx が描画の中で当てる ── effect にしない理由はそちら）。
+ */
+export function applyMonacoTheme(theme: ThemeId): void {
+  monaco.editor.defineTheme(FLUVIX_THEME_ID, {
+    base: monacoThemeBase(theme),
+    inherit: true,
+    rules: [],
+    colors: toMonacoThemeColors(readThemeTokens())
+  })
+
+  monaco.editor.setTheme(FLUVIX_THEME_ID)
 }
 
 /* ------------------------------------------------------------------- 初期化 */
@@ -144,6 +156,11 @@ let initialized = false
  *
  * 何度呼んでも1回しか効かない。Editor パネルは閉じたり開いたりできる（§7.7）ため、
  * 「最初にエディタを作るとき」という呼び出し側の事情に依存させない。
+ *
+ * **テーマはここで当てない**（Session 4-4）。1回しか効かないここに置くと、
+ * 後から Theme を切り替えたときに当たらない ── テーマは
+ * `applyMonacoTheme` を Theme が変わるたびに呼ぶ形にしてあり、
+ * 最初の1回もそこが受け持つ（MonacoEditor.tsx / MonacoDiffEditor.tsx）。
  */
 export function setupMonaco(): void {
   if (initialized) {
@@ -159,9 +176,6 @@ export function setupMonaco(): void {
   self.MonacoEnvironment = {
     getWorker: (_workerId, label) => createMonacoWorker(label)
   }
-
-  monaco.editor.defineTheme(FLUVIX_DARK_THEME_ID, fluvixDarkTheme)
-  monaco.editor.setTheme(FLUVIX_DARK_THEME_ID)
 
   /*
     TypeScript / JavaScript。

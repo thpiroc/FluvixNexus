@@ -136,8 +136,30 @@ describe('parseSettingsSectionUpdate（Renderer からの保存要求）', () =>
     消え、Renderer が好きな内容をディスクへ残せる場所になる。
   */
   it('知らない section は拒む', () => {
-    for (const section of ['appearance', 'git', '__proto__', '', 42, null, undefined]) {
+    // `appearance` は Session 4-4 で既知になったので、ここからは外れている。
+    for (const section of ['keybindings', 'git', '__proto__', '', 42, null, undefined]) {
       expect(parseSettingsSectionUpdate({ section, value: {} })).toBeNull()
+    }
+  })
+
+  /*
+    Session 4-4 で足した section。**Main は文字列であることしか見ない** ──
+    `dark` / `light` のどちらかであるかを決めるのは Renderer で、
+    アプリをダウングレードすれば知らない Theme 名が届くことも普通に起こりうる。
+  */
+  it('appearance.theme は文字列として通り、意味は見ない', () => {
+    expect(
+      parseSettingsSectionUpdate({ section: 'appearance', value: { theme: 'light' } })
+    ).toEqual({ section: 'appearance', value: { theme: 'light' } })
+
+    expect(
+      parseSettingsSectionUpdate({ section: 'appearance', value: { theme: 'solarized' } })
+    ).toEqual({ section: 'appearance', value: { theme: 'solarized' } })
+  })
+
+  it('appearance.theme が文字列でなければ、要求ごと拒む', () => {
+    for (const theme of [42, null, true, {}, []]) {
+      expect(parseSettingsSectionUpdate({ section: 'appearance', value: { theme } })).toBeNull()
     }
   })
 

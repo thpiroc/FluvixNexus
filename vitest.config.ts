@@ -20,6 +20,17 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['src/**/*.test.ts']
+    include: ['src/**/*.test.ts'],
+    /*
+      Vitest は既定で CSS の import を空文字へ差し替える（見た目は実機で見るもので、
+      テストが読む必要は無い）。**`theme.css` だけは例外**にしてある ── Session 4-4
+      から、あのファイルは見た目ではなく**契約**を持つため
+      （Dark と Light に同じ変数が揃っているか、Monaco / xterm が読む名前があるか。
+      renderer/src/styles/themeCss.test.ts）。
+
+      差し替えられたままだと `?raw` でも空文字が返り、テストは
+      「1つも定義が無い」ではなく「選択子が見つからない」で落ちる。
+    */
+    css: { include: [/theme\.css/] }
   }
 })

@@ -1,6 +1,7 @@
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal, type ITheme } from '@xterm/xterm'
 import type { TerminalSize } from '@shared/terminal'
+import { readTerminalThemeColors, type TerminalThemeColors } from '../theme/themeTokens'
 import {
   clampTerminalFontSize,
   clampTerminalScrollback,
@@ -39,23 +40,21 @@ import '@xterm/xterm/css/xterm.css'
  */
 
 /**
- * xterm のテーマ。
+ * xterm へ渡すテーマ（Session 4-4 で Theme に追従するようになった）。
  *
- * 値を直接書いてよいのは styles/theme.css だけ、という約束の例外にあたる
- * （monacoSetup.ts と同じ理由 ── xterm は CSS 変数を読まず、色を
- * JavaScript の値として要求する）。**theme.css と同じ値を書き写している**ので、
- * 片方を変えるときは両方を直すこと。
+ * xterm は CSS 変数を読まず、色を JavaScript の値として要求する。
+ * Session 4-3B までは**そのために `theme.css` と同じ 16進数をここへ書き写して**
+ * いて、monacoSetup.ts とまったく同じ注意書き（「片方を変えるときは両方を直すこと」）
+ * が付いていた。今は `theme/themeTokens.ts` が `theme.css` の変数を読んで
+ * 組み立てる ── **このファイルに色は1つも無い。**
  *
- * ANSI の16色は既定のまま。シェルとその中の CLI が使う色であって、
+ * ANSI の16色は今までどおり既定のまま。シェルとその中の CLI が使う色であって、
  * このアプリが決めるものではない（ここで塗り替えると、`git status` の緑や
  * npm の警告の黄色が、他のターミナルで見たときと違う色になる）。
+ * **Theme を変えても、変わるのは地・文字・カーソル・選択の4つだけ。**
  */
-const TERMINAL_THEME: ITheme = {
-  background: '#181818', // --fx-color-surface-sunken
-  foreground: '#d4d4d4', // --fx-color-text
-  cursor: '#d4d4d4',
-  cursorAccent: '#181818',
-  selectionBackground: '#2d2d2d' // --fx-color-surface-hover
+function currentTerminalTheme(): ITheme {
+  return { ...readTerminalThemeColors() }
 }
 
 /**
@@ -74,7 +73,6 @@ const TERMINAL_OPTIONS = {
   fontFamily: TERMINAL_FONT_FAMILY,
   fontSize: DEFAULT_TERMINAL_DISPLAY_SETTINGS.fontSize,
   lineHeight: TERMINAL_LINE_HEIGHT,
-  theme: TERMINAL_THEME,
   scrollback: DEFAULT_TERMINAL_DISPLAY_SETTINGS.scrollback,
   /*
     見た目のためだけの点滅を入れない。パネルが常時視界に入る道具なので、
@@ -95,7 +93,18 @@ const TERMINAL_OPTIONS = {
  * ストアはこの関数を `TerminalScreenFactory` として受け取る。
  */
 export function createTerminalScreen(handlers: TerminalScreenHandlers): TerminalScreen {
-  const terminal = new Terminal(TERMINAL_OPTIONS)
+  /*
+    Theme はここで**その場の `<html>` から読む**（Session 4-4）。
+
+    ストアが覚えている値を渡す形にしなかったのは、画面が作られるのは
+    器（TerminalSurface）が現れたときで、それは Provider 側の effect より
+    **先に起きうる**ため（React の effect は子から先に走る）。
+    `data-fx-theme` は描画の中で当たっているので（theme/ThemeProvider.tsx）、
+    いつ作られても今の Theme が読める ── 覚えておく必要が無い。
+
+    切り替えたときの当て直しは `applyTheme` で、こちらはストアが全部の画面へ配る。
+  */
+  const terminal = new Terminal({ ...TERMINAL_OPTIONS, theme: currentTerminalTheme() })
   const fitAddon = new FitAddon()
 
   terminal.loadAddon(fitAddon)
@@ -192,6 +201,18 @@ export function createTerminalScreen(handlers: TerminalScreenHandlers): Terminal
       if (terminal.options.scrollback !== scrollback) {
         terminal.options.scrollback = scrollback
       }
+    },
+
+    applyTheme: (colors: TerminalThemeColors): void => {
+      /*
+        地・文字・カーソル・選択の4つだけを差し替える（Session 4-4）。
+        `theme` への代入は xterm が全画面を描き直すが、Theme が変わるのは
+        利用者が切り替えたときだけなので、間引く仕組みは要らない
+        （文字の大きさのように、押しっぱなしで連続して届くものではない）。
+
+        ANSI の16色を渡していないので、既定のまま残る（このファイルの冒頭）。
+      */
+      terminal.options.theme = { ...colors }
     },
 
     focus: (): void => {

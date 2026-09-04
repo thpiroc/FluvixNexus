@@ -25,15 +25,14 @@ import { isSettingsSectionId, type SettingsSectionId } from '@shared/settings'
  *
  * ## 中身の無いカテゴリを作らない
  *
- * `appearance`（Theme）・`general`・`git`・`workspace`・`language`（LSP）・
- * `debug`（DAP）はここに**無い**。並べるものがまだ1つも無いためで、
- * 空のカテゴリは「まだ何も無い場所」を画面に作るだけになる
- * （保存側で「中身が決まっていない section を先に作らない」としているのと同じ線 ──
- * shared/settings/sections.ts）。
+ * `general`・`git`・`workspace`・`language`（LSP）・`debug`（DAP）はここに**無い**。
+ * 並べるものがまだ1つも無いためで、空のカテゴリは「まだ何も無い場所」を画面に
+ * 作るだけになる（保存側で「中身が決まっていない section を先に作らない」と
+ * しているのと同じ線 ── shared/settings/sections.ts）。
  *
- * 将来カテゴリを足すときに触るのはこの表だけで、`SettingsCategoryId` に名前を足し、
- * `SETTINGS_CATEGORIES` に項目とともに並べる。**項目を1つも持たないカテゴリは
- * 足せない**（テストが落ちる）。
+ * `appearance` は Session 4-4 で**中身ができたので足した**。この形で入った
+ * 最初のカテゴリで、触ったのはこの表と `SettingsCategoryId` だけになる。
+ * **項目を1つも持たないカテゴリは足せない**（テストが落ちる）。
  *
  * ## Files のカラムの幅がここに無い理由
  *
@@ -48,7 +47,7 @@ import { isSettingsSectionId, type SettingsSectionId } from '@shared/settings'
  */
 
 /** Settings 画面のカテゴリ。**中身のあるものだけ**を並べる。 */
-export type SettingsCategoryId = 'editor' | 'files' | 'terminal'
+export type SettingsCategoryId = 'editor' | 'files' | 'terminal' | 'appearance'
 
 /**
  * 1つの設定項目。
@@ -82,6 +81,11 @@ export interface SettingsCategoryDescriptor {
  * 順序は「よく変えるものから」ではなく**機能の並び**（Editor / Files / Terminal）に
  * 合わせてある ── 保存ファイルの section の並びとも、Workspace のパネルの並びとも
  * 同じで、探す人が別の順序を覚え直さずに済む。
+ *
+ * **Appearance は末尾**（Session 4-4）。前の3つが「その機能の見え方・振る舞い」
+ * であるのに対し、Appearance は**アプリ全体の見た目**にあたる ── 機能の並びの
+ * 途中に挟むと、どの機能の話をしているのか分からない場所ができる。
+ * 保存ファイルの section の並びとも同じにしてある。
  */
 export const SETTINGS_CATEGORIES: readonly SettingsCategoryDescriptor[] = [
   {
@@ -133,6 +137,20 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategoryDescriptor[] = [
         title: 'さかのぼれる行数',
         description: '減らすと、そのぶん古い出力はその場で捨てられます。',
         section: 'terminal'
+      }
+    ]
+  },
+  {
+    id: 'appearance',
+    title: 'Appearance',
+    description: 'アプリ全体の見た目。',
+    items: [
+      {
+        id: 'appearance.theme',
+        title: 'テーマ',
+        description:
+          '選ぶとすぐに切り替わります。エディタ・ファイル一覧・ターミナル・Git のすべてに効きます。',
+        section: 'appearance'
       }
     ]
   }

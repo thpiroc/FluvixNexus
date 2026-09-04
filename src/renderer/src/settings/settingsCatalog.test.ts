@@ -17,9 +17,9 @@ import {
  * （vitest.config.ts）。目録を settingsCatalog.ts へ出してあるのはそのためで、
  * ここで確かめるのは**画面を起動せずに確かめられること**に絞る。
  *
- *   - 3つのカテゴリが、決めた順で並ぶこと
+ *   - 4つのカテゴリが、決めた順で並ぶこと（**Appearance は末尾**）
  *   - **中身の無いカテゴリが1つも無いこと**（v1 で作らないと決めたもの）
- *   - まだ作らないと決めたカテゴリ（Appearance / General / Git / Workspace /
+ *   - まだ作らないと決めたカテゴリ（General / Git / Workspace /
  *     Language / Debug）が紛れ込んでいないこと
  *   - 載せないと決めたもの（Files のカラムの幅）が並んでいないこと
  *   - 目録の section 名が、保存側の閉じた集合と食い違っていないこと
@@ -28,11 +28,30 @@ import {
  */
 
 describe('SETTINGS_CATEGORIES', () => {
-  it('Editor / Files / Terminal がこの順に並ぶ', () => {
+  it('Editor / Files / Terminal / Appearance がこの順に並ぶ', () => {
     expect(listSettingsCategories().map((category) => category.id)).toEqual([
       'editor',
       'files',
-      'terminal'
+      'terminal',
+      'appearance'
+    ])
+  })
+
+  /*
+    Appearance が末尾であること（Session 4-4 の B）。前の3つは「その機能の
+    見え方・振る舞い」で、Appearance はアプリ全体の見た目にあたる ──
+    機能の並びの途中に挟むと、どの機能の話か分からない場所ができる。
+  */
+  it('Appearance は末尾に置く', () => {
+    const ids = listSettingsCategories().map((category) => category.id)
+
+    expect(ids[ids.length - 1]).toBe('appearance')
+  })
+
+  /* 保存ファイルの section の並びとも同じにしてある。 */
+  it('カテゴリの並びが、保存側の section の並びと一致する', () => {
+    expect(listSettingsCategories().map((category) => category.id)).toEqual([
+      ...SETTINGS_SECTION_IDS
     ])
   })
 
@@ -56,16 +75,8 @@ describe('SETTINGS_CATEGORIES', () => {
   it('まだ中身の無いカテゴリを先に置いていない', () => {
     const ids = SETTINGS_CATEGORIES.map((category) => category.id) as readonly string[]
 
-    for (const absent of [
-      'appearance',
-      'general',
-      'git',
-      'workspace',
-      'language',
-      'lsp',
-      'debug',
-      'dap'
-    ]) {
+    // `appearance` は Session 4-4 で中身ができたので、ここからは外れている。
+    for (const absent of ['general', 'git', 'workspace', 'language', 'lsp', 'debug', 'dap']) {
       expect(ids).not.toContain(absent)
     }
   })
@@ -79,16 +90,17 @@ describe('SETTINGS_CATEGORIES', () => {
 
 describe('listSettingsItems', () => {
   /*
-    Session 4-3B で並べると決めた5つ。保存されている設定は6つあるが、
+    Session 4-3B の5つ ＋ Session 4-4 の Theme。保存されている設定は7つあるが、
     Files のカラムの幅だけは画面に載せない（settingsCatalog.ts の冒頭）。
   */
-  it('5つの設定が、カテゴリの順に並ぶ', () => {
+  it('6つの設定が、カテゴリの順に並ぶ', () => {
     expect(listSettingsItems().map((item) => item.id)).toEqual([
       'editor.autoSaveMode',
       'editor.autoSaveDelayMs',
       'files.viewMode',
       'terminal.fontSize',
-      'terminal.scrollback'
+      'terminal.scrollback',
+      'appearance.theme'
     ])
   })
 
@@ -144,7 +156,8 @@ describe('getSettingsCategory', () => {
 describe('isSettingsCategoryId', () => {
   it('今あるカテゴリだけを受け入れる', () => {
     expect(isSettingsCategoryId('files')).toBe(true)
-    expect(isSettingsCategoryId('appearance')).toBe(false)
+    expect(isSettingsCategoryId('appearance')).toBe(true)
+    expect(isSettingsCategoryId('general')).toBe(false)
     expect(isSettingsCategoryId(null)).toBe(false)
     expect(isSettingsCategoryId(3)).toBe(false)
   })

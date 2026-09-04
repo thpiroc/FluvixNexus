@@ -53,7 +53,18 @@ type SectionFieldSpec<Id extends SettingsSectionId> = {
 const SECTION_FIELDS: { readonly [Id in SettingsSectionId]: SectionFieldSpec<Id> } = {
   editor: { autoSaveMode: 'string', autoSaveDelayMs: 'number' },
   files: { viewMode: 'string', columnWidth: 'number' },
-  terminal: { fontSize: 'number', scrollback: 'number' }
+  terminal: { fontSize: 'number', scrollback: 'number' },
+  /*
+    Session 4-4 で足した section。`theme` を**文字列であること**しか見ないのは
+    `autoSaveMode` ・`viewMode` と同じ分担にほかならない ── `dark` / `light` の
+    どちらかであるかを決めるのは Renderer（shared/theme/theme.ts の
+    `normalizeThemeId`）で、ここで名前まで見ると同じ判断が2箇所に生まれる。
+
+    Main が Theme の名前を知っている場所は1つだけある（windows/mainWindow.ts ──
+    最初の1枚を塗る色を決めるため）が、それは**検証ではなく描画の都合**で、
+    読めない値でも既定の色を塗るだけで済む。
+  */
+  appearance: { theme: 'string' }
 }
 
 /** ファイルから読んだ section 1つの結果。 */

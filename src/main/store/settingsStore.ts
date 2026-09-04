@@ -1,7 +1,11 @@
 import { join } from 'path'
 import type { SettingsDocument, SettingsSectionUpdate, SettingsSections } from '@shared/settings'
 import { createJsonFileWriter, readJsonFile, writeJsonFile } from './jsonFile'
-import { LEGACY_SETTINGS_FILE_NAMES, migrateLegacySettings } from './legacySettings'
+import {
+  LEGACY_SETTINGS_FILE_NAMES,
+  migrateLegacySettings,
+  type LegacySettingsSectionId
+} from './legacySettings'
 import {
   defaultSettingsDocument,
   parseSettingsDocument,
@@ -131,7 +135,7 @@ export function createSettingsStore(
     return migrated
   }
 
-  function readLegacy(section: keyof typeof LEGACY_SETTINGS_FILE_NAMES): unknown {
+  function readLegacy(section: LegacySettingsSectionId): unknown {
     const fileName = LEGACY_SETTINGS_FILE_NAMES[section]
     const found = readJsonFile(join(directory, fileName))
 

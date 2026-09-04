@@ -9,10 +9,11 @@
  * 画面の構造（領域の並び・パネルの枠）は workspace/workspace.css の責務。
  */
 
-:root {
-  /* スクロールバーやフォーム部品を含め、OS 側の描画もダーク基調に揃える。 */
-  color-scheme: dark;
-}
+/*
+ * `color-scheme`（OS 側の描画をどちらに寄せるか）は styles/theme.css が持つ。
+ * Session 4-4 でこちらから移した ── あれは土台ではなく **Theme の一部**で、
+ * Light にしたのにスクロールバーだけ黒い、という状態を作らないため。
+ */
 
 /*
  * パネルのサイズは「枠線を含めた外側の大きさ」で扱う。
@@ -35,7 +36,12 @@ body {
   margin: 0;
   /* スクロールは各パネルが自分の内側で持つ。ウィンドウ全体はスクロールさせない。 */
   overflow: hidden;
-  /* 描画前に見える色（BrowserWindow の backgroundColor）と揃えること。 */
+  /*
+    描画前に見える色（BrowserWindow の backgroundColor）と揃えること。
+    Session 4-4 からは Theme ごとに2色あり、揃っていることはテストが見張る
+    （shared/theme/theme.ts の `THEME_WINDOW_BACKGROUND` と
+    styles/themeCss.test.ts）。
+  */
   background: var(--fx-color-app-bg);
   color: var(--fx-color-text);
   font-family: 'Segoe UI', sans-serif;

@@ -1381,7 +1381,7 @@
   align-items: center;
   justify-content: center;
   padding: var(--fx-space-4);
-  background: rgb(0 0 0 / 45%);
+  background: var(--fx-color-scrim);
 }
 
 .fx-git__confirm-panel {
@@ -1393,7 +1393,7 @@
   background: var(--fx-color-surface-raised);
   border: 1px solid var(--fx-color-border-strong);
   border-radius: 6px;
-  box-shadow: 0 10px 30px rgb(0 0 0 / 50%);
+  box-shadow: var(--fx-shadow-overlay);
 }
 
 .fx-git__confirm-message {

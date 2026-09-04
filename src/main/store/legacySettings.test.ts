@@ -21,9 +21,22 @@ describe('migrateLegacySettings', () => {
     expect(sections).toEqual({
       editor: { autoSaveMode: 'afterDelay', autoSaveDelayMs: 3000 },
       files: { viewMode: 'columns', columnWidth: 240 },
-      terminal: { fontSize: 20, scrollback: 1000 }
+      terminal: { fontSize: 20, scrollback: 1000 },
+      appearance: {}
     })
     expect(migrated).toEqual(['editor', 'files', 'terminal'])
+  })
+
+  /*
+    旧ファイルを持たない section（Session 4-4 の `appearance` 以降）は空のまま。
+    `appearance-settings.json` は世の中に1つも無く、**旧ファイルの集合は
+    後から増えない**（legacySettings.ts の `LegacySettingsSectionId`）。
+  */
+  it('旧ファイルを持たない section は空のまま（移行の対象にもならない）', () => {
+    const { sections, migrated } = migrateLegacySettings({ editor, files, terminal })
+
+    expect(sections.appearance).toEqual({})
+    expect(migrated).not.toContain('appearance')
   })
 
   it('1つが壊れていても、他の2つは移す', () => {

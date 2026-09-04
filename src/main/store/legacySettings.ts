@@ -1,4 +1,5 @@
 import {
+  emptySettingsSections,
   SETTINGS_SECTION_IDS,
   type SettingsSectionId,
   type SettingsSections,
@@ -45,15 +46,26 @@ import { isPlainObject } from './settingsSections'
  * （store/settingsStore.ts が「`settings.json` が無いときだけ」読む）。
  */
 
-/** 旧ファイル名（section ごとに1つ）。 */
-export const LEGACY_SETTINGS_FILE_NAMES: Readonly<Record<SettingsSectionId, string>> = {
+/**
+ * 旧ファイルを持っていた section。
+ *
+ * **`SettingsSectionId` そのものではない。** 旧ファイルは Session 3-5 〜 3-7-5 に
+ * 存在した3つで確定していて、後から section を足してもこの集合は増えない
+ * （Session 4-4 の `appearance` に対応する `appearance-settings.json` は
+ * 世の中に1つも無い）。同じ集合にしておくと、section を足すたびに
+ * **存在しない旧ファイルの名前を決めさせられる**ことになる。
+ */
+export type LegacySettingsSectionId = Extract<SettingsSectionId, 'editor' | 'files' | 'terminal'>
+
+/** 旧ファイル名（旧 section ごとに1つ）。 */
+export const LEGACY_SETTINGS_FILE_NAMES: Readonly<Record<LegacySettingsSectionId, string>> = {
   editor: 'editor-settings.json',
   files: 'files-settings.json',
   terminal: 'terminal-settings.json'
 }
 
 /** 旧ファイルの中身（読めなかったものは undefined）。 */
-export type LegacySettingsSources = Partial<Record<SettingsSectionId, unknown>>
+export type LegacySettingsSources = Partial<Record<LegacySettingsSectionId, unknown>>
 
 export interface LegacySettingsMigration {
   readonly sections: SettingsSections
@@ -88,7 +100,13 @@ export function migrateLegacySettings(sources: LegacySettingsSources): LegacySet
     scrollback: readNumber(display.scrollback)
   }
 
+  /*
+    旧ファイルを持たない section（Session 4-4 の `appearance` 以降）は空のまま。
+    `emptySettingsSections()` から始めるのは、section を足したときに
+    **ここへ足し忘れても型が通らない**形を保つため。
+  */
   const sections: SettingsSections = {
+    ...emptySettingsSections(),
     editor: withoutMissing(editor),
     files: withoutMissing(files),
     terminal: withoutMissing(terminal)

@@ -39,18 +39,27 @@
  *
  * `SETTINGS_SECTION_IDS` に名前を足し、`SettingsSections` に型を足し、
  * main/store/settingsSections.ts の表に key を足す ── その3箇所だけで閉じる。
- * `appearance`（Theme）・`git`・`workspace` などはこの形で入る想定で、
  * **中身が決まっていない section を先に作らない**（空の section は
  * 「まだ何も無い場所」をディスクに残すだけになる）。
+ *
+ * Session 4-4 の `appearance` が、その形で入った最初の section にあたる。
+ * 予告どおり増えたのはファイルでもチャンネルでもなく section 1つと key 1つで、
+ * IPC も Preload の口も Main の検証の仕組みも1つも変わっていない。
+ * `git`・`workspace` も同じ形で入る想定。
  */
 
 /**
  * 既知の section の名前。
  *
  * 順序は保存ファイルに並ぶ順序でもある（読む人が追いやすいよう、
- * 機能の並び ── Editor / Files / Terminal ── に合わせてある）。
+ * 機能の並び ── Editor / Files / Terminal / Appearance ── に合わせてある。
+ * Settings 画面のカテゴリの並びとも同じ。renderer/src/settings/settingsCatalog.ts）。
+ *
+ * **Appearance が末尾なのは、対象が他の3つと違うため。** 前の3つは
+ * 「その機能の見え方・振る舞い」で、Appearance は**アプリ全体の見た目**にあたる
+ * ── 前の3つに挟むと、どの機能の話をしているのか分からない場所ができる。
  */
-export const SETTINGS_SECTION_IDS = ['editor', 'files', 'terminal'] as const
+export const SETTINGS_SECTION_IDS = ['editor', 'files', 'terminal', 'appearance'] as const
 
 /** 既知の section の名前。ここに無い名前は section ではない。 */
 export type SettingsSectionId = (typeof SETTINGS_SECTION_IDS)[number]
@@ -84,6 +93,20 @@ export interface StoredTerminalSettings {
   readonly scrollback?: number
 }
 
+/** アプリ全体の見た目（Theme。§16）。 */
+export interface StoredAppearanceSettings {
+  /**
+   * Theme の名前（`dark` / `light`）。知らない値は読む側が既定（Dark）へ落とす。
+   *
+   * ここが**素の文字列**なのは、他の section の `autoSaveMode` ・`viewMode` と
+   * まったく同じ理由にあたる ── Main は「文字列であること」しか見ず、
+   * 名前として意味があるかは読む側が決める（shared/theme/theme.ts の
+   * `normalizeThemeId`）。アプリをダウングレードすれば、この版が知らない
+   * Theme 名が保存されている状態は普通に起こりうる。
+   */
+  readonly theme?: string
+}
+
 /**
  * 既知の section をすべて持つ器。
  *
@@ -95,6 +118,7 @@ export interface SettingsSections {
   readonly editor: StoredEditorSettings
   readonly files: StoredFilesSettings
   readonly terminal: StoredTerminalSettings
+  readonly appearance: StoredAppearanceSettings
 }
 
 /** section 名から、その section の値の型へ。 */
@@ -117,7 +141,7 @@ export type SettingsSectionUpdate = {
 
 /** 何も保存されていない状態（section はすべて空）。 */
 export function emptySettingsSections(): SettingsSections {
-  return { editor: {}, files: {}, terminal: {} }
+  return { editor: {}, files: {}, terminal: {}, appearance: {} }
 }
 
 /** 素の文字列が既知の section 名か。 */

@@ -7,6 +7,8 @@ import {
   type TerminalSize
 } from '@shared/terminal'
 import { fluvix } from '../api/fluvix'
+import { useTheme } from '../theme/context'
+import { readTerminalThemeColors } from '../theme/themeTokens'
 import { type TerminalFontSizeCommand } from './terminalDisplay'
 import { describeTerminalError } from './terminalError'
 import { createTerminalScreenStore, type TerminalScreenStore } from './terminalScreenStore'
@@ -190,6 +192,12 @@ export function useTerminalTabs(workspaceId: string | null): TerminalTabsControl
   */
   const { settings: display, changeFontSize, setFontSize, setScrollback } = useTerminalSettings()
 
+  /*
+    Theme。値そのものは持たず（正本は theme/useAppearance.ts）、
+    **変わったことを知るためだけ**に読む（Session 4-4）。
+  */
+  const { settings: appearance } = useTheme()
+
   /**
    * 今の state。`ensureStarted` などから読む。
    *
@@ -287,6 +295,21 @@ export function useTerminalTabs(workspaceId: string | null): TerminalTabsControl
   useEffect(() => {
     screens.applyDisplaySettings(display)
   }, [screens, display])
+
+  /*
+    Theme が変わったら、**開いている全部の画面**へ当て直す（Session 4-4）。
+    手前に出ていないタブも含む ── 切り替えてから別のタブへ移ったときに、
+    そのタブだけ前の色のまま、とはならない（terminalScreenStore.ts）。
+
+    色は `<html>` から読む。ここへ着く時点で `data-fx-theme` は既に新しい値で
+    （theme/ThemeProvider.tsx が描画の中で当てる）、この effect はその後に走る。
+
+    これから作られる画面の分は覚えない ── 作る側が同じように `<html>` から
+    読むので、覚えると同じ値の置き場所が2つできる。
+  */
+  useEffect(() => {
+    screens.applyTheme(readTerminalThemeColors())
+  }, [screens, appearance.theme])
 
   /* ----------------------------------------------------- Workspace への追従 */
 

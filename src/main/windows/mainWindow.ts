@@ -1,6 +1,8 @@
 import { BrowserWindow } from 'electron'
 import { join } from 'path'
+import { normalizeThemeId, THEME_WINDOW_BACKGROUND, toThemeArgument } from '@shared/theme'
 import { devServerUrl } from '../app/runtime'
+import { readSettingsSections } from '../store/settings'
 import { MINIMUM_WINDOW_SIZE } from '../store/windowBounds'
 import { resolveInitialWindowState, trackWindowState } from '../store/windowState'
 import { guardWindowClose } from './closeGuard'
@@ -16,8 +18,33 @@ import { guardWindowClose } from './closeGuard'
  * ここでは webPreferences の設定だけを持つ。
  */
 
-/** ウィンドウの初期背景色。Renderer の描画前に白い画面が一瞬見えるのを防ぐ。 */
-const WINDOW_BACKGROUND = '#1e1e1e'
+/**
+ * 保存済みの Theme（Session 4-4）。
+ *
+ * Renderer の描画前に見える色を決めるためだけに読む。**Main が Theme について
+ * 知っているのはこの1点だけ**で、36色の中身も、どこにどう効くかも知らない
+ * （持ち主は Renderer ── renderer/src/theme/useAppearance.ts）。
+ *
+ * ## なぜ Main が読む必要があるか
+ *
+ * 窓は Renderer が動き出すより前に画面へ出る。そのとき塗られるのは
+ * `backgroundColor` で、これを Dark 固定にしていると **Light を選んでいる人には
+ * 起動のたびに一瞬だけ黒い窓が出る**（Session 4-3B までの状態）。
+ * 消すには、Renderer より前に Theme を知っている必要がある。
+ *
+ * ## 状態を二重に持ってはいない
+ *
+ * ここは**読むだけ**で、書かないし、変わったことも知らない。正本は
+ * `settings.json` の `appearance.theme` 1つにほかならず、Renderer が
+ * それを載せている。次の起動でまたここが読む、という向きだけがある。
+ *
+ * 読めない値・知らない Theme 名は既定（Dark）へ落とす ── Preload も
+ * Renderer も同じ `normalizeThemeId` を通るので、**起動直後の色と
+ * 読み込み後の色が食い違うことがない。**
+ */
+function resolveInitialTheme(): ReturnType<typeof normalizeThemeId> {
+  return normalizeThemeId(readSettingsSections().appearance.theme)
+}
 
 /**
  * 現在のメインウィンドウ。
@@ -54,6 +81,7 @@ export function focusMainWindow(): void {
 
 export function createMainWindow(): BrowserWindow {
   const initialState = resolveInitialWindowState()
+  const initialTheme = resolveInitialTheme()
 
   const window = new BrowserWindow({
     // 前回終了時のサイズ・位置を引き継ぐ（保存が無い / 位置が画面外の場合は既定値）。
@@ -66,11 +94,20 @@ export function createMainWindow(): BrowserWindow {
     minHeight: MINIMUM_WINDOW_SIZE.height,
     title: 'Fluvix Nexus',
     show: false,
-    backgroundColor: WINDOW_BACKGROUND,
+    // 最初の1枚。Renderer の描画前に、Theme と違う色が一瞬見えるのを防ぐ。
+    backgroundColor: THEME_WINDOW_BACKGROUND[initialTheme],
     webPreferences: {
       // Renderer から OS へ直接触れさせないための設定。
       // Renderer が使えるのは preload が contextBridge で公開した API のみ。
       preload: join(__dirname, '../preload/index.js'),
+      /*
+        Preload へ渡す唯一の値（Session 4-4）。IPC を使わないのは、**IPC は
+        Renderer が動き出してからしか使えず、それでは間に合わない**ため ──
+        Preload はこれを読んで、HTML の解析が始まる前に `<html>` へ当てる
+        （preload/theme.ts）。渡るのは Theme の名前1つだけで、
+        Renderer から Node / fs / process へ触れる経路は増えていない。
+      */
+      additionalArguments: [toThemeArgument(initialTheme)],
       contextIsolation: true,
       nodeIntegration: false,
       // Preload は contextBridge / ipcRenderer しか使わないため sandbox を有効にできる。

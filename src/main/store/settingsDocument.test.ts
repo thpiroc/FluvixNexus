@@ -23,7 +23,8 @@ const valid = {
   sections: {
     editor: { autoSaveMode: 'afterDelay', autoSaveDelayMs: 1000 },
     files: { viewMode: 'columns', columnWidth: 240 },
-    terminal: { fontSize: 15, scrollback: 7000 }
+    terminal: { fontSize: 15, scrollback: 7000 },
+    appearance: { theme: 'light' }
   }
 }
 
@@ -41,7 +42,8 @@ describe('parseSettingsDocument', () => {
       expect(parseSettingsDocument(raw).document.sections).toEqual({
         editor: {},
         files: {},
-        terminal: {}
+        terminal: {},
+        appearance: {}
       })
     }
   })
@@ -59,7 +61,8 @@ describe('parseSettingsDocument', () => {
       expect(parseSettingsDocument({ ...valid, sections }).document.sections).toEqual({
         editor: {},
         files: {},
-        terminal: {}
+        terminal: {},
+        appearance: {}
       })
     }
   })
@@ -93,7 +96,12 @@ describe('parseSettingsDocument', () => {
       sections: { terminal: { fontSize: 15 } }
     })
 
-    expect(document.sections).toEqual({ editor: {}, files: {}, terminal: { fontSize: 15 } })
+    expect(document.sections).toEqual({
+      editor: {},
+      files: {},
+      terminal: { fontSize: 15 },
+      appearance: {}
+    })
     expect(issues).toEqual([])
   })
 
@@ -103,12 +111,12 @@ describe('parseSettingsDocument', () => {
       workspace: { trustPrompt: false },
       sections: {
         ...valid.sections,
-        appearance: { theme: 'dark' },
+        keybindings: { profile: 'vim' },
         editor: { ...valid.sections.editor, minimap: true }
       }
     })
 
-    expect(document.preserved.sections).toEqual({ appearance: { theme: 'dark' } })
+    expect(document.preserved.sections).toEqual({ keybindings: { profile: 'vim' } })
     expect(document.preserved.fields.editor).toEqual({ minimap: true })
     expect(document.preserved.document).toEqual({ workspace: { trustPrompt: false } })
   })
@@ -151,13 +159,13 @@ describe('schemaVersion', () => {
       schemaVersion: SETTINGS_SCHEMA_VERSION + 5,
       sections: {
         terminal: { fontSize: 20, cursorStyle: 'bar' },
-        appearance: { theme: 'dark' }
+        keybindings: { profile: 'vim' }
       }
     })
 
     expect(document.sections.terminal).toEqual({ fontSize: 20 })
     expect(document.preserved.fields.terminal).toEqual({ cursorStyle: 'bar' })
-    expect(document.preserved.sections).toEqual({ appearance: { theme: 'dark' } })
+    expect(document.preserved.sections).toEqual({ keybindings: { profile: 'vim' } })
     expect(issues.some((issue) => issue.includes('newer'))).toBe(true)
   })
 
@@ -223,7 +231,7 @@ describe('toStoredSettings / withSettingsSection', () => {
   it('既定の文書は、空の section を持つ形で書かれる', () => {
     expect(toStoredSettings(defaultSettingsDocument())).toEqual({
       schemaVersion: SETTINGS_SCHEMA_VERSION,
-      sections: { editor: {}, files: {}, terminal: {} }
+      sections: { editor: {}, files: {}, terminal: {}, appearance: {} }
     })
   })
 
@@ -241,7 +249,7 @@ describe('toStoredSettings / withSettingsSection', () => {
       ...valid,
       sections: {
         ...valid.sections,
-        appearance: { theme: 'dark' },
+        keybindings: { profile: 'vim' },
         terminal: { ...valid.sections.terminal, cursorStyle: 'bar' }
       }
     })
@@ -254,7 +262,8 @@ describe('toStoredSettings / withSettingsSection', () => {
       editor: valid.sections.editor,
       files: valid.sections.files,
       terminal: { cursorStyle: 'bar', fontSize: 20 },
-      appearance: { theme: 'dark' }
+      appearance: valid.sections.appearance,
+      keybindings: { profile: 'vim' }
     })
   })
 

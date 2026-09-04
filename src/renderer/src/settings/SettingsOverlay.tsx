@@ -17,6 +17,8 @@ import {
 } from '../files/filesSettings'
 import { useFilesViewPreference } from '../files/FilesViewProvider'
 import { useTerminal } from '../terminal/context'
+import { useTheme } from '../theme/context'
+import { APPEARANCE_THEME_CHOICES, describeTheme } from '../theme/appearanceSettings'
 import {
   clampTerminalFontSize,
   clampTerminalScrollback,
@@ -82,6 +84,7 @@ import './settings.css'
  * | Files の表示方式          | `FilesViewProvider`                     | Files のツールバー（残す）    |
  * | Terminal の文字の大きさ   | `useTerminalSettings`                   | Terminal の ⚙（残す）        |
  * | Terminal のさかのぼれる行数 | `useTerminalSettings`                 | 無し（4-3B でここへ移した）   |
+ * | Theme                     | `useAppearance`（theme/context.ts）     | 無し（4-4 でここが唯一の口）  |
  *
  * **同じ値を指す state をここに作らない**のが要点で、作った瞬間に
  * 「Settings で変えたのに Files パネルが変わらない」「ツールバーで変えたのに
@@ -224,6 +227,9 @@ function SettingsControl({ item }: { readonly item: SettingsItemDescriptor }): J
 
     case 'terminal.scrollback':
       return <TerminalScrollbackControl />
+
+    case 'appearance.theme':
+      return <AppearanceThemeControl />
 
     default:
       /*
@@ -392,5 +398,57 @@ function TerminalScrollbackControl(): JSX.Element {
       onCommit={setScrollback}
       testId="settings-terminal-scrollback"
     />
+  )
+}
+
+/* ---------------------------------------------------------- Appearance */
+
+/**
+ * Theme（Session 4-4）。
+ *
+ * ## 選択肢を並べる（select にしない）
+ *
+ * Files の表示方式と同じ形にしてある。**今どちらになっているかが、開いた瞬間に
+ * 見える**ことが要点で、`select` だと畳まれた1行になり、もう片方があることが
+ * 見えない。選択肢が2つしかないので、並べても場所を取らない。
+ *
+ * ## 押した瞬間に切り替わる
+ *
+ * 「適用」も「OK」も無い。**Theme は結果を見て決めるもの**にほかならず、
+ * 確定するまで見えないと選べない ── Files の表示方式・Terminal の文字の
+ * 大きさと同じ扱いで、この面の他の項目もすべて同じ（値を持たない面なので、
+ * 確定という段階が1つも無い）。
+ *
+ * ## 値も setter も既存のまま
+ *
+ * 正本は `theme/useAppearance.ts` で、ここは読んで返すだけ ── この面が
+ * 値を1つも持たないのは Session 4-3B からの前提で、Theme も例外にしない。
+ * CSS も Monaco も xterm も、この setter を通った結果として切り替わる。
+ */
+function AppearanceThemeControl(): JSX.Element {
+  const { settings, setTheme } = useTheme()
+
+  return (
+    <div
+      className="fx-settings__choices"
+      role="radiogroup"
+      aria-label="テーマ"
+      data-testid="settings-appearance-theme"
+    >
+      {APPEARANCE_THEME_CHOICES.map((theme) => (
+        <button
+          key={theme}
+          type="button"
+          role="radio"
+          className="fx-settings__choice"
+          data-testid={`settings-appearance-theme-${theme}`}
+          data-active={theme === settings.theme}
+          aria-checked={theme === settings.theme}
+          onClick={() => setTheme(theme)}
+        >
+          {describeTheme(theme)}
+        </button>
+      ))}
+    </div>
   )
 }

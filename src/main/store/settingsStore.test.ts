@@ -49,7 +49,7 @@ async function writeJson(fileName: string, value: unknown): Promise<void> {
 
 describe('settings.json の読み書き', () => {
   it('保存が無ければ、空の section で始まる（ファイルも作らない）', async () => {
-    expect(storeWith().read()).toEqual({ editor: {}, files: {}, terminal: {} })
+    expect(storeWith().read()).toEqual({ editor: {}, files: {}, terminal: {}, appearance: {} })
 
     expect(await readdir(directory)).toEqual([])
   })
@@ -77,7 +77,7 @@ describe('settings.json の読み書き', () => {
 
     expect(await readSettingsFile()).toEqual({
       schemaVersion: SETTINGS_SCHEMA_VERSION,
-      sections: { editor: { autoSaveMode: 'afterDelay' }, files: {}, terminal: {} }
+      sections: { editor: { autoSaveMode: 'afterDelay' }, files: {}, terminal: {}, appearance: {} }
     })
   })
 
@@ -106,7 +106,8 @@ describe('settings.json の読み書き', () => {
     expect(storeWith().read()).toEqual({
       editor: {},
       files: { viewMode: 'columns' },
-      terminal: { fontSize: 20, scrollback: 1000 }
+      terminal: { fontSize: 20, scrollback: 1000 },
+      appearance: {}
     })
   })
 
@@ -117,7 +118,7 @@ describe('settings.json の読み書き', () => {
       display: { fontSize: 20, scrollback: 1000 }
     })
 
-    expect(storeWith().read()).toEqual({ editor: {}, files: {}, terminal: {} })
+    expect(storeWith().read()).toEqual({ editor: {}, files: {}, terminal: {}, appearance: {} })
   })
 })
 
@@ -144,7 +145,8 @@ describe('旧 3 ファイルからの移行', () => {
     expect(storeWith().read()).toEqual({
       editor: { autoSaveMode: 'afterDelay', autoSaveDelayMs: 3000 },
       files: { viewMode: 'columns', columnWidth: 240 },
-      terminal: { fontSize: 20, scrollback: 1000 }
+      terminal: { fontSize: 20, scrollback: 1000 },
+      appearance: {}
     })
 
     // 読んだだけで（保存を1度もせずに）ファイルができている。
@@ -153,7 +155,8 @@ describe('旧 3 ファイルからの移行', () => {
       sections: {
         editor: { autoSaveMode: 'afterDelay', autoSaveDelayMs: 3000 },
         files: { viewMode: 'columns', columnWidth: 240 },
-        terminal: { fontSize: 20, scrollback: 1000 }
+        terminal: { fontSize: 20, scrollback: 1000 },
+        appearance: {}
       }
     })
   })
@@ -187,7 +190,8 @@ describe('旧 3 ファイルからの移行', () => {
     expect(storeWith().read()).toEqual({
       editor: {},
       files: {},
-      terminal: { fontSize: 20, scrollback: 1000 }
+      terminal: { fontSize: 20, scrollback: 1000 },
+      appearance: {}
     })
   })
 
@@ -199,7 +203,12 @@ describe('旧 3 ファイルからの移行', () => {
       sections: { terminal: { fontSize: 11 } }
     })
 
-    expect(storeWith().read()).toEqual({ editor: {}, files: {}, terminal: { fontSize: 11 } })
+    expect(storeWith().read()).toEqual({
+      editor: {},
+      files: {},
+      terminal: { fontSize: 11 },
+      appearance: {}
+    })
   })
 
   it('移行を繰り返さない（移行後に変えた設定が旧ファイルで戻らない）', async () => {
@@ -214,7 +223,7 @@ describe('旧 3 ファイルからの移行', () => {
   })
 
   it('旧ファイルが1つも無ければ、何も書かない', async () => {
-    expect(storeWith().read()).toEqual({ editor: {}, files: {}, terminal: {} })
+    expect(storeWith().read()).toEqual({ editor: {}, files: {}, terminal: {}, appearance: {} })
 
     expect(await readdir(directory)).toEqual([])
   })

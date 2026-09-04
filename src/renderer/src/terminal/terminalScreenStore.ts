@@ -1,6 +1,7 @@
 import type { TerminalSize } from '@shared/terminal'
 // 型だけ。実体を import すると、このモジュールを読むだけで xterm が読み込まれる（下記）。
 import type { Terminal } from '@xterm/xterm'
+import type { TerminalThemeColors } from '../theme/themeTokens'
 import { DEFAULT_TERMINAL_DISPLAY_SETTINGS, type TerminalDisplaySettings } from './terminalSettings'
 
 /**
@@ -80,6 +81,14 @@ export interface TerminalScreen {
    * 器を持っている側（TerminalSurface.tsx）。
    */
   readonly applyDisplaySettings: (settings: TerminalDisplaySettings) => void
+  /**
+   * 地・文字・カーソル・選択の色を当てる（Session 4-4）。
+   *
+   * 桁数と行数は変わらない（色だけの差し替え）ので、`applyDisplaySettings` と
+   * 違って測り直しは要らない。ANSI の16色は含まない ── シェルの持ち物で、
+   * Theme を変えても変わらない（xtermSetup.ts）。
+   */
+  readonly applyTheme: (colors: TerminalThemeColors) => void
   readonly focus: () => void
   readonly dispose: () => void
 }
@@ -150,6 +159,18 @@ export interface TerminalScreenStore {
    * これから開くタブだけが既定のままになることもない。
    */
   readonly applyDisplaySettings: (settings: TerminalDisplaySettings) => void
+  /**
+   * Theme の色を全部の画面へ揃える（Session 4-4）。
+   *
+   * 見え方（上）と違い、**この後に作られる画面のために覚えておく必要は無い。**
+   * 画面を作る側が `<html>` から今の Theme を読むため（xtermSetup.ts）で、
+   * 覚えると「ストアが持つ Theme」と「`<html>` の Theme」の2つができ、
+   * ずれる余地が生まれる。
+   *
+   * 手前に出ていないタブの画面にも当たる ── Theme を切り替えてから別のタブへ
+   * 移ったときに、そのタブだけ前の色のまま、とはならない。
+   */
+  readonly applyTheme: (colors: TerminalThemeColors) => void
   /** セッションが立った。預かっていた出力があればここで流し込む。 */
   readonly bind: (terminalId: string, sessionId: string) => void
   /** セッションが終わった（画面は残す）。 */
@@ -209,6 +230,12 @@ export function createTerminalScreenStore(): TerminalScreenStore {
 
       for (const entry of entries.values()) {
         entry.screen.applyDisplaySettings(next)
+      }
+    },
+
+    applyTheme: (colors): void => {
+      for (const entry of entries.values()) {
+        entry.screen.applyTheme(colors)
       }
     },
 

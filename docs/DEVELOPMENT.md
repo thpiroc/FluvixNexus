@@ -121,9 +121,13 @@ Vitest を使い、**Electron に依存しない純粋なロジック**だけを
 - `src/shared/git/branchName.test.ts` — **ブランチ名の規則**（空 / 上限の境界と超過 / 空白 / 制御文字 / `~^:?*[]` / `"<>|` を**弾く**こと・`..` / `@{` / `/` の位置 / `.lock` 終わり / **先頭の `-`** / `HEAD` を弾くこと・日本語や `feature/x` を**通す**こと・前後の空白だけを落とし**中の空白は落とさない**こと・文字列でない値を弾くこと）
 - `src/shared/git/commitMessage.test.ts` — **Commit メッセージの規則**（空 / 空白だけ / 上限の境界と超過 / NUL と制御文字を**弾く**こと・改行 / タブ / 日本語 / 引用符 / `#` を**通す**こと・CRLF を LF へ揃えること・前後の空白を落としても途中の空行は残すこと・文字列でない値を弾くこと）
 - `src/renderer/src/git/gitRepositoryMessage.test.ts` — **Git パネルの文言**（どの状態にも次の一手が書かれていること・**git の生の英文が UI に漏れていないこと**・detached をブランチ名として出さないこと）
-- `src/renderer/src/settings/settingsCatalog.test.ts` — **Settings 画面に何が並ぶか**（Editor / Files / Terminal がこの順であること・**中身の無いカテゴリが1つも無いこと**・まだ作らないと決めたカテゴリ（`appearance` / `general` / `git` / `workspace` / `language` / `debug`）が紛れ込んでいないこと・**載せないと決めた `files.columnWidth` が並んでいないこと**・目録の section 名が保存側の閉じた集合と食い違っていないこと）
-- `src/renderer/src/settings/settings.integration.test.ts` — **Settings 画面の統合テスト**（既定で始まる → 5項目を変える → 閉じて開き直す → 再起動、を1本で通す。**ツールバー / ⚙ から変えても Settings から変えても同じ値になること**・1項目を変えても他を巻き込まないこと・方式を切り替えても待ち時間が持ち回されること・**Settings で表示方式を変えてもカラムの幅が失われないこと**・上下限へ丸まった結果がそのまま保存されること・知らない値が保存されていても既定を出すこと）
-- `src/renderer/src/settings/SettingsOverlay.dom.test.ts` — **Settings 画面の実際の描画と操作**（下記の jsdom の例外。トップバーから開く・カテゴリ切り替え・`×` と Esc で閉じる・5つの操作 UI が既存 setter へ繋がること・**Files ツールバー ↔ Settings / Terminal の ⚙ ↔ Settings が双方向に同期すること**）
+- `src/renderer/src/settings/settingsCatalog.test.ts` — **Settings 画面に何が並ぶか**（Editor / Files / Terminal / Appearance がこの順であること・**Appearance が末尾であること**・カテゴリの並びが保存側の section の並びと一致すること・**中身の無いカテゴリが1つも無いこと**・まだ作らないと決めたカテゴリ（`general` / `git` / `workspace` / `language` / `debug`）が紛れ込んでいないこと・**載せないと決めた `files.columnWidth` が並んでいないこと**・目録の section 名が保存側の閉じた集合と食い違っていないこと）
+- `src/renderer/src/settings/settings.integration.test.ts` — **Settings 画面の統合テスト**（既定で始まる → 6項目を変える → 閉じて開き直す → 再起動、を1本で通す。**ツールバー / ⚙ から変えても Settings から変えても同じ値になること**・1項目を変えても他を巻き込まないこと・方式を切り替えても待ち時間が持ち回されること・**Settings で表示方式を変えてもカラムの幅が失われないこと**・上下限へ丸まった結果がそのまま保存されること・知らない値が保存されていても既定を出すこと・**Theme を往復させても他の5項目が動かないこと**・知らない Theme 名がディスクへ残らないこと・**保存された値 / Preload への引数 / 実行時の値が同じ落とし先を通ること**）
+- `src/renderer/src/settings/SettingsOverlay.dom.test.ts` — **Settings 画面の実際の描画と操作**（下記の jsdom の例外。トップバーから開く・カテゴリ切り替え・`×` と Esc で閉じる・6つの操作 UI が既存 setter へ繋がること・**Files ツールバー ↔ Settings / Terminal の ⚙ ↔ Settings が双方向に同期すること**・**Theme を選ぶとその場で `<html>` に当たり保存されること**・知らない Theme 名が保存されていても Dark で出ること・**読み込みが返る前でも Preload が当てた Theme を塗り直さないこと**（起動時のちらつき））
+- `src/shared/theme/theme.test.ts` — **Theme の名前と、起動時に3層を通る経路**（選べるのは Dark / Light の2つだけ・**知らない値がすべて Dark へ落ちること**・Main → Preload の受け渡し（`--fx-initial-theme`）が往復すること・引数の並びのどこにあっても見つかること・渡って来なければ Dark になること）
+- `src/renderer/src/theme/appearanceSettings.test.ts` — **Theme と保存形式の行き来**（保存が無ければ Dark・知らない名前は読むときも**書くときも**落ちること・往復して同じものへ戻ること）
+- `src/renderer/src/theme/themeTokens.test.ts` — **CSS 変数から Monaco / xterm の色を作る部分**（`theme.css` の値がそのまま行くこと・読めなかった変数でも**色として不正にならない**こと・Theme ごとに Monaco の継承元が変わること・**ANSI 16色を渡していないこと**）
+- `src/renderer/src/styles/themeCss.test.ts` — **`theme.css` そのものの検証**（Dark と Light が同じ変数の集合を持つこと（色40）・**Light が Dark の値をそのまま写している色が無いこと**（幕と影を含む）・Monaco / xterm が読む変数が両方にあること・窓の初期色が `--fx-color-app-bg` と一致すること・**`monacoSetup.ts` / `xtermSetup.ts` に 16進数が戻ってきていないこと**。§16.7）
 - `src/renderer/src/workspace/workspace.integration.test.ts` — **STEP 2 全体の統合テスト**（下記）
 
 Files の検証（`main/files/workspacePath.ts`）は Electron にも fs にも依存しない形に切り出してある。symlink による脱出だけはパス文字列では判断できないため、realpath を取ってから同じ関数へ通す側（`readWorkspaceDirectory.ts` / `readWorkspaceFile.ts` / `mutateWorkspaceEntry.ts`）が担う。
@@ -1548,6 +1552,49 @@ await app.evaluate(({ dialog }, target) => {
 - **Renderer は設定を読み直さない。** `settings:changed` が無い設計（[docs/ARCHITECTURE.md](ARCHITECTURE.md) §12.4）なので、IPC で直接書いた値は開いている画面には出ない ── 解釈のされ方を見るには**次の起動**まで待つ
 - **`setPreference` は同じ値なら保存しない。** 「同じなら据え置く」が効くため、既に選ばれている選択肢を押してもディスクは変わらない（書き戻しを当てにした確認は成立しない）
 - 前回と同じく、**確認の前後で `settings.json` と旧3ファイルを退避 / 復元する**。Workspace は確認用の一時フォルダを `workspace-folder.json` に仕込んでから起動する（ネイティブのフォルダ選択を通さずに Files / Editor を触るため）
+
+### Session 4-4（Theme）
+
+**production build 版 76項目、全項目 PASS。** 確かめたいのが「切り替えが CSS / Monaco / xterm の3つすべてへ同時に届くこと」「再起動で復元されること」「**起動時に Dark が一瞬も出ないこと**」なので、Session 4-3B と同じく**3回起動する**流れを1本のスクリプトで通している。
+
+| 回    | 通したこと                                                                |
+| ----- | ------------------------------------------------------------------------- |
+| 1回目 | 既定 Dark で始まる → Light へ切り替える → 全所へ即時反映 → 閉じて開き直す |
+| 2回目 | 再起動で Light が復元される → **ちらつきが無いこと** → Dark へ戻す        |
+| 3回目 | 不正な Theme 値を仕込んだ状態から起動し、安全に Dark へ落ちること         |
+
+- 面: Settings のカテゴリが **Editor / Files / Terminal / Appearance の4つで、Appearance が末尾**であること、選択肢が **Dark / Light の2つだけ**（System が無い）であること、閉じて開き直しても選択値が一致すること
+- 即時反映: `<html>` の `data-fx-theme`、`color-scheme`、`body` の地と文字。**押した瞬間**に変わる（「適用」も「OK」も無い）
+- 色: 面 / 枠 / 文字 / 幕 / 影 / Git 変更種別 / ファイル種別 / パネル識別色が**すべて Dark と違う値**へ入れ替わること。幕が Light 専用（25%）であること
+- 判別できること: **Light の面に対して27色すべてがコントラスト比 3:1 以上**、本文の文字は 7:1 以上（スクリプトの中で相対輝度から計算している）
+- Monaco: 地が Light の `--fx-color-surface`（`rgb(245,245,245)`）になること、Dark へ戻せること、**再起動後の Monaco も Light** であること
+- xterm: **開いている全部の端末**の地が Light の `--fx-color-surface-sunken`（`rgb(235,235,235)`）になること、文字色と選択色も切り替わること、**ANSI 16色は変わらない**こと
+- 保存: `settings.json` に `appearance.theme` が入り、**他の section を巻き込んでいない**こと
+- fallback: `theme` を `solarized-storm` に書き換えて起動すると、`<html>`・窓の初期色・Settings の現在値の**3つとも Dark** になること
+- セキュリティ: `window.require` / `window.process` / `window.electron` / `window.Buffer` / `window.module` がすべて `undefined`、`window.fluvix.settings` の口が `load` / `saveSection` の**2つのまま**、知らない section（`theme`）・文字列でない `theme`・object でない要求・`section: null` がすべて `INVALID_REQUEST`、`settings:load` が既知の**4 section**（`appearance` を含む）を返すこと
+- 回帰: Files / Editor / Terminal / Git の4パネル、console エラー / pageerror なし、CSP 違反なし
+
+#### 起動時のちらつきを、どう確かめたか
+
+「一瞬 Dark が出ない」は目視では確かめにくい。**`dom-ready` の時点の `<html>` を読む**形にしてある。
+
+```js
+window.webContents.once('dom-ready', () => {
+  window.webContents.executeJavaScript('document.documentElement.getAttribute("data-fx-theme")')
+})
+window.webContents.reload()
+```
+
+`dom-ready` は HTML の解析が終わった時点で、**`settings:load` の応答が返るより前**にあたる。ここで既に `light` なら、Theme を届けたのは IPC ではなく Main → Preload の経路にほかならない。窓そのものの初期色は `BrowserWindow.getBackgroundColor()` で別に見ている。
+
+注意点（この Session で踏んだもの）:
+
+- **`electron.launch({ args: [...] })` に渡すのは `out/main/index.js` ではなくプロジェクトのフォルダ。** `index.js` を直接指すと Electron が `package.json` を見つけられず、`productName` が効かない ── **userData が `%APPDATA%/Electron` になり、設定も Workspace も別の場所を読む**（Files / Editor パネルが「Workspace が開かれていません」のまま出る、という形で表に出た）
+- **`electron.launch` には `executablePath` を渡す。** scratchpad から実行すると `playwright-core` はそこに electron を探しに行く。`<project>/node_modules/electron/dist/electron.exe` を明示する
+- **xterm の地は `.xterm-viewport` ではなく `.xterm-scrollable-element` に付く。** `.xterm-viewport` は xterm 自身の CSS で `#000` のまま残るが、v6 ではその手前をスクロール容器が覆うので画面には出ない。ここを間違えると「Light にしたのに端末だけ黒い」という**実際には起きていない不具合**を追うことになる
+- **`webContents.getLastWebPreferences().additionalArguments` は空で返る。** 渡っているかを確かめるのにこれは使えない（上の `dom-ready` の形にした）
+- **Vitest は CSS の import を空文字へ差し替える。** `theme.css` を `?raw` で読むテスト（`styles/themeCss.test.ts`）のために、`vitest.config.ts` で `theme.css` だけを例外にしてある
+- 前回までと同じく、**確認の前後で `settings.json` と `workspace-folder.json` を退避 / 復元する**。Workspace はこのプロジェクト自身を仕込んでから起動する（ネイティブのフォルダ選択を通さずに Files / Editor / Monaco を触るため）
 
 ---
 

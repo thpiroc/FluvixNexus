@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { emptySettingsSections, type SettingsSections } from '@shared/settings'
+import { fromThemeArguments, THEME_IDS, toThemeArgument, type ThemeId } from '@shared/theme'
 import {
   AUTO_SAVE_DELAY_MAX_MS,
   AUTO_SAVE_DELAY_MIN_MS,
@@ -39,6 +40,13 @@ import {
   toTerminalSettingsSection,
   type TerminalDisplaySettings
 } from '../terminal/terminalSettings'
+import {
+  APPEARANCE_THEME_CHOICES,
+  DEFAULT_APPEARANCE_SETTINGS,
+  toAppearanceSection,
+  toAppearanceSettings,
+  type AppearanceSettings
+} from '../theme/appearanceSettings'
 import { listSettingsItems } from './settingsCatalog'
 
 /**
@@ -92,6 +100,7 @@ class Store {
   autoSave: AutoSaveSettings = DEFAULT_AUTO_SAVE_SETTINGS
   files: FilesViewSettings = DEFAULT_FILES_VIEW_SETTINGS
   terminal: TerminalDisplaySettings = DEFAULT_TERMINAL_DISPLAY_SETTINGS
+  appearance: AppearanceSettings = DEFAULT_APPEARANCE_SETTINGS
 
   /* -------- setter（実物と同じ正規化を通る） */
 
@@ -119,13 +128,22 @@ class Store {
     this.terminal = { ...this.terminal, scrollback: clampTerminalScrollback(scrollback) }
   }
 
+  /*
+    Theme（Session 4-4）。実物は `useAppearance` で、他の3つと同じく
+    「1つの値と、それを変える setter」でしかない。
+  */
+  setTheme(theme: string): void {
+    this.appearance = toAppearanceSettings({ theme })
+  }
+
   /* -------- ディスクへ（useSettingsSection が値の変化ごとに書くもの） */
 
   toSections(): SettingsSections {
     return {
       editor: toEditorSettingsSection(this.autoSave),
       files: toFilesSettingsSection(this.files),
-      terminal: toTerminalSettingsSection(this.terminal)
+      terminal: toTerminalSettingsSection(this.terminal),
+      appearance: toAppearanceSection(this.appearance)
     }
   }
 
@@ -135,6 +153,7 @@ class Store {
     this.autoSave = toAutoSaveSettings(sections.editor)
     this.files = toFilesViewSettings(sections.files)
     this.terminal = toTerminalDisplaySettings(sections.terminal)
+    this.appearance = toAppearanceSettings(sections.appearance)
   }
 }
 
@@ -169,20 +188,22 @@ function readSettingsScreen(store: Store): {
   filesViewChoice: FilesViewChoice
   terminalFontSize: number
   terminalScrollback: number
+  theme: ThemeId
 } {
   return {
     autoSaveMode: store.autoSave.mode,
     autoSaveDelayMs: store.autoSave.delayMs,
     filesViewChoice: toFilesViewChoice(store.files.preference),
     terminalFontSize: store.terminal.fontSize,
-    terminalScrollback: store.terminal.scrollback
+    terminalScrollback: store.terminal.scrollback,
+    theme: store.appearance.theme
   }
 }
 
 /* -------------------------------------------------------------------------- */
 
 describe('Settings 画面の既定', () => {
-  it('保存が1つも無ければ、5項目すべてが既定で出る', () => {
+  it('保存が1つも無ければ、6項目すべてが既定で出る', () => {
     const store = new Store()
     store.loadSections(emptySettingsSections())
 
@@ -191,23 +212,25 @@ describe('Settings 画面の既定', () => {
       autoSaveDelayMs: 1000,
       filesViewChoice: 'auto',
       terminalFontSize: 13,
-      terminalScrollback: 5000
+      terminalScrollback: 5000,
+      theme: 'dark'
     })
   })
 
-  /* 画面に並ぶ5項目と、この統合テストが触る5項目が食い違わないようにする。 */
+  /* 画面に並ぶ6項目と、この統合テストが触る6項目が食い違わないようにする。 */
   it('画面に並ぶ項目と、ここで確かめる項目が一致する', () => {
     expect(listSettingsItems().map((item) => item.id)).toEqual([
       'editor.autoSaveMode',
       'editor.autoSaveDelayMs',
       'files.viewMode',
       'terminal.fontSize',
-      'terminal.scrollback'
+      'terminal.scrollback',
+      'appearance.theme'
     ])
   })
 })
 
-describe('Settings 画面から5項目を変える', () => {
+describe('Settings 画面から6項目を変える', () => {
   it('変えた値が、閉じて開き直しても、再起動しても残る', () => {
     const store = new Store()
     store.loadSections(emptySettingsSections())
@@ -218,6 +241,7 @@ describe('Settings 画面から5項目を変える', () => {
     store.setFilesPreference(fromFilesViewChoice('columns'))
     store.setFontSize(16)
     store.setScrollback(12_000)
+    store.setTheme('light')
 
     const opened = readSettingsScreen(store)
 
@@ -226,7 +250,8 @@ describe('Settings 画面から5項目を変える', () => {
       autoSaveDelayMs: 2500,
       filesViewChoice: 'columns',
       terminalFontSize: 16,
-      terminalScrollback: 12_000
+      terminalScrollback: 12_000,
+      theme: 'light'
     })
 
     // 面を閉じて開き直す（画面は値を持たないので、読み直すだけで同じ）。
@@ -236,7 +261,7 @@ describe('Settings 画面から5項目を変える', () => {
     expect(readSettingsScreen(restart(store))).toEqual(opened)
   })
 
-  it('1項目だけ変えても、他の4項目を巻き込まない', () => {
+  it('1項目だけ変えても、他の5項目を巻き込まない', () => {
     const store = new Store()
     store.loadSections(emptySettingsSections())
 
@@ -245,12 +270,34 @@ describe('Settings 画面から5項目を変える', () => {
     store.setFilesPreference(fromFilesViewChoice('tree'))
     store.setFontSize(20)
     store.setScrollback(800)
+    store.setTheme('light')
 
     const before = readSettingsScreen(store)
 
     store.setScrollback(9000)
 
     expect(readSettingsScreen(store)).toEqual({ ...before, terminalScrollback: 9000 })
+  })
+
+  /*
+    Theme を切り替えても、他の設定は1つも動かない（Session 4-4）。
+    見た目に関わる設定が増えた以上、「Light にしたら Files がツリーに戻った」
+    のような巻き込みが起きていないことを、ここでも見ておく。
+  */
+  it('Theme を往復させても、他の5項目は動かない', () => {
+    const store = new Store()
+    store.loadSections(emptySettingsSections())
+
+    store.setAutoSaveDelayMs(3000)
+    store.setFilesPreference(fromFilesViewChoice('columns'))
+    store.setFontSize(17)
+
+    const before = readSettingsScreen(store)
+
+    store.setTheme('light')
+    store.setTheme('dark')
+
+    expect(readSettingsScreen(store)).toEqual(before)
   })
 
   /*
@@ -401,8 +448,23 @@ describe('Settings 画面から入る値の正規化', () => {
     expect(store.toSections()).toEqual({
       editor: { autoSaveMode: 'off', autoSaveDelayMs: AUTO_SAVE_DELAY_MIN_MS },
       files: { viewMode: 'auto', columnWidth: FILES_COLUMN_WIDTH_MAX },
-      terminal: { fontSize: TERMINAL_FONT_SIZE_MAX, scrollback: TERMINAL_SCROLLBACK_MIN }
+      terminal: { fontSize: TERMINAL_FONT_SIZE_MAX, scrollback: TERMINAL_SCROLLBACK_MIN },
+      appearance: { theme: 'dark' }
     })
+  })
+
+  /*
+    知らない Theme 名は**書く前にも落とす**（appearanceSettings.ts）。
+    読むときだけ落とす形にすると、次に読む側が必ずいることを当てにすることになる。
+  */
+  it('知らない Theme 名はディスクへ残らない', () => {
+    const store = new Store()
+    store.loadSections(emptySettingsSections())
+
+    store.setTheme('solarized')
+
+    expect(store.appearance.theme).toBe('dark')
+    expect(store.toSections().appearance).toEqual({ theme: 'dark' })
   })
 
   /*
@@ -416,7 +478,8 @@ describe('Settings 画面から入る値の正規化', () => {
     store.loadSections({
       editor: { autoSaveMode: 'onEveryKeystroke', autoSaveDelayMs: 1500 },
       files: { viewMode: 'gallery', columnWidth: DEFAULT_FILES_COLUMN_WIDTH },
-      terminal: { fontSize: 15, scrollback: 5000 }
+      terminal: { fontSize: 15, scrollback: 5000 },
+      appearance: { theme: 'solarized' }
     })
 
     expect(readSettingsScreen(store)).toEqual({
@@ -425,8 +488,38 @@ describe('Settings 画面から入る値の正規化', () => {
       autoSaveDelayMs: 1500,
       filesViewChoice: 'auto',
       terminalFontSize: 15,
-      terminalScrollback: 5000
+      terminalScrollback: 5000,
+      // 知らない Theme 名は Dark へ（無色の画面より、既定の見た目で始める）。
+      theme: 'dark'
     })
+  })
+})
+
+describe('Theme（Session 4-4）', () => {
+  /*
+    起動時のちらつきを消す仕組みが**同じ落とし先を通ること**を見る。
+
+    Main（窓の初期色）・Preload（`<html>` への属性）・Renderer（値の持ち主）は
+    どれも `normalizeThemeId` を通る。ここが食い違うと、「起動直後は Dark、
+    読み込み後に Light」という一瞬が戻ってくる。
+  */
+  it('保存されている値・引数・実行時の値が、同じ落とし先を通る', () => {
+    for (const stored of ['light', 'dark', 'solarized', '', undefined, null, 3, {}]) {
+      const fromDisk = toAppearanceSettings({ theme: stored as string | undefined }).theme
+      const fromArgument = fromThemeArguments([toThemeArgument(fromDisk)])
+
+      expect(fromArgument).toBe(fromDisk)
+      expect(THEME_IDS).toContain(fromDisk)
+    }
+  })
+
+  it('引数が無ければ Dark（Preload が渡されなかった場合）', () => {
+    expect(fromThemeArguments([])).toBe('dark')
+    expect(fromThemeArguments(['--other=light'])).toBe('dark')
+  })
+
+  it('選べるのは Dark と Light の2つだけ', () => {
+    expect(APPEARANCE_THEME_CHOICES).toEqual(['dark', 'light'])
   })
 })
 

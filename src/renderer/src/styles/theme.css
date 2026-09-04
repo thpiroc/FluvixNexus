@@ -1,15 +1,70 @@
 /**
- * テーマ変数。
+ * テーマ変数。**このアプリの色は、ここ1箇所にしかない。**
  *
- * 色・間隔・文字サイズの決定をここ1箇所に集める。
- * パネルは自由に配置を変えられる以上、どこに置かれても同じ見た目になる必要があり、
- * 個々のコンポーネントが自前の色を持つとその前提が崩れる。
+ * 色・間隔・文字サイズの決定をここへ集める。パネルは自由に配置を変えられる以上、
+ * どこに置かれても同じ見た目になる必要があり、個々のコンポーネントが自前の色を
+ * 持つとその前提が崩れる。
  *
  * 命名は --fx-<種別>-<役割>。値の直接指定（#333 など）はこのファイルの中だけに留める。
- * ライトテーマを足す場合も、このファイルに別の変数セットを置く形で対応する。
+ *
+ * ---
+ *
+ * ## Theme（Session 4-4）
+ *
+ * Dark と Light の2つ。**Dark は素の `:root` に置き、Light は上書きとして置く。**
+ * この置き方には2つの意味がある。
+ *
+ *   1. **知らない Theme 名は自動的に Dark になる。** `data-fx-theme="solarized"` が
+ *      付いていても、その選択子に一致する規則が無いので `:root` のまま
+ *      ── 落とし先を JavaScript 側だけに頼らずに済む
+ *   2. **属性が付く前の一瞬も Dark。** 属性を当てるのは Preload（下記）だが、
+ *      仮にそれが動かなくても、出るのは既定の見た目であって無色の画面ではない
+ *
+ * Light は**36色すべてを設計し直したもの**で、Dark の値を薄めたものではない
+ * （明度を反転しただけの色は、白い面の上で軒並み読めなくなる）。
+ * Dark の見え方は Session 4-3B までと1つも変えていない。
+ *
+ * ### 属性はいつ付くか（起動時にちらつかせない）
+ *
+ * ```
+ * Main      保存済み Theme を読み、窓の backgroundColor と Preload への引数を決める
+ *             ↓                                  （main/windows/mainWindow.ts）
+ * Preload   <html> が生まれた瞬間に data-fx-theme を当てる（preload/theme.ts）
+ *             ↓                        ← ここまでで、CSS が評価される前に決着している
+ * CSS       この規則が評価される。最初から Light（Dark が一瞬出ることが無い）
+ *             ↓
+ * Renderer  設定を読み込み、切り替えのたびに当て直す（theme/ThemeProvider.tsx）
+ * ```
+ *
+ * **Theme 状態の持ち主は Renderer のまま。** Main が知っているのは
+ * 「最初の1枚を何色で塗るか」だけで、正本は `settings.json` の
+ * `appearance.theme` 1箇所にほかならない（二重に持たない）。
+ *
+ * ### Monaco と xterm もここから読む
+ *
+ * Monaco も xterm も CSS 変数を読まず、色を JavaScript の値として要求する。
+ * Session 4-3B までは**同じ値をそれぞれのファイルへ書き写して**いて、
+ * 「片方を変えるときは両方を直すこと」という注意書きが2箇所にあった。
+ *
+ * Session 4-4 でその写しを無くした ── `theme/themeTokens.ts` が
+ * `getComputedStyle` でこのファイルの変数を読み、Monaco のテーマと
+ * xterm の ITheme を**生成する**。したがって Theme を1つ足すときに触るのは
+ * このファイルと `shared/theme/theme.ts` だけで、Monaco と xterm は
+ * 何も知らないまま付いてくる。
+ *
+ * **ここで名前を変えると、Monaco / xterm の色が黙って落ちる。**
+ * それを防ぐため、themeTokens.ts が要求する変数が両 Theme に揃っていることは
+ * テストが見張っている（styles/themeCss.test.ts）。
  */
 
 :root {
+  /*
+   * OS 側の描画（スクロールバー・フォーム部品）も Theme に合わせる。
+   * global.css ではなくここに置くのは、これが**土台ではなく Theme の一部**
+   * だからにほかならない（Light にしたのにスクロールバーだけ黒い、を作らない）。
+   */
+  color-scheme: dark;
+
   /* 面。奥から手前へ sunken → base → raised の順で明るくする。 */
   --fx-color-app-bg: #1e1e1e;
   --fx-color-surface-sunken: #181818;
@@ -76,6 +131,22 @@
   --fx-git-untracked: #5f9a8a;
   --fx-git-conflicted: #bf6f4f;
 
+  /*
+   * 前に出るものの影と、その後ろを暗くする幕（Session 4-4）。
+   *
+   * Session 4-3B まではこの6つが files.css / git.css / unsaved.css に
+   * 直接書かれていた（`rgb(0 0 0 / 45%)` が3箇所、影が4種類）。**Light では
+   * そのまま使えない** ── 黒い面の上で 45% の黒はうっすら濃くなるだけだが、
+   * 白い面の上では真っ黒な穴になる。Theme ごとの値にするために変数へ出した。
+   *
+   * 影は4段。**前に出ている度合いの順**で、深いものほど広く柔らかくする。
+   */
+  --fx-color-scrim: rgb(0 0 0 / 45%);
+  --fx-shadow-tooltip: 0 4px 12px rgb(0 0 0 / 45%);
+  --fx-shadow-menu: 0 6px 18px rgb(0 0 0 / 45%);
+  --fx-shadow-overlay: 0 10px 30px rgb(0 0 0 / 50%);
+  --fx-shadow-dialog: 0 12px 32px rgb(0 0 0 / 45%);
+
   --fx-space-1: 4px;
   --fx-space-2: 8px;
   --fx-space-3: 12px;
@@ -87,4 +158,110 @@
   /* パネルの枠に共通で使う高さ。タブとステータスバーで揃える。 */
   --fx-tabbar-height: 30px;
   --fx-bar-height: 26px;
+}
+
+/**
+ * Light（Session 4-4）。
+ *
+ * VS Code の Light テーマを見ながら決めたが、値は写していない ── あちらの
+ * 前提（面が真っ白・枠が薄い）をそのまま持ち込むと、このアプリの
+ * **「細い線でパネルを見分ける」設計**（DESIGN.md §3）が消えてしまう。
+ *
+ * 上書きするのは**色だけ**で、間隔・文字サイズ・高さは Theme に依らない
+ * （Theme は見た目の話であって、道具の寸法の話ではない）。
+ */
+:root[data-fx-theme='light'] {
+  color-scheme: light;
+
+  /*
+   * 面。Dark と同じ「奥から手前へ」の順序を保つが、向きは逆になる ──
+   * **手前ほど白へ寄る。** hover だけは例外で、地より少し暗くする
+   * （白い面の上では「明るくする」が「何も起きていない」に見える）。
+   */
+  --fx-color-app-bg: #f5f5f5;
+  --fx-color-surface-sunken: #ebebeb;
+  --fx-color-surface: #f5f5f5;
+  --fx-color-surface-raised: #ffffff;
+  --fx-color-surface-hover: #e2e2e2;
+
+  /*
+   * 枠。Dark では「地より明るい線」だったものが、Light では「地より暗い線」になる。
+   * strong を more contrast にしてある関係も同じで、面の境界と
+   * 前に出ているものの縁を、この2段で描き分ける。
+   */
+  --fx-color-border: #d6d6d6;
+  --fx-color-border-strong: #bcbcbc;
+
+  /*
+   * 文字。**faint が一番の勝負どころ**にあたる ── 行番号と補助文言に使う色で、
+   * 明るくしすぎると Light では消える。#8c8c8c は白（#fff）に対して
+   * 3:1 を超え、12px でも輪郭が残る。
+   */
+  --fx-color-text: #1f1f1f;
+  --fx-color-text-muted: #5c5c5c;
+  --fx-color-text-faint: #8c8c8c;
+  --fx-color-text-strong: #000000;
+  --fx-color-danger: #b02525;
+
+  /*
+   * パネルの識別色。Dark 用の値は白い面の上だと「薄い灰色の線」に潰れるので、
+   * 明度を落として彩度を上げる ── 使い方（細い線としてだけ使う）は変えない。
+   */
+  --fx-accent-neutral: #767676;
+  --fx-accent-blue: #2f6f9f;
+  --fx-accent-green: #2f7a4a;
+  --fx-accent-orange: #96631f;
+
+  /*
+   * ファイル種類別アイコン。方針は Dark と同じで、**12px の文字より目立たない**
+   * ことを保つ。Dark では「地より明るい」ことが目立たなさの条件だったが、
+   * Light では「地より暗いが、文字（#1f1f1f）よりは薄い」が同じ役割を果たす。
+   *
+   * 形が同じ組（.ts / .js、.tsx / .jsx）だけは色が主になるので、
+   * その2色は Light でもはっきり離してある（青と黄土）。
+   */
+  --fx-file-icon-default: #6e6e6e;
+  --fx-file-icon-ts: #1f6ab0;
+  --fx-file-icon-js: #8a7300;
+  --fx-file-icon-json: #8a681f;
+  --fx-file-icon-html: #a0522a;
+  --fx-file-icon-css: #5b4b9c;
+  --fx-file-icon-markdown: #4a6478;
+  --fx-file-icon-python: #3f7a2f;
+  --fx-file-icon-csharp: #77489c;
+  --fx-file-icon-image: #2b7565;
+  --fx-file-icon-package: #9c4630;
+  --fx-file-icon-git: #9c5326;
+  --fx-file-icon-docker: #1f6a91;
+
+  /*
+   * 変更の種類。**記号1文字にしか付かない色**なので、Light では
+   * ファイル種別アイコンよりさらに濃くする（1文字は面積が小さく、
+   * 薄い色だと「何か書いてある」以上のことが分からない）。
+   *
+   * ここでも色だけに意味は持たせていない ── 記号（M / A / D …）が主で、
+   * 色は補助にあたる。
+   */
+  --fx-git-modified: #8a6800;
+  --fx-git-added: #2c7442;
+  --fx-git-deleted: #a63535;
+  --fx-git-renamed: #1f6ab0;
+  --fx-git-untracked: #2b7565;
+  --fx-git-conflicted: #ad4f1a;
+
+  /*
+   * 幕と影。**Dark 用の値を流用しない**（F）。
+   *
+   * 幕は 45% → 25%。白い面の上での 45% は「奥が見えない黒い板」になり、
+   * 前に出ている確認ダイアログの後ろに何があったのかが分からなくなる。
+   * 25% あれば「触れない」ことは十分伝わる。
+   *
+   * 影は不透明度を大きく落とす（45〜50% → 10〜20%）。白い面の上では
+   * わずかな影でも輪郭が立ち、Dark と同じ濃さだと**汚れ**に見える。
+   */
+  --fx-color-scrim: rgb(0 0 0 / 25%);
+  --fx-shadow-tooltip: 0 4px 12px rgb(0 0 0 / 12%);
+  --fx-shadow-menu: 0 6px 18px rgb(0 0 0 / 14%);
+  --fx-shadow-overlay: 0 10px 30px rgb(0 0 0 / 20%);
+  --fx-shadow-dialog: 0 12px 32px rgb(0 0 0 / 18%);
 }

@@ -568,7 +568,7 @@
   background: var(--fx-color-surface-raised);
   border: 1px solid var(--fx-color-border-strong);
   border-radius: 3px;
-  box-shadow: 0 4px 12px rgb(0 0 0 / 45%);
+  box-shadow: var(--fx-shadow-tooltip);
   font-size: var(--fx-font-size-sm);
   line-height: 1.6;
   white-space: nowrap;
@@ -630,7 +630,7 @@
   background: var(--fx-color-surface-raised);
   border: 1px solid var(--fx-color-border-strong);
   border-radius: 4px;
-  box-shadow: 0 6px 18px rgb(0 0 0 / 45%);
+  box-shadow: var(--fx-shadow-menu);
 }
 
 .fx-file-menu__item {
@@ -670,7 +670,7 @@
   align-items: center;
   justify-content: center;
   padding: var(--fx-space-4);
-  background: rgb(0 0 0 / 45%);
+  background: var(--fx-color-scrim);
 }
 
 .fx-file-confirm__panel {
@@ -682,7 +682,7 @@
   background: var(--fx-color-surface-raised);
   border: 1px solid var(--fx-color-border-strong);
   border-radius: 6px;
-  box-shadow: 0 10px 30px rgb(0 0 0 / 50%);
+  box-shadow: var(--fx-shadow-overlay);
 }
 
 .fx-file-confirm__message {

@@ -1,6 +1,7 @@
 import { useEffect, useRef, type JSX } from 'react'
+import { useTheme } from '../../theme/context'
 import { resolveEditorLanguageId } from './language'
-import { DIFF_EDITOR_OPTIONS, monaco, setupMonaco } from './monacoSetup'
+import { applyMonacoTheme, DIFF_EDITOR_OPTIONS, monaco, setupMonaco } from './monacoSetup'
 
 /**
  * 2つの中身を並べて見せる器（読み取り専用）。
@@ -74,6 +75,17 @@ export function MonacoDiffEditor({
   modified
 }: MonacoDiffEditorProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const { settings: appearance } = useTheme()
+
+  /*
+    Theme を当てる（Session 4-4）。Monaco のテーマはアプリに1つなので、
+    通常のエディタと同じ `applyMonacoTheme` をそのまま呼ぶ ── 差分だけ別の
+    配色にしない（同じファイルを見ているのに、器で色が変わるのは道具として不自然）。
+  */
+  useEffect(() => {
+    setupMonaco()
+    applyMonacoTheme(appearance.theme)
+  }, [appearance.theme])
 
   useEffect(() => {
     const container = containerRef.current

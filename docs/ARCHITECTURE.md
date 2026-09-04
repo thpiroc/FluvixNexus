@@ -143,6 +143,7 @@ src/
 │       └── executablePath.ts PATH の辿り方（Terminal と Git が共有・テスト対象・§13.2・§14.1）
 ├── preload/
 │   ├── index.ts              contextBridge での公開
+│   ├── theme.ts              保存済み Theme を最初の描画より前に `<html>` へ当てる（§16.5）
 │   ├── ipc/invoke.ts         Main を呼ぶ唯一の経路
 │   ├── ipc/subscribe.ts      Main からのイベントを受ける唯一の経路（§3.3）
 │   └── api/                  ドメインごとの薄いラッパ（env / system / workspace / workspaceFolder / files / terminal / settings）
@@ -153,7 +154,7 @@ src/
 │       ├── api/fluvix.ts        window.fluvix を参照する唯一の場所
 │       ├── api/result.ts        IpcResult の扱いと UI 文言の対応表
 │       ├── styles/
-│       │   ├── theme.css        色・間隔の変数（値を直接書いてよい唯一の場所）
+│       │   ├── theme.css        Dark / Light の色と間隔の変数（**色の実体はここだけ**・§16.2）
 │       │   └── global.css       最小リセット
 │       ├── workspace/           Workspace Shell（§7）
 │       ├── workspaceFolder/     開いているフォルダの写しと Welcome（§8.6）
@@ -250,8 +251,18 @@ src/
 │       │   ├── GitHubPublishForm.tsx    GitHub に公開する面（畳んである・§14.17）
 │       │   ├── GitIcons.tsx            Stage / Unstage / 差分 / 破棄 のアイコン（Files と同じ描き方・§14.11・§14.16）
 │       │   └── git.css
-│       ├── settings/           設定を読み書きする段取り（§12.4）
-│       │   └── useSettingsSection.ts  section 1つを持ち、いつ読み・いつ書くかを決める
+│       ├── settings/           設定を読み書きする段取り（§12.4）と Settings 画面（§15）
+│       │   ├── useSettingsSection.ts  section 1つを持ち、いつ読み・いつ書くかを決める
+│       │   ├── settingsCatalog.ts     何が、どのカテゴリに、どの順で並ぶか（React 非依存）
+│       │   ├── SettingsOverlay.tsx    それをどう描き、どの setter へ繋ぐか
+│       │   └── settings.css
+│       ├── theme/              アプリ全体の見た目（Theme。§16）
+│       │   ├── appearanceSettings.ts  Theme と保存形式の行き来（React / DOM 非依存・テスト対象）
+│       │   ├── themeTokens.ts         theme.css の変数から Monaco / xterm の色を作る（§16.3）
+│       │   ├── documentTheme.ts       `<html>` への当て方と読み取り
+│       │   ├── useAppearance.ts       Theme の正本（値と、変える口）
+│       │   ├── context.ts             Context の定義
+│       │   └── ThemeProvider.tsx      Renderer 全体へ配る器（App の一番外）
 │       ├── ui/                 パネルをまたいで使う器
 │       │   ├── Popover.tsx          ボタンの真下に開く面（開閉と閉じ方だけを持つ）
 │       │   ├── DropdownMenu.tsx     その面に項目を並べたもの（上部バー / Terminal のタブ列）
@@ -272,7 +283,8 @@ src/
     ├── terminal/              セッションの型・上限・大きさの正規化・シェルの選択肢（§13）
     ├── git/                   リポジトリの状態・HEAD・失敗の分類・変更ファイルの一覧・操作の対象と結末・Commit メッセージの規則・ブランチの一覧と名前の規則・commit の履歴（§14）
     ├── github/                公開範囲・GitHub CLI の状態・repository 名の規則（§14.17）
-    └── settings/             アプリ設定の保存形式（section の閉じた集合と文書の形。§12.4）
+    ├── settings/             アプリ設定の保存形式（section の閉じた集合と文書の形。§12.4）
+    └── theme/                Theme の名前・既定・落とし先と、初期描画用の1色（§16.1）
 ```
 
 **「Workspace」という語は3つの意味に使われる**（DESIGN.md §3 の用語表）。実装での呼び分けは次のとおりで、ディレクトリ名・IPC ドメイン名もこれに従う。
@@ -2087,15 +2099,16 @@ Session 3-4 の成果物。§10.3 で用意したタブの上に、実際のコ�
 
 Monaco は大きく、DOM もワーカーも要求する。**どこまでが Monaco の話か**を先に切っておかないと、言語判定やタブの管理まで Monaco 抜きでは触れなくなる。
 
-| 判断                          | 場所                             | Monaco への依存    |
-| ----------------------------- | -------------------------------- | ------------------ |
-| 拡張子 → 言語 id              | `editor/monaco/language.ts`      | **無し**（文字列） |
-| Auto Save の設定              | `editor/autoSave.ts`             | **無し**           |
-| どのファイルを開いているか    | `editor/editorTabsModel.ts`      | **無し**           |
-| Model / 未保存 / 見ていた位置 | `editor/monaco/documentStore.ts` | **型だけ**         |
-| Worker・テーマ・言語サービス  | `editor/monaco/monacoSetup.ts`   | 有り               |
-| Model の作り方・エディタの器  | `editor/monaco/MonacoEditor.tsx` | 有り               |
-| いつ保存するか                | `editor/useEditorSession.ts`     | 無し               |
+| 判断                           | 場所                             | Monaco への依存    |
+| ------------------------------ | -------------------------------- | ------------------ |
+| 拡張子 → 言語 id               | `editor/monaco/language.ts`      | **無し**（文字列） |
+| Auto Save の設定               | `editor/autoSave.ts`             | **無し**           |
+| どのファイルを開いているか     | `editor/editorTabsModel.ts`      | **無し**           |
+| Model / 未保存 / 見ていた位置  | `editor/monaco/documentStore.ts` | **型だけ**         |
+| Worker・テーマ・言語サービス   | `editor/monaco/monacoSetup.ts`   | 有り               |
+| Theme の色（`theme.css` から） | `theme/themeTokens.ts`           | **無し**（§16.3）  |
+| Model の作り方・エディタの器   | `editor/monaco/MonacoEditor.tsx` | 有り               |
+| いつ保存するか                 | `editor/useEditorSession.ts`     | 無し               |
 
 Monaco の**実体**を import しているのは下2つだけで、そこは `MonacoEditor.tsx` から遅延して読み込まれる（§11.3）。上4つは Vitest（node 環境）から読める。
 
@@ -2514,9 +2527,15 @@ main/store/settings.ts          %APPDATA%/Fluvix Nexus/settings.json
 | 値の意味（既定・範囲・丸め方） | その機能の Renderer 側                                  |
 | 読み書きの段取り               | `renderer/src/settings/useSettingsSection.ts`（共通）   |
 
-`appearance`（Theme）・`git`・`workspace` などはこの形で入る。**中身が決まっていない section を先に作らない** ── 空の section は「まだ何も無い場所」をディスクに残すだけになる。
+**中身が決まっていない section を先に作らない** ── 空の section は「まだ何も無い場所」をディスクに残すだけになる。`git`・`workspace` などはこの形で入る。
+
+**Session 4-4 の `appearance`（Theme）がその最初の実例にあたる**（§16.6）。予告どおり、増えたのはファイルでもチャンネルでもなく **section 1つと key 1つ**で、IPC も Preload の口も Main の検証の仕組みも1行も変わっていない。旧ファイルを持たない最初の section でもあり、旧ファイルの集合は `SettingsSectionId` の部分集合として切ってある（`LegacySettingsSectionId`）── 同じ集合のままにすると、section を足すたびに存在しない旧ファイルの名前を決めさせられる。
 
 **アプリ全体の Settings 画面は Session 4-3B で入った**（§15）。予告どおり、移ったのは「並べる場所」だけで、値の持ち主はどれも機能の側にある。設定の変更を別ウィンドウへ知らせる仕組み（`settings:changed`）は今も無い ── 単一の Renderer が Context で同期できており、独立ウィンドウが要るようになった時点で考える。
+
+#### 読み込みが返るまでの値には、既定でないものが入りうる（Session 4-4）
+
+`useSettingsSection` の初期値は「読み込みが終わるまでの値」で、Auto Save・Files・Terminal はそこに**既定**を置いている。**Theme だけは違う。** 既定（Dark）を置くと、Light を選んでいる人の起動が必ず一度 Dark を通るため、`<html>` に当たっている値 ── Main が同じ `settings.json` から読んで、IPC より早い経路で届けたもの ── から読む（§16.5）。二重の正本にはならない（読み込みが返れば同じ値に落ち着く）。
 
 ### 12.5 文字コード
 
@@ -2986,6 +3005,8 @@ xterm は既定の描画（DOM ベース）で Worker も blob も使わない�
 WebGL の addon は入れていない。速くはなるが、このアプリが出す量では違いが出ないうえ、描画まわりの不具合の切り分けが増える。
 
 xterm 本体は **`React.lazy` で遅延読み込みする**（Monaco と同じ2つの理由。§11.3）。Terminal パネルを開くまで読み込まれず、Panel Registry を辿るだけのテスト（node 環境）からも読み込まれない。ビルド成果物でも `TerminalSurface-*.js`（約 330KB）として独立した chunk に分かれる。
+
+Session 4-4 で Theme に追従するようになったが、CSP まわりの前提は1つも変わっていない。地・文字・カーソル・選択の色は `theme.css` の変数から作って `terminal.options.theme` へ渡すだけで（§16.3）、外部から取りに行くものも、新しく注入される style の種類も増えていない。
 
 ### 13.8 Workspace が変わっても終わらせない（Session 3-7-3）
 
@@ -6434,13 +6455,197 @@ Session 3-7-5 では、下書きを持って Enter / blur で確定する欄は 
 
 写しにしなかったのは、この欄の要点が見た目ではなく**下書きを持つこと**にあるためで、そこは写すたびに落としうる ── 1文字ごとに反映すると、`1200` と打つ途中の `1` が範囲へ丸められ、**打ち終わる前に端末が作り替えられる**。Session 4-3A で読み書きの段取りを1箇所へ集めたのとまったく同じ判断にあたる（見た目は `ui/field.css` へ、`ui/menu.css` が `DropdownMenu` を引き受けたのと同じ経緯で移した）。
 
-### 15.8 今回入れていないもの
+### 15.8 Session 4-3B の時点で入れていなかったもの
 
 | 項目                 | 現状                                                                                                                            |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| Theme / Appearance   | 入れていない。`appearance` section も作らない（中身が決まってから）                                                             |
+| Theme / Appearance   | **Session 4-4 で入った**（§16）。予告どおり、増えたのは section 1つと目録の1行だけ                                              |
 | Workspace ごとの設定 | 入れていない。プロジェクトフォルダの中には何も書かない方針のまま                                                                |
 | LSP / DAP の設定     | 入れていない。**実行ファイルのパスを Renderer から保存して Main が実行する形は作らない** ── 安全設計ごと STEP 5 / STEP 8 で行う |
 | 設定の検索           | 5項目しか無いので要らない                                                                                                       |
 | 既定へ戻す           | 置いていない。項目ごとに範囲と既定が説明文に出ている                                                                            |
 | `settings:changed`   | 要らない（単一 Renderer が Context で同期している。§12.4）                                                                      |
+
+---
+
+## 16. Theme（アプリ全体の見た目）
+
+Session 4-3B までの見た目は Dark 固定だった。色そのものは最初から `styles/theme.css` の1箇所に集めてあり（DESIGN.md §3）、この Session で塞いだのは**その1箇所が本当は1箇所ではなかった**ところにほかならない ── Monaco と xterm は CSS 変数を読まないため、同じ 16進数が `monacoSetup.ts` と `xtermSetup.ts` にも書き写されていた。どちらのファイルにも「theme.css と同じ値を書き写しているので、片方を変えるときは両方を直すこと」という注意書きが付いていて、**その注意書きが要ること自体が写しの証拠**だった。Theme が2つになれば写しは倍になる。
+
+v1 は **Dark / Light の2つだけ**。System（OS 追従）は入れていない（§16.8）。
+
+### 16.1 色の実体は1箇所、名前は shared
+
+| 層       | Theme について知っていること                                     | 場所                          |
+| -------- | ---------------------------------------------------------------- | ----------------------------- |
+| shared   | 名前が2つあること・既定・読めない値の落とし先・**初期描画の1色** | `shared/theme/theme.ts`       |
+| Main     | それを読んで窓の初期色を決め、Preload へ渡す                     | `main/windows/mainWindow.ts`  |
+| Preload  | 最初の描画より前に `<html>` へ当てる                             | `preload/theme.ts`            |
+| Renderer | **色そのもの**と、値の持ち主・変える口                           | `styles/theme.css` / `theme/` |
+
+**色は `theme.css` にしかない。** 例外は `THEME_WINDOW_BACKGROUND` の2色だけで、これは **CSS が1行も評価されていない時点で要る値**（`BrowserWindow` の `backgroundColor`）にほかならない。写しである以上ずれうるので、`--fx-color-app-bg` と一致することはテストが見張る（`styles/themeCss.test.ts`）。
+
+Theme の名前を shared へ置いたのは、**最初の1枚を描くのが Renderer ではない**ため。Main が「保存されているのは Light だ」と知らないと、Light を選んでいる人の起動が必ず一度 Dark を通る（§16.5）。
+
+**Theme 状態の持ち主は Renderer のまま。** Main は同じ `settings.json` を読むだけで、書かないし、変わったことも知らない ── 正本はディスク上の1つの値と、それを載せている `useAppearance` にほかならない。
+
+### 16.2 Dark は素の `:root`、Light は上書き
+
+```css
+:root {
+  /* Dark（色36・そのうち幕1と影4） */
+}
+:root[data-fx-theme='light'] {
+  /* Light（同じ集合を上書き） */
+}
+```
+
+この置き方には2つの意味がある。
+
+- **知らない Theme 名は自動的に Dark になる。** `data-fx-theme="solarized"` が付いていても一致する規則が無いので `:root` のまま ── 落とし先を JavaScript 側だけに頼らずに済む
+- **属性が付く前の一瞬も Dark。** 属性を当てるのは Preload だが、仮にそれが動かなくても、出るのは既定の見た目であって無色の画面ではない
+
+**Light は色をすべて設計し直したもので、Dark を薄めたものではない**（明度を反転しただけの色は白い面の上で軒並み読めなくなる）。Dark の見え方は Session 4-3B までと1つも変えていない。
+
+上書きするのは**色だけ**。間隔・文字サイズ・タブの高さは Theme に依らない（Theme は見た目の話であって、道具の寸法の話ではない）。
+
+| 種別         | 数  | Light での考え方                                                          |
+| ------------ | --- | ------------------------------------------------------------------------- |
+| 面           | 5   | 手前ほど白へ寄る。hover だけは地より暗くする（白い面では明るく＝無変化）  |
+| 枠           | 2   | Dark の「地より明るい線」が、Light では「地より暗い線」になる             |
+| 文字         | 5   | faint（行番号・補足）が勝負どころ。白に対して 3:1 を超える値にする        |
+| パネル識別色 | 4   | 明度を落として彩度を上げる。使い方（細い線だけ）は変えない                |
+| ファイル種別 | 13  | 地より暗く、本文の文字よりは薄い。形が同じ組（ts / js）は色をはっきり離す |
+| Git 変更種別 | 6   | 記号1文字にしか付かないので、ファイル種別よりさらに濃く                   |
+| 幕と影       | 5   | 下記                                                                      |
+
+#### 幕と影を変数へ出した
+
+Session 4-3B までは `rgb(0 0 0 / 45%)` が `files.css` / `git.css` / `unsaved.css` に直接書かれていた（幕が3箇所、影が4種類）。**Light ではそのまま使えない** ── 黒い面の上で 45% の黒はうっすら濃くなるだけだが、白い面の上では奥が見えない黒い板になる。Theme ごとの値にするために `--fx-color-scrim` と `--fx-shadow-*`（前に出ている度合いで4段）へ出した。
+
+| Theme | 幕  | 影の不透明度 |
+| ----- | --- | ------------ |
+| Dark  | 45% | 45〜50%      |
+| Light | 25% | 12〜20%      |
+
+### 16.3 Monaco と xterm は theme.css から**生成する**
+
+```
+styles/theme.css        色の実体（Dark / Light）
+   ↓ getComputedStyle
+theme/themeTokens.ts    読んで、道具ごとの形へ組み立てる
+   ↓                         ↓
+monacoSetup.ts          xtermSetup.ts
+```
+
+`themeTokens.ts` だけが DOM に触れ、その先（`toMonacoThemeColors` / `toTerminalThemeColors`）は素の値の変換にしかならない ── だから表を1つ渡すだけで試せる（`themeTokens.test.ts`）。**Theme を1つ足すときに触るのは `theme.css` と `shared/theme/theme.ts` だけで、Monaco と xterm は何も知らないまま付いてくる。**
+
+読めなかった変数は代替値へ落とす。そのまま渡すと Monaco はテーマの定義ごと失敗し、**1つの綴り間違いでエディタが既定の見た目へ戻る**。落ちないことと引き換えに気づけなくなるので、必要な変数が両 Theme に揃っていることはテストが見張る（`styles/themeCss.test.ts`）。
+
+**ANSI の16色は渡さない。** シェルとその中の CLI が使う色であって、このアプリが決めるものではない（`git status` の緑や npm の警告の黄色が、他のターミナルで見たときと違う色になる）。Theme を変えて xterm 側で変わるのは地・文字・カーソル・選択の4つだけ。
+
+Monaco のテーマ id は Theme ごとに分けない（`defineTheme` は同じ id なら差し替えになる）。分けると切り替えのたびに使われない定義が積み上がる。継承元（`vs` / `vs-dark`）だけは Theme によって変わる ── これは色ではなく Monaco の語彙なので `theme.css` には置けず、対応を `themeTokens.ts` が持つ。
+
+### 16.4 切り替えは、値が1つ変わった結果として起きる
+
+```
+Settings の Theme を押す
+   ↓
+useAppearance（正本。appearance section を読み書きする）
+   ↓
+ThemeProvider が <html> へ data-fx-theme を当てる
+   ↓                        ↓                          ↓
+CSS（全部の面が即座に）  MonacoEditor の effect     useTerminalTabs の effect
+                         applyMonacoTheme()         screens.applyTheme()
+```
+
+**Theme の側は道具の一覧を持たない。** Monaco も xterm も「Theme が変わった」と知らされるのではなく、`useTheme()` の値が変わったことを自分の effect で見て当て直す ── 持たせると、道具が増えるたびに Theme 側を直すことになる。
+
+xterm への当て直しは**開いている全部の画面**へ配る（`terminalScreenStore.applyTheme`）。手前に出ていないタブも含む ── 切り替えてから別のタブへ移ったときに、そのタブだけ前の色のまま、とはならない。
+
+#### 当てるのが effect ではない理由
+
+React の effect は**子から先に**走る。`data-fx-theme` の代入を `ThemeProvider` の effect に置くと、
+
+```
+ThemeProvider の effect     … light にする        ← 後
+  MonacoEditor の effect    … CSS 変数を読む      ← 先（まだ dark を読む）
+  useTerminalTabs の effect … 同上                ← 先
+```
+
+となり、Monaco と xterm が**1つ前の Theme の色**を読む（`useLayoutEffect` でも順序は同じ）。そこで**描画の中で当てる。** 代入は冪等で、当たった時点で `getComputedStyle` は新しい値を返すため、この後に走る子の effect はどれも正しい色を読む。`<html>` の属性は React が管理していない場所なので、React の再描画と競合しない。
+
+同じ理由で、**新しく作られる xterm の画面は自分で `<html>` から読む**（`xtermSetup.ts`）。器が現れるのは Provider の effect より先でありうるため、ストアが覚えた値を渡す形にすると、そのとき作られた画面だけ前の色になる。
+
+### 16.5 起動時にちらつかせない
+
+Light を選んでいる状態での起動は、素直に作ると**必ず一度 Dark を通る。** 経路が3つあり、どれも塞ぐ必要がある。
+
+```
+窓が出る（backgroundColor）    ← ① Main が保存済み Theme から決める
+HTML の解析が始まる            ← ② Preload が data-fx-theme を当てる
+CSS が評価される               最初から Light。Dark が出る隙が無い
+React が動き出す               ← ③ 初期値を <html> から読む
+settings:load が返る           同じ値に落ち着く（何も動かない）
+```
+
+| #   | 塞がないと何が出るか                                     | 塞ぎ方                                        |
+| --- | -------------------------------------------------------- | --------------------------------------------- |
+| ①   | Renderer が動く前の窓が黒い                              | `backgroundColor` を保存済み Theme から決める |
+| ②   | CSS が最初に評価される時点で Dark                        | Preload が `<html>` へ当てる                  |
+| ③   | React の最初の描画が Dark で塗り直す（読み込み後に戻る） | `useAppearance` の初期値を `<html>` から読む  |
+
+**なぜ Preload なのか。** `<html>` に属性が付いた状態で CSS を評価させるには、HTML の解析より前に動く必要がある。Renderer の入口（`main.tsx`）は解析の後で間に合わず、`index.html` へ直接書く手も使えない ── インラインの `<script>` は CSP（`script-src 'self'`）が止める。**CSP を1文字も緩めない**（§5）まま解ける場所は Preload しか無い。
+
+Preload が走る時点では `<html>` がまだ無い（解析はこの後）。`DOMContentLoaded` は解析が**終わった**ときで、途中で最初の描画が起きうる。`MutationObserver` で `document` の直下を見張れば、`<html>` が作られたその場で当てられる ── 中身が1つも解析されていない時点なので、属性の無い状態で描画されることが無い。
+
+**Theme は `webPreferences.additionalArguments` で渡す。** IPC ではないのは、IPC が Renderer の動き出しを待つものであり、避けたいのがまさに「動き出すまで」の一瞬だから ── Session 4-3A の2本（`settings:load` / `settings:save-section`）はそのままで、**チャンネルは1本も増えていない。** Preload が `contextBridge` へ足すものも1つも無い。
+
+③ は「二重の正本」ではない。あの属性は Main が同じ `settings.json` から読んで先に届けた値そのもので、読み込みが返れば同じ値に落ち着く。**属性が無い / 知らない値なら Dark**（`readDocumentTheme` が落とす）── Preload が動かなかった場合も、他の3つの設定と同じ「読めなければ既定」に戻るだけで済む。
+
+### 16.6 保存は既存の基盤にそのまま乗る
+
+Session 4-3A が予告していた形（「増えるのはファイルでもチャンネルでもなく section か key」）の**最初の実例**にあたる。
+
+| 増えたもの                                            | 増えていないもの            |
+| ----------------------------------------------------- | --------------------------- |
+| `appearance` section（`shared/settings/sections.ts`） | IPC チャンネル（2本のまま） |
+| `theme` key（`main/store/settingsSections.ts` の表）  | Preload が公開する API      |
+| Settings の目録の1行                                  | Main の検証の仕組み         |
+| —                                                     | CSP                         |
+
+**Main は `theme` が文字列であることしか見ない。** `dark` / `light` のどちらかであるかを決めるのは Renderer で、アプリをダウングレードすれば知らない Theme 名が保存されている状態は普通に起こりうる（§12.4 の分担そのまま）。Main が Theme の名前を知っている場所は1つだけあるが（窓の初期色）、それは**検証ではなく描画の都合**で、読めない値でも既定の色を塗るだけで済む。
+
+`appearance` は**旧ファイル（`<用途>-settings.json`）を持たない最初の section**でもある。旧ファイルの集合は Session 3-5 〜 3-7-5 の3つで確定していて後から増えないので、`SettingsSectionId` の部分集合として切ってある（`main/store/legacySettings.ts` の `LegacySettingsSectionId`）── 同じ集合のままにすると、section を足すたびに**存在しない旧ファイルの名前を決めさせられる。**
+
+Settings 画面では **Appearance を末尾に置く**。前の3つ（Editor / Files / Terminal）が「その機能の見え方・振る舞い」であるのに対し、Appearance は**アプリ全体の見た目**にあたる ── 機能の並びの途中に挟むと、どの機能の話をしているのか分からない場所ができる。保存ファイルの section の並びとも揃えてある。
+
+選択肢は `select` ではなく2つ並べたボタンにした（Files の表示方式と同じ形）。**今どちらになっているかが開いた瞬間に見える**ことが要点で、選択肢が2つしかないので並べても場所を取らない。「適用」も「OK」も無い ── Theme は結果を見て決めるもので、確定するまで見えないと選べない。
+
+### 16.7 CSS そのものをテストする
+
+`theme.css` は Session 4-4 から**見た目ではなく契約**を持つ。写しを無くした代わりに、変数の名前1つで Monaco と xterm が繋がっている ── 名前を変えたのに片方だけ直した、Light に1色だけ足し忘れた、という間違いは型検査にもリンタにも掛からず、画面を開くまで分からない。
+
+`styles/themeCss.test.ts` が見張るのはその繋ぎ目だけ。
+
+- Dark と Light が**同じ変数の集合**を持つか（色40）
+- Light が Dark の値をそのまま写している色が無いか（幕と影を含む）
+- Monaco / xterm が読む変数（`THEME_TOKEN_NAMES`）が両方にあるか
+- 窓の初期色が `--fx-color-app-bg` と一致するか
+- `monacoSetup.ts` / `xtermSetup.ts` に 16進数が**戻ってきていない**か
+
+「その色が見やすいか」は見張らない ── それは実機で見るしかない（docs/DEVELOPMENT.md §4 が Light のコントラスト比を測っている）。
+
+読むのに `fs` を使わず Vite の `?raw` を通しているのは、**Renderer 側の型検査に Node の型を持ち込まないため**にほかならない（`tsconfig.web.json` に `types: ["node"]` を足すと、Renderer のコードが `fs` や `process` を書いても型検査を通るようになり、「Renderer から OS へ触らせない」という前提が型の上では守られなくなる）。Vitest は既定で CSS の import を空文字へ差し替えるので、`theme.css` だけを例外にしてある（`vitest.config.ts`）。
+
+### 16.8 今回入れていないもの
+
+| 項目                      | 現状                                                                                                                      |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| System（OS 追従）         | 入れていない。**Theme の名前ではなく選び方**なので `THEME_IDS` には入らない ── 足すなら「何を選んでいるか」を持つ側に足す |
+| Theme 切り替えの打鍵      | 入れていない。アプリ全体のショートカット基盤（Session 4-7 の予定）と同時にする                                            |
+| Accent Color              | 入れていない。パネル識別色（DESIGN.md §3）は設計の一部で、選ばせるものにしていない                                        |
+| フォント / UI 密度 / Zoom | 入れていない。Terminal の文字の大きさだけが既にある（§13.4）                                                              |
+| 構文ハイライトの配色      | 入れていない。Monaco の標準テーマ（`vs` / `vs-dark`）を継承したまま（§11.1）                                              |
+| 高コントラストの Theme    | 入れていない。Light の27色は面に対して 3:1 以上（本文は 7:1 以上）を実機で確かめてある                                    |
+| `settings:changed`        | 要らない（単一 Renderer が Context で同期している。§12.4）                                                                |

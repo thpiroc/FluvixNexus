@@ -14,7 +14,7 @@
   align-items: center;
   justify-content: center;
   padding: var(--fx-space-4);
-  background: rgb(0 0 0 / 45%);
+  background: var(--fx-color-scrim);
 }
 
 .fx-unsaved {
@@ -28,7 +28,7 @@
   background: var(--fx-color-surface-raised);
   border: 1px solid var(--fx-color-border-strong);
   border-radius: 6px;
-  box-shadow: 0 12px 32px rgb(0 0 0 / 45%);
+  box-shadow: var(--fx-shadow-dialog);
   font-size: var(--fx-font-size-sm);
 }
 

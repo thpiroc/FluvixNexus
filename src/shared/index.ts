@@ -57,10 +57,23 @@ export type {
   SettingsSectionId,
   SettingsSectionUpdate,
   SettingsSections,
+  StoredAppearanceSettings,
   StoredEditorSettings,
   StoredFilesSettings,
   StoredTerminalSettings
 } from './settings'
+
+export {
+  DEFAULT_THEME_ID,
+  THEME_ATTRIBUTE,
+  THEME_IDS,
+  THEME_WINDOW_BACKGROUND,
+  fromThemeArguments,
+  isThemeId,
+  normalizeThemeId,
+  toThemeArgument
+} from './theme'
+export type { ThemeId } from './theme'
 
 export {
   WORKSPACE_FOLDER_DOCUMENT_MAX_BYTES,
