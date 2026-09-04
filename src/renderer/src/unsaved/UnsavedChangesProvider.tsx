@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useRef, useState, type JSX, type ReactNode } from 'react'
 import { UnsavedChangesContext, type UnsavedChangesController } from './context'
 import { UnsavedChangesDialog } from './UnsavedChangesDialog'
-import type { LossAction, LossChoice, LossItem, LossSource } from './types'
+import type { LossAction, LossChoice, LossItem, LossSource, UnsavedSaveFailure } from './types'
 import { useWindowCloseRequest } from './useWindowCloseRequest'
 
 /**
@@ -30,7 +30,8 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }): J
     readonly items: readonly LossItem[]
   } | null>(null)
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  // 文言ではなく結末を持つ（言い表すのは描くとき。UnsavedChangesDialog.tsx）。
+  const [error, setError] = useState<UnsavedSaveFailure | null>(null)
 
   /** 今出ている確認の答えを待っている相手。 */
   const resolveRef = useRef<((proceed: boolean) => void) | null>(null)
@@ -150,9 +151,7 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }): J
           利用者が次の操作へ進める状態になる。
         */
         setBusy(false)
-        setError(
-          '保存できなかったファイルがあります。Editor で内容を確認してから、もう一度お試しください。'
-        )
+        setError('save-failed')
 
         // 一覧を取り直す（保存できたものは消え、残ったものだけが並ぶ）。
         const asking = promptRef.current

@@ -14,9 +14,11 @@ import {
 } from './FileTreeIcons'
 import { FileTree } from './FileTree'
 import type { FilesLayoutMode } from './filesLayoutMode'
+import { describeFileActionError } from './filesError'
 import { countLoadedEntries, resolveCreateTarget } from './fileTreeModel'
 import type { FilesLayoutController } from './useFilesLayout'
 import { useFilesController } from './useFilesController'
+import { useI18n } from '../i18n/context'
 import './files.css'
 
 /**
@@ -60,10 +62,12 @@ export function FilesExplorer({
   revealTarget = null,
   onSearch
 }: FilesExplorerProps): JSX.Element {
+  const { t } = useI18n()
   const controller = useFilesController({ workspace, mode: layout.mode, revealTarget })
   const { tree, actions, drag } = controller
 
   const createTarget = resolveCreateTarget(tree.selectedEntry)
+  const createTargetLabel = createTarget === '' ? workspace.displayName : createTarget
 
   return (
     <div className="fx-files">
@@ -75,8 +79,8 @@ export function FilesExplorer({
         <button
           type="button"
           className="fx-files__tool"
-          aria-label="新規ファイル"
-          title={`新規ファイル（${createTarget === '' ? workspace.displayName : createTarget}）`}
+          aria-label={t('files.toolbar.newFileLabel')}
+          title={t('files.toolbar.newFileTitle', { target: createTargetLabel })}
           onClick={() => controller.startCreate(createTarget, 'file')}
         >
           <NewFileIcon />
@@ -85,8 +89,8 @@ export function FilesExplorer({
         <button
           type="button"
           className="fx-files__tool"
-          aria-label="新規フォルダ"
-          title={`新規フォルダ（${createTarget === '' ? workspace.displayName : createTarget}）`}
+          aria-label={t('files.toolbar.newFolderLabel')}
+          title={t('files.toolbar.newFolderTitle', { target: createTargetLabel })}
           onClick={() => controller.startCreate(createTarget, 'directory')}
         >
           <NewFolderIcon />
@@ -103,8 +107,8 @@ export function FilesExplorer({
           <button
             type="button"
             className="fx-files__tool"
-            aria-label="プロジェクト全体を検索"
-            title="プロジェクト全体を検索（ファイル名 / 全文）"
+            aria-label={t('files.toolbar.searchLabel')}
+            title={t('files.toolbar.searchTitle')}
             onClick={onSearch}
           >
             <SearchIcon />
@@ -118,8 +122,8 @@ export function FilesExplorer({
         <button
           type="button"
           className="fx-files__tool"
-          aria-label="ファイルツリーを再読み込み"
-          title="再読み込み"
+          aria-label={t('files.toolbar.reloadLabel')}
+          title={t('files.toolbar.reloadTitle')}
           onClick={tree.reloadAll}
         >
           <RefreshIcon />
@@ -140,8 +144,7 @@ export function FilesExplorer({
           data-move-source={controller.pendingMove.relativePath}
         >
           <span className="fx-files__pending-text">
-            「{controller.pendingMove.name}
-            」の移動先フォルダを右クリックして「ここへ移動」を選んでください
+            {t('files.pending.move', { name: controller.pendingMove.name })}
           </span>
           <button
             type="button"
@@ -149,7 +152,7 @@ export function FilesExplorer({
             onClick={controller.cancelMove}
             disabled={actions.busy}
           >
-            やめる
+            {t('files.pending.cancel')}
           </button>
         </div>
       )}
@@ -167,8 +170,7 @@ export function FilesExplorer({
           data-clipboard-mode={controller.clipboard.mode}
         >
           <span className="fx-files__pending-text">
-            「{controller.clipboard.entry.name}
-            」をコピーしました。貼り付け先フォルダを右クリックして「ここに貼り付け」を選んでください
+            {t('files.pending.copy', { name: controller.clipboard.entry.name })}
           </span>
           <button
             type="button"
@@ -176,7 +178,7 @@ export function FilesExplorer({
             onClick={controller.clearClipboard}
             disabled={actions.busy}
           >
-            やめる
+            {t('files.pending.cancel')}
           </button>
         </div>
       )}
@@ -192,27 +194,31 @@ export function FilesExplorer({
           data-copy-skipped={controller.copyNotice.skippedCount}
         >
           <span className="fx-files__pending-text">
-            「{controller.copyNotice.name}」をコピーしました（リンクなど{' '}
-            {controller.copyNotice.skippedCount} 件は複製していません）
+            {t('files.pending.copyNotice', {
+              name: controller.copyNotice.name,
+              count: controller.copyNotice.skippedCount
+            })}
           </span>
           <button
             type="button"
             className="fx-files__pending-cancel"
-            aria-label="コピーの結果を閉じる"
+            aria-label={t('files.pending.copyNoticeCloseLabel')}
             onClick={controller.dismissCopyNotice}
           >
-            閉じる
+            {t('files.pending.close')}
           </button>
         </div>
       )}
 
       {actions.error !== null && (
         <div className="fx-files__error" role="alert">
-          <span className="fx-files__error-text">{actions.error}</span>
+          <span className="fx-files__error-text">
+            {describeFileActionError(actions.error.action, actions.error.error, t)}
+          </span>
           <button
             type="button"
             className="fx-files__error-dismiss"
-            aria-label="エラーを閉じる"
+            aria-label={t('files.error.dismissLabel')}
             onClick={actions.dismissError}
           >
             ×
@@ -248,10 +254,12 @@ export function FilesExplorer({
           data-source={drag.state.source.relativePath}
         >
           <span className="fx-file-drag__mode">
-            {drag.state.mode === 'copy' ? 'コピー' : '移動'}
+            {drag.state.mode === 'copy' ? t('files.drag.copy') : t('files.drag.move')}
           </span>
           <span className="fx-file-drag__name">{drag.state.source.name}</span>
-          {drag.state.mode === 'move' && <span className="fx-file-drag__hint">Ctrl でコピー</span>}
+          {drag.state.mode === 'move' && (
+            <span className="fx-file-drag__hint">{t('files.drag.copyHint')}</span>
+          )}
         </div>
       )}
 
@@ -305,18 +313,25 @@ export function FilesExplorer({
  * ないため。今どちらの決まり方をしているかは、ボタンの説明（title）に出る。
  */
 function ViewModeSwitch({ layout }: { readonly layout: FilesLayoutController }): JSX.Element {
+  const { t } = useI18n()
+
   return (
     <div
       className="fx-files__view-group"
       role="group"
-      aria-label="Files の表示方式"
+      aria-label={t('files.view.groupLabel')}
       data-preference={layout.preference.kind}
     >
-      <ViewModeButton layout={layout} mode="tree" label="ツリー表示" icon={<TreeViewIcon />} />
+      <ViewModeButton
+        layout={layout}
+        mode="tree"
+        label={t('files.view.tree')}
+        icon={<TreeViewIcon />}
+      />
       <ViewModeButton
         layout={layout}
         mode="columns"
-        label="カラム表示"
+        label={t('files.view.columns')}
         icon={<ColumnsViewIcon />}
       />
     </div>
@@ -336,6 +351,7 @@ function ViewModeButton({
 }): JSX.Element {
   const active = layout.mode === mode
   const chosen = layout.preference.kind === 'explicit'
+  const { t } = useI18n()
 
   return (
     <button
@@ -347,8 +363,8 @@ function ViewModeButton({
       data-mode={mode}
       title={
         active && chosen
-          ? `${label}（選択中。もう一度押すとパネルの形に合わせます）`
-          : `${label}へ切り替え`
+          ? t('files.view.selectedTitle', { label })
+          : t('files.view.switchTitle', { label })
       }
       onClick={() => (active && chosen ? layout.followPanelShape() : layout.chooseMode(mode))}
     >

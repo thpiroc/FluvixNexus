@@ -1,4 +1,5 @@
 import { createContext, useContext } from 'react'
+import type { IpcErrorPayload } from '@shared/ipc'
 import type { WorkspaceFolder } from '@shared/workspace'
 
 /**
@@ -35,7 +36,13 @@ export interface WorkspaceFolderController {
    */
   readonly unavailableRootPath: string | null
   /** 直前の操作が失敗したときの利用者向けの文言。成功・取り消しでは null に戻る。 */
-  readonly error: string | null
+  /**
+   * 直前の操作の失敗（翻訳前）。
+   *
+   * 文言にして持つと、失敗を出したまま言語を切り替えたときに前の言語のまま
+   * 取り残される。言い表すのは描くとき（WorkspaceWelcome.tsx。Session 4-5B）。
+   */
+  readonly error: IpcErrorPayload | null
   /** 操作の実行中（ダイアログを開いている間など）。ボタンの二重押しを防ぐ。 */
   readonly busy: boolean
   /** フォルダ選択ダイアログを開く。選ばれたら Workspace を切り替える。 */

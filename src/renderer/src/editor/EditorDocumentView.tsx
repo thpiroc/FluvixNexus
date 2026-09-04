@@ -1,6 +1,8 @@
 import { lazy, Suspense, type JSX } from 'react'
 import { FILES_FILE_MAX_BYTES } from '@shared/files'
 import { describeFileTreeError } from '../files/filesError'
+import { useI18n } from '../i18n/context'
+import { describeEditorFailure } from './editorError'
 import { EditorConflictBar } from './EditorConflictBar'
 import type { EditorRevealRequest } from './editorReveal'
 import type { EditorTab } from './editorTabsModel'
@@ -83,21 +85,23 @@ function formatBytes(byteLength: number): string {
  * 出るようにするため（気づいた経路で見え方が変わると、同じ状態が2通りに見える）。
  */
 function SaveStateNote({ state }: { readonly state: EditorSaveState }): JSX.Element | null {
+  const { t } = useI18n()
+
   if (state.status === 'saving') {
-    return <span className="fx-editor__hint">保存中…</span>
+    return <span className="fx-editor__hint">{t('editor.document.saving')}</span>
   }
 
   if (state.status === 'error') {
     return (
       <span className="fx-editor__hint" data-variant="error">
-        保存できませんでした（{state.message}）
+        {t('editor.document.saveError', { message: describeEditorFailure(state.failure, t) })}
       </span>
     )
   }
 
   return (
     <span className="fx-editor__hint" data-variant="error">
-      ディスク側が変更されているため保存していません
+      {t('editor.document.conflictSaveBlocked')}
     </span>
   )
 }
@@ -135,6 +139,7 @@ export function EditorDocumentView({
   readonly reveal?: EditorRevealRequest | null
   readonly onRevealed?: () => void
 }): JSX.Element {
+  const { t } = useI18n()
   const conflicted = tab.state === 'conflict' || tab.state === 'deleted'
 
   return (
@@ -181,10 +186,14 @@ export function EditorDocumentView({
         />
       )}
 
-      {tab.document.status === 'loading' && <p className="fx-editor__note">読み込み中…</p>}
+      {tab.document.status === 'loading' && (
+        <p className="fx-editor__note">{t('editor.document.loading')}</p>
+      )}
 
       {tab.document.status === 'ready' && (
-        <Suspense fallback={<p className="fx-editor__note">エディタを準備しています…</p>}>
+        <Suspense
+          fallback={<p className="fx-editor__note">{t('editor.document.preparingEditor')}</p>}
+        >
           <MonacoEditor
             relativePath={tab.relativePath}
             content={tab.document.content}
@@ -200,23 +209,24 @@ export function EditorDocumentView({
 
       {tab.document.status === 'binary' && (
         <p className="fx-editor__note">
-          バイナリファイルのため、テキストエディタでは表示できません（
-          {formatBytes(tab.document.byteLength)}）。
+          {t('editor.document.binary', { size: formatBytes(tab.document.byteLength) })}
         </p>
       )}
 
       {tab.document.status === 'too-large' && (
         <p className="fx-editor__note">
-          ファイルが大きいため表示できません（{formatBytes(tab.document.byteLength)} / 上限{' '}
-          {formatBytes(FILES_FILE_MAX_BYTES)}）。
+          {t('editor.document.tooLarge', {
+            size: formatBytes(tab.document.byteLength),
+            limit: formatBytes(FILES_FILE_MAX_BYTES)
+          })}
         </p>
       )}
 
       {tab.document.status === 'error' && (
         <p className="fx-editor__note" data-variant="error">
-          <span>{describeFileTreeError(tab.document.reason)}</span>
+          <span>{describeFileTreeError(tab.document.reason, t)}</span>
           <button type="button" className="fx-editor__retry" onClick={() => onReload(tab.id)}>
-            再試行
+            {t('editor.document.retry')}
           </button>
         </p>
       )}

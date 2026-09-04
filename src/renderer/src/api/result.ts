@@ -1,4 +1,5 @@
 import type { IpcErrorCode, IpcErrorPayload, IpcResult } from '@shared/ipc'
+import type { TFunction, TranslationKey } from '../i18n/messages'
 
 /**
  * Renderer 側での IPC 結果の扱い方。
@@ -39,19 +40,24 @@ export function unwrapIpcResult<T>(result: IpcResult<T>): T {
  *
  * Main から来る message は開発者向けのため、UI にはそのまま出さない。
  * 表示文言の決定は Renderer の責務とし、対応表をここに集約する。
+ *
+ * 文言そのものではなく**翻訳キーの対応表**を持ち、`t` は呼び出し側から受け取る
+ * （Session 4-5A の workspace/panels/panelLabels.ts と同じ形）。
+ * 既定の言語を内側に持たないのは、`t` の渡し忘れが「English でも日本語が出る」
+ * という**画面にしか現れない不具合**になるため ── 必須引数なら型が教えてくれる。
  */
-const MESSAGE_BY_CODE: Record<IpcErrorCode, string> = {
-  INVALID_REQUEST: '入力内容が正しくありません。',
-  NOT_FOUND: '対象が見つかりませんでした。',
-  CONFLICT: '対象の現在の状態と競合しています。',
-  BUSY: '対象が他のアプリで使用されている可能性があります。閉じてからもう一度お試しください。',
-  PERMISSION_DENIED: 'この操作は許可されていません。',
-  UNSUPPORTED: 'この環境では実行できません。',
-  CANCELLED: '操作は中断されました。',
-  CHANNEL_UNAVAILABLE: 'アプリ内部の通信に失敗しました。再起動をお試しください。',
-  INTERNAL: '予期しないエラーが発生しました。'
-}
+const MESSAGE_KEY_BY_CODE = {
+  INVALID_REQUEST: 'common.ipcError.invalidRequest',
+  NOT_FOUND: 'common.ipcError.notFound',
+  CONFLICT: 'common.ipcError.conflict',
+  BUSY: 'common.ipcError.busy',
+  PERMISSION_DENIED: 'common.ipcError.permissionDenied',
+  UNSUPPORTED: 'common.ipcError.unsupported',
+  CANCELLED: 'common.ipcError.cancelled',
+  CHANNEL_UNAVAILABLE: 'common.ipcError.channelUnavailable',
+  INTERNAL: 'common.ipcError.internal'
+} as const satisfies Record<IpcErrorCode, TranslationKey>
 
-export function describeIpcError(error: IpcErrorPayload): string {
-  return MESSAGE_BY_CODE[error.code]
+export function describeIpcError(error: IpcErrorPayload, t: TFunction): string {
+  return t(MESSAGE_KEY_BY_CODE[error.code])
 }

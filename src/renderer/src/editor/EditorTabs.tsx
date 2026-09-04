@@ -1,4 +1,5 @@
 import type { JSX } from 'react'
+import { useI18n } from '../i18n/context'
 import { describeEditorTabState, hasUnsavedChanges } from './editorTabState'
 import type { EditorTab } from './editorTabsModel'
 
@@ -44,11 +45,13 @@ export function EditorTabs({
   onActivate,
   onClose
 }: EditorTabsProps): JSX.Element {
+  const { t } = useI18n()
+
   return (
-    <div className="fx-editor__tabs" role="tablist" aria-label="開いているファイル">
+    <div className="fx-editor__tabs" role="tablist" aria-label={t('editor.tabs.ariaLabel')}>
       {tabs.map((tab) => {
         const active = tab.id === activeTabId
-        const note = describeEditorTabState(tab.state)
+        const note = describeEditorTabState(tab.state, t)
 
         return (
           <div
@@ -78,7 +81,7 @@ export function EditorTabs({
             <button
               type="button"
               className="fx-editor-tab__close"
-              aria-label={`${tab.name} を閉じる`}
+              aria-label={t('editor.tabs.closeLabel', { name: tab.name })}
               onClick={() => onClose(tab.id)}
             >
               ×

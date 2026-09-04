@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { FILE_SEARCH_ID_MAX_LENGTH } from '@shared/files'
 import { fluvix } from '../api/fluvix'
-import { describeFileSearchError } from './filesError'
 import type { FileSearchState } from './fileSearchModel'
 
 /**
@@ -124,7 +123,8 @@ export function useFileSearch(workspaceId: string): FileSearchController {
       activeSearchIdRef.current = null
 
       if (!result.ok) {
-        setState({ status: 'error', query: value, message: describeFileSearchError(result.error) })
+        // 文言ではなく失敗そのものを持つ（言い表すのは描くとき。fileSearchModel.ts）。
+        setState({ status: 'error', query: value, error: result.error })
         return
       }
 

@@ -6,6 +6,7 @@ import {
   type EditorDocumentFacts,
   type EditorTabState
 } from './editorTabState'
+import { createTranslator } from '../i18n/messages'
 
 /**
  * タブの状態の導き方（Session 3-5）。
@@ -71,15 +72,21 @@ describe('hasUnsavedChanges', () => {
   })
 })
 
+/*
+  文言は辞書が正本になった（Session 4-5B）。日本語の翻訳器を渡して、
+  これまでと同じ文言・同じ言い分けが保たれていることを確かめる。
+*/
+const t = createTranslator('ja')
+
 describe('describeEditorTabState', () => {
   it('clean には文言が無い（印も出ない）', () => {
-    expect(describeEditorTabState('clean')).toBeNull()
+    expect(describeEditorTabState('clean', t)).toBeNull()
   })
 
   // 色だけに頼らないよう、どの状態にも読み上げられる文言を持たせる。
   it('それ以外はすべて理由を持つ', () => {
     for (const state of ['dirty', 'conflict', 'deleted'] satisfies EditorTabState[]) {
-      expect(describeEditorTabState(state)).toBeTruthy()
+      expect(describeEditorTabState(state, t)).toBeTruthy()
     }
   })
 })

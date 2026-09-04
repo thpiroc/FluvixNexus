@@ -19,6 +19,7 @@ import {
   type FileContentSearchRow
 } from './fileContentSearchModel'
 import { useFileContentSearch } from './useFileContentSearch'
+import { useI18n } from '../i18n/context'
 
 /**
  * ファイルの中身で探す（Session 3-6-5）。
@@ -77,13 +78,14 @@ export function FileContentSearch({
   onExit,
   onOpen
 }: FileContentSearchProps): JSX.Element {
+  const { t } = useI18n()
   const search = useFileContentSearch(workspace.id)
   const inputRef = useRef<HTMLInputElement | null>(null)
   /** 押せる行の DOM。上下キーで焦点を移すために持つ。 */
   const [rowElements] = useState(() => new Map<string, HTMLButtonElement>())
 
   const files = contentSearchFilesOf(search.state)
-  const summary = summarizeFileContentSearch(search.state)
+  const summary = summarizeFileContentSearch(search.state, t)
 
   /*
     結果が変わったときだけ組み直す。行の並びは結果から決まる（純粋）ので、
@@ -199,8 +201,8 @@ export function FileContentSearch({
           type="text"
           className="fx-search__input"
           value={search.query}
-          placeholder="ファイルの中身を検索"
-          aria-label={`${workspace.displayName} の中のファイルの中身を検索`}
+          placeholder={t('files.search.contentPlaceholder')}
+          aria-label={t('files.search.contentInputLabel', { workspace: workspace.displayName })}
           spellCheck={false}
           autoComplete="off"
           onChange={(event) => search.setQuery(event.target.value)}
@@ -211,8 +213,8 @@ export function FileContentSearch({
           <button
             type="button"
             className="fx-files__tool"
-            aria-label="検索語を消す"
-            title="検索語を消す"
+            aria-label={t('files.search.clearLabel')}
+            title={t('files.search.clearLabel')}
             onClick={() => {
               search.clear()
               inputRef.current?.focus()
@@ -229,19 +231,23 @@ export function FileContentSearch({
 
           {search.state.status === 'searching' && (
             <button type="button" className="fx-search__status-action" onClick={search.cancel}>
-              中止
+              {t('files.search.cancel')}
             </button>
           )}
 
           {(search.state.status === 'cancelled' || search.state.status === 'error') && (
             <button type="button" className="fx-search__status-action" onClick={search.searchNow}>
-              もう一度
+              {t('files.search.retry')}
             </button>
           )}
         </div>
       )}
 
-      <div className="fx-search__results" role="list" aria-label="全文検索の結果">
+      <div
+        className="fx-search__results"
+        role="list"
+        aria-label={t('files.search.contentResultsLabel')}
+      >
         {rows.map((row) => {
           if (row.kind === 'folder') {
             return (
@@ -294,7 +300,12 @@ export function FileContentSearch({
 
                 {/* 何件あるか。上限に当たったファイルには、その先があることを示す。 */}
                 <span className="fx-content-file__count">
-                  {row.matchCount} 件{row.truncated ? '以上' : ''}
+                  {t(
+                    row.truncated
+                      ? 'files.search.fileMatchCountTruncated'
+                      : 'files.search.fileMatchCount',
+                    { count: row.matchCount }
+                  )}
                 </span>
               </button>
             )

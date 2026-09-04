@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type JSX, type KeyboardEvent } from 'react'
 import { findFileNameProblem, normalizeFileName } from '@shared/files'
+import { useI18n } from '../i18n/context'
 import { describeFileNameProblem } from './filesError'
 import {
   acceptsCancel,
@@ -73,6 +74,7 @@ export function FileNameInput({
   onCancel,
   ariaLabel
 }: FileNameInputProps): JSX.Element {
+  const { t } = useI18n()
   const [value, setValue] = useState(initialName)
   const [status, setStatus] = useState<NameEditStatus>(INITIAL_NAME_EDIT_STATUS)
   const inputRef = useRef<HTMLInputElement | null>(null)
@@ -202,7 +204,7 @@ export function FileNameInput({
       */}
       {problem !== null && name.length > 0 && (
         <span className="fx-file-name__problem" role="alert">
-          {describeFileNameProblem(problem)}
+          {describeFileNameProblem(problem, t)}
         </span>
       )}
     </div>

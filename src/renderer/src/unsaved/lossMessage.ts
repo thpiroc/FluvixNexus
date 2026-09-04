@@ -1,3 +1,4 @@
+import type { TFunction } from '../i18n/messages'
 import type { LossAction, LossItem, LossKind } from './types'
 
 /**
@@ -32,16 +33,16 @@ export interface LossPrompt {
 }
 
 /** その操作を言い表す言葉（「〜と、…」の前半）。 */
-function describeAction(action: LossAction): string {
+function describeAction(action: LossAction, t: TFunction): string {
   switch (action) {
     case 'close-workspace':
-      return 'Workspace を閉じる'
+      return t('unsaved.action.closeWorkspace')
 
     case 'switch-workspace':
-      return '別の Workspace へ切り替える'
+      return t('unsaved.action.switchWorkspace')
 
     case 'close-window':
-      return 'Fluvix Nexus を終了する'
+      return t('unsaved.action.closeWindow')
   }
 }
 
@@ -52,28 +53,26 @@ function describeAction(action: LossAction): string {
  * 実行中のターミナルは**終了する**もの ── 後者を「失われます」と書くと、
  * 何が消えるのかがぼやける。
  */
-function describeConsequence(kinds: ReadonlySet<LossKind>): string {
+function describeConsequence(kinds: ReadonlySet<LossKind>, t: TFunction): string {
   const files = kinds.has('unsaved-file')
   const terminals = kinds.has('running-terminal')
 
   if (files && terminals) {
-    return '次のファイルの未保存の変更が失われ、実行中のターミナルが終了します'
+    return t('unsaved.consequence.filesAndTerminals')
   }
 
-  return files
-    ? '次のファイルの未保存の変更が失われます'
-    : '次のターミナルで実行中のコマンドが終了します'
+  return files ? t('unsaved.consequence.files') : t('unsaved.consequence.terminals')
 }
 
-function describeTitle(kinds: ReadonlySet<LossKind>): string {
+function describeTitle(kinds: ReadonlySet<LossKind>, t: TFunction): string {
   const files = kinds.has('unsaved-file')
   const terminals = kinds.has('running-terminal')
 
   if (files && terminals) {
-    return '保存されていない変更と、実行中のターミナルがあります'
+    return t('unsaved.title.filesAndTerminals')
   }
 
-  return files ? '保存されていない変更があります' : '実行中のターミナルがあります'
+  return files ? t('unsaved.title.files') : t('unsaved.title.terminals')
 }
 
 /**
@@ -82,27 +81,39 @@ function describeTitle(kinds: ReadonlySet<LossKind>): string {
  * 何を捨てることになるのかをボタン自身に書く。「OK」では、押した後に何が
  * 起きるのかがボタンの外にしか無い（DeleteConfirm.tsx と同じ考え方）。
  */
-function describeDiscardLabel(action: LossAction, kinds: ReadonlySet<LossKind>): string {
+function describeDiscardLabel(
+  action: LossAction,
+  kinds: ReadonlySet<LossKind>,
+  t: TFunction
+): string {
   if (!kinds.has('running-terminal')) {
-    return '保存しない'
+    return t('unsaved.discard.withoutSaving')
   }
 
   const withFiles = kinds.has('unsaved-file')
 
   if (action === 'close-window') {
-    return withFiles ? '保存せずに終了' : '終了する'
+    return withFiles ? t('unsaved.discard.exitWithoutSaving') : t('unsaved.discard.exit')
   }
 
-  return withFiles ? '保存せずに続ける' : '続ける'
+  return withFiles ? t('unsaved.discard.continueWithoutSaving') : t('unsaved.discard.continue')
 }
 
-export function describeLossPrompt(action: LossAction, items: readonly LossItem[]): LossPrompt {
+export function describeLossPrompt(
+  action: LossAction,
+  items: readonly LossItem[],
+  t: TFunction
+): LossPrompt {
   const kinds = new Set(items.map((item) => item.kind))
 
   return {
-    title: describeTitle(kinds),
-    body: `${describeAction(action)}と、${describeConsequence(kinds)}。`,
-    discardLabel: describeDiscardLabel(action, kinds),
+    title: describeTitle(kinds, t),
+    // 並べ方も句読点も言語で変わるため、つなぎ方は辞書に持つ。
+    body: t('unsaved.body', {
+      action: describeAction(action, t),
+      consequence: describeConsequence(kinds, t)
+    }),
+    discardLabel: describeDiscardLabel(action, kinds, t),
     // 1件でも救えるものがあるときだけ「保存」を出す（types.ts の unsavable）。
     canSave: items.some((item) => !item.unsavable)
   }
@@ -116,9 +127,9 @@ export function describeLossPrompt(action: LossAction, items: readonly LossItem[
  * 普通であることを毎回書くと、書いてある方が目に入らなくなる
  * （TerminalTabs.tsx の describeStatus と同じ判断）。
  */
-export function describeLossNote(item: LossItem): string | null {
+export function describeLossNote(item: LossItem, t: TFunction): string | null {
   if (item.kind === 'running-terminal') {
-    return '実行中のコマンドがあります'
+    return t('unsaved.note.runningTerminal')
   }
 
   /*
@@ -130,7 +141,5 @@ export function describeLossNote(item: LossItem): string | null {
     救えるのは Editor の帯（EditorConflictBar.tsx）にある「別名で保存」だけなので、
     **押せない理由と一緒に、押せる場所を書く。**
   */
-  return item.unsavable
-    ? 'ディスク上から削除されています（Editor の「別名で保存」で救い出せます）'
-    : null
+  return item.unsavable ? t('unsaved.note.deletedFile') : null
 }

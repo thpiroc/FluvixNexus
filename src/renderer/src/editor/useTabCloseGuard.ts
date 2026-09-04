@@ -26,6 +26,14 @@ import type { EditorTab } from './editorTabsModel'
  */
 
 /** 確認が出ている対象。 */
+/**
+ * 保存を選んだのに閉じられなかった理由。
+ *
+ * `conflict` は「どちらを採るか決まっていない」だけで、利用者が
+ * Reload / Compare / 上書き を選べる場所へ戻せる。`failed` はそれ以外。
+ */
+export type TabCloseFailure = 'conflict' | 'failed'
+
 export interface TabCloseRequest {
   readonly tab: EditorTab
   /** 保存できる見込みが無いか（ディスクから消えている）。 */
@@ -38,7 +46,13 @@ export interface TabCloseGuard {
   /** 保存中か（ボタンを押せなくする）。 */
   readonly busy: boolean
   /** 保存できなかった理由。 */
-  readonly error: string | null
+  /**
+   * 保存できずに閉じられなかったときの結末（翻訳前）。
+   *
+   * 文言ではなく**どちらの結末か**を持つ。文言にすると、確認を出したまま
+   * 言語を切り替えたときに前の言語のまま取り残される（TabCloseConfirm.tsx）。
+   */
+  readonly error: TabCloseFailure | null
   /** 閉じる操作の入口。未保存なら確認を出し、そうでなければそのまま閉じる。 */
   readonly requestClose: (tabId: string) => void
   /** 保存してから閉じる。 */
@@ -52,7 +66,7 @@ export interface TabCloseGuard {
 export function useTabCloseGuard(controller: EditorController): TabCloseGuard {
   const [request, setRequest] = useState<TabCloseRequest | null>(null)
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<TabCloseFailure | null>(null)
 
   const { tabs, close, saveFile } = controller
 
@@ -124,11 +138,7 @@ export function useTabCloseGuard(controller: EditorController): TabCloseGuard {
         利用者が Reload / Compare / Overwrite を選べる場所へ戻せるようにする。
       */
       setBusy(false)
-      setError(
-        outcome === 'conflict'
-          ? 'ディスク側も変更されているため保存できませんでした。キャンセルして、Reload / Compare / 上書き から選んでください。'
-          : '保存できませんでした。内容を確認してから、もう一度お試しください。'
-      )
+      setError(outcome === 'conflict' ? 'conflict' : 'failed')
     })
   }, [close, finish, saveFile])
 

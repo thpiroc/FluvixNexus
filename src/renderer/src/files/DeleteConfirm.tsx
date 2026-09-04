@@ -1,5 +1,7 @@
 import { useEffect, useRef, type JSX } from 'react'
 import type { FileEntry } from '@shared/files'
+import { useI18n } from '../i18n/context'
+import type { TFunction } from '../i18n/messages'
 
 /**
  * 削除の確認。
@@ -37,20 +39,20 @@ interface DeleteConfirmProps {
   readonly onCancel: () => void
 }
 
-function describeTarget(entry: FileEntry, loadedChildCount: number | null): string {
+function describeTarget(entry: FileEntry, loadedChildCount: number | null, t: TFunction): string {
   if (entry.type === 'file') {
-    return `「${entry.name}」をごみ箱に移動します。`
+    return t('files.deleteConfirm.file', { name: entry.name })
   }
 
   if (loadedChildCount === 0) {
-    return `フォルダ「${entry.name}」をごみ箱に移動します。`
+    return t('files.deleteConfirm.emptyFolder', { name: entry.name })
   }
 
   if (loadedChildCount === null) {
-    return `フォルダ「${entry.name}」を中身ごとごみ箱に移動します。`
+    return t('files.deleteConfirm.folderUnknown', { name: entry.name })
   }
 
-  return `フォルダ「${entry.name}」を中身（${loadedChildCount} 件）ごとごみ箱に移動します。`
+  return t('files.deleteConfirm.folderWithCount', { name: entry.name, count: loadedChildCount })
 }
 
 export function DeleteConfirm({
@@ -60,6 +62,7 @@ export function DeleteConfirm({
   onConfirm,
   onCancel
 }: DeleteConfirmProps): JSX.Element {
+  const { t } = useI18n()
   const cancelRef = useRef<HTMLButtonElement | null>(null)
 
   /*
@@ -93,14 +96,14 @@ export function DeleteConfirm({
         className="fx-file-confirm__panel"
         role="alertdialog"
         aria-modal="true"
-        aria-label="削除の確認"
+        aria-label={t('files.deleteConfirm.ariaLabel')}
         data-entry-type={entry.type}
         data-relative-path={entry.relativePath}
         // 背景を押したら閉じるが、パネルの中は閉じる操作にしない。
         onPointerDown={(event) => event.stopPropagation()}
       >
-        <p className="fx-file-confirm__message">{describeTarget(entry, loadedChildCount)}</p>
-        <p className="fx-file-confirm__note">ごみ箱から元に戻せます。</p>
+        <p className="fx-file-confirm__message">{describeTarget(entry, loadedChildCount, t)}</p>
+        <p className="fx-file-confirm__note">{t('files.deleteConfirm.note')}</p>
 
         <div className="fx-file-confirm__actions">
           <button
@@ -109,7 +112,7 @@ export function DeleteConfirm({
             className="fx-file-confirm__button"
             onClick={onCancel}
           >
-            キャンセル
+            {t('common.actions.cancel')}
           </button>
           <button
             type="button"
@@ -118,7 +121,7 @@ export function DeleteConfirm({
             disabled={busy}
             onClick={onConfirm}
           >
-            ごみ箱に移動
+            {t('files.deleteConfirm.moveToTrash')}
           </button>
         </div>
       </div>

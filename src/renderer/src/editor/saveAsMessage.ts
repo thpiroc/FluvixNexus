@@ -1,3 +1,4 @@
+import type { TFunction } from '../i18n/messages'
 import type { EditorSaveAsNotice } from './useEditorSession'
 
 /**
@@ -20,26 +21,20 @@ import type { EditorSaveAsNotice } from './useEditorSession'
  * 2文目   このタブがどうなるか  ── 移らなかった場合だけ
  * ```
  */
-export function describeSaveAsNotice(notice: EditorSaveAsNotice): string {
+export function describeSaveAsNotice(notice: EditorSaveAsNotice, t: TFunction): string {
   if (notice.followed) {
-    return `${notice.name} へ保存しました。このタブはこのファイルを編集しています。`
+    return t('editor.saveAs.followed', { name: notice.name })
   }
 
   switch (notice.reason) {
     case 'outside-workspace':
-      return (
-        `${notice.name} へ保存しました（Workspace の外）。` +
-        'Workspace の外のファイルは開けないため、このタブは元のファイルを指したままです。'
-      )
+      return t('editor.saveAs.outsideWorkspace', { name: notice.name })
 
     case 'already-open':
-      return (
-        `${notice.name} へ保存しました。` +
-        'その場所は別のタブで開いているため、このタブは切り替えていません。'
-      )
+      return t('editor.saveAs.alreadyOpen', { name: notice.name })
 
     case null:
       // 移ったはずなのに followed が false。作れない組み合わせだが、黙らない。
-      return `${notice.name} へ保存しました。`
+      return t('editor.saveAs.saved', { name: notice.name })
   }
 }

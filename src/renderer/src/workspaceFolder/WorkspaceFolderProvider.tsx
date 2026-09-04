@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type ReactNode } from 'react'
+import type { IpcErrorPayload } from '@shared/ipc'
 import type { WorkspaceFolder } from '@shared/workspace'
 import { fluvix } from '../api/fluvix'
-import { describeIpcError } from '../api/result'
 import { useUnsavedChanges } from '../unsaved/context'
 import { WorkspaceFolderContext, type WorkspaceFolderController } from './context'
 
@@ -50,7 +50,8 @@ const INITIAL_STATE: WorkspaceFolderState = {
 
 export function WorkspaceFolderProvider({ children }: { children: ReactNode }): JSX.Element {
   const [state, setState] = useState<WorkspaceFolderState>(INITIAL_STATE)
-  const [error, setError] = useState<string | null>(null)
+  // 文言ではなく失敗そのものを持つ（言い表すのは描くとき。context.ts）。
+  const [error, setError] = useState<IpcErrorPayload | null>(null)
   const [busy, setBusy] = useState(false)
   const { confirmDiscard } = useUnsavedChanges()
 
@@ -126,7 +127,7 @@ export function WorkspaceFolderProvider({ children }: { children: ReactNode }): 
 
       if (!result.ok) {
         console.warn('[workspace-folder] フォルダを開けませんでした。', result.error)
-        setError(describeIpcError(result.error))
+        setError(result.error)
         return
       }
 
@@ -153,7 +154,7 @@ export function WorkspaceFolderProvider({ children }: { children: ReactNode }): 
 
       if (!result.ok) {
         console.warn('[workspace-folder] Workspace を閉じられませんでした。', result.error)
-        setError(describeIpcError(result.error))
+        setError(result.error)
         return
       }
 

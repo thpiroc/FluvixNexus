@@ -1,5 +1,6 @@
 import type { IpcErrorPayload } from '@shared/ipc'
 import { describeIpcError } from '../api/result'
+import type { TFunction } from '../i18n/messages'
 
 /**
  * Terminal の失敗を利用者向けの文言にする（React / DOM 非依存）。
@@ -16,7 +17,7 @@ import { describeIpcError } from '../api/result'
  * それ以外は言い換えない。言い換えるほど良いのではなく、
  * **次にすることが変わらない失敗まで別の文にすると、違いに意味が無くなる。**
  */
-export function describeTerminalError(error: IpcErrorPayload): string {
+export function describeTerminalError(error: IpcErrorPayload, t: TFunction): string {
   switch (error.code) {
     case 'NOT_FOUND':
       /*
@@ -24,16 +25,16 @@ export function describeTerminalError(error: IpcErrorPayload): string {
         入力しようとしたときの NOT_FOUND は「もう終わっている」。
         どちらも画面には終了として現れるため、起動の側の文言に寄せてある。
       */
-      return 'ターミナルを開くには、先にフォルダを開いてください。'
+      return t('terminal.error.noWorkspace')
 
     case 'CONFLICT':
-      return 'ターミナルを開きすぎています。使っていないものを閉じてください。'
+      return t('terminal.error.tooMany')
 
     case 'INTERNAL':
       // シェルを起動できなかった場合がここに来る（ConPTY が無い・実行ファイルが無い）。
-      return 'シェルを起動できませんでした。'
+      return t('terminal.error.shellFailed')
 
     default:
-      return describeIpcError(error)
+      return describeIpcError(error, t)
   }
 }

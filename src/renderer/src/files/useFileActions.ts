@@ -1,7 +1,8 @@
 import { useCallback, useRef, useState } from 'react'
 import type { FileEntry, FileEntryType } from '@shared/files'
+import type { IpcErrorPayload } from '@shared/ipc'
 import { fluvix } from '../api/fluvix'
-import { describeFileActionError } from './filesError'
+import type { FileActionKind } from './filesError'
 
 /**
  * ファイルの作成 / 改名 / 移動 / コピー / 削除を Main へ依頼する。
@@ -26,9 +27,21 @@ import { describeFileActionError } from './filesError'
  * ここで送る前に落としているのは体感のためであって、防御のためではない。
  */
 
+/**
+ * 直前の操作の失敗（どの操作で・何が起きたか）。
+ *
+ * 翻訳済みの文言ではなく**失敗そのもの**を持つ。文言にしてしまうと、
+ * エラーを出したまま言語を切り替えたときに前の言語のまま取り残される
+ * （言い表すのは描くとき。filesError.ts の describeFileActionError）。
+ */
+export interface FileActionFailure {
+  readonly action: FileActionKind
+  readonly error: IpcErrorPayload
+}
+
 export interface FileActionsController {
-  /** 直前の操作が失敗したときの利用者向けの文言。次の操作を始めると消える。 */
-  readonly error: string | null
+  /** 直前の操作が失敗したときの中身。次の操作を始めると消える。 */
+  readonly error: FileActionFailure | null
   /** 実行中（二重実行を防ぐ）。 */
   readonly busy: boolean
   readonly dismissError: () => void
@@ -82,7 +95,7 @@ export interface CopyResult {
 }
 
 export function useFileActions(): FileActionsController {
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<FileActionFailure | null>(null)
   const [busy, setBusy] = useState(false)
 
   /**
@@ -116,7 +129,7 @@ export function useFileActions(): FileActionsController {
         const result = await fluvix.files.create(input)
 
         if (!result.ok) {
-          setError(describeFileActionError('create', result.error))
+          setError({ action: 'create', error: result.error })
           return null
         }
 
@@ -131,7 +144,7 @@ export function useFileActions(): FileActionsController {
         const result = await fluvix.files.rename(input)
 
         if (!result.ok) {
-          setError(describeFileActionError('rename', result.error))
+          setError({ action: 'rename', error: result.error })
           return null
         }
 
@@ -146,7 +159,7 @@ export function useFileActions(): FileActionsController {
         const result = await fluvix.files.move(input)
 
         if (!result.ok) {
-          setError(describeFileActionError('move', result.error))
+          setError({ action: 'move', error: result.error })
           return null
         }
 
@@ -161,7 +174,7 @@ export function useFileActions(): FileActionsController {
         const result = await fluvix.files.copy(input)
 
         if (!result.ok) {
-          setError(describeFileActionError('copy', result.error))
+          setError({ action: 'copy', error: result.error })
           return null
         }
 
@@ -176,7 +189,7 @@ export function useFileActions(): FileActionsController {
         const result = await fluvix.files.remove(input)
 
         if (!result.ok) {
-          setError(describeFileActionError('delete', result.error))
+          setError({ action: 'delete', error: result.error })
           return false
         }
 

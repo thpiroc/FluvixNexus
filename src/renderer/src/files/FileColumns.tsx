@@ -10,6 +10,7 @@ import {
   type PointerEvent as ReactPointerEvent
 } from 'react'
 import { WORKSPACE_ROOT_RELATIVE_PATH, type FileEntry } from '@shared/files'
+import { useI18n } from '../i18n/context'
 import { useWorkspaceFolder } from '../workspaceFolder/context'
 import { FileDraftRow, FileNoteRow } from './FileRows'
 import { resolveEntryIconId } from './fileIcon'
@@ -87,6 +88,7 @@ export function FileColumns({
   layout,
   revealTarget = null
 }: FileColumnsProps): JSX.Element {
+  const { t } = useI18n()
   const { workspace, tree, drag, dropDirectory, dropSurface, activeDirectory } = controller
   const { directories, selectedId, draft } = tree
 
@@ -283,7 +285,7 @@ export function FileColumns({
       ref={drag.registerSurface}
       className="fx-files__columns"
       role="tree"
-      aria-label={`${workspace.displayName} のファイル（カラム表示）`}
+      aria-label={t('files.tree.columnsAriaLabel', { workspace: workspace.displayName })}
       data-drag-mode={drag.state?.mode}
       data-resizing={resize.active ? true : undefined}
       /*
@@ -327,8 +329,8 @@ export function FileColumns({
                 <button
                   type="button"
                   className="fx-file-row__action"
-                  aria-label="Workspace を閉じる"
-                  title="Workspace を閉じる"
+                  aria-label={t('files.tree.closeWorkspace')}
+                  title={t('files.tree.closeWorkspace')}
                   disabled={workspaceBusy}
                   onClick={(event) => {
                     event.stopPropagation()
@@ -423,7 +425,7 @@ export function FileColumns({
                     {renaming ? (
                       <FileNameInput
                         initialName={draft.initialName}
-                        ariaLabel={`${draft.initialName} の新しい名前`}
+                        ariaLabel={t('files.input.renameLabel', { name: draft.initialName })}
                         onCommit={(name) => controller.commitRename(draft.relativePath, name)}
                         onCancel={tree.cancelDraft}
                       />
@@ -462,7 +464,7 @@ export function FileColumns({
               className="fx-file-column__resize"
               role="separator"
               aria-orientation="vertical"
-              aria-label={`${column.name} のカラム幅`}
+              aria-label={t('files.tree.columnWidth', { name: column.name })}
               data-active={resize.active ? true : undefined}
               data-relative-path={column.relativePath}
               data-drop-surface={column.relativePath}

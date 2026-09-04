@@ -1,4 +1,5 @@
 import type { JSX } from 'react'
+import { useI18n } from '../i18n/context'
 import { NumberField } from '../ui/NumberField'
 import { Popover } from '../ui/Popover'
 import {
@@ -56,19 +57,21 @@ export function TerminalSettingsMenu({
   display,
   onFontSizeChange
 }: TerminalSettingsMenuProps): JSX.Element {
+  const { t } = useI18n()
+
   return (
     <Popover
       label="⚙"
-      buttonLabel="ターミナルの設定"
+      buttonLabel={t('terminal.settings.label')}
       buttonClassName="fx-terminal-tabs__button"
       role="dialog"
-      panelLabel="ターミナルの設定"
+      panelLabel={t('terminal.settings.label')}
       panelClassName="fx-terminal-settings"
     >
       {() => (
         <>
           <NumberField
-            label="文字の大きさ"
+            label={t('terminal.settings.fontSize')}
             unit="px"
             value={display.fontSize}
             min={TERMINAL_FONT_SIZE_MIN}
@@ -83,10 +86,7 @@ export function TerminalSettingsMenu({
             さかのぼれる行数の行き先を書いておく（Session 4-3B）── ここにあったものを
             移したので、探した人が空振りしたまま終わらないようにする。
           */}
-          <p className="fx-terminal-settings__note">
-            Enter か、欄から離れたときに反映されます。さかのぼれる行数は Settings の Terminal
-            で変えられます。設定はアプリを開き直しても残ります。
-          </p>
+          <p className="fx-terminal-settings__note">{t('terminal.settings.note')}</p>
         </>
       )}
     </Popover>

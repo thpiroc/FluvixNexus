@@ -1,4 +1,5 @@
 import type { JSX } from 'react'
+import { useI18n } from '../i18n/context'
 import { useEditorContext } from './context'
 import { EditorDocumentView } from './EditorDocumentView'
 import { EditorTabs } from './EditorTabs'
@@ -38,6 +39,7 @@ import './editor.css'
  * アプリ全体の設定とは別のものになる。
  */
 export function EditorWorkArea(): JSX.Element {
+  const { t } = useI18n()
   const controller = useEditorContext()
   const closeGuard = useTabCloseGuard(controller)
 
@@ -62,8 +64,8 @@ export function EditorWorkArea(): JSX.Element {
   if (tabs.length === 0) {
     return (
       <div className="fx-editor fx-editor--empty">
-        <p className="fx-editor__empty-title">ファイルが開かれていません</p>
-        <p className="fx-editor__empty-body">Files パネルでファイルを選ぶとここに開きます。</p>
+        <p className="fx-editor__empty-title">{t('editor.empty.title')}</p>
+        <p className="fx-editor__empty-body">{t('editor.empty.body')}</p>
       </div>
     )
   }
@@ -94,14 +96,14 @@ export function EditorWorkArea(): JSX.Element {
           className="fx-editor__save-as"
           data-testid="editor-save-as"
           disabled={activeTab === null || activeTab.document.status !== 'ready'}
-          title="保存先を選んで、このタブの内容を書き出します。"
+          title={t('editor.saveAs.title')}
           onClick={() => {
             if (activeTab !== null) {
               void saveFileAs(activeTab.id)
             }
           }}
         >
-          別名で保存
+          {t('editor.saveAs.button')}
         </button>
 
         {/*
@@ -131,11 +133,11 @@ export function EditorWorkArea(): JSX.Element {
           data-followed={saveAsNotice.followed}
           data-testid="editor-save-as-notice"
         >
-          <span>{describeSaveAsNotice(saveAsNotice)}</span>
+          <span>{describeSaveAsNotice(saveAsNotice, t)}</span>
           <button
             type="button"
             className="fx-editor__save-as-dismiss"
-            aria-label="閉じる"
+            aria-label={t('editor.saveAs.noticeDismissLabel')}
             onClick={dismissSaveAsNotice}
           >
             ×

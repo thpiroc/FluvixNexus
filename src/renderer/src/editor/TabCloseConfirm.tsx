@@ -1,6 +1,7 @@
 import { useEffect, useRef, type JSX } from 'react'
+import { useI18n } from '../i18n/context'
 import '../unsaved/unsaved.css'
-import type { TabCloseRequest } from './useTabCloseGuard'
+import type { TabCloseFailure, TabCloseRequest } from './useTabCloseGuard'
 
 /**
  * 未保存のタブを閉じる前の確認（1枚ぶん）。
@@ -17,7 +18,7 @@ import type { TabCloseRequest } from './useTabCloseGuard'
 interface TabCloseConfirmProps {
   readonly request: TabCloseRequest
   readonly busy: boolean
-  readonly error: string | null
+  readonly error: TabCloseFailure | null
   readonly onSave: () => void
   readonly onDiscard: () => void
   readonly onCancel: () => void
@@ -31,6 +32,7 @@ export function TabCloseConfirm({
   onDiscard,
   onCancel
 }: TabCloseConfirmProps): JSX.Element {
+  const { t } = useI18n()
   const cancelRef = useRef<HTMLButtonElement | null>(null)
 
   useEffect(() => {
@@ -55,13 +57,11 @@ export function TabCloseConfirm({
         data-testid="tab-close-dialog"
       >
         <h2 className="fx-unsaved__title" id="fx-tab-close-title">
-          {request.tab.name} の変更を保存しますか？
+          {t('editor.closeConfirm.title', { name: request.tab.name })}
         </h2>
 
         <p className="fx-unsaved__body">
-          {request.unsavable
-            ? 'このファイルはディスク上から削除されています。閉じると編集中の内容は失われます。'
-            : '保存しない場合、このファイルの未保存の変更は失われます。'}
+          {request.unsavable ? t('editor.closeConfirm.deletedBody') : t('editor.closeConfirm.body')}
         </p>
 
         <ul className="fx-unsaved__list">
@@ -73,7 +73,9 @@ export function TabCloseConfirm({
 
         {error !== null && (
           <p className="fx-unsaved__error" data-testid="tab-close-error">
-            {error}
+            {error === 'conflict'
+              ? t('editor.closeConfirm.saveFailedConflict')
+              : t('editor.closeConfirm.saveFailed')}
           </p>
         )}
 
@@ -86,7 +88,7 @@ export function TabCloseConfirm({
             data-testid="tab-close-cancel"
             onClick={onCancel}
           >
-            キャンセル
+            {t('common.actions.cancel')}
           </button>
 
           <button
@@ -97,7 +99,7 @@ export function TabCloseConfirm({
             data-testid="tab-close-discard"
             onClick={onDiscard}
           >
-            保存しない
+            {t('editor.closeConfirm.discard')}
           </button>
 
           {/*
@@ -113,7 +115,7 @@ export function TabCloseConfirm({
               data-testid="tab-close-save"
               onClick={onSave}
             >
-              {busy ? '保存中…' : '保存して閉じる'}
+              {busy ? t('editor.closeConfirm.saving') : t('editor.closeConfirm.saveAndClose')}
             </button>
           )}
         </div>

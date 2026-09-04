@@ -10,7 +10,6 @@ import { fluvix } from '../api/fluvix'
 import { useTheme } from '../theme/context'
 import { readTerminalThemeColors } from '../theme/themeTokens'
 import { type TerminalFontSizeCommand } from './terminalDisplay'
-import { describeTerminalError } from './terminalError'
 import { createTerminalScreenStore, type TerminalScreenStore } from './terminalScreenStore'
 import type { TerminalDisplaySettings } from './terminalSettings'
 import { useTerminalSettings } from './useTerminalSettings'
@@ -392,7 +391,8 @@ export function useTerminalTabs(workspaceId: string | null): TerminalTabsControl
           setState((current) =>
             updateTab(current, terminalId, {
               status: 'failed',
-              error: describeTerminalError(result.error)
+              // 文言ではなく失敗そのものを持つ（言い表すのは描くとき。TerminalView.tsx）。
+              error: result.error
             })
           )
 

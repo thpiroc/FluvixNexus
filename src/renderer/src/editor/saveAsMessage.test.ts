@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
+import { createTranslator } from '../i18n/messages'
 import { describeSaveAsNotice } from './saveAsMessage'
 import type { EditorSaveAsNotice } from './useEditorSession'
+
+/*
+  文言は辞書が正本になった（Session 4-5B）。日本語の翻訳器を渡して、
+  これまでと同じ文言・同じ言い分けが保たれていることを確かめる。
+*/
+const t = createTranslator('ja')
 
 /**
  * 別名で保存の知らせ（Session 4-2）。
@@ -26,25 +33,25 @@ describe('describeSaveAsNotice', () => {
     ]
 
     for (const item of all) {
-      expect(describeSaveAsNotice(item)).toContain('rescued.txt へ保存しました')
+      expect(describeSaveAsNotice(item, t)).toContain('rescued.txt へ保存しました')
     }
   })
 
   it('移った場合は、このタブが保存先を編集していることを言う', () => {
-    expect(describeSaveAsNotice(notice())).toBe(
+    expect(describeSaveAsNotice(notice(), t)).toBe(
       'rescued.txt へ保存しました。このタブはこのファイルを編集しています。'
     )
   })
 
   it('Workspace の外なら、タブが移らない理由を続けて書く', () => {
-    const text = describeSaveAsNotice(notice({ followed: false, reason: 'outside-workspace' }))
+    const text = describeSaveAsNotice(notice({ followed: false, reason: 'outside-workspace' }), t)
 
     expect(text).toContain('Workspace の外')
     expect(text).toContain('元のファイルを指したまま')
   })
 
   it('別のタブが開いている場合も、理由を続けて書く', () => {
-    const text = describeSaveAsNotice(notice({ followed: false, reason: 'already-open' }))
+    const text = describeSaveAsNotice(notice({ followed: false, reason: 'already-open' }), t)
 
     expect(text).toContain('別のタブで開いている')
     expect(text).toContain('切り替えていません')
@@ -52,8 +59,8 @@ describe('describeSaveAsNotice', () => {
 
   it('移らなかった知らせでは、失敗に読める言い方をしない', () => {
     const texts = [
-      describeSaveAsNotice(notice({ followed: false, reason: 'outside-workspace' })),
-      describeSaveAsNotice(notice({ followed: false, reason: 'already-open' }))
+      describeSaveAsNotice(notice({ followed: false, reason: 'outside-workspace' }), t),
+      describeSaveAsNotice(notice({ followed: false, reason: 'already-open' }), t)
     ]
 
     for (const text of texts) {

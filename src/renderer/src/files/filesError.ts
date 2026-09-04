@@ -5,6 +5,7 @@ import {
   type FileNameProblem
 } from '@shared/files'
 import type { IpcErrorCode, IpcErrorPayload } from '@shared/ipc'
+import type { TFunction, TranslationKey } from '../i18n/messages'
 import type { FileTreeErrorReason } from './fileTreeModel'
 
 /**
@@ -41,14 +42,14 @@ export function toFileTreeErrorReason(code: IpcErrorCode): FileTreeErrorReason {
   }
 }
 
-const MESSAGE_BY_REASON: Record<FileTreeErrorReason, string> = {
-  'not-found': 'フォルダが見つかりません',
-  'permission-denied': '読み取りが許可されていません',
-  unavailable: '読み込めませんでした'
+const MESSAGE_KEY_BY_REASON: Readonly<Record<FileTreeErrorReason, TranslationKey>> = {
+  'not-found': 'files.error.treeNotFound',
+  'permission-denied': 'files.error.treePermissionDenied',
+  unavailable: 'files.error.treeUnavailable'
 }
 
-export function describeFileTreeError(reason: FileTreeErrorReason): string {
-  return MESSAGE_BY_REASON[reason]
+export function describeFileTreeError(reason: FileTreeErrorReason, t: TFunction): string {
+  return t(MESSAGE_KEY_BY_REASON[reason])
 }
 
 /* ---------------------------------------------------------- 検索の失敗 */
@@ -68,19 +69,19 @@ export function describeFileTreeError(reason: FileTreeErrorReason): string {
  * （INVALID_REQUEST には「改行を含む語」が加わるが、利用者にとっては
  * どちらも「その語では検索できない」という同じ結論になる）。
  */
-export function describeFileSearchError(error: IpcErrorPayload): string {
+export function describeFileSearchError(error: IpcErrorPayload, t: TFunction): string {
   switch (error.code) {
     case 'NOT_FOUND':
-      return 'Workspace のフォルダが見つかりません（移動または削除された可能性があります）'
+      return t('files.error.searchNotFound')
 
     case 'PERMISSION_DENIED':
-      return 'Workspace のフォルダを読み取る権限がありません'
+      return t('files.error.searchPermissionDenied')
 
     case 'INVALID_REQUEST':
-      return 'その検索語では検索できません'
+      return t('files.error.searchInvalid')
 
     default:
-      return '検索できませんでした'
+      return t('files.error.searchUnavailable')
   }
 }
 
@@ -92,17 +93,17 @@ export function describeFileSearchError(error: IpcErrorPayload): string {
  * 入力欄の下にその場で出す。**何を直せばよいかが分かる形にする**のが要点で、
  * 「使えない名前です」だけだと、記号なのか長さなのか予約名なのかが分からない。
  */
-const MESSAGE_BY_NAME_PROBLEM: Record<FileNameProblem, string> = {
-  empty: '名前を入力してください',
-  'too-long': '名前が長すぎます（255 文字まで）',
-  'invalid-characters': '\\ / : * ? " < > | は使えません',
-  'dot-name': '「.」「..」は名前として使えません',
-  'trailing-character': '末尾に「.」や空白は使えません',
-  reserved: 'Windows が予約している名前です（CON / PRN / AUX / NUL / COM1-9 / LPT1-9）'
+const MESSAGE_KEY_BY_NAME_PROBLEM: Readonly<Record<FileNameProblem, TranslationKey>> = {
+  empty: 'files.error.nameEmpty',
+  'too-long': 'files.error.nameTooLong',
+  'invalid-characters': 'files.error.nameInvalidCharacters',
+  'dot-name': 'files.error.nameDotName',
+  'trailing-character': 'files.error.nameTrailingCharacter',
+  reserved: 'files.error.nameReserved'
 }
 
-export function describeFileNameProblem(problem: FileNameProblem): string {
-  return MESSAGE_BY_NAME_PROBLEM[problem]
+export function describeFileNameProblem(problem: FileNameProblem, t: TFunction): string {
+  return t(MESSAGE_KEY_BY_NAME_PROBLEM[problem])
 }
 
 /* -------------------------------------------------- 書き換えの失敗 */
@@ -110,12 +111,12 @@ export function describeFileNameProblem(problem: FileNameProblem): string {
 /** どの操作で失敗したか。同じコードでも操作によって言い方が変わるため区別する。 */
 export type FileActionKind = 'create' | 'rename' | 'move' | 'copy' | 'delete'
 
-const ACTION_LABEL: Record<FileActionKind, string> = {
-  create: '作成',
-  rename: '名前の変更',
-  move: '移動',
-  copy: 'コピー',
-  delete: '削除'
+const ACTION_LABEL_KEY: Readonly<Record<FileActionKind, TranslationKey>> = {
+  create: 'files.error.actionCreate',
+  rename: 'files.error.actionRename',
+  move: 'files.error.actionMove',
+  copy: 'files.error.actionCopy',
+  delete: 'files.error.actionDelete'
 }
 
 /**
@@ -123,14 +124,14 @@ const ACTION_LABEL: Record<FileActionKind, string> = {
  *
  * 「削除が許可されていません」で止めると、対象が悪いのか場所が悪いのかが分からない。
  */
-const PERMISSION_MESSAGE: Record<FileActionKind, string> = {
-  create: 'この場所に作成する権限がありません',
-  rename: 'このファイル / フォルダの名前を変更する権限がありません',
+const PERMISSION_MESSAGE_KEY: Readonly<Record<FileActionKind, TranslationKey>> = {
+  create: 'files.error.permissionCreate',
+  rename: 'files.error.permissionRename',
   // 移動は元と先の2箇所を触るため、どちらが断られたかは Main 側でも区別できない。
   // 言い切らずに「この移動は許可されていない」ところで止める。
-  move: '移動元または移動先に対する権限がありません',
-  copy: 'コピー元またはコピー先に対する権限がありません',
-  delete: 'このファイル / フォルダを削除する権限がありません'
+  move: 'files.error.permissionMove',
+  copy: 'files.error.permissionCopy',
+  delete: 'files.error.permissionDelete'
 }
 
 /**
@@ -143,12 +144,12 @@ const PERMISSION_MESSAGE: Record<FileActionKind, string> = {
  * あたりになる。何も心当たりを出さずに突き放すより、
  * **試せることを1つ添える**方が次の一手につながる。
  */
-const UNKNOWN_MESSAGE: Record<FileActionKind, string> = {
-  create: '作成に失敗しました',
-  rename: '名前の変更に失敗しました',
-  move: '移動に失敗しました',
-  copy: 'コピーに失敗しました',
-  delete: '削除できませんでした（ごみ箱に送れない場所にあるか、名前が特殊な可能性があります）'
+const UNKNOWN_MESSAGE_KEY: Readonly<Record<FileActionKind, TranslationKey>> = {
+  create: 'files.error.unknownCreate',
+  rename: 'files.error.unknownRename',
+  move: 'files.error.unknownMove',
+  copy: 'files.error.unknownCopy',
+  delete: 'files.error.unknownDelete'
 }
 
 /**
@@ -169,7 +170,11 @@ const UNKNOWN_MESSAGE: Record<FileActionKind, string> = {
  * **Main の message / detail はそのまま出さない。** あれは開発者向けで、
  * ごみ箱 API の生の文言（"Failed to parse path" など）は原因とすら対応していない。
  */
-export function describeFileActionError(action: FileActionKind, error: IpcErrorPayload): string {
+export function describeFileActionError(
+  action: FileActionKind,
+  error: IpcErrorPayload,
+  t: TFunction
+): string {
   /*
     コピーが途中で止まった場合だけ、分類（権限 / 使用中 / それ以外）より先に見る。
     **原因が何であれ次の一手は同じ**（残ったものを消して、もう一度試す）で、
@@ -177,23 +182,21 @@ export function describeFileActionError(action: FileActionKind, error: IpcErrorP
     （shared/files/copy.ts）。
   */
   if (error.detail === COPY_PARTIAL_DETAIL) {
-    return 'コピーが途中で止まりました（作りかけがコピー先に残っています）'
+    return t('files.error.copyPartial')
   }
 
   if (error.code === 'INVALID_REQUEST') {
     if (isFileNameProblem(error.detail)) {
-      return describeFileNameProblem(error.detail)
+      return describeFileNameProblem(error.detail, t)
     }
 
     if (error.detail === MOVE_INTO_SELF_DETAIL) {
       // 理由は移動と同じ（shared/files/move.ts）。言い方だけを操作に合わせる。
-      return action === 'copy'
-        ? 'フォルダを自分自身の中へはコピーできません'
-        : 'フォルダを自分自身の中へは移動できません'
+      return action === 'copy' ? t('files.error.copyIntoSelf') : t('files.error.moveIntoSelf')
     }
 
     if (error.detail === COPY_LINK_SOURCE_DETAIL) {
-      return 'リンク（symlink / ジャンクション）はコピーできません'
+      return t('files.error.copyLinkSource')
     }
   }
 
@@ -205,28 +208,26 @@ export function describeFileActionError(action: FileActionKind, error: IpcErrorP
         名前を変えれば通ることが伝わらない。
       */
       if (action === 'copy') {
-        return 'コピー先に同じ名前のものが多すぎます（名前を整理してからお試しください）'
+        return t('files.error.conflictCopy')
       }
 
       // 移動は行き先が別のフォルダにあり、そこに何があるかは見えていないことが多い。
-      return action === 'move'
-        ? '移動先に同じ名前のファイル / フォルダが既にあります'
-        : '同じ名前のファイル / フォルダが既にあります'
+      return action === 'move' ? t('files.error.conflictMove') : t('files.error.conflictDefault')
 
     case 'BUSY':
-      return `他のアプリで使用されている可能性があります。閉じてからもう一度${ACTION_LABEL[action]}をお試しください`
+      return t('files.error.busy', { action: t(ACTION_LABEL_KEY[action]) })
 
     case 'PERMISSION_DENIED':
-      return PERMISSION_MESSAGE[action]
+      return t(PERMISSION_MESSAGE_KEY[action])
 
     case 'NOT_FOUND':
-      return '対象が見つかりません（既に削除された可能性があります）'
+      return t('files.error.notFound')
 
     case 'INVALID_REQUEST':
-      return 'その名前 / 場所は指定できません'
+      return t('files.error.invalidLocation')
 
     default:
-      return UNKNOWN_MESSAGE[action]
+      return t(UNKNOWN_MESSAGE_KEY[action])
   }
 }
 

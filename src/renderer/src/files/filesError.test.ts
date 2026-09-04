@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { COPY_LINK_SOURCE_DETAIL, COPY_PARTIAL_DETAIL, MOVE_INTO_SELF_DETAIL } from '@shared/files'
 import type { IpcErrorCode, IpcErrorPayload } from '@shared/ipc'
+import { createTranslator } from '../i18n/messages'
 import { describeFileActionError, type FileActionKind } from './filesError'
 
 /**
@@ -28,6 +29,12 @@ const ALL_ERROR_CODES: readonly IpcErrorCode[] = [
 
 const ALL_ACTIONS: readonly FileActionKind[] = ['create', 'rename', 'move', 'copy', 'delete']
 
+/*
+  文言は辞書が正本になった（Session 4-5B）。日本語の翻訳器を渡して、
+  これまでと同じ言い分けが保たれていることを確かめる。
+*/
+const t = createTranslator('ja')
+
 /** Main から実際に届く形（message と detail は開発者向け）。 */
 function payload(code: IpcErrorCode, detail?: string): IpcErrorPayload {
   return detail === undefined
@@ -39,7 +46,7 @@ describe('describeFileActionError', () => {
   it('すべてのコードと操作の組み合わせに文言がある', () => {
     for (const action of ALL_ACTIONS) {
       for (const code of ALL_ERROR_CODES) {
-        expect(describeFileActionError(action, payload(code)).length).toBeGreaterThan(0)
+        expect(describeFileActionError(action, payload(code), t).length).toBeGreaterThan(0)
       }
     }
   })
@@ -54,7 +61,8 @@ describe('describeFileActionError', () => {
       for (const code of ALL_ERROR_CODES) {
         const message = describeFileActionError(
           action,
-          payload(code, 'Error: Failed to parse path (probe: unknown at the target)')
+          payload(code, 'Error: Failed to parse path (probe: unknown at the target)'),
+          t
         )
 
         expect(message).not.toContain('Failed to parse path')
@@ -68,26 +76,26 @@ describe('describeFileActionError', () => {
 
   it('削除の4分類が、それぞれ別の文言になる', () => {
     const messages = (['BUSY', 'PERMISSION_DENIED', 'NOT_FOUND', 'INTERNAL'] as const).map((code) =>
-      describeFileActionError('delete', payload(code))
+      describeFileActionError('delete', payload(code), t)
     )
 
     expect(new Set(messages).size).toBe(messages.length)
   })
 
   it('使用中は「閉じてやり直す」と分かる', () => {
-    const message = describeFileActionError('delete', payload('BUSY'))
+    const message = describeFileActionError('delete', payload('BUSY'), t)
 
     expect(message).toContain('使用')
     expect(message).toContain('閉じて')
   })
 
   it('権限が無いときは、権限の話だと分かる', () => {
-    expect(describeFileActionError('delete', payload('PERMISSION_DENIED'))).toContain('権限')
-    expect(describeFileActionError('create', payload('PERMISSION_DENIED'))).toContain('権限')
+    expect(describeFileActionError('delete', payload('PERMISSION_DENIED'), t)).toContain('権限')
+    expect(describeFileActionError('create', payload('PERMISSION_DENIED'), t)).toContain('権限')
   })
 
   it('対象が無いときは、既に消えている可能性まで伝える', () => {
-    const message = describeFileActionError('delete', payload('NOT_FOUND'))
+    const message = describeFileActionError('delete', payload('NOT_FOUND'), t)
 
     expect(message).toContain('見つかりません')
     expect(message).toContain('削除された')
@@ -99,27 +107,27 @@ describe('describeFileActionError', () => {
     （「失敗しました」で終わると、利用者にできることが無くなる）。
   */
   it('理由の分からない削除には、試せる心当たりを添える', () => {
-    const message = describeFileActionError('delete', payload('INTERNAL'))
+    const message = describeFileActionError('delete', payload('INTERNAL'), t)
 
     expect(message).toContain('ごみ箱')
-    expect(message).not.toBe(describeFileActionError('create', payload('INTERNAL')))
+    expect(message).not.toBe(describeFileActionError('create', payload('INTERNAL'), t))
   })
 
   /* ------------------------------------------------------------ 名前の問題 */
 
   it('名前の問題は detail から拾って、何を直せばよいかを出す', () => {
-    expect(describeFileActionError('create', payload('INVALID_REQUEST', 'reserved'))).toContain(
+    expect(describeFileActionError('create', payload('INVALID_REQUEST', 'reserved'), t)).toContain(
       'Windows'
     )
 
     expect(
-      describeFileActionError('rename', payload('INVALID_REQUEST', 'trailing-character'))
+      describeFileActionError('rename', payload('INVALID_REQUEST', 'trailing-character'), t)
     ).toContain('末尾')
   })
 
   it('detail が名前の問題でなければ、そちらには寄せない', () => {
-    expect(describeFileActionError('create', payload('INVALID_REQUEST', 'EPERM'))).toBe(
-      describeFileActionError('create', payload('INVALID_REQUEST'))
+    expect(describeFileActionError('create', payload('INVALID_REQUEST', 'EPERM'), t)).toBe(
+      describeFileActionError('create', payload('INVALID_REQUEST'), t)
     )
   })
 
@@ -131,8 +139,16 @@ describe('describeFileActionError', () => {
     利用者に見せる文言までは揃えない。
   */
   it('自分自身の中への指定は、移動とコピーで言い方が変わる', () => {
-    const move = describeFileActionError('move', payload('INVALID_REQUEST', MOVE_INTO_SELF_DETAIL))
-    const copy = describeFileActionError('copy', payload('INVALID_REQUEST', MOVE_INTO_SELF_DETAIL))
+    const move = describeFileActionError(
+      'move',
+      payload('INVALID_REQUEST', MOVE_INTO_SELF_DETAIL),
+      t
+    )
+    const copy = describeFileActionError(
+      'copy',
+      payload('INVALID_REQUEST', MOVE_INTO_SELF_DETAIL),
+      t
+    )
 
     expect(move).toContain('移動')
     expect(copy).toContain('コピー')
@@ -141,7 +157,7 @@ describe('describeFileActionError', () => {
 
   it('リンクのコピーは、リンクだから断られたと分かる', () => {
     expect(
-      describeFileActionError('copy', payload('INVALID_REQUEST', COPY_LINK_SOURCE_DETAIL))
+      describeFileActionError('copy', payload('INVALID_REQUEST', COPY_LINK_SOURCE_DETAIL), t)
     ).toContain('リンク')
   })
 
@@ -150,9 +166,9 @@ describe('describeFileActionError', () => {
     候補を使い切った場合だけなので、「同じ名前がある」で止めると次の一手が伝わらない。
   */
   it('コピーの CONFLICT は、移動の同名衝突とは別の文言になる', () => {
-    const copy = describeFileActionError('copy', payload('CONFLICT'))
+    const copy = describeFileActionError('copy', payload('CONFLICT'), t)
 
-    expect(copy).not.toBe(describeFileActionError('move', payload('CONFLICT')))
+    expect(copy).not.toBe(describeFileActionError('move', payload('CONFLICT'), t))
     expect(copy).toContain('多すぎ')
   })
 
@@ -163,11 +179,11 @@ describe('describeFileActionError', () => {
   it.each(['PERMISSION_DENIED', 'BUSY', 'INTERNAL'] as const)(
     'コピーが途中で止まったことは、原因（%s）によらず同じ文言で伝わる',
     (code) => {
-      const message = describeFileActionError('copy', payload(code, COPY_PARTIAL_DETAIL))
+      const message = describeFileActionError('copy', payload(code, COPY_PARTIAL_DETAIL), t)
 
       expect(message).toContain('残っています')
       expect(message).toBe(
-        describeFileActionError('copy', payload('PERMISSION_DENIED', COPY_PARTIAL_DETAIL))
+        describeFileActionError('copy', payload('PERMISSION_DENIED', COPY_PARTIAL_DETAIL), t)
       )
     }
   )

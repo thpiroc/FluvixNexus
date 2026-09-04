@@ -1,4 +1,5 @@
 import { useEffect, useMemo, type JSX, type ReactNode } from 'react'
+import { useI18n } from '../i18n/context'
 import { useUnsavedChanges } from '../unsaved/context'
 import type { LossItem, LossSource } from '../unsaved/types'
 import { useWorkspaceFolder } from '../workspaceFolder/context'
@@ -37,6 +38,7 @@ import { useTerminalTabs } from './useTerminalTabs'
 export function TerminalProvider({ children }: { children: ReactNode }): JSX.Element {
   const { workspace } = useWorkspaceFolder()
   const controller = useTerminalTabs(workspace?.id ?? null)
+  const { t } = useI18n()
   const { registerSource } = useUnsavedChanges()
 
   const { tabs, listBusyTabs } = controller
@@ -54,21 +56,23 @@ export function TerminalProvider({ children }: { children: ReactNode }): JSX.Ele
         return busy.map((tab) => ({
           id: tab.id,
           kind: 'running-terminal',
-          name: tab.shellName ?? 'ターミナル',
+          name: tab.shellName ?? t('terminal.tabs.fallbackName'),
           /*
             どのタブのことかを、利用者が見ている並びで言う。同じ名前のタブが
             並ぶことがあり（PowerShell を2本開いた場合）、名前だけでは
             どれのことか分からない。中で何が動いているかは持っていない
             （main/terminal/childProcesses.ts ── 名前は持ち帰らない）。
           */
-          detail: `${tabs.findIndex((candidate) => candidate.id === tab.id) + 1} 番目のタブ`,
+          detail: t('terminal.unsaved.tabDetail', {
+            index: tabs.findIndex((candidate) => candidate.id === tab.id) + 1
+          }),
           // 保存にあたるものが無い（このファイルの冒頭）。
           unsavable: true
         }))
       },
       saveAll: async (): Promise<boolean> => true
     }),
-    [tabs, listBusyTabs]
+    [tabs, listBusyTabs, t]
   )
 
   useEffect(() => registerSource(source), [registerSource, source])

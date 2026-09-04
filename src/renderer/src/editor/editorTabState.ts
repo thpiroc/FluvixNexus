@@ -1,3 +1,5 @@
+import type { TFunction } from '../i18n/messages'
+
 /**
  * Editor Tab が取りうる状態（React にも DOM にも Monaco にも依存しない）。
  *
@@ -79,19 +81,19 @@ export function hasUnsavedChanges(state: EditorTabState): boolean {
   return state !== 'clean'
 }
 
-/** UI に出す短い説明。 */
-export function describeEditorTabState(state: EditorTabState): string | null {
+/** UI に出す短い説明（文言の正本は辞書。t は呼び出し側が渡す）。 */
+export function describeEditorTabState(state: EditorTabState, t: TFunction): string | null {
   switch (state) {
     case 'clean':
       return null
 
     case 'dirty':
-      return '未保存'
+      return t('editor.tabs.dirty')
 
     case 'conflict':
-      return '未保存（ディスク側も変更されています）'
+      return t('editor.tabs.conflict')
 
     case 'deleted':
-      return '未保存（ディスク上から削除されました）'
+      return t('editor.tabs.deleted')
   }
 }

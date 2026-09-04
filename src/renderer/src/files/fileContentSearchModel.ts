@@ -8,6 +8,9 @@ import {
   type FileContentMatchFile,
   type FileContentSearchLimit
 } from '@shared/files'
+import type { IpcErrorPayload } from '@shared/ipc'
+import type { TFunction } from '../i18n/messages'
+import { describeFileSearchError } from './filesError'
 
 /**
  * 全文検索の状態と、それを画面に並べる形（React にも DOM にも依存しない）。
@@ -62,8 +65,13 @@ export type FileContentSearchState =
       readonly files: readonly FileContentMatchFile[]
       readonly matchCount: number
     }
-  /** 探せなかった。 */
-  | { readonly status: 'error'; readonly query: string; readonly message: string }
+  /**
+   * 探せなかった。
+   *
+   * 名前の検索（fileSearchModel.ts）と同じく、翻訳済みの文字列ではなく
+   * **失敗そのもの**を持つ。言い表すのは描くとき（Session 4-5B）。
+   */
+  | { readonly status: 'error'; readonly query: string; readonly error: IpcErrorPayload }
 
 /** その状態で画面に出ている結果（結果を持たない状態では空）。 */
 export function contentSearchFilesOf(
@@ -181,31 +189,36 @@ export function isFocusableContentRow(
  * 名前の検索（fileSearchModel.ts）と同じく**数を出す**。
  * 数の正本は shared/files/contentSearch.ts で、Main と同じ値を見ている。
  */
-export function describeFileContentSearchLimit(limit: FileContentSearchLimit): string {
+export function describeFileContentSearchLimit(
+  limit: FileContentSearchLimit,
+  t: TFunction
+): string {
   switch (limit) {
     case 'matches':
-      return `上限（${FILE_CONTENT_SEARCH_MAX_MATCHES} 件）まで表示しています。語を足すと絞り込めます`
+      return t('files.search.limits.matches', { max: FILE_CONTENT_SEARCH_MAX_MATCHES })
 
     case 'files':
-      return `ファイルが多いため、${FILE_CONTENT_SEARCH_MAX_FILES} 件まで読んで打ち切りました`
+      return t('files.search.limits.files', { max: FILE_CONTENT_SEARCH_MAX_FILES })
 
     case 'scanned':
-      return 'ファイルが多いため、途中で打ち切りました（見つからない場合は場所を絞ってください）'
+      return t('files.search.limits.scanned')
 
     case 'time':
-      return '時間がかかりすぎたため、途中で打ち切りました'
+      return t('files.search.limits.time')
 
     case 'depth':
-      return `深い階層（${FILE_SEARCH_MAX_DEPTH} 段より下）は検索していません`
+      return t('files.search.limits.depth', { max: FILE_SEARCH_MAX_DEPTH })
 
     case 'file-matches':
-      return `1ファイルにつき ${FILE_CONTENT_SEARCH_MAX_MATCHES_PER_FILE} 件までを表示しています`
+      return t('files.search.limits.fileMatches', {
+        max: FILE_CONTENT_SEARCH_MAX_MATCHES_PER_FILE
+      })
   }
 }
 
 /** 「3 件（2 ファイル）」。何件がどれだけのファイルに散っているかで、次の一手が変わる。 */
-function describeFound(matchCount: number, fileCount: number): string {
-  return `${matchCount} 件（${fileCount} ファイル）`
+function describeFound(matchCount: number, fileCount: number, t: TFunction): string {
+  return t('files.search.foundContent', { matchCount, fileCount })
 }
 
 /**
@@ -214,33 +227,43 @@ function describeFound(matchCount: number, fileCount: number): string {
  * 検索欄のすぐ下に出す文言で、結果の一覧とは別に持つ
  * （0 件・取り消し・失敗は、並べる行が無い状態でも伝える必要がある）。
  */
-export function summarizeFileContentSearch(state: FileContentSearchState): string | null {
+export function summarizeFileContentSearch(
+  state: FileContentSearchState,
+  t: TFunction
+): string | null {
   switch (state.status) {
     case 'idle':
       return null
 
     case 'searching':
-      return '検索中…'
+      return t('files.search.searching')
 
     case 'done': {
       if (state.matchCount === 0) {
         // 「ファイルが無い」ではない ── 探したのは中身なので、そこを言い分ける。
-        return '一致するテキストはありません'
+        return t('files.search.noText')
       }
 
-      const found = describeFound(state.matchCount, state.files.length)
+      const found = describeFound(state.matchCount, state.files.length, t)
 
+      // 区切りは言語ごとに違うため辞書に持つ（fileSearchModel.ts と同じ形）。
       return state.limit === null
         ? found
-        : `${found}・${describeFileContentSearchLimit(state.limit)}`
+        : t('files.search.summaryWithLimit', {
+            summary: found,
+            limit: describeFileContentSearchLimit(state.limit, t)
+          })
     }
 
     case 'cancelled':
       return state.matchCount === 0
-        ? '検索を中止しました'
-        : `検索を中止しました（${describeFound(state.matchCount, state.files.length)}まで）`
+        ? t('files.search.cancelled')
+        : t('files.search.cancelledContentWithCount', {
+            matchCount: state.matchCount,
+            fileCount: state.files.length
+          })
 
     case 'error':
-      return state.message
+      return describeFileSearchError(state.error, t)
   }
 }

@@ -1,5 +1,7 @@
 import type { JSX } from 'react'
 import { TERMINAL_DEFAULT_SHELL_ID, type TerminalShellChoice } from '@shared/terminal'
+import { useI18n } from '../i18n/context'
+import type { TFunction } from '../i18n/messages'
 import { DropdownMenu, type DropdownMenuItem } from '../ui/DropdownMenu'
 import type { TerminalDisplaySettings } from './terminalSettings'
 import { TerminalSettingsMenu } from './TerminalSettingsMenu'
@@ -98,6 +100,7 @@ export function TerminalTabs({
   display,
   onFontSizeChange
 }: TerminalTabsProps): JSX.Element {
+  const { t } = useI18n()
   const available = shells.filter((shell) => shell.available)
 
   const shellItems: readonly DropdownMenuItem[] = available.map((shell) => ({
@@ -108,11 +111,11 @@ export function TerminalTabs({
 
   return (
     <div className="fx-terminal__bar">
-      <div className="fx-terminal-tabs" role="tablist" aria-label="開いているターミナル">
+      <div className="fx-terminal-tabs" role="tablist" aria-label={t('terminal.tabs.ariaLabel')}>
         {tabs.map((tab) => {
           const active = tab.id === activeTabId
-          const name = tab.shellName ?? 'ターミナル'
-          const note = describeStatus(tab.status, tab.exitCode)
+          const name = tab.shellName ?? t('terminal.tabs.fallbackName')
+          const note = describeStatus(tab.status, tab.exitCode, t)
           /*
             起動したフォルダが、今開いているフォルダと違う。
             Workspace が未選択のときは出さない ── 比べる相手が無い状態で
@@ -131,7 +134,7 @@ export function TerminalTabs({
               data-status={tab.status}
               data-foreign={foreign}
               data-terminal-id={tab.id}
-              title={describeTabTitle(name, note, foreign)}
+              title={describeTabTitle(name, note, foreign, t)}
             >
               <button
                 type="button"
@@ -150,7 +153,7 @@ export function TerminalTabs({
               <button
                 type="button"
                 className="fx-terminal-tab__close"
-                aria-label={`${name} を閉じる`}
+                aria-label={t('terminal.tabs.closeLabel', { name })}
                 disabled={tab.id === closingTabId}
                 onClick={() => onClose(tab.id)}
               >
@@ -168,8 +171,8 @@ export function TerminalTabs({
       <button
         type="button"
         className="fx-terminal-tabs__button"
-        aria-label="新しいターミナル"
-        title="新しいターミナル"
+        aria-label={t('terminal.tabs.newLabel')}
+        title={t('terminal.tabs.newTitle')}
         disabled={!canOpen}
         onClick={() => onOpen(TERMINAL_DEFAULT_SHELL_ID)}
       >
@@ -183,7 +186,7 @@ export function TerminalTabs({
       {available.length > 1 && canOpen && (
         <DropdownMenu
           label="⌄"
-          buttonLabel="開くシェルを選ぶ"
+          buttonLabel={t('terminal.tabs.shellMenuLabel')}
           buttonClassName="fx-terminal-tabs__button"
           items={shellItems}
           onOpen={onShellMenuOpen}
@@ -206,12 +209,23 @@ export function TerminalTabs({
  * 印（⌂）だけでは何のことか分からないので、言葉はここで足す。
  * どのフォルダかまでは書けない ── Renderer はパスを持っていない。
  */
-function describeTabTitle(name: string, note: string | null, foreign: boolean): string {
-  const notes = [note, foreign ? '別のフォルダで起動' : null].filter(
+function describeTabTitle(
+  name: string,
+  note: string | null,
+  foreign: boolean,
+  t: TFunction
+): string {
+  const notes = [note, foreign ? t('terminal.tabs.foreign') : null].filter(
     (item): item is string => item !== null
   )
 
-  return notes.length === 0 ? name : `${name}（${notes.join('・')}）`
+  // 並べ方も区切りも言語で変わるため、組み立ては辞書に任せる。
+  return notes.length === 0
+    ? name
+    : t('terminal.tabs.titleWithNotes', {
+        name,
+        notes: notes.join(t('terminal.tabs.noteSeparator'))
+      })
 }
 
 /**
@@ -220,19 +234,25 @@ function describeTabTitle(name: string, note: string | null, foreign: boolean): 
  * `running` に何も添えないのは、それが**普通の状態**だから。
  * 普通であることを毎回書くと、書いてある方が目に入らなくなる。
  */
-function describeStatus(status: TerminalStatus, exitCode: number | null): string | null {
+function describeStatus(
+  status: TerminalStatus,
+  exitCode: number | null,
+  t: TFunction
+): string | null {
   switch (status) {
     case 'idle':
     case 'running':
       return null
 
     case 'starting':
-      return '起動中'
+      return t('terminal.tabs.starting')
 
     case 'exited':
-      return exitCode === null ? '終了' : `終了 ${exitCode}`
+      return exitCode === null
+        ? t('terminal.tabs.exited')
+        : t('terminal.tabs.exitedWithCode', { code: exitCode })
 
     case 'failed':
-      return '失敗'
+      return t('terminal.tabs.failed')
   }
 }

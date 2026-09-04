@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type JSX } from 'react'
 import { WORKSPACE_ROOT_RELATIVE_PATH, type FileEntry } from '@shared/files'
+import { useI18n } from '../i18n/context'
+import type { TFunction } from '../i18n/messages'
 import { canPasteInto, type FilesClipboard } from './clipboard'
 import { canMoveInto } from './moveTarget'
 
@@ -107,7 +109,8 @@ function buildItems(
   entry: FileEntry,
   actions: FileContextMenuActions,
   pendingMove: FileEntry | null,
-  clipboard: FilesClipboard | null
+  clipboard: FilesClipboard | null,
+  t: TFunction
 ): readonly MenuItem[] {
   const isRoot = entry.relativePath === WORKSPACE_ROOT_RELATIVE_PATH
   const items: MenuItem[] = []
@@ -120,13 +123,13 @@ function buildItems(
     if (entry.type === 'directory' && canMoveInto(pendingMove, entry.relativePath)) {
       items.push({
         key: 'move-into',
-        label: `「${pendingMove.name}」をここへ移動`,
+        label: t('files.menu.moveInto', { name: pendingMove.name }),
         run: () => actions.onMoveInto(entry.relativePath)
       })
     }
 
     // 移動先になれない場所を右クリックしたときでも、やめる手段は必ず出す。
-    items.push({ key: 'move-cancel', label: '移動をやめる', run: actions.onCancelMove })
+    items.push({ key: 'move-cancel', label: t('files.menu.cancelMove'), run: actions.onCancelMove })
   }
 
   /*
@@ -139,28 +142,32 @@ function buildItems(
     if (entry.type === 'directory' && canPasteInto(clipboard, entry.relativePath)) {
       items.push({
         key: 'paste-into',
-        label: `「${clipboard.entry.name}」をここに貼り付け`,
+        label: t('files.menu.pasteInto', { name: clipboard.entry.name }),
         run: () => actions.onPasteInto(entry.relativePath)
       })
     }
 
     // 貼り付け先になれない場所を右クリックしたときでも、やめる手段は必ず出す。
-    items.push({ key: 'paste-clear', label: 'コピーをやめる', run: actions.onClearClipboard })
+    items.push({
+      key: 'paste-clear',
+      label: t('files.menu.cancelCopy'),
+      run: actions.onClearClipboard
+    })
   }
 
   if (isRoot) {
     items.push(
       {
         key: 'new-file',
-        label: '新規ファイル',
+        label: t('files.menu.newFile'),
         run: () => actions.onCreate(entry.relativePath, 'file')
       },
       {
         key: 'new-folder',
-        label: '新規フォルダ',
+        label: t('files.menu.newFolder'),
         run: () => actions.onCreate(entry.relativePath, 'directory')
       },
-      { key: 'reload', label: '再読み込み', run: actions.onReload }
+      { key: 'reload', label: t('files.menu.reload'), run: actions.onReload }
     )
 
     return items
@@ -170,20 +177,20 @@ function buildItems(
     items.push(
       {
         key: 'new-file',
-        label: '新規ファイル',
+        label: t('files.menu.newFile'),
         run: () => actions.onCreate(entry.relativePath, 'file')
       },
       {
         key: 'new-folder',
-        label: '新規フォルダ',
+        label: t('files.menu.newFolder'),
         run: () => actions.onCreate(entry.relativePath, 'directory')
       }
     )
   } else {
-    items.push({ key: 'open', label: '開く', run: () => actions.onOpen(entry) })
+    items.push({ key: 'open', label: t('files.menu.open'), run: () => actions.onOpen(entry) })
   }
 
-  items.push({ key: 'rename', label: '名前を変更', run: () => actions.onRename(entry) })
+  items.push({ key: 'rename', label: t('files.menu.rename'), run: () => actions.onRename(entry) })
 
   /*
     移動の途中・コピーの控えがある間は「コピー」「移動…」を出さない。出すと、
@@ -193,12 +200,12 @@ function buildItems(
   */
   if (pendingMove === null && clipboard === null) {
     items.push(
-      { key: 'copy', label: 'コピー', run: () => actions.onCopy(entry) },
-      { key: 'move', label: '移動…', run: () => actions.onStartMove(entry) }
+      { key: 'copy', label: t('files.menu.copy'), run: () => actions.onCopy(entry) },
+      { key: 'move', label: t('files.menu.move'), run: () => actions.onStartMove(entry) }
     )
   }
 
-  items.push({ key: 'delete', label: '削除', run: () => actions.onDelete(entry) })
+  items.push({ key: 'delete', label: t('files.menu.delete'), run: () => actions.onDelete(entry) })
 
   return items
 }
@@ -218,6 +225,7 @@ export function FileContextMenu({
   readonly clipboard?: FilesClipboard | null
   readonly onClose: () => void
 }): JSX.Element {
+  const { t } = useI18n()
   const rootRef = useRef<HTMLDivElement | null>(null)
   const [position, setPosition] = useState<MenuStyle>({ left: target.x, top: target.y })
 
@@ -278,11 +286,11 @@ export function FileContextMenu({
       ref={rootRef}
       className="fx-file-menu"
       role="menu"
-      aria-label={`${target.entry.name} の操作`}
+      aria-label={t('files.menu.label', { name: target.entry.name })}
       data-relative-path={target.entry.relativePath}
       style={position}
     >
-      {buildItems(target.entry, actions, pendingMove, clipboard).map((item) => (
+      {buildItems(target.entry, actions, pendingMove, clipboard, t).map((item) => (
         <button
           key={item.key}
           type="button"

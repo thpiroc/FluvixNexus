@@ -1,3 +1,4 @@
+import type { IpcErrorPayload } from '@shared/ipc'
 import { TERMINAL_MAX_SESSIONS, type TerminalShellId } from '@shared/terminal'
 
 /**
@@ -66,8 +67,14 @@ export interface TerminalTab {
   readonly status: TerminalStatus
   /** 終了コード（status が 'exited' のときだけ）。 */
   readonly exitCode: number | null
-  /** 失敗の理由（status が 'failed' のときだけ）。 */
-  readonly error: string | null
+  /**
+   * 失敗の理由（status が 'failed' のときだけ）。
+   *
+   * 翻訳済みの文言ではなく**失敗そのもの**を持つ。文言にすると、失敗の帯を
+   * 出したまま言語を切り替えたときに前の言語のまま取り残される
+   * （言い表すのは描くとき。terminalError.ts の describeTerminalError）。
+   */
+  readonly error: IpcErrorPayload | null
   /**
    * どの Workspace で**起動したか**（Session 3-7-3）。まだ立てていなければ null。
    *

@@ -1,5 +1,7 @@
 import { lazy, Suspense, type JSX } from 'react'
+import { useI18n } from '../i18n/context'
 import { useTerminal } from './context'
+import { describeTerminalError } from './terminalError'
 import { TerminalCloseConfirm } from './TerminalCloseConfirm'
 import { TerminalTabs } from './TerminalTabs'
 import { useTerminalCloseGuard } from './useTerminalCloseGuard'
@@ -58,6 +60,7 @@ const TerminalSurface = lazy(async () => {
  * 共通の器（unsaved/）が受け持つ。
  */
 export function TerminalView(): JSX.Element {
+  const { t } = useI18n()
   const controller = useTerminal()
 
   const {
@@ -116,11 +119,15 @@ export function TerminalView(): JSX.Element {
         <div className="fx-terminal__notice">
           <span className="fx-terminal__message">
             {activeTab.status === 'failed'
-              ? activeTab.error
-              : `終了しました（コード ${activeTab.exitCode}）`}
+              ? activeTab.error === null
+                ? t('terminal.error.shellFailed')
+                : describeTerminalError(activeTab.error, t)
+              : t('terminal.notice.exited', { code: activeTab.exitCode ?? 0 })}
           </span>
           <button className="fx-terminal__action" type="button" onClick={restartActive}>
-            {activeTab.status === 'failed' ? 'もう一度試す' : '新しいターミナル'}
+            {activeTab.status === 'failed'
+              ? t('terminal.notice.retry')
+              : t('terminal.notice.newTerminal')}
           </button>
         </div>
       )}
@@ -131,12 +138,10 @@ export function TerminalView(): JSX.Element {
           （`+` はタブ列に残っているので、案内は文だけでよい）。
         */
         <div className="fx-terminal__empty">
-          <p className="fx-terminal__message">
-            ターミナルは開かれていません。＋ から新しく開けます。
-          </p>
+          <p className="fx-terminal__message">{t('terminal.empty.message')}</p>
         </div>
       ) : (
-        <Suspense fallback={<p className="fx-terminal__message">ターミナルを準備しています…</p>}>
+        <Suspense fallback={<p className="fx-terminal__message">{t('terminal.loading')}</p>}>
           {/*
             器は1つで、中身を手前のタブに合わせて付け替える。`key` を渡さないのは
             **器そのものを作り直させないため**（作り直すと ResizeObserver が

@@ -1,4 +1,5 @@
 import type { JSX } from 'react'
+import { describeIpcError } from '../api/result'
 import { useI18n } from '../i18n/context'
 import { useWorkspaceFolder } from './context'
 
@@ -35,7 +36,7 @@ export function WorkspaceWelcome(): JSX.Element {
 
       {error !== null && (
         <p className="fx-welcome__note" data-kind="error">
-          {error}
+          {describeIpcError(error, t)}
         </p>
       )}
     </div>

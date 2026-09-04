@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FileEncoding, FileLineEnding, FileRevision } from '@shared/files'
 import { fluvix } from '../api/fluvix'
-import { describeIpcError } from '../api/result'
 import { useSettingsSection } from '../settings/useSettingsSection'
 import {
   DEFAULT_AUTO_SAVE_SETTINGS,
@@ -12,6 +11,7 @@ import {
   type AutoSaveMode,
   type AutoSaveSettings
 } from './autoSave'
+import type { EditorFailure } from './editorError'
 import type { EditorRevealRequest } from './editorReveal'
 import { hasUnsavedChanges } from './editorTabState'
 import type { EditorTab } from './editorTabsModel'
@@ -78,7 +78,7 @@ export type EditorSaveState =
   | { readonly status: 'saving' }
   /** アプリの外で書き換えられていたため書かなかった。 */
   | { readonly status: 'conflict' }
-  | { readonly status: 'error'; readonly message: string }
+  | { readonly status: 'error'; readonly failure: EditorFailure }
 
 /**
  * 保存の結末。
@@ -119,7 +119,7 @@ export type EditorSaveAsOutcome =
        */
       readonly reason: 'outside-workspace' | 'already-open' | null
     }
-  | { readonly status: 'failed'; readonly message: string }
+  | { readonly status: 'failed'; readonly failure: EditorFailure }
 
 /**
  * 別名で保存の結果の知らせ（画面に1行出すためだけのもの）。
@@ -144,7 +144,7 @@ export type EditorDiskContent =
       readonly revision: FileRevision | null
     }
   | { readonly status: 'missing' }
-  | { readonly status: 'unavailable'; readonly message: string }
+  | { readonly status: 'unavailable'; readonly failure: EditorFailure }
 
 export interface EditorController {
   /* ------ タブ（useEditorTabs.ts） */
@@ -369,7 +369,10 @@ export function useEditorSession(workspaceId: string | null): EditorController {
 
         if (!result.ok) {
           // dirty は解かない。編集内容は Model の中に残る。
-          setSaveState(relativePath, { status: 'error', message: describeIpcError(result.error) })
+          setSaveState(relativePath, {
+            status: 'error',
+            failure: { kind: 'ipc', error: result.error }
+          })
 
           // 消えていたなら、タブにそう出す（別名保存の余地を残す。§12.5）。
           if (result.error.code === 'NOT_FOUND') {
@@ -496,14 +499,14 @@ export function useEditorSession(workspaceId: string | null): EditorController {
       const tab = tabsRef.current.find((candidate) => candidate.id === tabId)
 
       if (tab === undefined) {
-        return { status: 'failed', message: 'そのタブはもう開かれていません。' }
+        return { status: 'failed', failure: { kind: 'tab-gone' } }
       }
 
       const snapshot = documents.readForSave(tab.relativePath)
 
       if (snapshot === null) {
         // 中身がまだ載っていない（読み込み中・バイナリ・読めなかった）。
-        return { status: 'failed', message: '書き出せる中身がありません。' }
+        return { status: 'failed', failure: { kind: 'no-writable-content' } }
       }
 
       const workspaceIdAtRequest = workspaceIdRef.current
@@ -519,15 +522,15 @@ export function useEditorSession(workspaceId: string | null): EditorController {
 
       // 要求と応答の間に Workspace が切り替わっていたら、今のタブへ混ぜない。
       if (workspaceIdRef.current !== workspaceIdAtRequest) {
-        return { status: 'failed', message: 'Workspace が切り替わりました。' }
+        return { status: 'failed', failure: { kind: 'workspace-changed' } }
       }
 
       if (!result.ok) {
-        const message = describeIpcError(result.error)
+        const failure: EditorFailure = { kind: 'ipc', error: result.error }
 
-        setSaveState(tab.relativePath, { status: 'error', message })
+        setSaveState(tab.relativePath, { status: 'error', failure })
 
-        return { status: 'failed', message }
+        return { status: 'failed', failure }
       }
 
       if (result.data.status === 'cancelled') {
@@ -614,17 +617,17 @@ export function useEditorSession(workspaceId: string | null): EditorController {
     if (!result.ok) {
       return result.error.code === 'NOT_FOUND'
         ? { status: 'missing' }
-        : { status: 'unavailable', message: describeIpcError(result.error) }
+        : { status: 'unavailable', failure: { kind: 'ipc', error: result.error } }
     }
 
     if (result.data.workspaceId !== workspaceIdRef.current) {
       // 切り替えを跨いだ応答。今の Workspace の話ではない。
-      return { status: 'unavailable', message: 'Workspace が切り替わりました。' }
+      return { status: 'unavailable', failure: { kind: 'workspace-changed' } }
     }
 
     if (result.data.status !== 'ok' || result.data.content === null) {
       // binary / too-large。開けていたものが急にそうなるのは、外で置き換えられた場合。
-      return { status: 'unavailable', message: 'テキストとして読み込めませんでした。' }
+      return { status: 'unavailable', failure: { kind: 'not-text' } }
     }
 
     return {
@@ -651,7 +654,7 @@ export function useEditorSession(workspaceId: string | null): EditorController {
       }
 
       if (disk.status === 'unavailable') {
-        setSaveState(relativePath, { status: 'error', message: disk.message })
+        setSaveState(relativePath, { status: 'error', failure: disk.failure })
         return
       }
 

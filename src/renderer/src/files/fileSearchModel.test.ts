@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { FILE_SEARCH_MAX_RESULTS, type FileEntry } from '@shared/files'
+import type { IpcErrorPayload } from '@shared/ipc'
+import { createTranslator } from '../i18n/messages'
 import {
   describeFileSearchLimit,
   searchMatchesOf,
@@ -23,20 +25,31 @@ function entry(relativePath: string): FileEntry {
 
 const MATCHES = [entry('src/a.ts'), entry('src/b.ts')]
 
+/*
+  文言は辞書が正本になった（Session 4-5B）。テストは**日本語の翻訳器を渡して**
+  これまでと同じ文言を確かめる ── t は必須引数なので、渡し忘れは型で落ちる。
+*/
+const t = createTranslator('ja')
+
+const SEARCH_FAILED: IpcErrorPayload = { code: 'INTERNAL', message: 'boom' }
+
 describe('summarizeFileSearch', () => {
   it('何も探していなければ案内を出さない', () => {
-    expect(summarizeFileSearch({ status: 'idle' })).toBeNull()
+    expect(summarizeFileSearch({ status: 'idle' }, t)).toBeNull()
   })
 
   it('検索中と 0 件を区別する', () => {
-    const searching = summarizeFileSearch({ status: 'searching', query: 'a' })
-    const empty = summarizeFileSearch({
-      status: 'done',
-      query: 'a',
-      matches: [],
-      truncated: false,
-      limit: null
-    })
+    const searching = summarizeFileSearch({ status: 'searching', query: 'a' }, t)
+    const empty = summarizeFileSearch(
+      {
+        status: 'done',
+        query: 'a',
+        matches: [],
+        truncated: false,
+        limit: null
+      },
+      t
+    )
 
     expect(searching).toBe('検索中…')
     expect(empty).toBe('一致するファイルはありません')
@@ -45,43 +58,49 @@ describe('summarizeFileSearch', () => {
 
   it('見つかった件数を出す', () => {
     expect(
-      summarizeFileSearch({
-        status: 'done',
-        query: 'a',
-        matches: MATCHES,
-        truncated: false,
-        limit: null
-      })
+      summarizeFileSearch(
+        {
+          status: 'done',
+          query: 'a',
+          matches: MATCHES,
+          truncated: false,
+          limit: null
+        },
+        t
+      )
     ).toBe('2 件')
   })
 
   /* 打ち切りは件数と一緒に伝える（何件出ているかと、それが全部でないこと）。 */
   it('打ち切ったときは理由も添える', () => {
-    const summary = summarizeFileSearch({
-      status: 'done',
-      query: 'a',
-      matches: MATCHES,
-      truncated: true,
-      limit: 'results'
-    })
+    const summary = summarizeFileSearch(
+      {
+        status: 'done',
+        query: 'a',
+        matches: MATCHES,
+        truncated: true,
+        limit: 'results'
+      },
+      t
+    )
 
     expect(summary).toContain('2 件')
     expect(summary).toContain(String(FILE_SEARCH_MAX_RESULTS))
   })
 
   it('取り消しは、途中までの件数とともに伝える', () => {
-    expect(summarizeFileSearch({ status: 'cancelled', query: 'a', matches: MATCHES })).toBe(
+    expect(summarizeFileSearch({ status: 'cancelled', query: 'a', matches: MATCHES }, t)).toBe(
       '検索を中止しました（2 件まで）'
     )
-    expect(summarizeFileSearch({ status: 'cancelled', query: 'a', matches: [] })).toBe(
+    expect(summarizeFileSearch({ status: 'cancelled', query: 'a', matches: [] }, t)).toBe(
       '検索を中止しました'
     )
   })
 
   it('失敗はその理由をそのまま出す', () => {
-    expect(
-      summarizeFileSearch({ status: 'error', query: 'a', message: '検索できませんでした' })
-    ).toBe('検索できませんでした')
+    expect(summarizeFileSearch({ status: 'error', query: 'a', error: SEARCH_FAILED }, t)).toBe(
+      '検索できませんでした'
+    )
   })
 
   /* 5つの状態がすべて違う文言になること（区別が付かない組を作らない）。 */
@@ -91,10 +110,10 @@ describe('summarizeFileSearch', () => {
       { status: 'done', query: 'a', matches: [], truncated: false, limit: null },
       { status: 'done', query: 'a', matches: MATCHES, truncated: true, limit: 'scanned' },
       { status: 'cancelled', query: 'a', matches: [] },
-      { status: 'error', query: 'a', message: '検索できませんでした' }
+      { status: 'error', query: 'a', error: SEARCH_FAILED }
     ]
 
-    const summaries = states.map(summarizeFileSearch)
+    const summaries = states.map((state) => summarizeFileSearch(state, t))
 
     expect(new Set(summaries).size).toBe(states.length)
   })
@@ -102,7 +121,9 @@ describe('summarizeFileSearch', () => {
 
 describe('describeFileSearchLimit', () => {
   it('理由ごとに違う文言になる', () => {
-    const messages = (['results', 'scanned', 'time', 'depth'] as const).map(describeFileSearchLimit)
+    const messages = (['results', 'scanned', 'time', 'depth'] as const).map((limit) =>
+      describeFileSearchLimit(limit, t)
+    )
 
     expect(new Set(messages).size).toBe(4)
     expect(messages.every((message) => message.length > 0)).toBe(true)
@@ -113,7 +134,7 @@ describe('searchMatchesOf', () => {
   it('結果を持つ状態からだけ取り出す', () => {
     expect(searchMatchesOf({ status: 'idle' })).toEqual([])
     expect(searchMatchesOf({ status: 'searching', query: 'a' })).toEqual([])
-    expect(searchMatchesOf({ status: 'error', query: 'a', message: 'x' })).toEqual([])
+    expect(searchMatchesOf({ status: 'error', query: 'a', error: SEARCH_FAILED })).toEqual([])
     expect(searchMatchesOf({ status: 'cancelled', query: 'a', matches: MATCHES })).toEqual(MATCHES)
   })
 })

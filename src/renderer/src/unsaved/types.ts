@@ -108,3 +108,11 @@ export interface LossSource {
 
 /** 利用者が選んだこと。 */
 export type LossChoice = 'save' | 'discard' | 'cancel'
+
+/**
+ * 「すべて保存」が通らなかったときの結末（Session 4-5B）。
+ *
+ * 文言ではなく結末を持ち、言い表すのは描くとき ── 確認を出したまま言語を
+ * 切り替えたときに、前の言語のまま取り残されないようにする。
+ */
+export type UnsavedSaveFailure = 'save-failed'

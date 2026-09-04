@@ -4,6 +4,7 @@ import type { WorkspaceFolder } from '@shared/workspace'
 import { FileContentSearch, type FileContentOpenTarget } from './FileContentSearch'
 import { FileNameSearch } from './FileNameSearch'
 import { BackIcon } from './FileTreeIcons'
+import { useI18n } from '../i18n/context'
 
 /**
  * Files パネルの検索モード（Session 3-6-4 / 3-6-5）。
@@ -50,11 +51,6 @@ import { BackIcon } from './FileTreeIcons'
 /** 探し方。将来ここに増える場合も、増えるのは行の並べ方であって開く経路ではない。 */
 type FileSearchMode = 'name' | 'content'
 
-const MODE_LABEL: Record<FileSearchMode, string> = {
-  name: 'ファイル名',
-  content: '全文'
-}
-
 const MODES: readonly FileSearchMode[] = ['name', 'content']
 
 interface FileSearchProps {
@@ -76,6 +72,7 @@ export function FileSearch({
   onOpen,
   onOpenMatch
 }: FileSearchProps): JSX.Element {
+  const { t } = useI18n()
   const [mode, setMode] = useState<FileSearchMode>('name')
 
   return (
@@ -84,8 +81,8 @@ export function FileSearch({
         <button
           type="button"
           className="fx-files__tool"
-          aria-label="ファイルツリーへ戻る"
-          title="ファイルツリーへ戻る"
+          aria-label={t('files.search.backLabel')}
+          title={t('files.search.backLabel')}
           onClick={onExit}
         >
           <BackIcon />
@@ -96,7 +93,11 @@ export function FileSearch({
           選ばれている方は `aria-pressed` で伝える ── 見た目の色だけだと、
           読み上げでどちらを見ているかが分からない。
         */}
-        <div className="fx-search__mode-group" role="group" aria-label="探し方">
+        <div
+          className="fx-search__mode-group"
+          role="group"
+          aria-label={t('files.search.modeGroupLabel')}
+        >
           {MODES.map((value) => (
             <button
               key={value}
@@ -106,7 +107,7 @@ export function FileSearch({
               aria-pressed={value === mode}
               onClick={() => setMode(value)}
             >
-              {MODE_LABEL[value]}
+              {value === 'name' ? t('files.search.nameMode') : t('files.search.contentMode')}
             </button>
           ))}
         </div>

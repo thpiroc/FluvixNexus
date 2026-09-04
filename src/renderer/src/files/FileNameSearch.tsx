@@ -5,6 +5,7 @@ import { resolveEntryIconId } from './fileIcon'
 import { CloseIcon, FileTypeIcon, SearchIcon } from './FileTreeIcons'
 import { searchMatchesOf, summarizeFileSearch, type FileSearchState } from './fileSearchModel'
 import { useFileSearch } from './useFileSearch'
+import { useI18n } from '../i18n/context'
 
 /**
  * 名前で探す（Session 3-6-4）。
@@ -46,13 +47,14 @@ export function FileNameSearch({
   onExit,
   onOpen
 }: FileNameSearchProps): JSX.Element {
+  const { t } = useI18n()
   const search = useFileSearch(workspace.id)
   const inputRef = useRef<HTMLInputElement | null>(null)
   /** 結果の行の DOM。上下キーで焦点を移すために持つ（FileTree.tsx と同じ形）。 */
   const [rowElements] = useState(() => new Map<string, HTMLButtonElement>())
 
   const matches = searchMatchesOf(search.state)
-  const summary = summarizeFileSearch(search.state)
+  const summary = summarizeFileSearch(search.state, t)
 
   /*
     このモードが見えるようになった瞬間だけ入力欄へ移す
@@ -164,8 +166,8 @@ export function FileNameSearch({
           type="text"
           className="fx-search__input"
           value={search.query}
-          placeholder="ファイル名で検索"
-          aria-label={`${workspace.displayName} の中をファイル名で検索`}
+          placeholder={t('files.search.namePlaceholder')}
+          aria-label={t('files.search.nameInputLabel', { workspace: workspace.displayName })}
           spellCheck={false}
           autoComplete="off"
           onChange={(event) => search.setQuery(event.target.value)}
@@ -176,8 +178,8 @@ export function FileNameSearch({
           <button
             type="button"
             className="fx-files__tool"
-            aria-label="検索語を消す"
-            title="検索語を消す"
+            aria-label={t('files.search.clearLabel')}
+            title={t('files.search.clearLabel')}
             onClick={() => {
               search.clear()
               inputRef.current?.focus()
@@ -199,20 +201,24 @@ export function FileNameSearch({
           {/* 止める手段は、走っている間だけ出す。 */}
           {search.state.status === 'searching' && (
             <button type="button" className="fx-search__status-action" onClick={search.cancel}>
-              中止
+              {t('files.search.cancel')}
             </button>
           )}
 
           {/* 取り消した後・失敗した後は、同じ語でもう一度試せるようにする。 */}
           {(search.state.status === 'cancelled' || search.state.status === 'error') && (
             <button type="button" className="fx-search__status-action" onClick={search.searchNow}>
-              もう一度
+              {t('files.search.retry')}
             </button>
           )}
         </div>
       )}
 
-      <div className="fx-search__results" role="list" aria-label="ファイル名の検索結果">
+      <div
+        className="fx-search__results"
+        role="list"
+        aria-label={t('files.search.nameResultsLabel')}
+      >
         {matches.map((entry, index) => (
           <button
             key={entry.id}

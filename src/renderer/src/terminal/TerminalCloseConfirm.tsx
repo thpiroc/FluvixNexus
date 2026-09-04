@@ -1,4 +1,5 @@
 import { useEffect, useRef, type JSX } from 'react'
+import { useI18n } from '../i18n/context'
 import '../unsaved/unsaved.css'
 import type { TerminalTab } from './terminalTabsModel'
 
@@ -39,13 +40,14 @@ export function TerminalCloseConfirm({
   onConfirm,
   onCancel
 }: TerminalCloseConfirmProps): JSX.Element {
+  const { t } = useI18n()
   const cancelRef = useRef<HTMLButtonElement | null>(null)
 
   useEffect(() => {
     cancelRef.current?.focus()
   }, [])
 
-  const name = tab.shellName ?? 'ターミナル'
+  const name = tab.shellName ?? t('terminal.tabs.fallbackName')
 
   return (
     <div
@@ -65,17 +67,15 @@ export function TerminalCloseConfirm({
         data-testid="terminal-close-dialog"
       >
         <h2 className="fx-unsaved__title" id="fx-terminal-close-title">
-          {name} で実行中のものがあります
+          {t('terminal.closeConfirm.title', { name })}
         </h2>
 
-        <p className="fx-unsaved__body">
-          このタブを閉じると、実行中のコマンドも終了します。終了したものは戻せません。
-        </p>
+        <p className="fx-unsaved__body">{t('terminal.closeConfirm.body')}</p>
 
         <ul className="fx-unsaved__list">
           <li className="fx-unsaved__item" data-kind="running-terminal">
             <span className="fx-unsaved__item-name">{name}</span>
-            <span className="fx-unsaved__item-note">実行中のコマンドがあります</span>
+            <span className="fx-unsaved__item-note">{t('terminal.closeConfirm.runningNote')}</span>
           </li>
         </ul>
 
@@ -87,7 +87,7 @@ export function TerminalCloseConfirm({
             data-testid="terminal-close-cancel"
             onClick={onCancel}
           >
-            キャンセル
+            {t('common.actions.cancel')}
           </button>
 
           <button
@@ -97,7 +97,7 @@ export function TerminalCloseConfirm({
             data-testid="terminal-close-confirm"
             onClick={onConfirm}
           >
-            閉じる
+            {t('terminal.closeConfirm.close')}
           </button>
         </div>
       </div>

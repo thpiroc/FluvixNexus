@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type JSX, type KeyboardEvent } from 'react'
 import { WORKSPACE_ROOT_RELATIVE_PATH, type FileEntry } from '@shared/files'
+import { useI18n } from '../i18n/context'
 import { useWorkspaceFolder } from '../workspaceFolder/context'
 import { FileDraftRow, FileNoteRow, type FileRowStyle } from './FileRows'
 import { resolveEntryIconId } from './fileIcon'
@@ -69,6 +70,7 @@ interface FileTreeProps {
 }
 
 export function FileTree({ controller, revealTarget = null }: FileTreeProps): JSX.Element {
+  const { t } = useI18n()
   const { workspace, tree, drag, dropDirectory, dropSurface } = controller
   const { rows, selectedId, draft } = tree
 
@@ -226,7 +228,7 @@ export function FileTree({ controller, revealTarget = null }: FileTreeProps): JS
       ref={drag.registerSurface}
       className="fx-files__tree"
       role="tree"
-      aria-label={`${workspace.displayName} のファイル`}
+      aria-label={t('files.tree.ariaLabel', { workspace: workspace.displayName })}
       data-drop-surface={WORKSPACE_ROOT_RELATIVE_PATH}
       data-drop-here={dropSurface !== null ? drag.state?.mode : undefined}
       data-drag-mode={drag.state?.mode}
@@ -331,7 +333,7 @@ export function FileTree({ controller, revealTarget = null }: FileTreeProps): JS
             {renaming ? (
               <FileNameInput
                 initialName={draft.initialName}
-                ariaLabel={`${draft.initialName} の新しい名前`}
+                ariaLabel={t('files.input.renameLabel', { name: draft.initialName })}
                 onCommit={(name) => controller.commitRename(draft.relativePath, name)}
                 onCancel={tree.cancelDraft}
               />
@@ -354,8 +356,8 @@ export function FileTree({ controller, revealTarget = null }: FileTreeProps): JS
               <button
                 type="button"
                 className="fx-file-row__action"
-                aria-label="Workspace を閉じる"
-                title="Workspace を閉じる"
+                aria-label={t('files.tree.closeWorkspace')}
+                title={t('files.tree.closeWorkspace')}
                 disabled={workspaceBusy}
                 // 行の選択・開閉に伝えない（押した意図は閉じることだけ）。
                 onClick={(event) => {

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { FileContentMatch, FileContentMatchFile } from '@shared/files'
+import type { IpcErrorPayload } from '@shared/ipc'
+import { createTranslator } from '../i18n/messages'
 import {
   contentSearchFilesOf,
   summarizeFileContentSearch,
@@ -16,6 +18,14 @@ import {
  *   状態を言い分けること … 0 件・取り消し・打ち切りが同じ文言にならない
  *   行の組み立て方       … フォルダの見出しが必要なところにだけ1つ出る
  */
+
+/*
+  文言は辞書が正本になった（Session 4-5B）。日本語の翻訳器を渡して、
+  これまでと同じ文言になることを確かめる（fileSearchModel.test.ts と同じ形）。
+*/
+const t = createTranslator('ja')
+
+const SEARCH_FAILED: IpcErrorPayload = { code: 'PERMISSION_DENIED', message: 'denied' }
 
 function match(line: number, column: number, text = 'const example = 1'): FileContentMatch {
   return { line, column, length: 7, preview: text, previewColumn: column }
@@ -89,20 +99,23 @@ describe('行の並び', () => {
 
 describe('状態の文言', () => {
   it('検索前は何も言わない', () => {
-    expect(summarizeFileContentSearch({ status: 'idle' })).toBeNull()
+    expect(summarizeFileContentSearch({ status: 'idle' }, t)).toBeNull()
   })
 
   it('検索中と 0 件を言い分ける', () => {
-    expect(summarizeFileContentSearch({ status: 'searching', query: 'x' })).toBe('検索中…')
+    expect(summarizeFileContentSearch({ status: 'searching', query: 'x' }, t)).toBe('検索中…')
     expect(
-      summarizeFileContentSearch({
-        status: 'done',
-        query: 'x',
-        files: [],
-        matchCount: 0,
-        truncated: false,
-        limit: null
-      })
+      summarizeFileContentSearch(
+        {
+          status: 'done',
+          query: 'x',
+          files: [],
+          matchCount: 0,
+          truncated: false,
+          limit: null
+        },
+        t
+      )
     ).toBe('一致するテキストはありません')
   })
 
@@ -116,18 +129,21 @@ describe('状態の文言', () => {
       limit: null
     }
 
-    expect(summarizeFileContentSearch(state)).toBe('2 件（2 ファイル）')
+    expect(summarizeFileContentSearch(state, t)).toBe('2 件（2 ファイル）')
   })
 
   it('打ち切った理由を件数に添える', () => {
-    const summary = summarizeFileContentSearch({
-      status: 'done',
-      query: 'x',
-      files: [file('a.txt', [match(1, 1)])],
-      matchCount: 1,
-      truncated: true,
-      limit: 'time'
-    })
+    const summary = summarizeFileContentSearch(
+      {
+        status: 'done',
+        query: 'x',
+        files: [file('a.txt', [match(1, 1)])],
+        matchCount: 1,
+        truncated: true,
+        limit: 'time'
+      },
+      t
+    )
 
     expect(summary).toContain('1 件（1 ファイル）')
     expect(summary).toContain('時間がかかりすぎた')
@@ -137,14 +153,17 @@ describe('状態の文言', () => {
     const limits = ['matches', 'files', 'scanned', 'time', 'depth', 'file-matches'] as const
 
     const messages = limits.map((limit) =>
-      summarizeFileContentSearch({
-        status: 'done',
-        query: 'x',
-        files: [file('a.txt', [match(1, 1)])],
-        matchCount: 1,
-        truncated: true,
-        limit
-      })
+      summarizeFileContentSearch(
+        {
+          status: 'done',
+          query: 'x',
+          files: [file('a.txt', [match(1, 1)])],
+          matchCount: 1,
+          truncated: true,
+          limit
+        },
+        t
+      )
     )
 
     expect(new Set(messages).size).toBe(limits.length)
@@ -158,13 +177,13 @@ describe('状態の文言', () => {
       matchCount: 1
     }
 
-    expect(summarizeFileContentSearch(state)).toContain('中止')
+    expect(summarizeFileContentSearch(state, t)).toContain('中止')
     expect(contentSearchFilesOf(state)).toHaveLength(1)
   })
 
   it('失敗はその理由をそのまま出す', () => {
     expect(
-      summarizeFileContentSearch({ status: 'error', query: 'x', message: '読み取れません' })
-    ).toBe('読み取れません')
+      summarizeFileContentSearch({ status: 'error', query: 'x', error: SEARCH_FAILED }, t)
+    ).toBe('Workspace のフォルダを読み取る権限がありません')
   })
 })

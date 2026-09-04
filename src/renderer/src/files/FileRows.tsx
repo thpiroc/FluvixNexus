@@ -4,6 +4,8 @@ import { FileNameInput } from './FileNameInput'
 import { describeFileTreeError } from './filesError'
 import { FileTypeIcon } from './FileTreeIcons'
 import type { FileTreeRow } from './fileTreeModel'
+import { useI18n } from '../i18n/context'
+import type { TFunction } from '../i18n/messages'
 
 /**
  * ツリーとカラムが**そのまま同じものを使う行**（Session 3-6-7）。
@@ -37,6 +39,8 @@ export function FileNoteRow({
   readonly row: Extract<FileTreeRow, { kind: 'note' }>
   readonly onRetry: (relativePath: string) => void
 }): JSX.Element {
+  const { t } = useI18n()
+
   return (
     <div
       role="none"
@@ -45,7 +49,7 @@ export function FileNoteRow({
       data-relative-path={row.relativePath}
       style={{ '--fx-file-depth': row.depth } as FileRowStyle}
     >
-      <span className="fx-file-note__text">{describeNote(row)}</span>
+      <span className="fx-file-note__text">{describeNote(row, t)}</span>
 
       {row.variant === 'error' && (
         <button
@@ -53,7 +57,7 @@ export function FileNoteRow({
           className="fx-file-note__retry"
           onClick={() => onRetry(row.relativePath)}
         >
-          再試行
+          {t('files.note.retry')}
         </button>
       )}
     </div>
@@ -84,6 +88,8 @@ export function FileDraftRow({
   ) => Promise<boolean>
   readonly onCancel: () => void
 }): JSX.Element {
+  const { t } = useI18n()
+
   return (
     <div
       className="fx-file-row fx-file-row--draft"
@@ -99,7 +105,11 @@ export function FileDraftRow({
 
       <FileNameInput
         initialName=""
-        ariaLabel={row.entryType === 'directory' ? '新しいフォルダ名' : '新しいファイル名'}
+        ariaLabel={
+          row.entryType === 'directory'
+            ? t('files.input.newFolderName')
+            : t('files.input.newFileName')
+        }
         onCommit={(name) => onCommit(row.parentRelativePath, row.entryType, name)}
         onCancel={onCancel}
       />
@@ -107,18 +117,20 @@ export function FileDraftRow({
   )
 }
 
-function describeNote(row: Extract<FileTreeRow, { kind: 'note' }>): string {
+function describeNote(row: Extract<FileTreeRow, { kind: 'note' }>, t: TFunction): string {
   switch (row.variant) {
     case 'loading':
-      return '読み込み中…'
+      return t('files.note.loading')
 
     case 'empty':
-      return '（空のフォルダ）'
+      return t('files.note.empty')
 
     case 'truncated':
-      return 'ファイルが多いため、以降は表示していません'
+      return t('files.note.truncated')
 
     case 'error':
-      return row.reason === null ? '読み込めませんでした' : describeFileTreeError(row.reason)
+      return row.reason === null
+        ? t('files.note.unavailable')
+        : describeFileTreeError(row.reason, t)
   }
 }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, type JSX } from 'react'
+import { useI18n } from '../i18n/context'
 import { describeLossNote, describeLossPrompt } from './lossMessage'
-import type { LossAction, LossChoice, LossItem } from './types'
+import type { LossAction, LossChoice, LossItem, UnsavedSaveFailure } from './types'
 import './unsaved.css'
 
 /**
@@ -42,7 +43,7 @@ interface UnsavedChangesDialogProps {
   readonly action: LossAction
   readonly items: readonly LossItem[]
   readonly busy: boolean
-  readonly error: string | null
+  readonly error: UnsavedSaveFailure | null
   readonly onChoose: (choice: LossChoice) => void
 }
 
@@ -53,13 +54,14 @@ export function UnsavedChangesDialog({
   error,
   onChoose
 }: UnsavedChangesDialogProps): JSX.Element {
+  const { t } = useI18n()
   const cancelRef = useRef<HTMLButtonElement | null>(null)
 
   useEffect(() => {
     cancelRef.current?.focus()
   }, [])
 
-  const { title, body, discardLabel, canSave } = describeLossPrompt(action, items)
+  const { title, body, discardLabel, canSave } = describeLossPrompt(action, items, t)
 
   return (
     <div
@@ -87,7 +89,7 @@ export function UnsavedChangesDialog({
 
         <ul className="fx-unsaved__list" data-testid="unsaved-list">
           {items.map((item) => {
-            const note = describeLossNote(item)
+            const note = describeLossNote(item, t)
 
             return (
               <li
@@ -107,7 +109,7 @@ export function UnsavedChangesDialog({
 
         {error !== null && (
           <p className="fx-unsaved__error" data-testid="unsaved-error">
-            {error}
+            {t('unsaved.saveFailed')}
           </p>
         )}
 
@@ -120,7 +122,7 @@ export function UnsavedChangesDialog({
             data-testid="unsaved-cancel"
             onClick={() => onChoose('cancel')}
           >
-            キャンセル
+            {t('common.actions.cancel')}
           </button>
 
           <button
@@ -143,7 +145,7 @@ export function UnsavedChangesDialog({
               data-testid="unsaved-save"
               onClick={() => onChoose('save')}
             >
-              {busy ? '保存中…' : 'すべて保存'}
+              {busy ? t('unsaved.saving') : t('unsaved.saveAll')}
             </button>
           )}
         </div>

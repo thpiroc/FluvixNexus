@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { WorkspaceLayoutDocument } from '@shared/workspace'
 import { fluvix } from '../../api/fluvix'
-import { describeIpcError } from '../../api/result'
 import type { LayoutPresetId } from '../layout/presets'
 import type { WorkspaceLayout } from '../layout/types'
 import { serializeWorkspaceLayout } from './layoutDocument'
@@ -164,10 +163,12 @@ export function useLayoutPersistence({
 
       void fluvix.workspace.saveLayout({ document: pending }).then((result) => {
         if (!result.ok) {
-          console.warn(
-            `[workspace] レイアウトを保存できませんでした: ${describeIpcError(result.error)}`,
-            result.error
-          )
+          /*
+            開発者向けの記録。利用者向けの文言（describeIpcError）はここでは使わない
+            ── コンソールに要るのは翻訳された文ではなく**コードと詳細**で、
+            他の開発者向けログ（`[terminal] …`）と同じ扱いにしてある。
+          */
+          console.warn('[workspace] レイアウトを保存できませんでした', result.error)
           // 控えを捨てて、次の変更で改めて保存を試みられるようにする。
           savedJsonRef.current = null
         }

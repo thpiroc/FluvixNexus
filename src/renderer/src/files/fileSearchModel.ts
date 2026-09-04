@@ -4,6 +4,9 @@ import {
   type FileEntry,
   type FileSearchLimit
 } from '@shared/files'
+import type { IpcErrorPayload } from '@shared/ipc'
+import type { TFunction } from '../i18n/messages'
+import { describeFileSearchError } from './filesError'
 
 /**
  * 検索の状態と、その状態を1行で言い表す文言（React にも DOM にも依存しない）。
@@ -43,8 +46,14 @@ export type FileSearchState =
       readonly query: string
       readonly matches: readonly FileEntry[]
     }
-  /** 探せなかった。 */
-  | { readonly status: 'error'; readonly query: string; readonly message: string }
+  /**
+   * 探せなかった。
+   *
+   * 文言ではなく**失敗そのもの**（IpcErrorPayload）を持つ。翻訳済みの文字列を
+   * 状態に焼き付けると、エラーを出したまま言語を切り替えたときに前の言語のまま残る。
+   * 何が起きたかを持ち、言い表すのは描くときにする（Session 4-5B）。
+   */
+  | { readonly status: 'error'; readonly query: string; readonly error: IpcErrorPayload }
 
 /** その状態で画面に出ている結果（結果を持たない状態では空）。 */
 export function searchMatchesOf(state: FileSearchState): readonly FileEntry[] {
@@ -58,19 +67,19 @@ export function searchMatchesOf(state: FileSearchState): readonly FileEntry[] {
  * （「500 件まで」と分かれば語を足す判断ができる）。
  * 数の正本は shared/files/search.ts で、Main と同じ値を見ている。
  */
-export function describeFileSearchLimit(limit: FileSearchLimit): string {
+export function describeFileSearchLimit(limit: FileSearchLimit, t: TFunction): string {
   switch (limit) {
     case 'results':
-      return `上限（${FILE_SEARCH_MAX_RESULTS} 件）まで表示しています。語を足すと絞り込めます`
+      return t('files.search.limits.results', { max: FILE_SEARCH_MAX_RESULTS })
 
     case 'scanned':
-      return 'ファイルが多いため、途中で打ち切りました（見つからない場合は場所を絞ってください）'
+      return t('files.search.limits.scanned')
 
     case 'time':
-      return '時間がかかりすぎたため、途中で打ち切りました'
+      return t('files.search.limits.time')
 
     case 'depth':
-      return `深い階層（${FILE_SEARCH_MAX_DEPTH} 段より下）は検索していません`
+      return t('files.search.limits.depth', { max: FILE_SEARCH_MAX_DEPTH })
   }
 }
 
@@ -80,30 +89,36 @@ export function describeFileSearchLimit(limit: FileSearchLimit): string {
  * 検索欄のすぐ下に出す文言で、**結果の一覧そのものとは別に持つ**
  * （0 件・取り消し・失敗は、並べる行が無い状態でも伝える必要がある）。
  */
-export function summarizeFileSearch(state: FileSearchState): string | null {
+export function summarizeFileSearch(state: FileSearchState, t: TFunction): string | null {
   switch (state.status) {
     case 'idle':
       return null
 
     case 'searching':
-      return '検索中…'
+      return t('files.search.searching')
 
     case 'done': {
       if (state.matches.length === 0) {
-        return '一致するファイルはありません'
+        return t('files.search.noFiles')
       }
 
-      const found = `${state.matches.length} 件`
+      const found = t('files.search.found', { count: state.matches.length })
 
-      return state.limit === null ? found : `${found}・${describeFileSearchLimit(state.limit)}`
+      // 区切りは言語ごとに違う（日本語は「・」、英語は中黒を使わない）ため辞書に持つ。
+      return state.limit === null
+        ? found
+        : t('files.search.summaryWithLimit', {
+            summary: found,
+            limit: describeFileSearchLimit(state.limit, t)
+          })
     }
 
     case 'cancelled':
       return state.matches.length === 0
-        ? '検索を中止しました'
-        : `検索を中止しました（${state.matches.length} 件まで）`
+        ? t('files.search.cancelled')
+        : t('files.search.cancelledWithCount', { count: state.matches.length })
 
     case 'error':
-      return state.message
+      return describeFileSearchError(state.error, t)
   }
 }
