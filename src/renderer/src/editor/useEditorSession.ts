@@ -187,7 +187,7 @@ export interface EditorController {
     relativePath: string,
     options?: { overwrite?: boolean }
   ) => Promise<EditorSaveOutcome>
-  /** 手前のタブを保存する（Ctrl+S の実体）。 */
+  /** 手前のタブを保存する（`editor.save` command の実体）。 */
   readonly saveActiveTab: () => void
   /** 未保存のタブをすべて保存する。1つでも成立しなければ false。 */
   readonly saveAllUnsaved: () => Promise<boolean>
@@ -722,35 +722,24 @@ export function useEditorSession(workspaceId: string | null): EditorController {
   /* ------------------------------------------------------------ Ctrl + S */
 
   /*
-    Monaco の側ではなくウィンドウに掛けている。
+    Session 4-7A で、ここにあった window の keydown 購読を**移設した**。
 
-    Monaco は Ctrl+S に何も割り当てていないため、エディタに focus があっても
-    keydown はここまで上がってくる。1本にしておくと、
-      - Files パネルに focus があるときも保存できる
-      - エディタ側と二重に発火する経路を作らない
-    となる。ネイティブメニュー（main/app/menu.ts）とも競合しない
-    （開発時のメニューは Reload / DevTools / Zoom / Quit だけで、配布ビルドには無い）。
+    Session 3-5 から 4-5B までは、このフックが直接 `window` へ Ctrl+S を
+    掛けていた（Monaco が Ctrl+S に何も割り当てていないため、エディタに
+    focus があっても keydown が上がってくる、という前提は今も同じ）。
+    アプリ全体のショートカット基盤ができた以上、**打鍵の割り当てを知っている
+    場所は1つ**にする ── そうしないと、設定画面に出てくる割り当てと、
+    実際に効く打鍵が別々に増えていくことになる。
+
+    今の分担:
+
+      何が起きるか … `saveActiveTab`（ここ。EditorProvider が command として登録する）
+      どの打鍵か   … keybindings/defaults.ts の `editor.save`
+      いつ効くか   … keybindings/dispatch.ts
+
+    **複製ではなく移動**なので、購読は今もアプリ全体で1本のまま
+    （二重に発火する経路を作らない、という元の判断は変わっていない）。
   */
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent): void {
-      if (!event.ctrlKey && !event.metaKey) {
-        return
-      }
-
-      if (event.altKey || event.shiftKey || event.key.toLowerCase() !== 's') {
-        return
-      }
-
-      event.preventDefault()
-      saveActiveTab()
-    }
-
-    window.addEventListener('keydown', onKeyDown)
-
-    return () => {
-      window.removeEventListener('keydown', onKeyDown)
-    }
-  }, [saveActiveTab])
 
   /* --------------------------------------------------------- Auto Save */
 

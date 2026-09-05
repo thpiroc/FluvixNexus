@@ -114,8 +114,19 @@ export function PanelGroup({
         })}
       </div>
 
-      {/* スクロールはこの枠の内側で完結させる（ウィンドウ全体はスクロールさせない）。 */}
-      <div className="fx-panel-group__body" role="tabpanel">
+      {/*
+        スクロールはこの枠の内側で完結させる（ウィンドウ全体はスクロールさせない）。
+
+        `data-panel-body` は「今どのパネルの中に focus があるか」を打鍵の層が
+        読むための目印（Session 4-7A。keybindings/KeybindingProvider.tsx）。
+        focus の持ち主はブラウザであって React ではないため、状態としては
+        受け取れない ── 器に印を付けて `closest()` で辿るのが一番短い。
+
+        タブ側の `data-panel` と名前を分けてあるのは、タブがこの器の**外**に
+        あるため。同じ名前にすると、タブに focus があるときも
+        「そのパネルの中に居る」と読めてしまう。
+      */}
+      <div className="fx-panel-group__body" role="tabpanel" data-panel-body={activePanelId}>
         <ActivePanel />
       </div>
     </section>

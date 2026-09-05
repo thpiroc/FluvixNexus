@@ -1,4 +1,5 @@
-import { useEffect, useMemo, type JSX, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, type JSX, type ReactNode } from 'react'
+import { useCommand } from '../commands/useCommand'
 import { useUnsavedChanges } from '../unsaved/context'
 import type { LossItem, LossSource } from '../unsaved/types'
 import { useWorkspaceFolder } from '../workspaceFolder/context'
@@ -21,13 +22,22 @@ import { useEditorSession } from './useEditorSession'
  * それぞれの入口が Editor の事情を知る形にすると、**入口が増えるたびに保護が抜ける**。
  * そこで「未保存を持っている」ことだけを申告し、確認そのものは共通の器
  * （unsaved/UnsavedChangesProvider.tsx）に任せる。
+ *
+ * ## Editor の command を名乗る（Session 4-7A）
+ *
+ * 保存と別名で保存は、**この Provider が生きている間だけ**実行できる。
+ * 打鍵の側（keybindings/）は「`editor.save` を実行してくれ」としか言わず、
+ * 中身も、そのとき手前にあるタブが何かも知らない。
+ *
+ * 名乗るのがここなのは、`EditorController` を持っているのがここだから
+ * にほかならない（commands/useCommand.ts の「所有者が自分で名乗る」）。
  */
 export function EditorProvider({ children }: { children: ReactNode }): JSX.Element {
   const { workspace } = useWorkspaceFolder()
   const controller = useEditorSession(workspace?.id ?? null)
   const { registerSource } = useUnsavedChanges()
 
-  const { unsavedTabs, saveAllUnsaved } = controller
+  const { unsavedTabs, saveAllUnsaved, saveActiveTab, saveFileAs, activeTabId } = controller
 
   /*
     申告する中身は「今の値」ではなく「今の値を返す関数」。
@@ -57,6 +67,23 @@ export function EditorProvider({ children }: { children: ReactNode }): JSX.Eleme
   )
 
   useEffect(() => registerSource(source), [registerSource, source])
+
+  /*
+    別名で保存は「手前のタブ」が対象（EditorWorkArea.tsx の帯と同じ）。
+    タブが1枚も無ければ何もしない ── 打鍵の側にも `editorHasActiveTab` の
+    条件が付いているので通常ここへは来ないが、command は打鍵以外からも
+    呼ばれうる（将来の Command Palette）ため、こちらでも確かめる。
+  */
+  const saveAsActiveTab = useCallback((): void => {
+    if (activeTabId === null) {
+      return
+    }
+
+    void saveFileAs(activeTabId)
+  }, [activeTabId, saveFileAs])
+
+  useCommand('editor.save', saveActiveTab)
+  useCommand('editor.saveAs', saveAsActiveTab)
 
   return <EditorContext.Provider value={controller}>{children}</EditorContext.Provider>
 }

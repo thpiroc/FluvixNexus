@@ -1,9 +1,12 @@
 import { useCallback, useMemo, useState, type CSSProperties, type JSX } from 'react'
+import { useCommand } from '../commands/useCommand'
+import { useWhenFlag } from '../keybindings/useWhenFlag'
 import { SettingsOverlay } from '../settings/SettingsOverlay'
 import { useWorkspaceFolder } from '../workspaceFolder/context'
 import { usePanelDrag } from './dnd/usePanelDrag'
 import { DOCK_SIZE_CONSTRAINTS } from './layout/constraints'
 import { listVisiblePanelIds } from './layout/panelVisibility'
+import type { PanelId } from './panels/types'
 import { useSplitResize } from './resize/useSplitResize'
 import { useWorkspaceLayout } from './useWorkspaceLayout'
 import { DockNodeView, ROOT_NODE_STYLE } from './shell/DockNodeView'
@@ -87,7 +90,7 @@ export function WorkspaceShell(): JSX.Element {
   // 開いている Workspace の取得状況。Shell 自身は Workspace を使わないが、
   // 「画面の準備がどこまで進んだか」を1箇所で見えるようにしておく
   // （レイアウトの復元と同じく、確認スクリプトが待てる目印になる）。
-  const { status: workspaceStatus } = useWorkspaceFolder()
+  const { status: workspaceStatus, workspace, openFolder, closeWorkspace } = useWorkspaceFolder()
 
   // View メニューのチェック状態。レイアウトから導出するため、閉じ忘れ・出し忘れが起きない。
   const visiblePanelIds = useMemo(() => new Set(listVisiblePanelIds(layout)), [layout])
@@ -109,6 +112,75 @@ export function WorkspaceShell(): JSX.Element {
 
   const openSettings = useCallback((): void => setSettingsOpen(true), [])
   const closeSettings = useCallback((): void => setSettingsOpen(false), [])
+
+  /*
+    ------------------------------------------------ command（Session 4-7A）
+
+    Shell が名乗るのは「レイアウトを変えるもの」と「Shell が持っている面」
+    ── どちらもここにしか持ち主が居ない（`useWorkspaceLayout` の返り値と
+    `settingsOpen` は、この関数の中にしか存在しない）。
+
+    Workspace を開く / 閉じるだけは外側の Context のものだが、**上部バーの
+    入口がここにある**のと同じ理由でここが名乗る（WorkspaceTopBar.tsx の
+    「上部バーはアプリ全体に関わる入口の場所」）。
+
+    打鍵は1つも書かない。どの打鍵で呼ばれるかは keybindings/defaults.ts の
+    担当で、割り当ての無い command（`workspace.closeFolder` /
+    `view.togglePanel.editor` / `view.resetLayout` / `settings.close`）も
+    同じように登録しておく ── 将来の Settings の一覧では
+    「未割り当ての操作」として並び、そこで打鍵を付けられるようになる。
+  */
+  const togglePanel = useCallback(
+    (panelId: PanelId): void => {
+      // 上部バーの View メニューとまったく同じ判断（下の `onTogglePanel`）。
+      if (visiblePanelIds.has(panelId)) {
+        closePanel(panelId)
+        return
+      }
+
+      openPanel(panelId)
+    },
+    [visiblePanelIds, openPanel, closePanel]
+  )
+
+  useCommand('workspace.openFolder', openFolder)
+  useCommand(
+    'workspace.closeFolder',
+    useCallback((): void => {
+      // 開いていなければ何もしない（打鍵側に条件を付けても、他の入口が増えうる）。
+      if (workspace !== null) {
+        closeWorkspace()
+      }
+    }, [workspace, closeWorkspace])
+  )
+  useCommand(
+    'view.togglePanel.files',
+    useCallback(() => togglePanel('files'), [togglePanel])
+  )
+  useCommand(
+    'view.togglePanel.editor',
+    useCallback(() => togglePanel('editor'), [togglePanel])
+  )
+  useCommand(
+    'view.togglePanel.terminal',
+    useCallback(() => togglePanel('terminal'), [togglePanel])
+  )
+  useCommand(
+    'view.togglePanel.git',
+    useCallback(() => togglePanel('git'), [togglePanel])
+  )
+  useCommand('view.resetLayout', resetLayout)
+  useCommand('settings.open', openSettings)
+  useCommand('settings.close', closeSettings)
+
+  /*
+    面が出ていることを打鍵の層へ申告する（keybindings/useWhenFlag.ts）。
+
+    `settingsOpen` を外側の Provider へ持ち上げないための仕組み ── この面は
+    レイアウトの木の外にあり、開く入口も出す先も Shell にしか無い、という
+    上の判断を変えずに済む。
+  */
+  useWhenFlag('settingsOpen', settingsOpen)
 
   // 保存済みレイアウトを読み終えるまでは枠だけを出す（数十 ms）。
   // Default を描いてから差し替えると、起動のたびに配置が飛んで見えるうえ、

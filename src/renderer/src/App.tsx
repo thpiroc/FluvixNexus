@@ -1,7 +1,9 @@
 import type { JSX } from 'react'
+import { CommandProvider } from './commands/CommandProvider'
 import { EditorProvider } from './editor/EditorProvider'
 import { FilesViewProvider } from './files/FilesViewProvider'
 import { LanguageProvider } from './i18n/LanguageProvider'
+import { KeybindingProvider } from './keybindings/KeybindingProvider'
 import { TerminalProvider } from './terminal/TerminalProvider'
 import { ThemeProvider } from './theme/ThemeProvider'
 import { UnsavedChangesProvider } from './unsaved/UnsavedChangesProvider'
@@ -15,16 +17,18 @@ import { WorkspaceFolderProvider } from './workspaceFolder/WorkspaceFolderProvid
  * アプリ全体に関わるもの（エラーバウンダリ、独立ウィンドウ化した際のルート分岐など）が
  * 必要になったときだけこの層に足す。
  *
- * Shell より外側に置いているものが6つある。どれも**レイアウトの都合でパネルが
+ * Shell より外側に置いているものが8つある。どれも**レイアウトの都合でパネルが
  * 作り直されても消えてはいけない状態**で、パネルは自由に配置を変えられて
  * 親子関係が固定されていないため prop では配れない。
  *
  *   ThemeProvider           … アプリ全体の見た目（Session 4-4。theme/ThemeProvider.tsx）
+ *   CommandProvider         … 実行できる操作の表（Session 4-7A。commands/CommandProvider.tsx）
  *   UnsavedChangesProvider  … 失われるものがある操作に挟む確認（unsaved/types.ts）
  *   WorkspaceFolderProvider … 開いているプロジェクトフォルダ（全パネルが対象にするもの）
  *   EditorProvider          … 開いているファイルのタブ（Files が開き、Editor が出す）
  *   TerminalProvider        … 動いているシェルと、その画面（Session 3-7-1）
  *   FilesViewProvider       … Files の表示方式として**利用者が選んだ方**（Session 3-6-7）
+ *   KeybindingProvider      … 打鍵を command へ繋ぐ（Session 4-7A。keybindings/）
  *
  * Shell の中に置くと、レイアウトの都合でパネルが作り直されたときに
  * これらの状態まで消える。Terminal はそれが**最も分かりやすく表に出る**もので、
@@ -54,23 +58,40 @@ import { WorkspaceFolderProvider } from './workspaceFolder/WorkspaceFolderProvid
  * Theme をさらに外へ置いたのは、**確認ダイアログにも効く必要がある**ため
  * ── Workspace を1つも開いていない画面（WorkspaceWelcome）も、閉じる前の確認も、
  * Theme の外側には無い。
+ *
+ * ## Command と Keybinding は、両端に分かれる（Session 4-7A）
+ *
+ * 打鍵の基盤は2つの器に分かれていて、**間に他の Provider を挟むのが正しい。**
+ *
+ *   CommandProvider … 上の方（Language の内側）。中身はただの表で何にも依存せず、
+ *                     **command を登録する側より外**である必要がある
+ *                     （EditorProvider も WorkspaceShell も登録する）
+ *   KeybindingProvider … 一番内側。打鍵の瞬間に Workspace と Editor の状態を読む
+ *                     （keybindings/when.ts の `workspaceOpen` / `editorHasActiveTab`）
+ *
+ * 逆にすると成り立たない ── 打鍵の側を外に置けば状態が読めず、
+ * command の表を内に置けば登録する側から見えなくなる。
  */
 function App(): JSX.Element {
   return (
     <ThemeProvider>
       <LanguageProvider>
-        <UnsavedChangesProvider>
-          <WorkspaceFolderProvider>
-            <EditorProvider>
-              <TerminalProvider>
-                {/* 表示方式の選択は他の4つに依存しない。一番内側で足りる。 */}
-                <FilesViewProvider>
-                  <WorkspaceShell />
-                </FilesViewProvider>
-              </TerminalProvider>
-            </EditorProvider>
-          </WorkspaceFolderProvider>
-        </UnsavedChangesProvider>
+        <CommandProvider>
+          <UnsavedChangesProvider>
+            <WorkspaceFolderProvider>
+              <EditorProvider>
+                <TerminalProvider>
+                  {/* 表示方式の選択は他の4つに依存しない。一番内側で足りる。 */}
+                  <FilesViewProvider>
+                    <KeybindingProvider>
+                      <WorkspaceShell />
+                    </KeybindingProvider>
+                  </FilesViewProvider>
+                </TerminalProvider>
+              </EditorProvider>
+            </WorkspaceFolderProvider>
+          </UnsavedChangesProvider>
+        </CommandProvider>
       </LanguageProvider>
     </ThemeProvider>
   )
