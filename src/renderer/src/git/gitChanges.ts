@@ -17,6 +17,7 @@ import type {
   GitUpstreamStatus,
   GitWorkingTreeChanges
 } from '@shared/git'
+import { createTranslator, type TFunction } from '../i18n/messages'
 
 /**
  * 変更ファイルの一覧 → 画面に並べる形（React / DOM 非依存・テスト対象・Session 3-8-2）。
@@ -48,6 +49,8 @@ export interface GitChangeGroup {
   readonly changes: readonly GitFileChange[]
 }
 
+const DEFAULT_T = createTranslator('ja')
+
 /**
  * 出すグループを、出す順に並べる。**空のグループは含めない。**
  *
@@ -61,12 +64,15 @@ export interface GitChangeGroup {
  * DESIGN.md §3 の「①変更確認 → ②コミットメッセージ → ③Commit & Push」の
  * ①にあたる部分で、上から下へ読むと Commit に近い順になる。
  */
-export function toGitChangeGroups(changes: GitWorkingTreeChanges): readonly GitChangeGroup[] {
+export function toGitChangeGroups(
+  changes: GitWorkingTreeChanges,
+  t: TFunction = DEFAULT_T
+): readonly GitChangeGroup[] {
   const groups: readonly GitChangeGroup[] = [
-    { id: 'conflicted', label: '競合', changes: changes.conflicted },
-    { id: 'staged', label: 'ステージ済みの変更', changes: changes.staged },
-    { id: 'unstaged', label: '変更', changes: changes.unstaged },
-    { id: 'untracked', label: '未追跡のファイル', changes: changes.untracked }
+    { id: 'conflicted', label: t('git.changes.groups.conflicted'), changes: changes.conflicted },
+    { id: 'staged', label: t('git.changes.groups.staged'), changes: changes.staged },
+    { id: 'unstaged', label: t('git.changes.groups.unstaged'), changes: changes.unstaged },
+    { id: 'untracked', label: t('git.changes.groups.untracked'), changes: changes.untracked }
   ]
 
   return groups.filter((group) => group.changes.length > 0)
@@ -91,34 +97,37 @@ export function countGitChanges(changes: GitWorkingTreeChanges): number {
  *
  * `label` は記号だけに意味を預けないために要る（読み上げと hover の両方に出す）。
  */
-export function describeGitChangeKind(kind: GitChangeKind): {
+export function describeGitChangeKind(
+  kind: GitChangeKind,
+  t: TFunction = DEFAULT_T
+): {
   readonly symbol: string
   readonly label: string
 } {
   switch (kind) {
     case 'added':
-      return { symbol: 'A', label: '追加' }
+      return { symbol: 'A', label: t('git.changes.kinds.added') }
 
     case 'modified':
-      return { symbol: 'M', label: '変更' }
+      return { symbol: 'M', label: t('git.changes.kinds.modified') }
 
     case 'deleted':
-      return { symbol: 'D', label: '削除' }
+      return { symbol: 'D', label: t('git.changes.kinds.deleted') }
 
     case 'renamed':
-      return { symbol: 'R', label: '名前変更' }
+      return { symbol: 'R', label: t('git.changes.kinds.renamed') }
 
     case 'copied':
-      return { symbol: 'C', label: 'コピー' }
+      return { symbol: 'C', label: t('git.changes.kinds.copied') }
 
     case 'type-changed':
-      return { symbol: 'T', label: '種類変更' }
+      return { symbol: 'T', label: t('git.changes.kinds.typeChanged') }
 
     case 'untracked':
-      return { symbol: '?', label: '未追跡' }
+      return { symbol: '?', label: t('git.changes.kinds.untracked') }
 
     case 'conflicted':
-      return { symbol: '!', label: '競合' }
+      return { symbol: '!', label: t('git.changes.kinds.conflicted') }
   }
 }
 
@@ -167,7 +176,10 @@ export function canOpenGitChange(change: GitFileChange): boolean {
  * rename では**元の位置**を場所の代わりに出す。移動そのものが変更の中身なので、
  * 「どこにあるか」より「どこから来たか」の方が先に知りたいことにあたる。
  */
-export function describeGitChangeRow(change: GitFileChange): {
+export function describeGitChangeRow(
+  change: GitFileChange,
+  t: TFunction = DEFAULT_T
+): {
   readonly name: string
   readonly location: string | null
 } {
@@ -178,7 +190,7 @@ export function describeGitChangeRow(change: GitFileChange): {
   const parent = split === null ? '' : split.parent
 
   if (change.originalPath !== null) {
-    return { name, location: `${change.originalPath} から` }
+    return { name, location: t('git.changes.row.from', { path: change.originalPath }) }
   }
 
   return { name, location: parent === '' ? null : parent }
@@ -240,17 +252,18 @@ export function toGitRowAction(groupId: GitChangeGroup['id']): GitRowAction {
  */
 export function describeGitRowAction(
   action: Exclude<GitRowAction, null>,
-  change: GitFileChange
+  change: GitFileChange,
+  t: TFunction = DEFAULT_T
 ): string {
   switch (action) {
     case 'stage':
-      return `${change.relativePath} を Stage`
+      return t('git.changes.row.stage', { path: change.relativePath })
 
     case 'unstage':
-      return `${change.relativePath} の Stage を解除`
+      return t('git.changes.row.unstage', { path: change.relativePath })
 
     case 'resolve':
-      return `${change.relativePath} の競合を解決済みにする`
+      return t('git.changes.row.resolve', { path: change.relativePath })
   }
 }
 
@@ -361,26 +374,27 @@ export interface GitDiscardWarning {
 
 export function describeGitDiscardWarning(
   group: GitDiscardTarget['group'],
-  change: GitFileChange
+  change: GitFileChange,
+  t: TFunction = DEFAULT_T
 ): GitDiscardWarning {
-  const { name } = describeGitChangeRow(change)
+  const { name } = describeGitChangeRow(change, t)
 
   if (group === 'untracked') {
     return {
-      message: `「${name}」をごみ箱に移動します。`,
+      message: t('git.changes.discard.untrackedMessage', { name }),
       // Files パネルの削除とまったく同じ結末なので、同じことを同じ言い方で言う。
-      note: 'ごみ箱から元に戻せます。',
-      confirmLabel: 'ごみ箱に移動'
+      note: t('git.changes.discard.untrackedNote'),
+      confirmLabel: t('git.common.moveToTrash')
     }
   }
 
   return {
     message:
       change.kind === 'deleted'
-        ? `「${name}」を、ステージ済みの内容から復元します。`
-        : `「${name}」の変更を、ステージ済みの内容に戻します。`,
-    note: 'この変更は元に戻せません。ステージ済みの内容は変わりません。',
-    confirmLabel: '変更を破棄'
+        ? t('git.changes.discard.deletedMessage', { name })
+        : t('git.changes.discard.modifiedMessage', { name }),
+    note: t('git.changes.discard.modifiedNote'),
+    confirmLabel: t('git.common.discard')
   }
 }
 
@@ -405,13 +419,14 @@ export function describeGitDiscardWarning(
  */
 export function findGitDiscardBlocker(
   relativePath: string,
-  unsavedPaths: ReadonlySet<string>
+  unsavedPaths: ReadonlySet<string>,
+  t: TFunction = DEFAULT_T
 ): string | null {
   if (!unsavedPaths.has(relativePath)) {
     return null
   }
 
-  return 'このファイルは Editor に未保存の変更があります。保存するかタブを閉じてから破棄してください。'
+  return t('git.changes.discard.blocked')
 }
 
 /**
@@ -436,11 +451,14 @@ export function findGitDiscardBlocker(
  * 名乗る**ことになる ── どこまで済んでいるかは `completed` として
  * 結末に載っている（shared/git/operation.ts）。
  */
-export function describeGitOperationFailure(failure: GitOperationFailure): string {
-  const reason = describeGitOperationFailureReason(failure.reason)
+export function describeGitOperationFailure(
+  failure: GitOperationFailure,
+  t: TFunction = DEFAULT_T
+): string {
+  const reason = describeGitOperationFailureReason(failure.reason, t)
 
   if (failure.status === 'partly-applied') {
-    return `${describeGitPartialStep(failure.completed)}${reason}`
+    return `${describeGitPartialStep(failure.completed, t)}${reason}`
   }
 
   return reason
@@ -454,10 +472,10 @@ export function describeGitOperationFailure(failure: GitOperationFailure): strin
  * 「もう一度最初から押す」を招く ── Commit なら同じ commit が2つ積まれ、
  * 公開なら同じ名前で作ろうとして断られる。
  */
-function describeGitPartialStep(step: GitPartialOperationStep): string {
+function describeGitPartialStep(step: GitPartialOperationStep, t: TFunction): string {
   switch (step) {
     case 'commit':
-      return 'Commit は完了しましたが、Push できませんでした。'
+      return t('git.operationFailure.partial.commit')
 
     /*
       remote の設定まで済んでいるとは限らない（`no-remote` が理由として
@@ -465,7 +483,7 @@ function describeGitPartialStep(step: GitPartialOperationStep): string {
       続きに何をすればよいかは、後半の理由が言う。
     */
     case 'github-repository':
-      return 'GitHub の repository は作成されました。'
+      return t('git.operationFailure.partial.githubRepository')
 
     /*
       退避を戻したら競合した（Session 3-8-15）。
@@ -476,7 +494,7 @@ function describeGitPartialStep(step: GitPartialOperationStep): string {
       （shared/git/operation.ts の `stash-apply`）。
     */
     case 'stash-apply':
-      return '退避の内容は作業ツリーに戻りましたが、競合しました（退避は一覧に残しています）。'
+      return t('git.operationFailure.partial.stashApply')
 
     /*
       マージは始まった（Session 3-8-20）。
@@ -490,24 +508,27 @@ function describeGitPartialStep(step: GitPartialOperationStep): string {
       残りをどうするかは後半の理由（`merge-conflict`）が言う。
     */
     case 'merge':
-      return 'マージを開始し、自動でマージできた変更は取り込みました。'
+      return t('git.operationFailure.partial.merge')
   }
 }
 
 /** 分類ごとの一言（`partly-applied` でも同じものを後半に使う）。 */
-function describeGitOperationFailureReason(reason: GitOperationFailureReason): string {
+function describeGitOperationFailureReason(
+  reason: GitOperationFailureReason,
+  t: TFunction
+): string {
   switch (reason) {
     case 'not-ready':
-      return 'この Workspace では Git 操作を行えなくなりました。'
+      return t('git.operationFailure.reasons.notReady')
 
     case 'nothing-to-do':
-      return '対象がありませんでした。最新の状態に更新しました。'
+      return t('git.operationFailure.reasons.nothingToDo')
 
     case 'identity-missing':
-      return 'Git の user.name / user.email が設定されていないため Commit できません。'
+      return t('git.operationFailure.reasons.identityMissing')
 
     case 'hook-rejected':
-      return 'このリポジトリの Git hook が Commit を中止しました。内容はターミナルの git commit でご確認ください。'
+      return t('git.operationFailure.reasons.hookRejected')
 
     /*
       Session 3-8-18 で、この文の**行き先がアプリの中に出来た。**
@@ -517,7 +538,7 @@ function describeGitOperationFailureReason(reason: GitOperationFailureReason): s
       「解決済みにする」が付いたので、次の一手をその場所として書ける。
     */
     case 'unresolved-conflicts':
-      return '競合が解決されていないため Commit できません。競合の行で「解決済みにする」を押してください。'
+      return t('git.operationFailure.reasons.unresolvedConflicts')
 
     /*
       途中の Git 操作があるあいだは通さない操作だった（Session 3-8-22A）。
@@ -531,7 +552,7 @@ function describeGitOperationFailureReason(reason: GitOperationFailureReason): s
       書くと、片方だけ直された日に食い違う。
     */
     case 'operation-in-progress':
-      return 'Git 操作の途中のため実行できませんでした。上に出ている案内に沿って、その操作を終わらせてからお試しください。'
+      return t('git.operationFailure.reasons.operationInProgress')
 
     /*
       「解決済みにする」を押したが、マーカーが残っていた（Session 3-8-18）。
@@ -545,13 +566,13 @@ function describeGitOperationFailureReason(reason: GitOperationFailureReason): s
       **断っているのはアプリ**だと分かるように書く。
     */
     case 'conflict-markers-present':
-      return '競合マーカー（<<<<<<< や >>>>>>>）がまだ残っています。エディタで開いて、残す内容だけにしてからお試しください。'
+      return t('git.operationFailure.reasons.conflictMarkersPresent')
 
     case 'path-not-found':
-      return '対象のファイルが見つかりませんでした。一覧を更新しました。'
+      return t('git.operationFailure.reasons.pathNotFound')
 
     case 'not-on-branch':
-      return 'ブランチの上に居ないため Push / Pull できません。ブランチに切り替えてからお試しください。'
+      return t('git.operationFailure.reasons.notOnBranch')
 
     /*
       Session 3-8-16 で、次の一手が**アプリの中だけで揃った。**
@@ -570,7 +591,7 @@ function describeGitOperationFailureReason(reason: GitOperationFailureReason): s
       近いのは、既に在るものへ繋ぐ側になる。
     */
     case 'no-remote':
-      return 'このリポジトリにはリモートが設定されていません。上の「リモート」から追加するか、「GitHub に公開」で新しく作成してください。'
+      return t('git.operationFailure.reasons.noRemote')
 
     /*
       Session 3-8-15 で、この分類を返す操作が2つになった（公開と、退避）。
@@ -582,25 +603,25 @@ function describeGitOperationFailureReason(reason: GitOperationFailureReason): s
       当たる文へ直した（3-8-14）のと同じ判断になる。
     */
     case 'no-commit':
-      return 'まだ Commit が1つもありません。先に Commit してからお試しください。'
+      return t('git.operationFailure.reasons.noCommit')
 
     case 'github-cli-missing':
-      return 'GitHub CLI が見つかりませんでした。インストールしてから、もう一度お試しください。'
+      return t('git.operationFailure.reasons.githubCliMissing')
 
     case 'github-signed-out':
-      return 'GitHub にログインしていません。Terminal パネルで gh auth login を実行してください。'
+      return t('git.operationFailure.reasons.githubSignedOut')
 
     case 'github-repository-exists':
-      return '同じ名前の repository が GitHub に既にあります。別の名前をお試しください。'
+      return t('git.operationFailure.reasons.githubRepositoryExists')
 
     case 'no-upstream':
-      return '追跡先が設定されていないため Pull できません。先に Push すると追跡先が設定されます。'
+      return t('git.operationFailure.reasons.noUpstream')
 
     case 'auth-required':
-      return 'Git の認証が必要です。Terminal パネルで一度 git push / git pull を実行して認証を済ませてください。'
+      return t('git.operationFailure.reasons.authRequired')
 
     case 'network-unavailable':
-      return 'remote に接続できませんでした。ネットワークの状態をご確認ください。'
+      return t('git.operationFailure.reasons.networkUnavailable')
 
     /*
       「Push できませんでした」と書かないのは、`partly-applied` の前半
@@ -608,10 +629,10 @@ function describeGitOperationFailureReason(reason: GitOperationFailureReason): s
       理由の文は**理由だけ**を言い、結末は前半が言う。
     */
     case 'push-rejected':
-      return 'remote 側に新しい変更があります。先に Pull してからお試しください。'
+      return t('git.operationFailure.reasons.pushRejected')
 
     case 'remote-rejected':
-      return 'remote 側が受け取りを拒否しました。保護されたブランチか、サーバー側の設定によるものです。'
+      return t('git.operationFailure.reasons.remoteRejected')
 
     /*
       早送りできなかった（Session 3-8-5 の Pull / Session 3-8-20 のマージ）。
@@ -628,7 +649,7 @@ function describeGitOperationFailureReason(reason: GitOperationFailureReason): s
       3-8-14 で3つの操作に当たる形へ直したのと同じ判断）。
     */
     case 'diverged':
-      return '枝分かれしているため、早送りで取り込めませんでした。Terminal パネルで内容をご確認ください。'
+      return t('git.operationFailure.reasons.diverged')
 
     /*
       共通の祖先が無い（Session 3-8-20）。
@@ -639,7 +660,7 @@ function describeGitOperationFailureReason(reason: GitOperationFailureReason): s
       持っていないものを勧めると探させることになる ── `branch -D` と同じ形）。
     */
     case 'unrelated-histories':
-      return '共通の履歴が無いブランチのため、マージできません。取り込む相手をご確認ください。'
+      return t('git.operationFailure.reasons.unrelatedHistories')
 
     /*
       競合した（Session 3-8-20）。**必ず `partly-applied` の後半に出る。**
@@ -650,13 +671,13 @@ function describeGitOperationFailureReason(reason: GitOperationFailureReason): s
       すぐ下に開いている（Session 3-8-18）。
     */
     case 'merge-conflict':
-      return '競合したファイルがあります。内容を直してから「解決済みにする」を押し、Commit してください。'
+      return t('git.operationFailure.reasons.mergeConflict')
 
     case 'local-changes-blocked':
-      return '作業ツリーの変更が上書きされるため実行できませんでした。Commit するか退避してからお試しください。'
+      return t('git.operationFailure.reasons.localChangesBlocked')
 
     case 'branch-exists':
-      return '同じ名前のブランチが既にあります。別の名前をお試しください。'
+      return t('git.operationFailure.reasons.branchExists')
 
     /*
       削除できなかった（Session 3-8-14）。
@@ -666,10 +687,10 @@ function describeGitOperationFailureReason(reason: GitOperationFailureReason): s
       hook に断られたときと同じ形で、行き先は Terminal パネルになる。
     */
     case 'branch-not-merged':
-      return 'このブランチにしか無いコミットがあるため削除できません。先にマージするか、内容を確認のうえ Terminal パネルの git branch -D をご利用ください。'
+      return t('git.operationFailure.reasons.branchNotMerged')
 
     case 'branch-checked-out':
-      return 'このブランチは現在チェックアウトされているため削除できません。別のブランチへ切り替えてからお試しください。'
+      return t('git.operationFailure.reasons.branchCheckedOut')
 
     /*
       Session 3-8-14 で、この分類を返す操作が3つになった（切り替え・削除・rename）。
@@ -680,7 +701,7 @@ function describeGitOperationFailureReason(reason: GitOperationFailureReason): s
       なることと、同じ言い方から読み取ることは別の話にあたる。
     */
     case 'branch-not-found':
-      return '対象のブランチが見つかりませんでした。一覧を開き直してご確認ください。'
+      return t('git.operationFailure.reasons.branchNotFound')
 
     /*
       始点にした commit が解けなかった（Session 3-8-13）。
@@ -689,7 +710,7 @@ function describeGitOperationFailureReason(reason: GitOperationFailureReason): s
       違い、開き直す先も違う（あちらはブランチの一覧、こちらは履歴）。
     */
     case 'commit-not-found':
-      return '指定したコミットが見つかりませんでした。履歴を開き直してご確認ください。'
+      return t('git.operationFailure.reasons.commitNotFound')
 
     /*
       指した退避がそこに無かった（Session 3-8-15）。
@@ -700,7 +721,7 @@ function describeGitOperationFailureReason(reason: GitOperationFailureReason): s
       git を動かさずに断っており、そのことが伝わる文にしてある。
     */
     case 'stash-not-found':
-      return '対象の退避が見つかりませんでした。一覧が変わっている可能性があります。開き直してご確認ください。'
+      return t('git.operationFailure.reasons.stashNotFound')
 
     /*
       同じ名前の remote が既にある（Session 3-8-16）。
@@ -712,7 +733,7 @@ function describeGitOperationFailureReason(reason: GitOperationFailureReason): s
       「どこにあるのか」を探させることになる（`-D` を案内しないのと同じ判断）。
     */
     case 'remote-exists':
-      return '同じ名前のリモートが既にあります。別の名前をお試しください。'
+      return t('git.operationFailure.reasons.remoteExists')
 
     /*
       消そうとした remote が無い（Session 3-8-16）。
@@ -722,25 +743,25 @@ function describeGitOperationFailureReason(reason: GitOperationFailureReason): s
       したがって文も「見つかりません」だけで足りる。
     */
     case 'remote-not-found':
-      return '対象のリモートが見つかりませんでした。一覧を開き直してご確認ください。'
+      return t('git.operationFailure.reasons.remoteNotFound')
 
     case 'unsupported-target':
-      return 'この行はその操作の対象になりません。一覧を更新しました。'
+      return t('git.operationFailure.reasons.unsupportedTarget')
 
     case 'target-busy':
-      return '対象のファイルが他のプログラムに使われています。閉じてからもう一度お試しください。'
+      return t('git.operationFailure.reasons.targetBusy')
 
     case 'index-locked':
-      return '他の Git 操作が実行中です。終わってからもう一度お試しください。'
+      return t('git.operationFailure.reasons.indexLocked')
 
     case 'permission-denied':
-      return 'アクセスが拒否されました。フォルダのアクセス許可をご確認ください。'
+      return t('git.operationFailure.reasons.permissionDenied')
 
     case 'timeout':
-      return '時間内に完了しませんでした。もう一度お試しください。'
+      return t('git.operationFailure.reasons.timeout')
 
     case 'unknown':
-      return 'Git 操作に失敗しました。'
+      return t('git.operationFailure.reasons.unknown')
   }
 }
 
@@ -800,16 +821,21 @@ const COMMIT_MESSAGE_COUNTER_THRESHOLD = GIT_COMMIT_MESSAGE_MAX_LENGTH / 10
  * 規則そのものは shared（shared/git/commitMessage.ts）で、文言はこちら ──
  * files ドメイン（filesError.ts）と同じ分担にしてある。
  */
-export function describeGitCommitMessageProblem(problem: GitCommitMessageProblem): string {
+export function describeGitCommitMessageProblem(
+  problem: GitCommitMessageProblem,
+  t: TFunction = DEFAULT_T
+): string {
   switch (problem) {
     case 'empty':
-      return 'Commit メッセージを入力してください。'
+      return t('git.commit.problem.empty')
 
     case 'too-long':
-      return `Commit メッセージは ${GIT_COMMIT_MESSAGE_MAX_LENGTH.toLocaleString()} 文字までです。`
+      return t('git.commit.problem.tooLong', {
+        max: GIT_COMMIT_MESSAGE_MAX_LENGTH.toLocaleString()
+      })
 
     case 'invalid-characters':
-      return 'Commit メッセージに使用できない文字が含まれています。'
+      return t('git.commit.problem.invalidCharacters')
   }
 }
 
@@ -834,14 +860,15 @@ export function describeGitCommitMessageProblem(problem: GitCommitMessageProblem
 export function toGitCommitReadiness(
   message: string,
   stagedCount: number,
-  operating: boolean
+  operating: boolean,
+  t: TFunction = DEFAULT_T
 ): GitCommitReadiness {
   const prepared = prepareGitCommitMessage(message)
   const left = GIT_COMMIT_MESSAGE_MAX_LENGTH - prepared.length
   const remaining = left <= COMMIT_MESSAGE_COUNTER_THRESHOLD ? left : null
 
   if (stagedCount === 0) {
-    return { enabled: false, note: 'Commit するには、変更をステージしてください。', remaining }
+    return { enabled: false, note: t('git.commit.readiness.stageFirst'), remaining }
   }
 
   const problem = findGitCommitMessageProblem(prepared)
@@ -850,7 +877,7 @@ export function toGitCommitReadiness(
     return {
       enabled: false,
       // 空欄は「まだ書いていない」であって、直すべき間違いではない。
-      note: problem === 'empty' ? null : describeGitCommitMessageProblem(problem),
+      note: problem === 'empty' ? null : describeGitCommitMessageProblem(problem, t),
       remaining
     }
   }
@@ -924,23 +951,27 @@ export interface GitActionReadiness {
 export function toGitPushReadiness(
   head: GitHead,
   upstream: GitUpstreamStatus | null,
-  operating: boolean
+  operating: boolean,
+  t: TFunction = DEFAULT_T
 ): GitActionReadiness {
   if (head.kind !== 'branch') {
-    return { enabled: false, note: 'ブランチの上に居ないため Push できません。' }
+    return { enabled: false, note: t('git.sync.pushNotOnBranch') }
   }
 
   if (upstream === null) {
-    return { enabled: !operating, note: '追跡先を作って、このブランチを送ります。' }
+    return { enabled: !operating, note: t('git.sync.pushCreateUpstream') }
   }
 
   if (upstream.ahead === 0) {
-    return { enabled: false, note: `${upstream.name} へ送る Commit はありません。` }
+    return { enabled: false, note: t('git.sync.pushNothing', { upstream: upstream.name }) }
   }
 
-  const count = upstream.ahead === null ? '' : `${upstream.ahead} 件の `
+  const count = upstream.ahead === null ? '' : `${upstream.ahead.toLocaleString()} `
 
-  return { enabled: !operating, note: `${count}Commit を ${upstream.name} へ送ります。` }
+  return {
+    enabled: !operating,
+    note: t('git.sync.pushCommits', { count, upstream: upstream.name })
+  }
 }
 
 /**
@@ -956,19 +987,26 @@ export function toGitPushReadiness(
 export function toGitPullReadiness(
   head: GitHead,
   upstream: GitUpstreamStatus | null,
-  operating: boolean
+  operating: boolean,
+  t: TFunction = DEFAULT_T
 ): GitActionReadiness {
   if (head.kind !== 'branch') {
-    return { enabled: false, note: 'ブランチの上に居ないため Pull できません。' }
+    return { enabled: false, note: t('git.sync.pullNotOnBranch') }
   }
 
   if (upstream === null) {
-    return { enabled: false, note: '追跡先が設定されていないため Pull できません。' }
+    return { enabled: false, note: t('git.sync.pullNoUpstream') }
   }
 
-  const count = upstream.behind === null || upstream.behind === 0 ? '' : `（${upstream.behind} 件）`
+  const count =
+    upstream.behind === null || upstream.behind === 0
+      ? ''
+      : t('git.sync.pullCount', { count: upstream.behind.toLocaleString() })
 
-  return { enabled: !operating, note: `${upstream.name} の変更を取り込みます${count}。` }
+  return {
+    enabled: !operating,
+    note: t('git.sync.pullChanges', { upstream: upstream.name, count })
+  }
 }
 
 /**
@@ -992,10 +1030,13 @@ export function toGitPullReadiness(
  * hover と読み上げでそれを先に言う ── 3-8-17 が「URL を変えると追跡情報が
  * 古いまま残る」を確認の文に書いたのと同じで、**消える側を先に言う**。
  */
-export function toGitFetchReadiness(operating: boolean): GitActionReadiness {
+export function toGitFetchReadiness(
+  operating: boolean,
+  t: TFunction = DEFAULT_T
+): GitActionReadiness {
   return {
     enabled: !operating,
-    note: 'remote の最新の状態を取得します（取り込みは行いません）。相手から消えた枝は一覧からも消えます。'
+    note: t('git.sync.fetchNote')
   }
 }
 
@@ -1011,15 +1052,16 @@ export function toGitFetchReadiness(operating: boolean): GitActionReadiness {
  */
 export function toGitCommitAndPushReadiness(
   commit: GitCommitReadiness,
-  head: GitHead
+  head: GitHead,
+  t: TFunction = DEFAULT_T
 ): GitActionReadiness {
   if (head.kind !== 'branch') {
-    return { enabled: false, note: 'ブランチの上に居ないため Push できません。' }
+    return { enabled: false, note: t('git.commit.readiness.notOnBranchPush') }
   }
 
   return {
     enabled: commit.enabled,
-    note: 'ステージ済みの変更を Commit して、そのまま Push します。'
+    note: t('git.commit.readiness.commitAndPush')
   }
 }
 
@@ -1033,7 +1075,10 @@ export function toGitCommitAndPushReadiness(
  * 差が分からない場合（upstream の ref が手元に無い）は名前だけを出す ──
  * 0 と書くと「送るものは無い」と読まれる。
  */
-export function describeGitUpstream(upstream: GitUpstreamStatus | null): {
+export function describeGitUpstream(
+  upstream: GitUpstreamStatus | null,
+  t: TFunction = DEFAULT_T
+): {
   readonly text: string
   readonly title: string
 } | null {
@@ -1044,12 +1089,16 @@ export function describeGitUpstream(upstream: GitUpstreamStatus | null): {
   if (upstream.ahead === null || upstream.behind === null) {
     return {
       text: upstream.name,
-      title: `追跡先は ${upstream.name}（進み具合は取得できませんでした）`
+      title: t('git.sync.upstreamUnknown', { name: upstream.name })
     }
   }
 
   return {
     text: `↑${upstream.ahead} ↓${upstream.behind}`,
-    title: `${upstream.name} より ${upstream.ahead} 件進み、${upstream.behind} 件遅れています`
+    title: t('git.sync.upstreamAheadBehind', {
+      name: upstream.name,
+      ahead: upstream.ahead.toLocaleString(),
+      behind: upstream.behind.toLocaleString()
+    })
   }
 }

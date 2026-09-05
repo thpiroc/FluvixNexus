@@ -1,4 +1,7 @@
 import type { GitFailureReason, GitHead, GitRepositoryState } from '@shared/git'
+import { createTranslator, type TFunction } from '../i18n/messages'
+
+const DEFAULT_T = createTranslator('ja')
 
 /**
  * Git リポジトリの状態 → 画面に出す文言（React / DOM 非依存・テスト対象）。
@@ -63,14 +66,17 @@ export interface GitRepositoryNotice {
 /**
  * 案内を出すべき状態か。`ready` なら null（案内ではなくリポジトリの中身を出す）。
  */
-export function describeGitRepositoryNotice(state: GitRepositoryState): GitRepositoryNotice | null {
+export function describeGitRepositoryNotice(
+  state: GitRepositoryState,
+  t: TFunction = DEFAULT_T
+): GitRepositoryNotice | null {
   switch (state.status) {
     case 'ready':
       return null
 
     case 'no-workspace':
       return {
-        title: 'Workspace が開かれていません。',
+        title: t('git.repository.noWorkspaceTitle'),
         description: null,
         retryable: false,
         action: null
@@ -78,80 +84,74 @@ export function describeGitRepositoryNotice(state: GitRepositoryState): GitRepos
 
     case 'git-unavailable':
       return {
-        title: 'Git が見つかりませんでした。',
-        description:
-          'この PC に Git がインストールされていないか、見つけられない場所にあります。Git をインストールしてから、もう一度お試しください。',
+        title: t('git.repository.gitUnavailableTitle'),
+        description: t('git.repository.gitUnavailableDescription'),
         retryable: true,
         action: null
       }
 
     case 'not-a-repository':
       return {
-        title: 'このフォルダはまだ Git リポジトリではありません。',
+        title: t('git.repository.notRepositoryTitle'),
         /*
           Session 3-8-10 で、ここから抜け出す口（`git:init`）が画面に付いた。
           文言が説明するのは**その1回で何が起きるか**だけで、その先
           （Commit / GitHub への公開）は促さない ── 初期化と公開は
           完全に別の操作にしてある（main/git/gitInit.ts）。
         */
-        description:
-          'Git リポジトリにすると、変更の記録（Commit）やブランチの操作ができるようになります。GitHub への公開は、リポジトリにした後でいつでも選べます。',
+        description: t('git.repository.notRepositoryDescription'),
         retryable: true,
-        action: 'Git リポジトリにする'
+        action: t('git.repository.notRepositoryAction')
       }
 
     case 'nested':
       return {
-        title: `このフォルダは Git リポジトリ「${state.repositoryName}」の一部です。`,
+        title: t('git.repository.nestedTitle', { name: state.repositoryName }),
         /*
           リポジトリ root の絶対パスは届かない（渡していない。設計判断 10）。
           名前だけで「どれを開き直せばよいか」は伝わる。
         */
-        description:
-          'リポジトリの一部だけを開いている状態では、画面に見えていないファイルまで Commit の対象になってしまうため、Git 操作は行いません。リポジトリのフォルダそのものを Workspace として開き直してください。',
+        description: t('git.repository.nestedDescription'),
         retryable: true,
         action: null
       }
 
     case 'failed':
-      return describeGitFailure(state.reason)
+      return describeGitFailure(state.reason, t)
   }
 }
 
 /** 失敗の分類ごとの案内。 */
-function describeGitFailure(reason: GitFailureReason): GitRepositoryNotice {
+function describeGitFailure(reason: GitFailureReason, t: TFunction): GitRepositoryNotice {
   switch (reason) {
     case 'no-work-tree':
       return {
-        title: 'このフォルダには作業ツリーがありません。',
-        description:
-          '編集するファイルを持たないリポジトリ（bare リポジトリ）です。clone した作業用のフォルダを Workspace として開いてください。',
+        title: t('git.repository.noWorkTreeTitle'),
+        description: t('git.repository.noWorkTreeDescription'),
         retryable: true,
         action: null
       }
 
     case 'dubious-ownership':
       return {
-        title: 'Git がこのフォルダの所有者を信頼していません。',
-        description:
-          '別のユーザーや管理者権限で作られたフォルダで起こります。Terminal パネルで git config --global --add safe.directory を実行して、このフォルダを信頼する設定を追加してください。',
+        title: t('git.repository.dubiousOwnershipTitle'),
+        description: t('git.repository.dubiousOwnershipDescription'),
         retryable: true,
         action: null
       }
 
     case 'permission-denied':
       return {
-        title: 'このフォルダを読み取る権限がありません。',
-        description: 'フォルダのアクセス許可を確認してから、もう一度お試しください。',
+        title: t('git.repository.permissionDeniedTitle'),
+        description: t('git.repository.permissionDeniedDescription'),
         retryable: true,
         action: null
       }
 
     case 'timeout':
       return {
-        title: 'Git の応答がありませんでした。',
-        description:
-          'ネットワークドライブ上のリポジトリや、非常に大きなリポジトリで起こることがあります。もう一度お試しください。',
+        title: t('git.repository.timeoutTitle'),
+        description: t('git.repository.timeoutDescription'),
         retryable: true,
         action: null
       }
@@ -159,8 +159,8 @@ function describeGitFailure(reason: GitFailureReason): GitRepositoryNotice {
     case 'unreadable-output':
     case 'unknown':
       return {
-        title: 'Git の状態を取得できませんでした。',
-        description: 'もう一度お試しください。詳しい内容はアプリのログに記録されています。',
+        title: t('git.repository.failedTitle'),
+        description: t('git.repository.failedDescription'),
         retryable: true,
         action: null
       }
@@ -175,15 +175,15 @@ function describeGitFailure(reason: GitFailureReason): GitRepositoryNotice {
  * 用語をそのまま出しているのは、これが git 側の状態そのものを指す言葉で、
  * 言い換えると調べようがなくなるから。
  */
-export function describeGitHead(head: GitHead): string {
+export function describeGitHead(head: GitHead, t: TFunction = DEFAULT_T): string {
   switch (head.kind) {
     case 'branch':
       return head.name
 
     case 'detached':
-      return `detached HEAD（${head.commit}）`
+      return t('git.repository.detachedHead', { hash: head.commit })
 
     case 'unknown':
-      return 'ブランチ不明'
+      return t('git.repository.unknownBranch')
   }
 }

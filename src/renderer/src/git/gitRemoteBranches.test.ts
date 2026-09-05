@@ -67,10 +67,10 @@ describe('describeGitRemoteBranchList', () => {
     だが、次の一手が違う ── 片方はこのパネルの上のバー、もう片方は Terminal。
     同じ文にまとめると、押す先を先に判断させることになる。
   */
-  it('remote が1つも無ければ、「リモート」から追加するよう案内する', () => {
+  it('remote が1つも無ければ、「Remote」から追加するよう案内する', () => {
     const notice = describeGitRemoteBranchList(listOf({ branches: [], hasRemote: false }))
 
-    expect(notice).toContain('リモート')
+    expect(notice).toContain('Remote')
     expect(notice).not.toContain('fetch')
   })
 
@@ -109,7 +109,7 @@ describe('describeGitRemoteBranchFreshness', () => {
   it('行があるときは、いつの写しかを言う', () => {
     const notice = describeGitRemoteBranchFreshness(listOf())
 
-    expect(notice).toContain('最後に取得した時点')
+    expect(notice).toContain('最後に Fetch した時点')
   })
 
   it('1件も無いときは言わない（空の案内と重ねない）', () => {
@@ -163,7 +163,7 @@ describe('toGitTrackingBranchCreateReadiness', () => {
     const readiness = toGitTrackingBranchCreateReadiness(originFeature, '', false)
 
     expect(readiness.enabled).toBe(false)
-    expect(readiness.note).toContain('ブランチ名を入力してください')
+    expect(readiness.note).toContain('Branch 名を入力してください')
   })
 
   it('使えない名前は、gitBranches.ts と同じ文言で断る', () => {

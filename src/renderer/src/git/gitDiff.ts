@@ -9,6 +9,9 @@ import type {
   GitFileChange
 } from '@shared/git'
 import type { GitChangeGroup } from './gitChanges'
+import { createTranslator, type TFunction } from '../i18n/messages'
+
+const DEFAULT_T = createTranslator('ja')
 
 /**
  * 差分の面に出す言葉と、開ける行かどうかの判断（Session 3-8-9）。
@@ -169,21 +172,25 @@ export interface GitDiffSides {
  * 追加・未追跡・削除では、片側が「無い」ことをそのまま書く ── 空の欄を
  * 見せておいて「変更前」と名乗ると、中身が空のファイルと見分けが付かない。
  */
-export function describeGitDiffSides(group: GitDiffGroup, kind: GitChangeKind): GitDiffSides {
+export function describeGitDiffSides(
+  group: GitDiffGroup,
+  kind: GitChangeKind,
+  t: TFunction = DEFAULT_T
+): GitDiffSides {
   if (group === 'untracked') {
-    return { original: 'まだ Git にありません', modified: '作業ツリー' }
+    return { original: t('git.diff.sides.notInGit'), modified: t('git.diff.sides.workingTree') }
   }
 
   if (group === 'unstaged') {
     return {
-      original: 'ステージ済み（index）',
-      modified: kind === 'deleted' ? '削除されています' : '作業ツリー'
+      original: t('git.diff.sides.index'),
+      modified: kind === 'deleted' ? t('git.diff.sides.deleted') : t('git.diff.sides.workingTree')
     }
   }
 
   return {
-    original: kind === 'added' ? 'まだ Git にありません' : 'HEAD（最後の Commit）',
-    modified: kind === 'deleted' ? '削除されています' : 'ステージ済み（index）'
+    original: kind === 'added' ? t('git.diff.sides.notInGit') : t('git.diff.sides.head'),
+    modified: kind === 'deleted' ? t('git.diff.sides.deleted') : t('git.diff.sides.index')
   }
 }
 
@@ -229,11 +236,12 @@ export interface GitConflictDiffSides extends GitDiffSides {
  */
 export function describeGitConflictDiffSides(
   shape: GitConflictShape,
-  merging: boolean
+  merging: boolean,
+  t: TFunction = DEFAULT_T
 ): GitConflictDiffSides {
   return {
-    original: merging ? '現在のブランチ（ours / stage 2）' : 'ours（stage 2）',
-    modified: merging ? '取り込み側（theirs / stage 3）' : 'theirs（stage 3）',
+    original: merging ? t('git.diff.sides.currentBranchOurs') : t('git.diff.sides.ours'),
+    modified: merging ? t('git.diff.sides.incomingTheirs') : t('git.diff.sides.theirs'),
     originalMissing: !hasOursSide(shape),
     modifiedMissing: !hasTheirsSide(shape)
   }
@@ -247,12 +255,15 @@ export function describeGitConflictDiffSides(
  * ラベルとまったく同じで、マージ中だけ言い切り、それ以外では git の語を
  * そのまま置く。
  */
-function describeGitConflictSideNames(merging: boolean): {
+function describeGitConflictSideNames(
+  merging: boolean,
+  t: TFunction
+): {
   readonly ours: string
   readonly theirs: string
 } {
   return merging
-    ? { ours: '現在のブランチ', theirs: '取り込み側' }
+    ? { ours: t('git.diff.sides.currentBranch'), theirs: t('git.diff.sides.incoming') }
     : { ours: 'ours', theirs: 'theirs' }
 }
 
@@ -317,17 +328,18 @@ function hasTheirsSide(shape: GitConflictShape): boolean {
  */
 export function describeGitConflictMissingSides(
   sides: GitConflictDiffSides,
-  merging: boolean
+  merging: boolean,
+  t: TFunction = DEFAULT_T
 ): string | null {
-  const names = describeGitConflictSideNames(merging)
+  const names = describeGitConflictSideNames(merging, t)
   const notes: string[] = []
 
   if (sides.originalMissing) {
-    notes.push(`左（${names.ours}）にはファイルが存在しません。`)
+    notes.push(t('git.diff.conflictMissingLeft', { name: names.ours }))
   }
 
   if (sides.modifiedMissing) {
-    notes.push(`右（${names.theirs}）にはファイルが存在しません。`)
+    notes.push(t('git.diff.conflictMissingRight', { name: names.theirs }))
   }
 
   return notes.length === 0 ? null : notes.join(' ')
@@ -344,30 +356,34 @@ export function describeGitConflictMissingSides(
  * `UU` / `AA` のような git の2文字は出さない（3-8-2 からの線）── 出すのは
  * 段の番号だけで、それは左右のラベルの側にある。
  */
-export function describeGitConflictShape(shape: GitConflictShape, merging: boolean): string {
-  const names = describeGitConflictSideNames(merging)
+export function describeGitConflictShape(
+  shape: GitConflictShape,
+  merging: boolean,
+  t: TFunction = DEFAULT_T
+): string {
+  const names = describeGitConflictSideNames(merging, t)
 
   switch (shape) {
     case 'both-modified':
-      return `${names.ours}と${names.theirs}の両方で変更されています。`
+      return t('git.diff.conflictBothModified', names)
 
     case 'both-added':
-      return `${names.ours}と${names.theirs}の両方で追加されています（共通の元がありません）。`
+      return t('git.diff.conflictBothAdded', names)
 
     case 'deleted-by-them':
-      return `${names.ours}では変更され、${names.theirs}では削除されています。`
+      return t('git.diff.conflictDeletedByThem', names)
 
     case 'deleted-by-us':
-      return `${names.ours}では削除され、${names.theirs}では変更されています。`
+      return t('git.diff.conflictDeletedByUs', names)
 
     case 'both-deleted':
-      return `${names.ours}と${names.theirs}の両方で削除されています。`
+      return t('git.diff.conflictBothDeleted', names)
 
     case 'added-by-us':
-      return `${names.ours}だけで追加されています。`
+      return t('git.diff.conflictAddedByUs', names)
 
     case 'added-by-them':
-      return `${names.theirs}だけで追加されています。`
+      return t('git.diff.conflictAddedByThem', names)
   }
 }
 
@@ -386,10 +402,13 @@ export function describeGitConflictShape(shape: GitConflictShape, merging: boole
  * `added` として返るため（`--root`。main/git/gitCommands.ts）、
  * 左は「まだありません」になり、親を名乗らずに済む。
  */
-export function describeGitCommitDiffSides(kind: GitChangeKind): GitDiffSides {
+export function describeGitCommitDiffSides(
+  kind: GitChangeKind,
+  t: TFunction = DEFAULT_T
+): GitDiffSides {
   return {
-    original: kind === 'added' ? 'まだありません' : '親のコミット',
-    modified: kind === 'deleted' ? '削除されています' : 'このコミット'
+    original: kind === 'added' ? t('git.diff.sides.missing') : t('git.diff.sides.parentCommit'),
+    modified: kind === 'deleted' ? t('git.diff.sides.deleted') : t('git.diff.sides.thisCommit')
   }
 }
 
@@ -403,7 +422,10 @@ export function describeGitCommitDiffSides(kind: GitChangeKind): GitDiffSides {
  * 受け取るのが `GitDiffSubject`（gitDiff.ts の上）なので、作業ツリーの1行でも
  * commit の中の1ファイルでも**同じ関数が同じ名前を出す。**
  */
-export function describeGitDiffTitle(change: GitDiffSubject): {
+export function describeGitDiffTitle(
+  change: GitDiffSubject,
+  t: TFunction = DEFAULT_T
+): {
   readonly name: string
   readonly location: string | null
 } {
@@ -411,7 +433,7 @@ export function describeGitDiffTitle(change: GitDiffSubject): {
   const name = split === null ? change.relativePath : split.name
 
   if (change.originalPath !== null) {
-    return { name, location: `${change.originalPath} から` }
+    return { name, location: t('git.diff.titleFrom', { path: change.originalPath }) }
   }
 
   const parent = split === null ? '' : split.parent
@@ -428,27 +450,30 @@ export function describeGitDiffTitle(change: GitDiffSubject): {
  * バイナリなら別のアプリで開く、大きすぎるなら端末で見る、消えているなら
  * 一覧を見直す。生の英文を出さない方針は 3-8-1 のまま。
  */
-export function describeGitDiffUnavailable(reason: GitDiffUnavailableReason): string {
+export function describeGitDiffUnavailable(
+  reason: GitDiffUnavailableReason,
+  t: TFunction = DEFAULT_T
+): string {
   switch (reason) {
     case 'not-ready':
-      return 'この Workspace では Git 操作を行えなくなりました。'
+      return t('git.diff.unavailable.notReady')
 
     case 'not-found':
-      return 'この変更は見つかりませんでした。一覧が新しくなっている可能性があります。'
+      return t('git.diff.unavailable.notFound')
 
     case 'unsupported-target':
-      return 'この行は差分を出せません（フォルダや submodule にはファイルの差分がありません）。'
+      return t('git.diff.unavailable.unsupportedTarget')
 
     case 'binary':
-      return 'バイナリのため差分を表示できません。'
+      return t('git.diff.unavailable.binary')
 
     case 'too-large':
-      return 'ファイルが大きいため差分を表示できません（2 MB まで）。'
+      return t('git.diff.unavailable.tooLarge')
 
     case 'unreadable':
-      return '差分の内容を読み取れませんでした。'
+      return t('git.diff.unavailable.unreadable')
 
     case 'failed':
-      return '差分を取得できませんでした。'
+      return t('git.diff.unavailable.failed')
   }
 }

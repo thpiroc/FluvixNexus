@@ -14,6 +14,7 @@ import {
   describeGitCommitTruncation,
   type GitCommitHistoryState
 } from './gitHistory'
+import type { TFunction } from '../i18n/messages'
 
 /**
  * commit の履歴を、Git パネルの上に重ねて見せる面（Session 3-8-11 / 3-8-12 / 3-8-13）。
@@ -119,6 +120,7 @@ interface GitHistoryOverlayProps {
   /** その commit を始点にブランチを作る（Session 3-8-13）。 */
   readonly onCreateBranch: (shortHash: string, name: string) => Promise<GitOperationOutcome | null>
   readonly onClose: () => void
+  readonly t: TFunction
 }
 
 export function GitHistoryOverlay({
@@ -130,7 +132,8 @@ export function GitHistoryOverlay({
   onCloseCommit,
   onOpenFile,
   onCreateBranch,
-  onClose
+  onClose,
+  t
 }: GitHistoryOverlayProps): JSX.Element {
   /*
     どの行の下に、ブランチを作る欄が開いているか（Session 3-8-13）。
@@ -213,9 +216,9 @@ export function GitHistoryOverlay({
     }
   }, [suspended, branching, detail, onClose, onCloseCommit])
 
-  const notice = describeGitCommitHistory(history)
-  const truncation = describeGitCommitTruncation(history)
-  const mergeNotice = describeGitMergeCommitNotice(history.commits)
+  const notice = describeGitCommitHistory(history, t)
+  const truncation = describeGitCommitTruncation(history, t)
+  const mergeNotice = describeGitMergeCommitNotice(history.commits, t)
 
   /*
     「今」は、届いた一覧ごとに1つだけ決める。
@@ -233,7 +236,7 @@ export function GitHistoryOverlay({
       data-view={detail === null ? 'list' : 'detail'}
       role="dialog"
       aria-modal="false"
-      aria-label={detail === null ? 'コミット履歴' : 'コミットの変更ファイル'}
+      aria-label={detail === null ? t('git.history.ariaList') : t('git.history.ariaDetail')}
     >
       <div className="fx-git__history-bar">
         {/*
@@ -247,14 +250,14 @@ export function GitHistoryOverlay({
             type="button"
             className="fx-git__history-back"
             onClick={onCloseCommit}
-            title="履歴へ戻る（Esc）"
-            aria-label="履歴へ戻る"
+            title={t('git.history.backTitle')}
+            aria-label={t('git.history.backLabel')}
           >
             ←
           </button>
         )}
         <span className="fx-git__history-title">
-          {detail === null ? 'コミット履歴' : '変更ファイル'}
+          {detail === null ? t('git.history.title') : t('git.history.detailTitle')}
         </span>
         {/*
           件数は見出しの一部（変更の一覧の見出しと同じ形。GitView.tsx）──
@@ -271,8 +274,8 @@ export function GitHistoryOverlay({
           type="button"
           className="fx-git__history-close"
           onClick={onClose}
-          title="履歴を閉じる"
-          aria-label="履歴を閉じる"
+          title={t('git.history.closeTitle')}
+          aria-label={t('git.history.closeLabel')}
         >
           ×
         </button>
@@ -293,6 +296,7 @@ export function GitHistoryOverlay({
                     onStartBranch={setBranching}
                     onCreateBranch={onCreateBranch}
                     onCancelBranch={closeBranching}
+                    t={t}
                   />
                 ))}
               </ul>
@@ -314,7 +318,7 @@ export function GitHistoryOverlay({
           {truncation === null ? null : <p className="fx-git__history-truncated">{truncation}</p>}
         </>
       ) : (
-        <GitCommitDetailView state={detail} onOpenFile={onOpenFile} />
+        <GitCommitDetailView state={detail} onOpenFile={onOpenFile} t={t} />
       )}
     </div>
   )
@@ -379,7 +383,8 @@ function GitCommitRowView({
   onOpen,
   onStartBranch,
   onCreateBranch,
-  onCancelBranch
+  onCancelBranch,
+  t
 }: {
   readonly commit: GitCommitSummary
   readonly now: number
@@ -390,8 +395,9 @@ function GitCommitRowView({
   readonly onStartBranch: (shortHash: string) => void
   readonly onCreateBranch: (shortHash: string, name: string) => Promise<GitOperationOutcome | null>
   readonly onCancelBranch: () => void
+  readonly t: TFunction
 }): JSX.Element {
-  const row = describeGitCommitRow(commit, now)
+  const row = describeGitCommitRow(commit, now, t)
   const openable = canOpenGitCommitDetail(commit)
 
   const body = (
@@ -402,8 +408,8 @@ function GitCommitRowView({
           （変更の記号に読み上げ用の名前を付けてあるのと同じ。GitView.tsx）。
         */}
         {row.merge ? (
-          <span className="fx-git__commit-merge" title="2つ以上の親を持つ commit">
-            マージ
+          <span className="fx-git__commit-merge" title={t('git.history.row.mergeTitle')}>
+            {t('git.history.row.mergeLabel')}
           </span>
         ) : null}
         <span className="fx-git__commit-subject" data-empty={row.emptySubject} title={row.subject}>
@@ -440,7 +446,7 @@ function GitCommitRowView({
             type="button"
             className="fx-git__commit-button"
             onClick={() => onOpen(commit)}
-            title="このコミットの変更ファイルを見る"
+            title={t('git.history.row.openCommitTitle')}
           >
             {body}
           </button>
@@ -464,8 +470,8 @@ function GitCommitRowView({
           className="fx-git__commit-branch"
           onClick={() => onStartBranch(commit.shortHash)}
           disabled={branching}
-          title={`${row.shortHash} からブランチを作る`}
-          aria-label={`${row.shortHash} からブランチを作る`}
+          title={t('git.history.row.createBranchTitle', { hash: row.shortHash })}
+          aria-label={t('git.history.row.createBranchTitle', { hash: row.shortHash })}
         >
           <BranchIcon />
         </button>
@@ -476,6 +482,7 @@ function GitCommitRowView({
           operating={operating}
           onCreate={onCreateBranch}
           onCancel={onCancelBranch}
+          t={t}
         />
       ) : null}
     </li>

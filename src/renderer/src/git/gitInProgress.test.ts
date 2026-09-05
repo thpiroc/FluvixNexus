@@ -84,7 +84,7 @@ describe('describeGitInProgressBlock', () => {
   it('止める操作では、理由と一緒に次の一手が出る', () => {
     const blocked = describeGitInProgressBlock('merge', 'switch-branch')
 
-    expect(blocked).toContain('マージの途中')
+    expect(blocked).toContain('Merge の途中')
     expect(blocked).toContain('中止')
   })
 

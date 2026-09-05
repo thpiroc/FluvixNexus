@@ -51,7 +51,7 @@ describe('describeGitCommitHistory', () => {
   it('取得中はそう言う（「commit がありません」と言わない）', () => {
     const notice = describeGitCommitHistory(historyOf({ status: 'loading', commits: [] }))
 
-    expect(notice).toBe('履歴を取得しています…')
+    expect(notice).toBe('History を取得しています…')
   })
 
   it('commit が1つも無いことを、失敗として言わない', () => {
@@ -61,13 +61,13 @@ describe('describeGitCommitHistory', () => {
     */
     const notice = describeGitCommitHistory(historyOf({ commits: [] }))
 
-    expect(notice).toContain('まだ commit がありません')
+    expect(notice).toContain('まだ Commit がありません')
     expect(notice).toContain('最初の Commit')
   })
 
   it('読めなかったときと、もう出せない状態を分ける', () => {
     expect(describeGitCommitHistory(historyOf({ status: 'failed', commits: [] }))).toBe(
-      '履歴を取得できませんでした。'
+      'History を取得できませんでした。'
     )
     expect(describeGitCommitHistory(historyOf({ status: 'not-ready', commits: [] }))).toContain(
       'Git 操作を行えなくなりました'

@@ -13,6 +13,7 @@ import {
   type GitDiffRequest,
   type GitDiffSides
 } from './gitDiff'
+import type { TFunction } from '../i18n/messages'
 
 /**
  * 1行の差分を、Git パネルの上に重ねて見せる面（Session 3-8-9 / 3-8-12 / 3-8-21）。
@@ -91,9 +92,10 @@ interface GitDiffOverlayProps {
   /** 取得中は null（面は先に出す。下記）。 */
   readonly diff: GitFileDiff | GitCommitFileDiff | GitConflictFileDiff | null
   readonly onClose: () => void
+  readonly t: TFunction
 }
 
-export function GitDiffOverlay({ request, diff, onClose }: GitDiffOverlayProps): JSX.Element {
+export function GitDiffOverlay({ request, diff, onClose, t }: GitDiffOverlayProps): JSX.Element {
   /*
     Esc で閉じる。
 
@@ -119,8 +121,8 @@ export function GitDiffOverlay({ request, diff, onClose }: GitDiffOverlayProps):
   }, [onClose])
 
   const subject = toGitDiffSubject(request)
-  const title = describeGitDiffTitle(subject)
-  const kind = describeGitChangeKind(subject.kind)
+  const title = describeGitDiffTitle(subject, t)
+  const kind = describeGitChangeKind(subject.kind, t)
 
   return (
     <div
@@ -131,7 +133,7 @@ export function GitDiffOverlay({ request, diff, onClose }: GitDiffOverlayProps):
       data-relative-path={subject.relativePath}
       role="dialog"
       aria-modal="false"
-      aria-label={`${subject.relativePath} の差分`}
+      aria-label={t('git.diff.aria', { path: subject.relativePath })}
     >
       <div className="fx-git__diff-bar">
         <span className="fx-git__symbol" data-kind={subject.kind} aria-label={kind.label}>
@@ -149,7 +151,7 @@ export function GitDiffOverlay({ request, diff, onClose }: GitDiffOverlayProps):
           （いちばん右）に、同じ形で出す。
         */}
         {request.source === 'commit' ? (
-          <span className="fx-git__diff-commit" title="このファイルを変えたコミット">
+          <span className="fx-git__diff-commit" title={t('git.diff.changedByCommitTitle')}>
             {request.commit.shortHash}
           </span>
         ) : null}
@@ -157,13 +159,13 @@ export function GitDiffOverlay({ request, diff, onClose }: GitDiffOverlayProps):
           type="button"
           className="fx-git__diff-close"
           onClick={onClose}
-          title="差分を閉じる（Esc）"
-          aria-label="差分を閉じる"
+          title={t('git.diff.closeTitle')}
+          aria-label={t('git.diff.closeLabel')}
         >
           ×
         </button>
       </div>
-      <GitDiffBody request={request} diff={diff} />
+      <GitDiffBody request={request} diff={diff} t={t} />
     </div>
   )
 }
@@ -181,15 +183,17 @@ export function GitDiffOverlay({ request, diff, onClose }: GitDiffOverlayProps):
  */
 function GitDiffBody({
   request,
-  diff
+  diff,
+  t
 }: {
   readonly request: GitDiffRequest
   readonly diff: GitFileDiff | GitCommitFileDiff | GitConflictFileDiff | null
+  readonly t: TFunction
 }): JSX.Element {
   if (diff === null) {
     return (
       <p className="fx-git__diff-note" role="status">
-        差分を読み込んでいます…
+        {t('git.diff.loading')}
       </p>
     )
   }
@@ -197,7 +201,7 @@ function GitDiffBody({
   if (diff.status === 'unavailable') {
     return (
       <p className="fx-git__diff-note" data-variant="error" role="status">
-        {describeGitDiffUnavailable(diff.reason)}
+        {describeGitDiffUnavailable(diff.reason, t)}
       </p>
     )
   }
@@ -215,14 +219,15 @@ function GitDiffBody({
       <GitConflictDiffFrame
         diff={diff}
         merging={request.source === 'conflict' && request.merging}
+        t={t}
       />
     )
   }
 
   const sides: GitDiffSides =
     request.source === 'worktree'
-      ? describeGitDiffSides(request.group, diff.kind)
-      : describeGitCommitDiffSides(diff.kind)
+      ? describeGitDiffSides(request.group, diff.kind, t)
+      : describeGitCommitDiffSides(diff.kind, t)
 
   return (
     <div className="fx-git__diff-frame">
@@ -235,10 +240,10 @@ function GitDiffBody({
         同じ場所に同じ形で出す（読む場所を入口ごとに変えない）。
       */}
       <div className="fx-git__diff-legend">
-        <span>左: {sides.original}</span>
-        <span>右: {sides.modified}</span>
+        <span>{t('git.diff.legendLeft', { label: sides.original })}</span>
+        <span>{t('git.diff.legendRight', { label: sides.modified })}</span>
       </div>
-      <Suspense fallback={<p className="fx-git__diff-note">差分を準備しています…</p>}>
+      <Suspense fallback={<p className="fx-git__diff-note">{t('git.diff.preparing')}</p>}>
         <MonacoDiffEditor
           relativePath={diff.relativePath}
           original={diff.original}
@@ -274,13 +279,15 @@ function GitDiffBody({
  */
 function GitConflictDiffFrame({
   diff,
-  merging
+  merging,
+  t
 }: {
   readonly diff: Extract<GitConflictFileDiff, { readonly status: 'ready' }>
   readonly merging: boolean
+  readonly t: TFunction
 }): JSX.Element {
-  const sides = describeGitConflictDiffSides(diff.shape, merging)
-  const missing = describeGitConflictMissingSides(sides, merging)
+  const sides = describeGitConflictDiffSides(diff.shape, merging, t)
+  const missing = describeGitConflictMissingSides(sides, merging, t)
 
   return (
     <div className="fx-git__diff-frame">
@@ -291,11 +298,11 @@ function GitConflictDiffFrame({
         自分の変更になる。
       */}
       <div className="fx-git__diff-legend">
-        <span>左: {sides.original}</span>
-        <span>右: {sides.modified}</span>
+        <span>{t('git.diff.legendLeft', { label: sides.original })}</span>
+        <span>{t('git.diff.legendRight', { label: sides.modified })}</span>
       </div>
       <p className="fx-git__diff-shape" role="status">
-        {describeGitConflictShape(diff.shape, merging)}
+        {describeGitConflictShape(diff.shape, merging, t)}
         {missing === null ? null : <span className="fx-git__diff-missing"> {missing}</span>}
       </p>
       {/*
@@ -304,7 +311,7 @@ function GitConflictDiffFrame({
         なる。片側だけ無いときは出す（残っている側の中身が読める）。
       */}
       {sides.originalMissing && sides.modifiedMissing ? null : (
-        <Suspense fallback={<p className="fx-git__diff-note">差分を準備しています…</p>}>
+        <Suspense fallback={<p className="fx-git__diff-note">{t('git.diff.preparing')}</p>}>
           <MonacoDiffEditor
             relativePath={diff.relativePath}
             original={diff.original}

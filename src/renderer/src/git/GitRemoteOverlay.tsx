@@ -13,6 +13,7 @@ import {
   GIT_DEFAULT_REMOTE_NAME,
   type GitRemoteListState
 } from './gitRemotes'
+import type { TFunction } from '../i18n/messages'
 
 /**
  * 行の下に開いているもの（Session 3-8-17）。
@@ -92,7 +93,8 @@ export function GitRemoteOverlay({
   onSetUrl,
   onRename,
   onRemove,
-  onClose
+  onClose,
+  t
 }: {
   readonly list: GitRemoteListState
   /** 何かしらの Git 操作が動いている最中か。 */
@@ -107,6 +109,7 @@ export function GitRemoteOverlay({
   readonly onRename: (remote: GitRemote, newName: string) => Promise<GitOperationOutcome | null>
   readonly onRemove: (remote: GitRemote) => Promise<GitOperationOutcome | null>
   readonly onClose: () => void
+  readonly t: TFunction
 }): JSX.Element {
   /*
     どの行の下に、何が開いているか。
@@ -190,9 +193,9 @@ export function GitRemoteOverlay({
     }
   }, [list.remotes, opened])
 
-  const notice = describeGitRemoteList(list)
-  const truncation = describeGitRemoteTruncation(list)
-  const addReadiness = toGitRemoteAddReadiness(name, url, operating)
+  const notice = describeGitRemoteList(list, t)
+  const truncation = describeGitRemoteTruncation(list, t)
+  const addReadiness = toGitRemoteAddReadiness(name, url, operating, t)
 
   const submit = useCallback(
     (event: FormEvent<HTMLFormElement>): void => {
@@ -226,10 +229,10 @@ export function GitRemoteOverlay({
       data-testid="git-remote"
       role="dialog"
       aria-modal="false"
-      aria-label="リモート"
+      aria-label={t('git.remote.title')}
     >
       <div className="fx-git__remote-bar">
-        <span className="fx-git__remote-title">リモート</span>
+        <span className="fx-git__remote-title">{t('git.remote.title')}</span>
         {/* 件数は見出しの一部（履歴・退避・変更の一覧と同じ形）。 */}
         {list.status === 'ready' && list.remotes.length > 0 ? (
           <span className="fx-git__remote-count">{list.remotes.length}</span>
@@ -238,8 +241,8 @@ export function GitRemoteOverlay({
           type="button"
           className="fx-git__remote-close"
           onClick={onClose}
-          title="リモートを閉じる"
-          aria-label="リモートを閉じる"
+          title={t('git.remote.closeTitle')}
+          aria-label={t('git.remote.closeLabel')}
         >
           ×
         </button>
@@ -260,6 +263,7 @@ export function GitRemoteOverlay({
                 onOpenRow={openRow}
                 onCloseRow={closeRow}
                 onOutcome={setFailure}
+                t={t}
               />
             ))}
           </ul>
@@ -276,7 +280,7 @@ export function GitRemoteOverlay({
       {truncation === null ? null : <p className="fx-git__remote-truncated">{truncation}</p>}
       <form className="fx-git__remote-add" onSubmit={submit}>
         <label className="fx-git__remote-field">
-          <span className="fx-git__remote-label">名前</span>
+          <span className="fx-git__remote-label">{t('git.remote.nameLabel')}</span>
           <input
             type="text"
             className="fx-git__remote-input"
@@ -284,7 +288,7 @@ export function GitRemoteOverlay({
             onChange={(event) => setName(event.target.value)}
             // 入力そのものは止めない（止めると、貼り付けた値を自分で削れなくなる）。
             placeholder="origin"
-            aria-label="リモート名"
+            aria-label={t('git.remote.nameAria')}
             spellCheck={false}
             autoComplete="off"
           />
@@ -297,7 +301,7 @@ export function GitRemoteOverlay({
             value={url}
             onChange={(event) => setUrl(event.target.value)}
             placeholder="https://github.com/owner/repo.git"
-            aria-label="リモートの URL"
+            aria-label={t('git.remote.urlAria')}
             spellCheck={false}
             autoComplete="off"
           />
@@ -318,7 +322,7 @@ export function GitRemoteOverlay({
             title={addReadiness.note}
             data-testid="git-remote-add"
           >
-            {adding ? '追加しています…' : '追加'}
+            {adding ? t('git.remote.adding') : t('git.remote.addButton')}
           </button>
         </div>
       </form>
@@ -328,7 +332,7 @@ export function GitRemoteOverlay({
       */}
       {failure === null || opened !== null ? null : (
         <p className="fx-git__remote-failure" role="alert">
-          {describeGitOperationFailure(failure)}
+          {describeGitOperationFailure(failure, t)}
         </p>
       )}
     </div>
@@ -371,7 +375,8 @@ function GitRemoteRowView({
   onRemove,
   onOpenRow,
   onCloseRow,
-  onOutcome
+  onOutcome,
+  t
 }: {
   readonly remote: GitRemote
   readonly operating: boolean
@@ -384,8 +389,9 @@ function GitRemoteRowView({
   readonly onOpenRow: (row: GitRemoteOpenedRow) => void
   readonly onCloseRow: () => void
   readonly onOutcome: (failure: GitOperationFailure | null) => void
+  readonly t: TFunction
 }): JSX.Element {
-  const removeReadiness = toGitRemoteRemoveReadiness(remote, operating)
+  const removeReadiness = toGitRemoteRemoveReadiness(remote, operating, t)
 
   return (
     <li className="fx-git__remote-entry" data-opened={opened ?? undefined}>
@@ -420,8 +426,8 @@ function GitRemoteRowView({
           onClick={() => onOpenRow({ name: remote.name, mode: 'set-url' })}
           disabled={operating}
           aria-expanded={opened === 'set-url'}
-          title={`${remote.name} の送り先（URL）を変更`}
-          aria-label={`${remote.name} の URL を変更`}
+          title={t('git.remote.setUrlTitle', { name: remote.name })}
+          aria-label={t('git.remote.setUrlAria', { name: remote.name })}
         >
           🔗
         </button>
@@ -432,8 +438,8 @@ function GitRemoteRowView({
           onClick={() => onOpenRow({ name: remote.name, mode: 'rename' })}
           disabled={operating}
           aria-expanded={opened === 'rename'}
-          title={`${remote.name} の名前を変更`}
-          aria-label={`${remote.name} の名前を変更`}
+          title={t('git.remote.renameTitle', { name: remote.name })}
+          aria-label={t('git.remote.renameAria', { name: remote.name })}
         >
           ✎
         </button>
@@ -445,7 +451,7 @@ function GitRemoteRowView({
           disabled={!removeReadiness.enabled}
           aria-expanded={opened === 'remove'}
           title={removeReadiness.note}
-          aria-label={`${remote.name} を削除`}
+          aria-label={t('git.remote.removeAria', { name: remote.name })}
         >
           ✕
         </button>
@@ -458,6 +464,7 @@ function GitRemoteRowView({
           onSetUrl={onSetUrl}
           onCancel={onCloseRow}
           onOutcome={onOutcome}
+          t={t}
         />
       ) : null}
       {opened === 'rename' ? (
@@ -468,6 +475,7 @@ function GitRemoteRowView({
           onRename={onRename}
           onCancel={onCloseRow}
           onOutcome={onOutcome}
+          t={t}
         />
       ) : null}
       {opened === 'remove' ? (
@@ -478,6 +486,7 @@ function GitRemoteRowView({
           onConfirm={onRemove}
           onCancel={onCloseRow}
           onOutcome={onOutcome}
+          t={t}
         />
       ) : null}
     </li>
@@ -516,7 +525,8 @@ function GitRemoteSetUrlForm({
   failure,
   onSetUrl,
   onCancel,
-  onOutcome
+  onOutcome,
+  t
 }: {
   readonly remote: GitRemote
   readonly operating: boolean
@@ -524,13 +534,14 @@ function GitRemoteSetUrlForm({
   readonly onSetUrl: (remote: GitRemote, url: string) => Promise<GitOperationOutcome | null>
   readonly onCancel: () => void
   readonly onOutcome: (failure: GitOperationFailure | null) => void
+  readonly t: TFunction
 }): JSX.Element {
   const [url, setUrl] = useState('')
   /** 確認まで進んでいるか（打っている段では false）。 */
   const [confirming, setConfirming] = useState(false)
 
-  const readiness = toGitRemoteSetUrlReadiness(remote, url, operating)
-  const warning = describeGitRemoteSetUrlWarning(remote, url)
+  const readiness = toGitRemoteSetUrlReadiness(remote, url, operating, t)
+  const warning = describeGitRemoteSetUrlWarning(remote, url, t)
 
   const submit = useCallback(
     (event: FormEvent<HTMLFormElement>): void => {
@@ -568,7 +579,7 @@ function GitRemoteSetUrlForm({
       <div
         className="fx-git__remote-confirm"
         role="alertdialog"
-        aria-label="リモートの送り先を変更する確認"
+        aria-label={t('git.remote.setUrlConfirmAria')}
         data-testid="git-remote-set-url-confirm"
       >
         <p className="fx-git__remote-confirm-message">{warning.message}</p>
@@ -580,11 +591,11 @@ function GitRemoteSetUrlForm({
         */}
         <dl className="fx-git__remote-diff">
           <div className="fx-git__remote-diff-row">
-            <dt className="fx-git__remote-diff-label">現在</dt>
+            <dt className="fx-git__remote-diff-label">{t('git.remote.currentLabel')}</dt>
             <dd className="fx-git__remote-diff-value">{warning.currentLabel}</dd>
           </div>
           <div className="fx-git__remote-diff-row">
-            <dt className="fx-git__remote-diff-label">変更後</dt>
+            <dt className="fx-git__remote-diff-label">{t('git.remote.nextLabel')}</dt>
             <dd className="fx-git__remote-diff-value" data-testid="git-remote-set-url-next">
               {warning.nextUrl}
             </dd>
@@ -599,7 +610,7 @@ function GitRemoteSetUrlForm({
             // 確認を出す目的は誤操作を止めることなので、既定はこちらに置く。
             autoFocus
           >
-            やめる
+            {t('git.remote.cancel')}
           </button>
           <button
             type="button"
@@ -614,7 +625,7 @@ function GitRemoteSetUrlForm({
         </div>
         {failure === null ? null : (
           <p className="fx-git__remote-failure" role="alert">
-            {describeGitOperationFailure(failure)}
+            {describeGitOperationFailure(failure, t)}
           </p>
         )}
       </div>
@@ -628,7 +639,7 @@ function GitRemoteSetUrlForm({
         文として出しておく**（main/git/gitRemoteLabel.ts が作ったラベル）。
       */}
       <p className="fx-git__remote-edit-current">
-        現在の送り先: <span className="fx-git__remote-location">{remote.label}</span>
+        {t('git.remote.currentDestination', { label: remote.label })}
       </p>
       <input
         type="text"
@@ -636,7 +647,7 @@ function GitRemoteSetUrlForm({
         value={url}
         onChange={(event) => setUrl(event.target.value)}
         placeholder="https://github.com/owner/repo.git"
-        aria-label={`${remote.name} の新しい URL`}
+        aria-label={t('git.remote.newUrlAria', { name: remote.name })}
         spellCheck={false}
         autoComplete="off"
         autoFocus
@@ -651,7 +662,7 @@ function GitRemoteSetUrlForm({
       </span>
       <div className="fx-git__remote-edit-bar">
         <button type="button" className="fx-git__remote-edit-cancel" onClick={onCancel}>
-          やめる
+          {t('git.remote.cancel')}
         </button>
         <button
           type="submit"
@@ -660,12 +671,12 @@ function GitRemoteSetUrlForm({
           title={readiness.note}
           data-testid="git-remote-set-url-next-step"
         >
-          確認
+          {t('git.common.confirm')}
         </button>
       </div>
       {failure === null ? null : (
         <p className="fx-git__remote-failure" role="alert">
-          {describeGitOperationFailure(failure)}
+          {describeGitOperationFailure(failure, t)}
         </p>
       )}
     </form>
@@ -697,7 +708,8 @@ function GitRemoteRenameForm({
   failure,
   onRename,
   onCancel,
-  onOutcome
+  onOutcome,
+  t
 }: {
   readonly remote: GitRemote
   readonly operating: boolean
@@ -705,10 +717,11 @@ function GitRemoteRenameForm({
   readonly onRename: (remote: GitRemote, newName: string) => Promise<GitOperationOutcome | null>
   readonly onCancel: () => void
   readonly onOutcome: (failure: GitOperationFailure | null) => void
+  readonly t: TFunction
 }): JSX.Element {
   const [newName, setNewName] = useState(remote.name)
 
-  const readiness = toGitRemoteRenameReadiness(remote, newName, operating)
+  const readiness = toGitRemoteRenameReadiness(remote, newName, operating, t)
 
   const submit = useCallback(
     (event: FormEvent<HTMLFormElement>): void => {
@@ -733,7 +746,7 @@ function GitRemoteRenameForm({
         value={newName}
         onChange={(event) => setNewName(event.target.value)}
         placeholder={remote.name}
-        aria-label={`${remote.name} の新しい名前`}
+        aria-label={t('git.remote.newNameAria', { name: remote.name })}
         spellCheck={false}
         autoComplete="off"
         autoFocus
@@ -748,7 +761,7 @@ function GitRemoteRenameForm({
       </span>
       <div className="fx-git__remote-edit-bar">
         <button type="button" className="fx-git__remote-edit-cancel" onClick={onCancel}>
-          やめる
+          {t('git.remote.cancel')}
         </button>
         <button
           type="submit"
@@ -757,12 +770,12 @@ function GitRemoteRenameForm({
           title={readiness.note}
           data-testid="git-remote-rename-apply"
         >
-          変更
+          {t('git.common.change')}
         </button>
       </div>
       {failure === null ? null : (
         <p className="fx-git__remote-failure" role="alert">
-          {describeGitOperationFailure(failure)}
+          {describeGitOperationFailure(failure, t)}
         </p>
       )}
     </form>
@@ -790,7 +803,8 @@ function GitRemoteRemoveConfirm({
   failure,
   onConfirm,
   onCancel,
-  onOutcome
+  onOutcome,
+  t
 }: {
   readonly remote: GitRemote
   readonly operating: boolean
@@ -798,8 +812,9 @@ function GitRemoteRemoveConfirm({
   readonly onConfirm: (remote: GitRemote) => Promise<GitOperationOutcome | null>
   readonly onCancel: () => void
   readonly onOutcome: (failure: GitOperationFailure | null) => void
+  readonly t: TFunction
 }): JSX.Element {
-  const warning = describeGitRemoteRemoveWarning(remote)
+  const warning = describeGitRemoteRemoveWarning(remote, t)
 
   const confirm = useCallback((): void => {
     void onConfirm(remote).then((outcome) => {
@@ -811,7 +826,7 @@ function GitRemoteRemoveConfirm({
     <div
       className="fx-git__remote-confirm"
       role="alertdialog"
-      aria-label="リモートを削除する確認"
+      aria-label={t('git.remote.removeConfirmAria')}
       data-testid="git-remote-remove-confirm"
     >
       <p className="fx-git__remote-confirm-message">{warning.message}</p>
@@ -824,7 +839,7 @@ function GitRemoteRemoveConfirm({
           // 確認を出す目的は誤操作を止めることなので、既定はこちらに置く。
           autoFocus
         >
-          やめる
+          {t('git.remote.cancel')}
         </button>
         <button
           type="button"
@@ -839,7 +854,7 @@ function GitRemoteRemoveConfirm({
       </div>
       {failure === null ? null : (
         <p className="fx-git__remote-failure" role="alert">
-          {describeGitOperationFailure(failure)}
+          {describeGitOperationFailure(failure, t)}
         </p>
       )}
     </div>

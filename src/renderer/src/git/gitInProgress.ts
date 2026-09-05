@@ -1,6 +1,9 @@
 import type { GitGuardedOperation, GitInProgressOperation } from '@shared/git'
 import { isGitOperationBlockedWhileInProgress } from '@shared/git'
 import type { GitActionReadiness, GitCommitReadiness } from './gitChanges'
+import { createTranslator, type TFunction } from '../i18n/messages'
+
+const DEFAULT_T = createTranslator('ja')
 
 /**
  * 途中の Git 操作の見せ方（Session 3-8-22A・React 非依存・テスト対象）。
@@ -57,7 +60,8 @@ export interface GitInProgressNotice {
  * 出しているのと同じ判断（gitRepositoryMessage.ts）。
  */
 export function describeGitInProgressNotice(
-  inProgress: GitInProgressOperation | null
+  inProgress: GitInProgressOperation | null,
+  t: TFunction = DEFAULT_T
 ): GitInProgressNotice | null {
   switch (inProgress) {
     case null:
@@ -65,33 +69,29 @@ export function describeGitInProgressNotice(
 
     case 'merge':
       return {
-        title: 'マージの途中です。',
-        description:
-          '競合を解決して「解決済みにする」を押し、Commit すると完了します。やめる場合は中止してください。',
+        title: t('git.inProgress.mergeTitle'),
+        description: t('git.inProgress.mergeDescription'),
         abortable: true
       }
 
     case 'rebase':
       return {
-        title: 'rebase の途中です。',
-        description:
-          'Fluvix Nexus は rebase を扱えないため、この間は Git の操作を止めています。Terminal パネルで `git rebase --continue` か `git rebase --abort` を実行してください。',
+        title: t('git.inProgress.rebaseTitle'),
+        description: t('git.inProgress.rebaseDescription'),
         abortable: false
       }
 
     case 'cherry-pick':
       return {
-        title: 'cherry-pick の途中です。',
-        description:
-          'Fluvix Nexus は cherry-pick を扱えないため、この間は Git の操作を止めています。Terminal パネルで `git cherry-pick --continue` か `git cherry-pick --abort` を実行してください。',
+        title: t('git.inProgress.cherryPickTitle'),
+        description: t('git.inProgress.cherryPickDescription'),
         abortable: false
       }
 
     case 'revert':
       return {
-        title: 'revert の途中です。',
-        description:
-          'Fluvix Nexus は revert を扱えないため、この間は Git の操作を止めています。Terminal パネルで `git revert --continue` か `git revert --abort` を実行してください。',
+        title: t('git.inProgress.revertTitle'),
+        description: t('git.inProgress.revertDescription'),
         abortable: false
       }
   }
@@ -117,20 +117,24 @@ export function describeGitInProgressNotice(
  */
 export function describeGitInProgressBlock(
   inProgress: GitInProgressOperation | null,
-  operation: GitGuardedOperation
+  operation: GitGuardedOperation,
+  t: TFunction = DEFAULT_T
 ): string | null {
   if (!isGitOperationBlockedWhileInProgress(inProgress, operation)) {
     return null
   }
 
-  const notice = describeGitInProgressNotice(inProgress)
+  const notice = describeGitInProgressNotice(inProgress, t)
 
   if (notice === null) {
     // 表が「通さない」と言った以上ここへは来ないが、来ても押せない側へ倒す。
-    return 'Git 操作の途中のため実行できません。'
+    return t('git.inProgress.fallback')
   }
 
-  return `${notice.title}この間は実行できません。${notice.description}`
+  return t('git.inProgress.block', {
+    title: notice.title,
+    description: notice.description
+  })
 }
 
 /**

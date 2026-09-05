@@ -92,7 +92,7 @@ describe('toGitChangeGroups', () => {
   it('グループには見出しの文言が付く', () => {
     const groups = toGitChangeGroups({ ...EMPTY, staged: [change('s.txt', 'modified')] })
 
-    expect(groups[0]?.label).toBe('ステージ済みの変更')
+    expect(groups[0]?.label).toBe('Stage 済みの変更')
   })
 
   it('渡された並びを変えない', () => {
@@ -475,8 +475,8 @@ describe('describeGitOperationFailure', () => {
         reason: 'unresolved-conflicts'
       })
 
-      expect(message.indexOf('退避の内容は作業ツリーに戻りました')).toBe(0)
-      expect(message).toContain('退避は一覧に残しています')
+      expect(message.indexOf('Stash の内容は作業ツリーに戻りました')).toBe(0)
+      expect(message).toContain('Stash は一覧に残しています')
     })
 
     it('Commit の前半とは違う文言になる', () => {
@@ -506,8 +506,8 @@ describe('describeGitOperationFailure', () => {
         reason: 'merge-conflict'
       })
 
-      expect(message.indexOf('マージを開始し')).toBe(0)
-      expect(message).toContain('自動でマージできた変更は取り込みました')
+      expect(message.indexOf('Merge を開始し')).toBe(0)
+      expect(message).toContain('自動で Merge できた変更は取り込みました')
     })
 
     /*
@@ -897,7 +897,7 @@ describe('describeGitDiscardWarning', () => {
 
   it('変更では、ステージ済みが変わらないことも言う', () => {
     expect(describeGitDiscardWarning('unstaged', change('a.txt', 'modified')).note).toContain(
-      'ステージ済みの内容は変わりません'
+      'Stage 済みの内容は変わりません'
     )
   })
 
@@ -972,7 +972,7 @@ describe('競合まわりの文言（Session 3-8-18）', () => {
     })
 
     expect(message).toContain('<<<<<<<')
-    expect(message).toContain('エディタ')
+    expect(message).toContain('Editor')
   })
 
   it('2つの「競合」の文は別のものになる', () => {

@@ -36,7 +36,7 @@ function ready(remotes: readonly GitRemote[], truncated = false): GitRemoteListS
 
 describe('describeGitRemoteList', () => {
   it('開いた直後は「取得しています」（「ありません」を先に出さない）', () => {
-    expect(describeGitRemoteList(INITIAL_GIT_REMOTE_LIST)).toBe('リモートを取得しています…')
+    expect(describeGitRemoteList(INITIAL_GIT_REMOTE_LIST)).toBe('Remote を取得しています…')
   })
 
   it('1件も無いときは、次の一手を含めて言う', () => {
@@ -52,7 +52,7 @@ describe('describeGitRemoteList', () => {
 
   it('取れなかった / もう操作できない状態は、それぞれ別の文になる', () => {
     expect(describeGitRemoteList({ status: 'failed', remotes: [], truncated: false })).toBe(
-      'リモートの一覧を取得できませんでした。'
+      'Remote の一覧を取得できませんでした。'
     )
     expect(describeGitRemoteList({ status: 'not-ready', remotes: [], truncated: false })).toBe(
       'この Workspace では Git 操作を行えなくなりました。'
@@ -95,7 +95,7 @@ describe('toGitRemoteAddReadiness', () => {
     const readiness = toGitRemoteAddReadiness('', 'ext::sh -c whoami', false)
 
     expect(readiness.enabled).toBe(false)
-    expect(readiness.note).toBe('リモート名を入力してください。')
+    expect(readiness.note).toBe('Remote 名を入力してください。')
   })
 
   it('名前が通ってから、URL の問題を出す', () => {
@@ -177,13 +177,13 @@ describe('describeGitRemoteRemoveWarning', () => {
   it('盛らずに書く（コミットは失われない・登録し直せる）', () => {
     const warning = describeGitRemoteRemoveWarning(remote('origin'))
 
-    expect(warning.note).toContain('コミットは失われません')
+    expect(warning.note).toContain('Commit は失われません')
     expect(warning.note).toContain('登録し直せます')
     expect(warning.note).not.toContain('完全に')
   })
 
   it('追跡先が外れることを、押す前に言う', () => {
-    expect(describeGitRemoteRemoveWarning(remote('origin')).note).toContain('追跡先')
+    expect(describeGitRemoteRemoveWarning(remote('origin')).note).toContain('upstream')
   })
 })
 
@@ -397,7 +397,7 @@ describe('describeGitRemoteSetUrlWarning', () => {
     const note = describeGitRemoteSetUrlWarning(remote('origin'), 'https://github.com/o/n.git').note
 
     expect(note).toContain('前の送り先')
-    expect(note).toContain('コミットは失われません')
+    expect(note).toContain('Commit は失われません')
   })
 
   /* 盛らない ── 本当に戻せない場面（退避を捨てる）の警告まで軽く読まれる。 */

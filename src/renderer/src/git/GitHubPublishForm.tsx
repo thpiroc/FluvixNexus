@@ -8,6 +8,7 @@ import {
   toGitHubRepositoryNameSuggestion,
   type GitHubStatusState
 } from './githubPublish'
+import type { TFunction } from '../i18n/messages'
 
 /**
  * GitHub に公開する面（Session 3-8-10）。
@@ -48,7 +49,8 @@ export function GitHubPublishForm({
   operating,
   publishing,
   onRefreshStatus,
-  onPublish
+  onPublish,
+  t
 }: {
   /** Workspace の表示名（repository 名の初期値のもとになる）。 */
   readonly workspaceName: string
@@ -62,6 +64,7 @@ export function GitHubPublishForm({
   readonly onRefreshStatus: () => void
   /** 公開できたかどうかを返す（面を閉じてよいか）。 */
   readonly onPublish: (name: string, visibility: GitHubRepositoryVisibility) => Promise<boolean>
+  readonly t: TFunction
 }): JSX.Element {
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
@@ -80,8 +83,8 @@ export function GitHubPublishForm({
     onRefreshStatus()
   }, [onRefreshStatus, workspaceName])
 
-  const readiness = toGitHubPublishReadiness(name, status, operating)
-  const notice = describeGitHubStatus(status)
+  const readiness = toGitHubPublishReadiness(name, status, operating, t)
+  const notice = describeGitHubStatus(status, t)
 
   const submit = useCallback(
     (event: FormEvent<HTMLFormElement>): void => {
@@ -115,7 +118,7 @@ export function GitHubPublishForm({
           onClick={start}
           data-testid="github-publish-open"
         >
-          GitHub に公開
+          {t('git.githubPublish.openButton')}
         </button>
       </div>
     )
@@ -124,13 +127,13 @@ export function GitHubPublishForm({
   return (
     <form className="fx-git__publish fx-git__publish--open" onSubmit={submit}>
       <div className="fx-git__publish-head">
-        <span className="fx-git__publish-title">GitHub に公開</span>
+        <span className="fx-git__publish-title">{t('git.githubPublish.title')}</span>
         <button
           type="button"
           className="fx-git__publish-close"
           onClick={() => setOpen(false)}
-          title="閉じる"
-          aria-label="GitHub に公開する面を閉じる"
+          title={t('git.githubPublish.closeTitle')}
+          aria-label={t('git.githubPublish.closeLabel')}
         >
           ×
         </button>
@@ -148,7 +151,7 @@ export function GitHubPublishForm({
             <code className="fx-git__publish-command">{notice.command}</code>
           )}
           <button type="button" className="fx-git__publish-retry" onClick={onRefreshStatus}>
-            もう一度確認する
+            {t('git.githubPublish.retry')}
           </button>
         </div>
       )}
@@ -158,8 +161,8 @@ export function GitHubPublishForm({
         value={name}
         onChange={(event) => setName(event.target.value)}
         // 入力そのものは止めない（止めると、貼り付けた名前を自分で削れなくなる）。
-        placeholder="repository 名"
-        aria-label="GitHub の repository 名"
+        placeholder={t('git.githubPublish.namePlaceholder')}
+        aria-label={t('git.githubPublish.nameAria')}
         spellCheck={false}
         autoComplete="off"
       />
@@ -169,7 +172,9 @@ export function GitHubPublishForm({
         押す瞬間に「今どちらか」を確かめられない。
       */}
       <fieldset className="fx-git__publish-visibility">
-        <legend className="fx-git__publish-legend">公開範囲</legend>
+        <legend className="fx-git__publish-legend">
+          {t('git.githubPublish.visibilityLegend')}
+        </legend>
         {GITHUB_VISIBILITY_CHOICES.map((choice) => (
           <label key={choice.value} className="fx-git__publish-choice">
             <input
@@ -179,8 +184,8 @@ export function GitHubPublishForm({
               checked={visibility === choice.value}
               onChange={() => setVisibility(choice.value)}
             />
-            <span className="fx-git__publish-choice-label">{choice.label}</span>
-            <span className="fx-git__publish-choice-note">{choice.note}</span>
+            <span className="fx-git__publish-choice-label">{t(choice.labelKey)}</span>
+            <span className="fx-git__publish-choice-note">{t(choice.noteKey)}</span>
           </label>
         ))}
       </fieldset>
@@ -200,7 +205,7 @@ export function GitHubPublishForm({
           title={readiness.note}
           data-testid="github-publish-apply"
         >
-          {publishing ? '公開中…' : '公開する'}
+          {publishing ? t('git.githubPublish.publishing') : t('git.githubPublish.publishButton')}
         </button>
       </div>
     </form>

@@ -1,4 +1,5 @@
 import { useEffect, useRef, type JSX } from 'react'
+import type { TFunction } from '../i18n/messages'
 
 /**
  * `git init` の確認（Session 3-8-10）。
@@ -34,13 +35,15 @@ interface GitInitConfirmProps {
   readonly busy: boolean
   readonly onConfirm: () => void
   readonly onCancel: () => void
+  readonly t: TFunction
 }
 
 export function GitInitConfirm({
   workspaceName,
   busy,
   onConfirm,
-  onCancel
+  onCancel,
+  t
 }: GitInitConfirmProps): JSX.Element {
   const cancelRef = useRef<HTMLButtonElement | null>(null)
 
@@ -71,19 +74,19 @@ export function GitInitConfirm({
         className="fx-git__confirm-panel"
         role="alertdialog"
         aria-modal="true"
-        aria-label="Git リポジトリにする確認"
+        aria-label={t('git.initConfirm.aria')}
         data-testid="git-init-confirm"
         // 背景を押したら閉じるが、パネルの中は閉じる操作にしない。
         onPointerDown={(event) => event.stopPropagation()}
       >
-        <p className="fx-git__confirm-message">「{workspaceName}」を Git リポジトリにします。</p>
+        <p className="fx-git__confirm-message">
+          {t('git.initConfirm.message', { name: workspaceName })}
+        </p>
         {/*
           この1回で何が起きるかだけを書く。**この後に何をすべきかは書かない** ──
           Commit も GitHub への公開も、利用者が別に選ぶことになる。
         */}
-        <p className="fx-git__confirm-note">
-          このフォルダに .git が作られます。ファイルの中身は変わりません。
-        </p>
+        <p className="fx-git__confirm-note">{t('git.initConfirm.note')}</p>
         <div className="fx-git__confirm-actions">
           <button
             ref={cancelRef}
@@ -91,7 +94,7 @@ export function GitInitConfirm({
             className="fx-git__confirm-button"
             onClick={onCancel}
           >
-            キャンセル
+            {t('git.initConfirm.cancel')}
           </button>
           <button
             type="button"
@@ -100,7 +103,7 @@ export function GitInitConfirm({
             disabled={busy}
             onClick={onConfirm}
           >
-            リポジトリにする
+            {t('git.initConfirm.confirm')}
           </button>
         </div>
       </div>

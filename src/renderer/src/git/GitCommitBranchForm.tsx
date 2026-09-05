@@ -3,6 +3,7 @@ import { useCallback, useState } from 'react'
 import type { GitOperationFailure, GitOperationOutcome } from '@shared/git'
 import { toGitCommitBranchReadiness } from './gitBranches'
 import { describeGitOperationFailure } from './gitChanges'
+import type { TFunction } from '../i18n/messages'
 
 /**
  * 履歴の1行の下に開く「この commit からブランチを作る」欄（Session 3-8-13）。
@@ -39,7 +40,8 @@ export function GitCommitBranchForm({
   shortHash,
   operating,
   onCreate,
-  onCancel
+  onCancel,
+  t
 }: {
   /** 始点になる commit の短い hash（履歴の行が持っていたもの）。 */
   readonly shortHash: string
@@ -49,6 +51,7 @@ export function GitCommitBranchForm({
   readonly onCreate: (shortHash: string, name: string) => Promise<GitOperationOutcome | null>
   /** 欄を畳む（`Esc` と「やめる」の両方から来る）。 */
   readonly onCancel: () => void
+  readonly t: TFunction
 }): JSX.Element {
   const [name, setName] = useState('')
   /*
@@ -56,7 +59,7 @@ export function GitCommitBranchForm({
     残しておくと、2回目に通ったときに1回目の理由が下に居座る。
   */
   const [failure, setFailure] = useState<GitOperationFailure | null>(null)
-  const readiness = toGitCommitBranchReadiness(name, shortHash, operating)
+  const readiness = toGitCommitBranchReadiness(name, shortHash, operating, t)
 
   const submit = useCallback(
     (event: FormEvent<HTMLFormElement>): void => {
@@ -82,8 +85,8 @@ export function GitCommitBranchForm({
           value={name}
           onChange={(event) => setName(event.target.value)}
           // 入力そのものは止めない（止めると、貼り付けた名前を自分で削れなくなる）。
-          placeholder="新しいブランチ名"
-          aria-label={`${shortHash} から作るブランチ名`}
+          placeholder={t('git.branch.ui.newBranchPlaceholder')}
+          aria-label={t('git.branch.createFromCommitEmpty', { hash: shortHash })}
           spellCheck={false}
           autoComplete="off"
           /*
@@ -99,7 +102,7 @@ export function GitCommitBranchForm({
           disabled={!readiness.enabled}
           title={readiness.note}
         >
-          作成
+          {t('git.branch.ui.createButton')}
         </button>
         {/*
           やめる道を、`Esc` の他にも置く（Files の名前の入力欄と同じ）──
@@ -110,8 +113,8 @@ export function GitCommitBranchForm({
           type="button"
           className="fx-git__commit-branch-cancel"
           onClick={onCancel}
-          title="やめる（Esc）"
-          aria-label="やめる"
+          title={t('git.branch.ui.cancelTitle')}
+          aria-label={t('git.branch.ui.cancelLabel')}
         >
           ×
         </button>
@@ -125,7 +128,7 @@ export function GitCommitBranchForm({
       </p>
       {failure === null ? null : (
         <p className="fx-git__commit-branch-failure" role="alert">
-          {describeGitOperationFailure(failure)}
+          {describeGitOperationFailure(failure, t)}
         </p>
       )}
     </form>

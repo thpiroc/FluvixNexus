@@ -1,4 +1,7 @@
 import type { GitCommitSummary } from '@shared/git'
+import { createTranslator, type TFunction } from '../i18n/messages'
+
+const DEFAULT_T = createTranslator('ja')
 
 /**
  * commit の履歴 → 画面に並べる形（React / DOM 非依存・テスト対象・Session 3-8-11）。
@@ -49,16 +52,19 @@ export const INITIAL_GIT_COMMIT_HISTORY: GitCommitHistoryState = {
  * 面の中に「読めているもの」と「読めない理由」が並ぶことになり、どちらが
  * 今の状態なのかが読めなくなる（切れていることの断りだけは別枠）。
  */
-export function describeGitCommitHistory(state: GitCommitHistoryState): string | null {
+export function describeGitCommitHistory(
+  state: GitCommitHistoryState,
+  t: TFunction = DEFAULT_T
+): string | null {
   switch (state.status) {
     case 'loading':
-      return '履歴を取得しています…'
+      return t('git.history.list.loading')
 
     case 'not-ready':
-      return 'この Workspace では Git 操作を行えなくなりました。'
+      return t('git.history.list.notReady')
 
     case 'failed':
-      return '履歴を取得できませんでした。'
+      return t('git.history.list.failed')
 
     case 'ready':
       break
@@ -69,9 +75,7 @@ export function describeGitCommitHistory(state: GitCommitHistoryState): string |
     次の一手は「最初の Commit を作る」で、それはこの面ではなく下の Commit 欄にある
     （ブランチの一覧が空のときとまったく同じ言い方にしてある。gitBranches.ts）。
   */
-  return state.commits.length === 0
-    ? 'まだ commit がありません。最初の Commit を作ると、ここに並びます。'
-    : null
+  return state.commits.length === 0 ? t('git.history.list.empty') : null
 }
 
 /**
@@ -85,12 +89,15 @@ export function describeGitCommitHistory(state: GitCommitHistoryState): string |
  * Terminal パネルで `git log` を使う（続きを読む欄は作っていない。
  * docs/ARCHITECTURE.md §14.19）。
  */
-export function describeGitCommitTruncation(state: GitCommitHistoryState): string | null {
+export function describeGitCommitTruncation(
+  state: GitCommitHistoryState,
+  t: TFunction = DEFAULT_T
+): string | null {
   if (state.status !== 'ready' || !state.truncated) {
     return null
   }
 
-  return `新しい方から ${state.commits.length.toLocaleString()} 件だけを表示しています。`
+  return t('git.history.list.truncated', { count: state.commits.length.toLocaleString() })
 }
 
 /** 1行に出すもの（GitHistoryOverlay.tsx はこれを並べるだけ）。 */
@@ -129,16 +136,20 @@ export interface GitCommitRow {
  * 中で `Date.now()` を読むと、この関数をテストで固定できなくなる
  * （`isSameRepositoryPath` が platform を受け取っているのと同じ形）。
  */
-export function describeGitCommitRow(commit: GitCommitSummary, now: number): GitCommitRow {
+export function describeGitCommitRow(
+  commit: GitCommitSummary,
+  now: number,
+  t: TFunction = DEFAULT_T
+): GitCommitRow {
   const subject = commit.subject.trim()
   const authorName = commit.authorName.trim()
 
   return {
-    subject: subject.length === 0 ? '（メッセージなし）' : subject,
+    subject: subject.length === 0 ? t('git.history.row.emptySubject') : subject,
     emptySubject: subject.length === 0,
     shortHash: commit.shortHash,
-    authorName: authorName.length === 0 ? '（名前なし）' : authorName,
-    relativeTime: describeGitCommitRelativeTime(commit.authoredAt, now),
+    authorName: authorName.length === 0 ? t('git.history.row.emptyAuthor') : authorName,
+    relativeTime: describeGitCommitRelativeTime(commit.authoredAt, now, t),
     absoluteTime: describeGitCommitAbsoluteTime(commit.authoredAt),
     merge: commit.parentCount >= 2
   }
@@ -171,36 +182,40 @@ const DAY_MS = 24 * HOUR_MS
  * 日 → 月 → 年 と粗くしていくのは、時間が経つほど「いつ」の解像度が
  * 要らなくなるためになる。
  */
-export function describeGitCommitRelativeTime(timestamp: number, now: number): string {
+export function describeGitCommitRelativeTime(
+  timestamp: number,
+  now: number,
+  t: TFunction = DEFAULT_T
+): string {
   const elapsed = now - timestamp
 
   if (elapsed < 0) {
-    return 'これから'
+    return t('git.history.time.future')
   }
 
   if (elapsed < MINUTE_MS) {
-    return 'たった今'
+    return t('git.history.time.now')
   }
 
   if (elapsed < HOUR_MS) {
-    return `${Math.floor(elapsed / MINUTE_MS)} 分前`
+    return t('git.history.time.minutesAgo', { count: Math.floor(elapsed / MINUTE_MS) })
   }
 
   if (elapsed < DAY_MS) {
-    return `${Math.floor(elapsed / HOUR_MS)} 時間前`
+    return t('git.history.time.hoursAgo', { count: Math.floor(elapsed / HOUR_MS) })
   }
 
   const days = Math.floor(elapsed / DAY_MS)
 
   if (days < 30) {
-    return `${days} 日前`
+    return t('git.history.time.daysAgo', { count: days })
   }
 
   if (days < 365) {
-    return `${Math.floor(days / 30)} か月前`
+    return t('git.history.time.monthsAgo', { count: Math.floor(days / 30) })
   }
 
-  return `${Math.floor(days / 365)} 年前`
+  return t('git.history.time.yearsAgo', { count: Math.floor(days / 365) })
 }
 
 /**

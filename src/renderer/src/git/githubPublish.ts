@@ -5,6 +5,9 @@ import {
   type GitHubRepositoryNameProblem
 } from '@shared/github'
 import type { GitActionReadiness } from './gitChanges'
+import { createTranslator, type TFunction } from '../i18n/messages'
+
+const DEFAULT_T = createTranslator('ja')
 
 /**
  * GitHub への公開 → 画面に並べる形（React / DOM 非依存・テスト対象・Session 3-8-10）。
@@ -84,46 +87,47 @@ export interface GitHubStatusNotice {
  * **「できません」で終わらせない**（gitRepositoryMessage.ts と同じ）──
  * どの状態にも次の一手を添える。
  */
-export function describeGitHubStatus(state: GitHubStatusState): GitHubStatusNotice | null {
+export function describeGitHubStatus(
+  state: GitHubStatusState,
+  t: TFunction = DEFAULT_T
+): GitHubStatusNotice | null {
   switch (state.status) {
     case 'ready':
       return null
 
     case 'loading':
       return {
-        title: 'GitHub CLI を確認しています…',
-        description: '少しお待ちください。',
+        title: t('git.githubPublish.status.loadingTitle'),
+        description: t('git.githubPublish.status.loadingDescription'),
         command: null
       }
 
     case 'cli-missing':
       return {
-        title: 'GitHub CLI が見つかりませんでした。',
+        title: t('git.githubPublish.status.cliMissingTitle'),
         /*
           入れた後に押し直せば、そのまま使える（実行ファイルの解決を
           覚えていないため。main/github/githubExecutable.ts）。
         */
-        description:
-          'GitHub への公開には GitHub CLI が必要です。Terminal パネルで次のコマンドを実行してインストールし、「もう一度確認する」を押してください。',
+        description: t('git.githubPublish.status.cliMissingDescription'),
         command: GITHUB_CLI_INSTALL_COMMAND
       }
 
     case 'signed-out':
       return {
-        title: 'GitHub にログインしていません。',
+        title: t('git.githubPublish.status.signedOutTitle'),
         /*
           Fluvix Nexus は認証情報を持たない（設計判断 7）── ここでも
           ID とパスワードを尋ねる欄は作らず、gh に任せる。
         */
-        description:
-          'Terminal パネルで次のコマンドを実行して GitHub にログインし、「もう一度確認する」を押してください。',
+        description: t('git.githubPublish.status.signedOutDescription'),
         command: 'gh auth login'
       }
 
     case 'failed':
       return {
-        title: 'GitHub CLI の状態を確認できませんでした。',
-        description: 'もう一度お試しください。詳しい内容はアプリのログに記録されています。',
+        title: t('git.githubPublish.status.failedTitle'),
+        description: t('git.githubPublish.status.failedDescription'),
         command: null
       }
   }
@@ -173,7 +177,8 @@ export function toGitHubRepositoryNameSuggestion(workspaceName: string): string 
 export function toGitHubPublishReadiness(
   name: string,
   status: GitHubStatusState,
-  operating: boolean
+  operating: boolean,
+  t: TFunction = DEFAULT_T
 ): GitActionReadiness {
   const prepared = prepareGitHubRepositoryName(name)
   const problem = findGitHubRepositoryNameProblem(prepared)
@@ -183,20 +188,20 @@ export function toGitHubPublishReadiness(
       enabled: false,
       note:
         status.status === 'loading'
-          ? 'GitHub CLI を確認しています…'
-          : 'GitHub CLI の準備ができていないため公開できません。'
+          ? t('git.githubPublish.readiness.checkingCli')
+          : t('git.githubPublish.readiness.cliNotReady')
     }
   }
 
   if (problem === 'empty') {
-    return { enabled: false, note: 'GitHub に repository を作って、今のブランチを送ります。' }
+    return { enabled: false, note: t('git.githubPublish.readiness.empty') }
   }
 
   if (problem !== null) {
-    return { enabled: false, note: describeGitHubRepositoryNameProblem(problem) }
+    return { enabled: false, note: describeGitHubRepositoryNameProblem(problem, t) }
   }
 
-  return { enabled: !operating, note: `${prepared} という repository を作って公開します。` }
+  return { enabled: !operating, note: t('git.githubPublish.readiness.ready', { name: prepared }) }
 }
 
 /**
@@ -206,19 +211,24 @@ export function toGitHubPublishReadiness(
  * **何が使えるかを具体的に書く** ── 「使えない文字が含まれています」だけでは、
  * どれを消せばよいのかが分からない。
  */
-export function describeGitHubRepositoryNameProblem(problem: GitHubRepositoryNameProblem): string {
+export function describeGitHubRepositoryNameProblem(
+  problem: GitHubRepositoryNameProblem,
+  t: TFunction | number = DEFAULT_T
+): string {
+  const translate = typeof t === 'function' ? t : DEFAULT_T
+
   switch (problem) {
     case 'empty':
-      return 'repository 名を入力してください。'
+      return translate('git.githubPublish.nameProblem.empty')
 
     case 'too-long':
-      return 'repository 名が長すぎます。'
+      return translate('git.githubPublish.nameProblem.tooLong')
 
     case 'invalid-characters':
-      return 'repository 名に使えるのは、英数字と - _ . だけです。'
+      return translate('git.githubPublish.nameProblem.invalidCharacters')
 
     case 'invalid-shape':
-      return 'この形の repository 名は使えません（先頭の - や .、末尾の .git をご確認ください）。'
+      return translate('git.githubPublish.nameProblem.invalidShape')
   }
 }
 
@@ -232,12 +242,12 @@ export function describeGitHubRepositoryNameProblem(problem: GitHubRepositoryNam
 export const GITHUB_VISIBILITY_CHOICES = [
   {
     value: 'private',
-    label: '非公開（private）',
-    note: '自分だけが見られます。あとから GitHub 側で公開に変えられます。'
+    labelKey: 'git.githubPublish.visibility.privateLabel',
+    noteKey: 'git.githubPublish.visibility.privateNote'
   },
   {
     value: 'public',
-    label: '公開（public）',
-    note: '誰でも見られます。送った内容は取り消しても記録が残ることがあります。'
+    labelKey: 'git.githubPublish.visibility.publicLabel',
+    noteKey: 'git.githubPublish.visibility.publicNote'
   }
 ] as const

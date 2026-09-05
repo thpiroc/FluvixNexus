@@ -7,6 +7,9 @@ import type {
 } from '@shared/git'
 import type { GitActionReadiness } from './gitChanges'
 import { describeGitInProgressBlock } from './gitInProgress'
+import { createTranslator, type TFunction } from '../i18n/messages'
+
+const DEFAULT_T = createTranslator('ja')
 
 /**
  * ブランチの一覧と作成 → 画面に並べる形（React / DOM 非依存・テスト対象・Session 3-8-6）。
@@ -102,16 +105,19 @@ export const INITIAL_GIT_BRANCH_LIST: GitBranchListState = {
  * 「選べない理由」が並ぶことになり、どちらが今の状態なのかが読めなくなる
  * （切れていることの断りだけは別枠。`describeGitBranchTruncation`）。
  */
-export function describeGitBranchList(state: GitBranchListState): string | null {
+export function describeGitBranchList(
+  state: GitBranchListState,
+  t: TFunction = DEFAULT_T
+): string | null {
   switch (state.status) {
     case 'loading':
-      return 'ブランチを取得しています…'
+      return t('git.branch.list.loading')
 
     case 'not-ready':
-      return 'この Workspace では Git 操作を行えなくなりました。'
+      return t('git.branch.list.notReady')
 
     case 'failed':
-      return 'ブランチの一覧を取得できませんでした。'
+      return t('git.branch.list.failed')
 
     case 'ready':
       break
@@ -122,9 +128,7 @@ export function describeGitBranchList(state: GitBranchListState): string | null 
     出ているのに一覧が空になるのはこの場合だけで、**失敗ではない** ──
     次の一手は「最初の Commit を作る」で、それはこの面ではなく下の Commit 欄にある。
   */
-  return state.branches.length === 0
-    ? 'まだブランチがありません。最初の Commit を作ると、このブランチが記録されます。'
-    : null
+  return state.branches.length === 0 ? t('git.branch.list.empty') : null
 }
 
 /**
@@ -135,12 +139,15 @@ export function describeGitBranchList(state: GitBranchListState): string | null 
  * ブランチへ切り替えるには、今のところ Terminal パネルで `git switch` を使う
  * （名前を打って切り替える欄は作っていない。docs/ARCHITECTURE.md §14.15）。
  */
-export function describeGitBranchTruncation(state: GitBranchListState): string | null {
+export function describeGitBranchTruncation(
+  state: GitBranchListState,
+  t: TFunction = DEFAULT_T
+): string | null {
   if (state.status !== 'ready' || !state.truncated) {
     return null
   }
 
-  return `ブランチが多いため、先頭の ${state.branches.length.toLocaleString()} 件だけを表示しています。`
+  return t('git.branch.list.truncated', { count: state.branches.length.toLocaleString() })
 }
 
 /**
@@ -159,13 +166,14 @@ export function describeGitBranchTruncation(state: GitBranchListState): string |
  */
 export function toGitBranchSwitchReadiness(
   branch: GitLocalBranch,
-  operating: boolean
+  operating: boolean,
+  t: TFunction = DEFAULT_T
 ): GitActionReadiness {
   if (branch.current) {
-    return { enabled: !operating, note: `${branch.name}（今このブランチに居ます）` }
+    return { enabled: !operating, note: t('git.branch.switchCurrent', { name: branch.name }) }
   }
 
-  return { enabled: !operating, note: `${branch.name} へ切り替えます。` }
+  return { enabled: !operating, note: t('git.branch.switchTo', { name: branch.name }) }
 }
 
 /**
@@ -179,19 +187,23 @@ export function toGitBranchSwitchReadiness(
  * 「名前を入力してください」と赤く出るのは、まだ何も間違えていない人に
  * 間違いを知らせる形になる。
  */
-export function toGitBranchCreateReadiness(name: string, operating: boolean): GitActionReadiness {
+export function toGitBranchCreateReadiness(
+  name: string,
+  operating: boolean,
+  t: TFunction = DEFAULT_T
+): GitActionReadiness {
   const prepared = prepareGitBranchName(name)
   const problem = findGitBranchNameProblem(prepared)
 
   if (problem === 'empty') {
-    return { enabled: false, note: '今の場所から新しいブランチを作って切り替えます。' }
+    return { enabled: false, note: t('git.branch.createEmpty') }
   }
 
   if (problem !== null) {
-    return { enabled: false, note: describeGitBranchNameProblem(problem) }
+    return { enabled: false, note: describeGitBranchNameProblem(problem, t) }
   }
 
-  return { enabled: !operating, note: `${prepared} を作って切り替えます。` }
+  return { enabled: !operating, note: t('git.branch.createReady', { name: prepared }) }
 }
 
 /**
@@ -222,20 +234,24 @@ export function toGitBranchCreateReadiness(name: string, operating: boolean): Gi
 export function toGitCommitBranchReadiness(
   name: string,
   shortHash: string,
-  operating: boolean
+  operating: boolean,
+  t: TFunction = DEFAULT_T
 ): GitActionReadiness {
   const prepared = prepareGitBranchName(name)
   const problem = findGitBranchNameProblem(prepared)
 
   if (problem === 'empty') {
-    return { enabled: false, note: `${shortHash} から新しいブランチを作って切り替えます。` }
+    return { enabled: false, note: t('git.branch.createFromCommitEmpty', { hash: shortHash }) }
   }
 
   if (problem !== null) {
-    return { enabled: false, note: describeGitBranchNameProblem(problem) }
+    return { enabled: false, note: describeGitBranchNameProblem(problem, t) }
   }
 
-  return { enabled: !operating, note: `${shortHash} から ${prepared} を作って切り替えます。` }
+  return {
+    enabled: !operating,
+    note: t('git.branch.createFromCommitReady', { hash: shortHash, name: prepared })
+  }
 }
 
 /**
@@ -262,16 +278,17 @@ export function toGitCommitBranchReadiness(
  */
 export function toGitBranchDeleteReadiness(
   branch: GitLocalBranch,
-  operating: boolean
+  operating: boolean,
+  t: TFunction = DEFAULT_T
 ): GitActionReadiness {
   if (branch.current) {
     return {
       enabled: false,
-      note: `${branch.name} は現在チェックアウトされているため削除できません。`
+      note: t('git.branch.deleteCurrent', { name: branch.name })
     }
   }
 
-  return { enabled: !operating, note: `${branch.name} を削除します。` }
+  return { enabled: !operating, note: t('git.branch.deleteReady', { name: branch.name }) }
 }
 
 /**
@@ -292,15 +309,18 @@ export function toGitBranchDeleteReadiness(
  * 消えた名前を戻すには hash を探すことになるため ── Git で確認を挟む
  * 2つめがこれになる（1つめは破棄）。
  */
-export function describeGitBranchDeleteWarning(branch: GitLocalBranch): {
+export function describeGitBranchDeleteWarning(
+  branch: GitLocalBranch,
+  t: TFunction = DEFAULT_T
+): {
   readonly message: string
   readonly note: string
   readonly confirmLabel: string
 } {
   return {
-    message: `ブランチ「${branch.name}」を削除しますか？`,
-    note: 'このブランチにしか無いコミットがある場合、Git が削除を中止します。取り消しはできません。',
-    confirmLabel: '削除'
+    message: t('git.branch.deleteWarning.message', { name: branch.name }),
+    note: t('git.branch.deleteWarning.note'),
+    confirmLabel: t('git.branch.deleteWarning.confirm')
   }
 }
 
@@ -350,21 +370,22 @@ export function toGitBranchMergeReadiness(
   branch: GitLocalBranch,
   head: GitHead,
   inProgress: GitInProgressOperation | null,
-  operating: boolean
+  operating: boolean,
+  t: TFunction = DEFAULT_T
 ): GitActionReadiness {
   const into = head.kind === 'branch' ? head.name : null
 
   if (branch.current || into === null || into === branch.name) {
-    return { enabled: false, note: `${branch.name} は今このブランチに居るため取り込めません。` }
+    return { enabled: false, note: t('git.branch.mergeCurrent', { name: branch.name }) }
   }
 
-  const blocked = describeGitInProgressBlock(inProgress, 'merge-branch')
+  const blocked = describeGitInProgressBlock(inProgress, 'merge-branch', t)
 
   if (blocked !== null) {
     return { enabled: false, note: blocked }
   }
 
-  return { enabled: !operating, note: `${branch.name} を ${into} に取り込みます。` }
+  return { enabled: !operating, note: t('git.branch.mergeReady', { name: branch.name, into }) }
 }
 
 /**
@@ -395,7 +416,8 @@ export function toGitBranchMergeReadiness(
  */
 export function describeGitBranchMergeWarning(
   branch: GitLocalBranch,
-  head: GitHead
+  head: GitHead,
+  t: TFunction = DEFAULT_T
 ): {
   readonly message: string
   readonly note: string
@@ -404,9 +426,9 @@ export function describeGitBranchMergeWarning(
   const into = head.kind === 'branch' ? head.name : ''
 
   return {
-    message: `ブランチ「${branch.name}」を ${into} に取り込みますか？`,
-    note: '早送りできる場合はマージコミットを作りません。競合した場合は、解決してから Commit すると完了します。',
-    confirmLabel: 'マージ'
+    message: t('git.branch.mergeWarning.message', { name: branch.name, into }),
+    note: t('git.branch.mergeWarning.note'),
+    confirmLabel: t('git.branch.mergeWarning.confirm')
   }
 }
 
@@ -425,15 +447,15 @@ export function describeGitBranchMergeWarning(
  * 「変更が失われます」とだけ書くと、マージの前から書きかけていた人が
  * 中止できなくなる。
  */
-export function describeGitAbortMergeWarning(): {
+export function describeGitAbortMergeWarning(t: TFunction = DEFAULT_T): {
   readonly message: string
   readonly note: string
   readonly confirmLabel: string
 } {
   return {
-    message: 'マージを中止しますか？',
-    note: 'マージを開始する前の状態に戻ります。開始前からあった変更は残りますが、競合の解決中に書いた内容は失われます。',
-    confirmLabel: 'マージを中止'
+    message: t('git.branch.abortWarning.message'),
+    note: t('git.branch.abortWarning.note'),
+    confirmLabel: t('git.branch.abortWarning.confirm')
   }
 }
 
@@ -462,24 +484,28 @@ export function describeGitAbortMergeWarning(): {
 export function toGitBranchRenameReadiness(
   branch: GitLocalBranch,
   newName: string,
-  operating: boolean
+  operating: boolean,
+  t: TFunction = DEFAULT_T
 ): GitActionReadiness {
   const prepared = prepareGitBranchName(newName)
   const problem = findGitBranchNameProblem(prepared)
 
   if (problem === 'empty') {
-    return { enabled: false, note: `${branch.name} の新しい名前を入力してください。` }
+    return { enabled: false, note: t('git.branch.renameEmpty', { name: branch.name }) }
   }
 
   if (problem !== null) {
-    return { enabled: false, note: describeGitBranchNameProblem(problem) }
+    return { enabled: false, note: describeGitBranchNameProblem(problem, t) }
   }
 
   if (prepared === branch.name) {
-    return { enabled: false, note: '新しい名前を入力してください。' }
+    return { enabled: false, note: t('git.branch.renameSame') }
   }
 
-  return { enabled: !operating, note: `${branch.name} を ${prepared} に変更します。` }
+  return {
+    enabled: !operating,
+    note: t('git.branch.renameReady', { name: branch.name, newName: prepared })
+  }
 }
 
 /**
@@ -489,21 +515,26 @@ export function toGitBranchRenameReadiness(
  * **何が使えないかを具体的に書く** ── 「使えない文字が含まれています」だけでは、
  * どれを消せばよいのかが分からない。
  */
-export function describeGitBranchNameProblem(problem: GitBranchNameProblem): string {
+export function describeGitBranchNameProblem(
+  problem: GitBranchNameProblem,
+  t: TFunction | number = DEFAULT_T
+): string {
+  const translate = typeof t === 'function' ? t : DEFAULT_T
+
   switch (problem) {
     case 'empty':
-      return 'ブランチ名を入力してください。'
+      return translate('git.branch.nameProblem.empty')
 
     case 'too-long':
-      return 'ブランチ名が長すぎます。'
+      return translate('git.branch.nameProblem.tooLong')
 
     case 'invalid-characters':
-      return 'ブランチ名に空白や ~ ^ : ? * [ \\ " < > | は使えません。'
+      return translate('git.branch.nameProblem.invalidCharacters')
 
     case 'invalid-shape':
-      return 'この形のブランチ名は使えません（.. や / の位置、先頭の - や . をご確認ください）。'
+      return translate('git.branch.nameProblem.invalidShape')
 
     case 'reserved':
-      return 'この名前は Git が別の意味で使うため、ブランチ名にできません。'
+      return translate('git.branch.nameProblem.reserved')
   }
 }

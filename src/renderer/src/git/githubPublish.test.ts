@@ -9,6 +9,7 @@ import {
   toGitHubStatusState,
   type GitHubStatusState
 } from './githubPublish'
+import { createTranslator } from '../i18n/messages'
 
 /**
  * 公開の面の中身（githubPublish.ts）。
@@ -171,8 +172,10 @@ describe('GITHUB_VISIBILITY_CHOICES', () => {
   })
 
   it('どちらにも、何が起きるかの一言が付く', () => {
+    const t = createTranslator('ja')
+
     for (const choice of GITHUB_VISIBILITY_CHOICES) {
-      expect(choice.note.length, choice.value).toBeGreaterThan(0)
+      expect(t(choice.noteKey).length, choice.value).toBeGreaterThan(0)
     }
   })
 })

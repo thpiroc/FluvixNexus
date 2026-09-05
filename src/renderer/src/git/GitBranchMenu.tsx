@@ -32,6 +32,7 @@ import {
 } from './gitRemoteBranches'
 import { describeGitOperationFailure } from './gitChanges'
 import { describeGitHead } from './gitRepositoryMessage'
+import type { TFunction } from '../i18n/messages'
 
 /**
  * ブランチを選ぶ / 作る / 消す / 名前を変える面（Session 3-8-6 / 3-8-14）。
@@ -172,7 +173,8 @@ export function GitBranchMenu({
   onDelete,
   onRename,
   onMerge,
-  onCreateTracking
+  onCreateTracking,
+  t
 }: {
   /** 今 HEAD がどこを指しているか（ボタンの文字になる）。 */
   readonly head: GitHead
@@ -212,15 +214,16 @@ export function GitBranchMenu({
     startPoint: string,
     name: string
   ) => Promise<GitOperationOutcome | null>
+  readonly t: TFunction
 }): JSX.Element {
-  const notice = describeGitBranchList(list)
-  const truncation = describeGitBranchTruncation(list)
+  const notice = describeGitBranchList(list, t)
+  const truncation = describeGitBranchTruncation(list, t)
   /*
     ボタンの文字は、それまでバーに出ていたものとまったく同じ関数から出す
     （gitRepositoryMessage.ts）── 押せる場所になった、というだけの変更で、
     「今どこに居るか」の言い方まで変える理由が無い。
   */
-  const label = describeGitHead(head)
+  const label = describeGitHead(head, t)
 
   /*
     行の下に開いているものは、**この面の側が持つ**（フックではない）── 3-8-13 で
@@ -308,9 +311,9 @@ export function GitBranchMenu({
     <Popover
       label={label}
       buttonClassName="fx-git__branch-button"
-      buttonLabel={`ブランチ ${label} ── 切り替え / 作成`}
+      buttonLabel={t('git.panel.branchButtonTitle', { label })}
       role="dialog"
-      panelLabel="ブランチ"
+      panelLabel={t('git.panel.branchPanelLabel')}
       panelClassName="fx-git__branch-panel"
       /*
         開くたびに、行の下は畳んだ状態から始める ── 外側を押して閉じた面を
@@ -347,6 +350,7 @@ export function GitBranchMenu({
                   onMerge={onMerge}
                   onMerged={close}
                   onOutcome={setFailure}
+                  t={t}
                 />
               ))
             ) : (
@@ -362,9 +366,10 @@ export function GitBranchMenu({
           {truncation === null ? null : <p className="fx-git__branch-truncated">{truncation}</p>}
           <GitBranchCreateForm
             operating={operating}
-            blocked={describeGitInProgressBlock(inProgress, 'create-branch')}
+            blocked={describeGitInProgressBlock(inProgress, 'create-branch', t)}
             onCreate={onCreate}
             onCreated={close}
+            t={t}
           />
           {/*
             remote の枝から始める（Session 3-8-19）。
@@ -377,7 +382,7 @@ export function GitBranchMenu({
           <GitRemoteBranchSection
             list={remoteList}
             operating={operating}
-            blocked={describeGitInProgressBlock(inProgress, 'create-tracking-branch')}
+            blocked={describeGitInProgressBlock(inProgress, 'create-tracking-branch', t)}
             opened={opened !== null && opened.mode === 'track' ? opened.name : null}
             failure={failure}
             onOpenRow={openRow}
@@ -385,6 +390,7 @@ export function GitBranchMenu({
             onCreateTracking={onCreateTracking}
             onOutcome={setFailure}
             onCreated={close}
+            t={t}
           />
         </>
       )}
@@ -423,7 +429,8 @@ function GitRemoteBranchSection({
   onCloseRow,
   onCreateTracking,
   onOutcome,
-  onCreated
+  onCreated,
+  t
 }: {
   readonly list: GitRemoteBranchListState
   readonly operating: boolean
@@ -448,12 +455,13 @@ function GitRemoteBranchSection({
   readonly onOutcome: (failure: GitOperationFailure | null) => void
   /** 通ったので面を閉じる（作った先へ切り替わっている）。 */
   readonly onCreated: () => void
+  readonly t: TFunction
 }): JSX.Element {
   const [expanded, setExpanded] = useState(false)
 
-  const notice = describeGitRemoteBranchList(list)
-  const truncation = describeGitRemoteBranchTruncation(list)
-  const freshness = describeGitRemoteBranchFreshness(list)
+  const notice = describeGitRemoteBranchList(list, t)
+  const truncation = describeGitRemoteBranchTruncation(list, t)
+  const freshness = describeGitRemoteBranchFreshness(list, t)
 
   const toggle = useCallback((): void => {
     setExpanded((current) => {
@@ -475,12 +483,14 @@ function GitRemoteBranchSection({
         className="fx-git__remote-branches-toggle"
         onClick={toggle}
         aria-expanded={expanded}
-        title="リモートのブランチから、手元にブランチを作ります。"
+        title={t('git.branch.ui.remoteSectionTitle')}
       >
         <span className="fx-git__remote-branches-caret" aria-hidden="true">
           {expanded ? '▾' : '▸'}
         </span>
-        <span className="fx-git__remote-branches-title">リモートのブランチから作る</span>
+        <span className="fx-git__remote-branches-title">
+          {t('git.branch.ui.remoteSectionLabel')}
+        </span>
         {count === null ? null : (
           <span className="fx-git__remote-branches-count">{count.toLocaleString()}</span>
         )}
@@ -502,6 +512,7 @@ function GitRemoteBranchSection({
                   onCreateTracking={onCreateTracking}
                   onOutcome={onOutcome}
                   onCreated={onCreated}
+                  t={t}
                 />
               ))
             ) : (
@@ -549,7 +560,8 @@ function GitRemoteBranchRow({
   onCloseRow,
   onCreateTracking,
   onOutcome,
-  onCreated
+  onCreated,
+  t
 }: {
   readonly branch: GitRemoteBranch
   readonly operating: boolean
@@ -565,6 +577,7 @@ function GitRemoteBranchRow({
   ) => Promise<GitOperationOutcome | null>
   readonly onOutcome: (failure: GitOperationFailure | null) => void
   readonly onCreated: () => void
+  readonly t: TFunction
 }): JSX.Element {
   /*
     行を押すこと自体は「下の欄を開く」だけだが、開いた先でできることが
@@ -573,7 +586,7 @@ function GitRemoteBranchRow({
     断る」としたのと同じ側）。
   */
   const readiness = withGitInProgressBlock(
-    toGitRemoteBranchSelectReadiness(branch, operating),
+    toGitRemoteBranchSelectReadiness(branch, operating, t),
     blocked
   )
 
@@ -604,6 +617,7 @@ function GitRemoteBranchRow({
           onCancel={onCloseRow}
           onOutcome={onOutcome}
           onCreated={onCreated}
+          t={t}
         />
       ) : null}
     </div>
@@ -649,7 +663,8 @@ function GitTrackingBranchForm({
   onCreateTracking,
   onCancel,
   onOutcome,
-  onCreated
+  onCreated,
+  t
 }: {
   readonly branch: GitRemoteBranch
   readonly operating: boolean
@@ -663,10 +678,11 @@ function GitTrackingBranchForm({
   readonly onCancel: () => void
   readonly onOutcome: (failure: GitOperationFailure | null) => void
   readonly onCreated: () => void
+  readonly t: TFunction
 }): JSX.Element {
   const [name, setName] = useState(branch.branch)
   const readiness = withGitInProgressBlock(
-    toGitTrackingBranchCreateReadiness(branch, name, operating),
+    toGitTrackingBranchCreateReadiness(branch, name, operating, t),
     blocked
   )
 
@@ -705,7 +721,7 @@ function GitTrackingBranchForm({
           value={name}
           onChange={(event) => setName(event.target.value)}
           // 入力そのものは止めない（止めると、貼り付けた名前を自分で削れなくなる）。
-          aria-label={`${branch.name} を追うローカルブランチ名`}
+          aria-label={t('git.branch.ui.trackNameAria', { name: branch.name })}
           spellCheck={false}
           autoComplete="off"
           autoFocus
@@ -718,7 +734,7 @@ function GitTrackingBranchForm({
           disabled={!readiness.enabled}
           title={readiness.note}
         >
-          作成
+          {t('git.branch.ui.createButton')}
         </button>
         {/*
           やめる道を `Esc` の他にも置く（rename の欄と同じ）。`type="button"` を
@@ -728,8 +744,8 @@ function GitTrackingBranchForm({
           type="button"
           className="fx-git__branch-rename-cancel"
           onClick={onCancel}
-          title="やめる（Esc）"
-          aria-label="やめる"
+          title={t('git.branch.ui.cancelTitle')}
+          aria-label={t('git.branch.ui.cancelLabel')}
         >
           ×
         </button>
@@ -739,7 +755,7 @@ function GitTrackingBranchForm({
       </p>
       {failure === null ? null : (
         <p className="fx-git__branch-failure" role="alert">
-          {describeGitOperationFailure(failure)}
+          {describeGitOperationFailure(failure, t)}
         </p>
       )}
     </form>
@@ -775,7 +791,8 @@ function GitBranchRow({
   onRename,
   onMerge,
   onMerged,
-  onOutcome
+  onOutcome,
+  t
 }: {
   readonly branch: GitLocalBranch
   readonly head: GitHead
@@ -793,6 +810,7 @@ function GitBranchRow({
   /** マージが始まったので面を閉じる（続きはパネル本体にある）。 */
   readonly onMerged: () => void
   readonly onOutcome: (failure: GitOperationFailure | null) => void
+  readonly t: TFunction
 }): JSX.Element {
   /*
     途中の Git 操作による禁止（Session 3-8-22A）。
@@ -808,15 +826,15 @@ function GitBranchRow({
     その順番を外から被せる形では表せない。
   */
   const switchReadiness = withGitInProgressBlock(
-    toGitBranchSwitchReadiness(branch, operating),
-    describeGitInProgressBlock(inProgress, 'switch-branch')
+    toGitBranchSwitchReadiness(branch, operating, t),
+    describeGitInProgressBlock(inProgress, 'switch-branch', t)
   )
   const deleteReadiness = withGitInProgressBlock(
-    toGitBranchDeleteReadiness(branch, operating),
-    describeGitInProgressBlock(inProgress, 'delete-branch')
+    toGitBranchDeleteReadiness(branch, operating, t),
+    describeGitInProgressBlock(inProgress, 'delete-branch', t)
   )
-  const renameBlocked = describeGitInProgressBlock(inProgress, 'rename-branch')
-  const mergeReadiness = toGitBranchMergeReadiness(branch, head, inProgress, operating)
+  const renameBlocked = describeGitInProgressBlock(inProgress, 'rename-branch', t)
+  const mergeReadiness = toGitBranchMergeReadiness(branch, head, inProgress, operating, t)
   /*
     今のブランチ（と detached）の行にはマージの口を出さない
     （gitBranches.ts）── 自分自身を取り込むのは操作として意味を成さず、
@@ -843,7 +861,9 @@ function GitBranchRow({
             {branch.current ? '✓' : ''}
           </span>
           <span className="fx-menu__label fx-git__branch-name">{branch.name}</span>
-          {branch.current ? <span className="fx-menu__hint">現在</span> : null}
+          {branch.current ? (
+            <span className="fx-menu__hint">{t('git.branch.ui.currentHint')}</span>
+          ) : null}
         </button>
         {/*
           ⤵（今のブランチへ取り込む。Session 3-8-20）。
@@ -869,7 +889,7 @@ function GitBranchRow({
             disabled={!mergeReadiness.enabled}
             aria-expanded={opened === 'merge'}
             title={mergeReadiness.note}
-            aria-label={`${branch.name} を取り込む`}
+            aria-label={t('git.branch.ui.mergeAria', { name: branch.name })}
           >
             ⤵
           </button>
@@ -887,8 +907,8 @@ function GitBranchRow({
           data-action="rename"
           onClick={() => onOpenRow({ name: branch.name, mode: 'rename' })}
           aria-expanded={opened === 'rename'}
-          title={`${branch.name} の名前を変更します。`}
-          aria-label={`${branch.name} の名前を変更`}
+          title={t('git.branch.ui.renameTitle', { name: branch.name })}
+          aria-label={t('git.branch.ui.renameAria', { name: branch.name })}
         >
           ✎
         </button>
@@ -900,7 +920,7 @@ function GitBranchRow({
           disabled={!deleteReadiness.enabled}
           aria-expanded={opened === 'delete'}
           title={deleteReadiness.note}
-          aria-label={`${branch.name} を削除`}
+          aria-label={t('git.branch.ui.deleteAria', { name: branch.name })}
         >
           ✕
         </button>
@@ -914,6 +934,7 @@ function GitBranchRow({
           onConfirm={onDelete}
           onCancel={onCloseRow}
           onOutcome={onOutcome}
+          t={t}
         />
       ) : null}
 
@@ -926,6 +947,7 @@ function GitBranchRow({
           onRename={onRename}
           onCancel={onCloseRow}
           onOutcome={onOutcome}
+          t={t}
         />
       ) : null}
 
@@ -939,6 +961,7 @@ function GitBranchRow({
           onCancel={onCloseRow}
           onMerged={onMerged}
           onOutcome={onOutcome}
+          t={t}
         />
       ) : null}
     </div>
@@ -980,7 +1003,8 @@ function GitBranchMergeConfirm({
   onConfirm,
   onCancel,
   onMerged,
-  onOutcome
+  onOutcome,
+  t
 }: {
   readonly branch: GitLocalBranch
   readonly head: GitHead
@@ -990,8 +1014,9 @@ function GitBranchMergeConfirm({
   readonly onCancel: () => void
   readonly onMerged: () => void
   readonly onOutcome: (failure: GitOperationFailure | null) => void
+  readonly t: TFunction
 }): JSX.Element {
-  const warning = describeGitBranchMergeWarning(branch, head)
+  const warning = describeGitBranchMergeWarning(branch, head, t)
 
   const confirm = useCallback((): void => {
     void onConfirm(branch.name).then((outcome) => {
@@ -1023,7 +1048,7 @@ function GitBranchMergeConfirm({
     <div
       className="fx-git__branch-confirm"
       role="alertdialog"
-      aria-label={`${branch.name} のマージの確認`}
+      aria-label={t('git.branch.ui.mergeConfirmAria', { name: branch.name })}
       data-testid="git-branch-merge-confirm"
       data-branch={branch.name}
     >
@@ -1037,7 +1062,7 @@ function GitBranchMergeConfirm({
           // 確認を出す目的は誤操作を止めることなので、既定はこちらに置く。
           autoFocus
         >
-          やめる
+          {t('git.branch.ui.cancelLabel')}
         </button>
         <button
           type="button"
@@ -1051,7 +1076,7 @@ function GitBranchMergeConfirm({
       </div>
       {failure === null ? null : (
         <p className="fx-git__branch-failure" role="alert">
-          {describeGitOperationFailure(failure)}
+          {describeGitOperationFailure(failure, t)}
         </p>
       )}
     </div>
@@ -1087,7 +1112,8 @@ function GitBranchDeleteConfirm({
   failure,
   onConfirm,
   onCancel,
-  onOutcome
+  onOutcome,
+  t
 }: {
   readonly branch: GitLocalBranch
   readonly operating: boolean
@@ -1095,8 +1121,9 @@ function GitBranchDeleteConfirm({
   readonly onConfirm: (name: string) => Promise<GitOperationOutcome | null>
   readonly onCancel: () => void
   readonly onOutcome: (failure: GitOperationFailure | null) => void
+  readonly t: TFunction
 }): JSX.Element {
-  const warning = describeGitBranchDeleteWarning(branch)
+  const warning = describeGitBranchDeleteWarning(branch, t)
 
   const confirm = useCallback((): void => {
     void onConfirm(branch.name).then((outcome) => {
@@ -1108,7 +1135,7 @@ function GitBranchDeleteConfirm({
     <div
       className="fx-git__branch-confirm"
       role="alertdialog"
-      aria-label={`${branch.name} の削除の確認`}
+      aria-label={t('git.branch.ui.deleteConfirmAria', { name: branch.name })}
       data-testid="git-branch-delete-confirm"
       data-branch={branch.name}
     >
@@ -1122,7 +1149,7 @@ function GitBranchDeleteConfirm({
           // 確認を出す目的は誤操作を止めることなので、既定はこちらに置く。
           autoFocus
         >
-          やめる
+          {t('git.branch.ui.cancelLabel')}
         </button>
         <button
           type="button"
@@ -1137,7 +1164,7 @@ function GitBranchDeleteConfirm({
       </div>
       {failure === null ? null : (
         <p className="fx-git__branch-failure" role="alert">
-          {describeGitOperationFailure(failure)}
+          {describeGitOperationFailure(failure, t)}
         </p>
       )}
     </div>
@@ -1174,7 +1201,8 @@ function GitBranchRenameForm({
   failure,
   onRename,
   onCancel,
-  onOutcome
+  onOutcome,
+  t
 }: {
   readonly branch: GitLocalBranch
   readonly operating: boolean
@@ -1184,10 +1212,11 @@ function GitBranchRenameForm({
   readonly onRename: (name: string, newName: string) => Promise<GitOperationOutcome | null>
   readonly onCancel: () => void
   readonly onOutcome: (failure: GitOperationFailure | null) => void
+  readonly t: TFunction
 }): JSX.Element {
   const [newName, setNewName] = useState(branch.name)
   const readiness = withGitInProgressBlock(
-    toGitBranchRenameReadiness(branch, newName, operating),
+    toGitBranchRenameReadiness(branch, newName, operating, t),
     blocked
   )
 
@@ -1220,7 +1249,7 @@ function GitBranchRenameForm({
           value={newName}
           onChange={(event) => setNewName(event.target.value)}
           // 入力そのものは止めない（止めると、貼り付けた名前を自分で削れなくなる）。
-          aria-label={`${branch.name} の新しい名前`}
+          aria-label={t('git.branch.ui.renameInputAria', { name: branch.name })}
           spellCheck={false}
           autoComplete="off"
           /*
@@ -1236,7 +1265,7 @@ function GitBranchRenameForm({
           disabled={!readiness.enabled}
           title={readiness.note}
         >
-          変更
+          {t('git.branch.ui.changeButton')}
         </button>
         {/*
           やめる道を、`Esc` の他にも置く（履歴の面の欄と同じ）── 打鍵を
@@ -1247,8 +1276,8 @@ function GitBranchRenameForm({
           type="button"
           className="fx-git__branch-rename-cancel"
           onClick={onCancel}
-          title="やめる（Esc）"
-          aria-label="やめる"
+          title={t('git.branch.ui.cancelTitle')}
+          aria-label={t('git.branch.ui.cancelLabel')}
         >
           ×
         </button>
@@ -1258,7 +1287,7 @@ function GitBranchRenameForm({
       </p>
       {failure === null ? null : (
         <p className="fx-git__branch-failure" role="alert">
-          {describeGitOperationFailure(failure)}
+          {describeGitOperationFailure(failure, t)}
         </p>
       )}
     </form>
@@ -1288,16 +1317,18 @@ function GitBranchCreateForm({
   operating,
   blocked,
   onCreate,
-  onCreated
+  onCreated,
+  t
 }: {
   readonly operating: boolean
   /** 途中の Git 操作があるために通せない理由（Session 3-8-22A）。無ければ null。 */
   readonly blocked: string | null
   readonly onCreate: (name: string) => Promise<boolean>
   readonly onCreated: () => void
+  readonly t: TFunction
 }): JSX.Element {
   const [name, setName] = useState('')
-  const readiness = withGitInProgressBlock(toGitBranchCreateReadiness(name, operating), blocked)
+  const readiness = withGitInProgressBlock(toGitBranchCreateReadiness(name, operating, t), blocked)
 
   const submit = useCallback(
     (event: FormEvent<HTMLFormElement>): void => {
@@ -1326,8 +1357,8 @@ function GitBranchCreateForm({
           value={name}
           onChange={(event) => setName(event.target.value)}
           // 入力そのものは止めない（止めると、貼り付けた名前を自分で削れなくなる）。
-          placeholder="新しいブランチ名"
-          aria-label="新しいブランチ名"
+          placeholder={t('git.branch.ui.newBranchPlaceholder')}
+          aria-label={t('git.branch.ui.newBranchAria')}
           spellCheck={false}
           autoComplete="off"
         />
@@ -1337,7 +1368,7 @@ function GitBranchCreateForm({
           disabled={!readiness.enabled}
           title={readiness.note}
         >
-          作成
+          {t('git.branch.ui.createButton')}
         </button>
       </div>
       {/*

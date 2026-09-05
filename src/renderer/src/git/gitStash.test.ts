@@ -58,7 +58,7 @@ function changes(overrides: Partial<GitWorkingTreeChanges> = {}): GitWorkingTree
 describe('describeGitStashList', () => {
   it('取得中に「ありません」と出さない', () => {
     // 面は開くたびに必ずこの状態を通る（ブランチ・履歴と同じ判断）。
-    expect(describeGitStashList(listing({ status: 'loading' }))).toBe('退避を取得しています…')
+    expect(describeGitStashList(listing({ status: 'loading' }))).toBe('Stash を取得しています…')
   })
 
   it('1件も無いときは、次の一手を同じ面の中に示す', () => {
@@ -66,7 +66,7 @@ describe('describeGitStashList', () => {
 
     expect(notice).not.toBeNull()
     // 行き先はこの面の下にある（他の面のように「下の Commit 欄で」とは言わない）。
-    expect(notice).toContain('作業ツリーを退避')
+    expect(notice).toContain('作業ツリーを Stash')
   })
 
   it('読めなかったことと、操作できなくなったことを別の文で出す', () => {
@@ -173,7 +173,7 @@ describe('toGitStashPushReadiness', () => {
     )
 
     expect(readiness.enabled).toBe(false)
-    expect(readiness.note).toContain('競合')
+    expect(readiness.note).toContain('Conflict')
   })
 
   it('他の Git 操作が動いている間は押せない', () => {
@@ -181,7 +181,7 @@ describe('toGitStashPushReadiness', () => {
 
     expect(readiness.enabled).toBe(false)
     // 押せる場面と同じ文（「何が起きるか」）を出す ── 間違いではない。
-    expect(readiness.note).toContain('退避')
+    expect(readiness.note).toContain('Stash')
   })
 })
 

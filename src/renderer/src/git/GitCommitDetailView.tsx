@@ -8,6 +8,7 @@ import {
   type GitCommitDetailState
 } from './gitCommitDetail'
 import { describeGitCommitRow } from './gitHistory'
+import type { TFunction } from '../i18n/messages'
 
 /**
  * commit 1件の中身（変更ファイルの一覧）を、履歴の面の中に出す（Session 3-8-12）。
@@ -43,11 +44,16 @@ interface GitCommitDetailViewProps {
   readonly state: GitCommitDetailState
   /** 変更ファイルの1行を押した（差分を出す）。 */
   readonly onOpenFile: (file: GitCommitFileChange) => void
+  readonly t: TFunction
 }
 
-export function GitCommitDetailView({ state, onOpenFile }: GitCommitDetailViewProps): JSX.Element {
-  const notice = describeGitCommitDetail(state)
-  const truncation = describeGitCommitDetailTruncation(state)
+export function GitCommitDetailView({
+  state,
+  onOpenFile,
+  t
+}: GitCommitDetailViewProps): JSX.Element {
+  const notice = describeGitCommitDetail(state, t)
+  const truncation = describeGitCommitDetailTruncation(state, t)
   const files = state.detail !== null && state.detail.status === 'ready' ? state.detail.files : []
 
   /*
@@ -59,7 +65,7 @@ export function GitCommitDetailView({ state, onOpenFile }: GitCommitDetailViewPr
   */
   const commit =
     state.detail !== null && state.detail.status === 'ready' ? state.detail.commit : state.commit
-  const row = describeGitCommitRow(commit, Date.now())
+  const row = describeGitCommitRow(commit, Date.now(), t)
 
   return (
     <>
@@ -89,6 +95,7 @@ export function GitCommitDetailView({ state, onOpenFile }: GitCommitDetailViewPr
                 key={`${file.originalPath ?? ''}:${file.relativePath}`}
                 file={file}
                 onOpen={onOpenFile}
+                t={t}
               />
             ))}
           </ul>
@@ -118,13 +125,15 @@ export function GitCommitDetailView({ state, onOpenFile }: GitCommitDetailViewPr
  */
 function GitCommitFileRowView({
   file,
-  onOpen
+  onOpen,
+  t
 }: {
   readonly file: GitCommitFileChange
   readonly onOpen: (file: GitCommitFileChange) => void
+  readonly t: TFunction
 }): JSX.Element {
-  const kind = describeGitChangeKind(file.kind)
-  const row = describeGitCommitFileRow(file)
+  const kind = describeGitChangeKind(file.kind, t)
+  const row = describeGitCommitFileRow(file, t)
 
   return (
     <li className="fx-git__commit-file">
@@ -132,7 +141,7 @@ function GitCommitFileRowView({
         type="button"
         className="fx-git__commit-file-button"
         onClick={() => onOpen(file)}
-        title={`${file.relativePath} の差分を見る`}
+        title={t('git.commitDetail.fileDiffTitle', { path: file.relativePath })}
       >
         <span className="fx-git__symbol" data-kind={file.kind} aria-label={kind.label}>
           {kind.symbol}

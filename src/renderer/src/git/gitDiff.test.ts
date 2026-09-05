@@ -78,13 +78,13 @@ describe('describeGitDiffSides', () => {
   it('ステージ済みは HEAD と index を比べている、と言う', () => {
     expect(describeGitDiffSides('staged', 'modified')).toEqual({
       original: 'HEAD（最後の Commit）',
-      modified: 'ステージ済み（index）'
+      modified: 'Stage 済み（index）'
     })
   })
 
   it('変更は index と作業ツリーを比べている、と言う', () => {
     expect(describeGitDiffSides('unstaged', 'modified')).toEqual({
-      original: 'ステージ済み（index）',
+      original: 'Stage 済み（index）',
       modified: '作業ツリー'
     })
   })
@@ -104,7 +104,7 @@ describe('describeGitDiffSides', () => {
 
   it('削除でも、左は元の中身の出どころを言う', () => {
     expect(describeGitDiffSides('staged', 'deleted').original).toBe('HEAD（最後の Commit）')
-    expect(describeGitDiffSides('unstaged', 'deleted').original).toBe('ステージ済み（index）')
+    expect(describeGitDiffSides('unstaged', 'deleted').original).toBe('Stage 済み（index）')
   })
 })
 
@@ -205,8 +205,8 @@ describe('toGitDiffSubject', () => {
 describe('describeGitCommitDiffSides', () => {
   it('比べる相手を commit の言葉で出す（index も作業ツリーも出さない）', () => {
     expect(describeGitCommitDiffSides('modified')).toEqual({
-      original: '親のコミット',
-      modified: 'このコミット'
+      original: '親の Commit',
+      modified: 'この Commit'
     })
   })
 
@@ -236,7 +236,7 @@ describe('describeGitConflictDiffSides', () => {
   it('マージ中は、ours / theirs の意味を補う', () => {
     const sides = describeGitConflictDiffSides('both-modified', true)
 
-    expect(sides.original).toBe('現在のブランチ（ours / stage 2）')
+    expect(sides.original).toBe('現在の Branch（ours / stage 2）')
     expect(sides.modified).toBe('取り込み側（theirs / stage 3）')
   })
 
@@ -246,7 +246,7 @@ describe('describeGitConflictDiffSides', () => {
     expect(sides.original).toBe('ours（stage 2）')
     expect(sides.modified).toBe('theirs（stage 3）')
     // 「自分の変更」「相手の変更」と断定しない。
-    expect(sides.original).not.toContain('現在のブランチ')
+    expect(sides.original).not.toContain('現在の Branch')
     expect(sides.modified).not.toContain('取り込み側')
   })
 
@@ -311,7 +311,7 @@ describe('describeGitConflictMissingSides', () => {
       true
     )
 
-    expect(text).toContain('左（現在のブランチ）')
+    expect(text).toContain('左（現在の Branch）')
     expect(text).toContain('右（取り込み側）')
   })
 

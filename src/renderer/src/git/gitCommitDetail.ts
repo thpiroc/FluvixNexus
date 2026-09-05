@@ -5,6 +5,9 @@ import type {
   GitCommitFileChange,
   GitCommitSummary
 } from '@shared/git'
+import { createTranslator, type TFunction } from '../i18n/messages'
+
+const DEFAULT_T = createTranslator('ja')
 
 /**
  * commit 1件の詳細 → 画面に出す形（React / DOM 非依存・テスト対象・Session 3-8-12）。
@@ -53,13 +56,16 @@ export interface GitCommitDetailState {
  * 出すと、面の中に「読めているもの」と「読めない理由」が並ぶことになり、
  * どちらが今の状態なのかが読めなくなる（切れていることの断りだけは別枠）。
  */
-export function describeGitCommitDetail(state: GitCommitDetailState): string | null {
+export function describeGitCommitDetail(
+  state: GitCommitDetailState,
+  t: TFunction = DEFAULT_T
+): string | null {
   if (state.detail === null) {
-    return '変更ファイルを取得しています…'
+    return t('git.commitDetail.loading')
   }
 
   if (state.detail.status === 'unavailable') {
-    return describeGitCommitDetailUnavailable(state.detail.reason)
+    return describeGitCommitDetailUnavailable(state.detail.reason, t)
   }
 
   /*
@@ -67,7 +73,7 @@ export function describeGitCommitDetail(state: GitCommitDetailState): string | n
     そのまま積んだもの）。**失敗ではない** ── その commit は実在し、
     ただ何も変えていない。
   */
-  return state.detail.files.length === 0 ? 'このコミットで変わったファイルはありません。' : null
+  return state.detail.files.length === 0 ? t('git.commitDetail.empty') : null
 }
 
 /**
@@ -80,20 +86,23 @@ export function describeGitCommitDetail(state: GitCommitDetailState): string | n
  * 次の一手が立つ。
  */
 export function describeGitCommitDetailUnavailable(
-  reason: GitCommitDetailUnavailableReason
+  reason: GitCommitDetailUnavailableReason,
+  t: TFunction | number = DEFAULT_T
 ): string {
+  const translate = typeof t === 'function' ? t : DEFAULT_T
+
   switch (reason) {
     case 'not-ready':
-      return 'この Workspace では Git 操作を行えなくなりました。'
+      return translate('git.commitDetail.notReady')
 
     case 'not-found':
-      return 'このコミットは見つかりませんでした。履歴が新しくなっている可能性があります。'
+      return translate('git.commitDetail.notFound')
 
     case 'merge':
-      return GIT_MERGE_COMMIT_NOTICE
+      return describeGitMergeCommitNoticeText(translate)
 
     case 'failed':
-      return '変更ファイルを取得できませんでした。'
+      return translate('git.commitDetail.failed')
   }
 }
 
@@ -115,7 +124,11 @@ export function describeGitCommitDetailUnavailable(
  * ないことが伝わらないと、利用者は「そのうち直る」と読む。
  */
 export const GIT_MERGE_COMMIT_NOTICE =
-  'マージコミットは変更ファイルを表示できません（親が2つ以上あり、どちらと比べるかが決まらないため）。'
+  'Merge Commit は変更ファイルを表示できません（親が2つ以上あり、どちらと比べるかが決まらないため）。'
+
+export function describeGitMergeCommitNoticeText(t: TFunction = DEFAULT_T): string {
+  return t('git.commitDetail.merge')
+}
 
 /**
  * 一覧が切れていることの断り。切れていなければ null。
@@ -125,12 +138,15 @@ export const GIT_MERGE_COMMIT_NOTICE =
  * `git show --stat` を使う（続きを読む欄は作っていない。
  * docs/ARCHITECTURE.md §14.20）。
  */
-export function describeGitCommitDetailTruncation(state: GitCommitDetailState): string | null {
+export function describeGitCommitDetailTruncation(
+  state: GitCommitDetailState,
+  t: TFunction = DEFAULT_T
+): string | null {
   if (state.detail === null || state.detail.status !== 'ready' || !state.detail.truncated) {
     return null
   }
 
-  return `先頭から ${state.detail.files.length.toLocaleString()} 件だけを表示しています。`
+  return t('git.commitDetail.truncated', { count: state.detail.files.length.toLocaleString() })
 }
 
 /** 1行に出すもの（GitCommitDetailView.tsx はこれを並べるだけ）。 */
@@ -153,12 +169,15 @@ export interface GitCommitFileRow {
  * （`describeGitChangeRow` / `describeGitDiffTitle`）── 同じファイルを
  * 指しているのに、面ごとに違う名前が出ることを避ける。
  */
-export function describeGitCommitFileRow(file: GitCommitFileChange): GitCommitFileRow {
+export function describeGitCommitFileRow(
+  file: GitCommitFileChange,
+  t: TFunction = DEFAULT_T
+): GitCommitFileRow {
   const split = splitRelativePath(file.relativePath)
   const name = split === null ? file.relativePath : split.name
 
   if (file.originalPath !== null) {
-    return { name, location: `${file.originalPath} から` }
+    return { name, location: t('git.commitDetail.from', { path: file.originalPath }) }
   }
 
   const parent = split === null ? '' : split.parent
@@ -191,6 +210,11 @@ export function canOpenGitCommitDetail(commit: GitCommitSummary): boolean {
  * 行ごとに出さないのも同じ理由で、100 行のうち 30 行がマージなら
  * 同じ1文が 30 回並ぶ ── 出すのは一覧につき1つになる。
  */
-export function describeGitMergeCommitNotice(commits: readonly GitCommitSummary[]): string | null {
-  return commits.some((commit) => !canOpenGitCommitDetail(commit)) ? GIT_MERGE_COMMIT_NOTICE : null
+export function describeGitMergeCommitNotice(
+  commits: readonly GitCommitSummary[],
+  t: TFunction = DEFAULT_T
+): string | null {
+  return commits.some((commit) => !canOpenGitCommitDetail(commit))
+    ? describeGitMergeCommitNoticeText(t)
+    : null
 }

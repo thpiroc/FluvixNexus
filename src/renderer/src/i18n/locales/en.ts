@@ -22,6 +22,558 @@ export const enMessages = {
       internal: 'An unexpected error occurred.'
     }
   },
+  git: {
+    common: {
+      cancel: 'Cancel',
+      close: 'Close',
+      create: 'Create',
+      change: 'Change',
+      confirm: 'Confirm',
+      delete: 'Delete',
+      discard: 'Discard Changes',
+      moveToTrash: 'Move to Recycle Bin',
+      stop: 'Stop',
+      current: 'Current',
+      left: 'Left',
+      right: 'Right',
+      countOnly: '{count}',
+      running: '{label}…',
+      runningSuffix: '{label} in progress…'
+    },
+    panel: {
+      branchButtonTitle: 'Branch {label} -- switch / create',
+      branchPanelLabel: 'Branch',
+      historyTitle: 'View Commit history',
+      historyLabel: 'History',
+      stashTitle: 'View Stash',
+      stashLabel: 'Stash',
+      remoteTitle: 'View Remote',
+      remoteLabel: 'Remote',
+      refreshTitle: 'Refresh Git status',
+      refreshLabel: 'Refresh Git status',
+      clean: 'No changes.',
+      stageAllTitle: 'Stage all {label}',
+      stageAllLabel: 'Stage All',
+      existingRepositoryLead: 'If you already have a Repository,',
+      existingRepositoryLink: 'connect to an existing Repository'
+    },
+    repository: {
+      noWorkspaceTitle: 'No Workspace is open.',
+      gitUnavailableTitle: 'Git was not found.',
+      gitUnavailableDescription:
+        'Git may not be installed on this PC, or it may be somewhere Fluvix Nexus cannot find. Install Git, then try again.',
+      notRepositoryTitle: 'This folder is not a Git Repository yet.',
+      notRepositoryDescription:
+        'Making it a Git Repository lets you record changes with Commit and work with Branches. You can publish to GitHub any time after creating the Repository.',
+      notRepositoryAction: 'Make Git Repository',
+      nestedTitle: 'This folder is part of the Git Repository "{name}".',
+      nestedDescription:
+        'Git operations are disabled when only part of a Repository is open because files outside the view could be included in Commit. Open the Repository folder itself as the Workspace.',
+      noWorkTreeTitle: 'This folder does not have a working tree.',
+      noWorkTreeDescription:
+        'This is a bare Repository with no editable files. Open a cloned working folder as the Workspace.',
+      dubiousOwnershipTitle: 'Git does not trust the owner of this folder.',
+      dubiousOwnershipDescription:
+        'This can happen with folders created by another user or with administrator privileges. Run git config --global --add safe.directory in the Terminal panel to trust this folder.',
+      permissionDeniedTitle: 'You do not have permission to read this folder.',
+      permissionDeniedDescription: 'Check the folder permissions, then try again.',
+      timeoutTitle: 'Git did not respond.',
+      timeoutDescription:
+        'This can happen with repositories on network drives or very large repositories. Try again.',
+      failedTitle: 'Could not read Git status.',
+      failedDescription: 'Try again. Details were written to the app log.',
+      detachedHead: 'detached HEAD ({hash})',
+      unknownBranch: 'Unknown Branch'
+    },
+    changes: {
+      groups: {
+        conflicted: 'Conflict',
+        staged: 'Staged Changes',
+        unstaged: 'Changes',
+        untracked: 'Untracked Files'
+      },
+      kinds: {
+        added: 'Added',
+        modified: 'Modified',
+        deleted: 'Deleted',
+        renamed: 'Renamed',
+        copied: 'Copied',
+        typeChanged: 'Type changed',
+        untracked: 'Untracked',
+        conflicted: 'Conflict'
+      },
+      row: {
+        from: 'from {path}',
+        stage: 'Stage {path}',
+        unstage: 'Unstage {path}',
+        resolve: 'Mark {path} as resolved',
+        diff: 'View Diff for {path}',
+        discard: 'Discard changes in {path}',
+        label: '{path} ({kind})'
+      },
+      discard: {
+        untrackedMessage: 'Move "{name}" to the Recycle Bin.',
+        untrackedNote: 'You can restore it from the Recycle Bin.',
+        deletedMessage: 'Restore "{name}" from the staged content.',
+        modifiedMessage: 'Revert changes in "{name}" to the staged content.',
+        modifiedNote: 'This change cannot be restored. The staged content will not change.',
+        blocked:
+          'This file has unsaved changes in Editor. Save it or close the tab before discarding changes.'
+      }
+    },
+    operationFailure: {
+      partial: {
+        commit: 'Commit completed, but Push failed. ',
+        githubRepository: 'The GitHub Repository was created. ',
+        stashApply:
+          'The Stash contents were restored to the working tree, but conflicts occurred. The Stash remains in the list. ',
+        merge: 'Merge started and automatically merged changes were applied. '
+      },
+      reasons: {
+        notReady: 'Git operations are no longer available in this Workspace.',
+        nothingToDo: 'There is nothing to do.',
+        identityMissing:
+          'Git does not know who should be recorded as the author. Set user.name and user.email in the Terminal panel, then try again.',
+        hookRejected:
+          'A Git hook stopped this operation. Check the Terminal panel or app log for details.',
+        unresolvedConflicts:
+          'There are unresolved conflicts. Fix the files, then mark them as resolved.',
+        operationInProgress:
+          'Another Git operation is in progress. Wait for it to finish, then try again.',
+        conflictMarkersPresent:
+          'Conflict markers remain in this file. Remove <<<<<<<, =======, and >>>>>>> in the Editor, then try again.',
+        pathNotFound: 'The target file could not be found. The list has been refreshed.',
+        notOnBranch: 'You are not on a Branch, so this operation cannot run.',
+        noRemote: 'No Remote is configured. Add one from Remote, then try again.',
+        noCommit: 'There is no Commit yet.',
+        githubCliMissing: 'GitHub CLI was not found.',
+        githubSignedOut: 'GitHub CLI is not signed in.',
+        githubRepositoryExists:
+          'A GitHub Repository with the same name already exists. Choose another name.',
+        noUpstream: 'No upstream is configured for this Branch.',
+        authRequired:
+          'Authentication is required. Sign in from the Terminal panel, then try again.',
+        networkUnavailable:
+          'Could not reach the Remote. Check the network connection, then try again.',
+        pushRejected:
+          'Push was rejected because the Remote has changes you do not have. Pull first, then try again.',
+        remoteRejected:
+          'The Remote rejected this operation. Check the Remote settings and permissions.',
+        diverged:
+          'The local Branch and upstream have both moved forward. Pull and resolve the differences, then try again.',
+        unrelatedHistories:
+          'This Branch cannot be merged because the histories are unrelated. Check the Branch you are merging.',
+        mergeConflict: 'Some files conflicted. Fix them, mark them as resolved, then Commit.',
+        localChangesBlocked:
+          'This operation would overwrite working tree changes. Commit or Stash them, then try again.',
+        branchExists: 'A Branch with the same name already exists. Try another name.',
+        branchNotMerged:
+          'This Branch has Commits that only exist here, so it cannot be deleted. Merge it first or, after checking the contents, use git branch -D in the Terminal panel.',
+        branchCheckedOut:
+          'This Branch is currently checked out. Switch to another Branch, then try again.',
+        branchNotFound: 'The target Branch could not be found. Reopen the list and check again.',
+        commitNotFound: 'The specified Commit could not be found. Reopen History and check again.',
+        stashNotFound:
+          'The target Stash could not be found. The list may have changed. Reopen it and check again.',
+        remoteExists: 'A Remote with the same name already exists. Try another name.',
+        remoteNotFound: 'The target Remote could not be found. Reopen the list and check again.',
+        unsupportedTarget:
+          'This row is not a valid target for that operation. The list was refreshed.',
+        targetBusy: 'The target file is being used by another program. Close it, then try again.',
+        indexLocked:
+          'Git index.lock is still present. Wait for the other Git operation to finish, then try again.',
+        permissionDenied: 'Access was denied. Check the folder permissions.',
+        timeout: 'The operation did not finish in time. Try again.',
+        unknown: 'Git operation failed.'
+      }
+    },
+    commit: {
+      placeholder: 'Commit message (Ctrl + Enter to Commit)',
+      aria: 'Commit message',
+      remaining: '{count} characters left',
+      title: 'Commit staged changes',
+      committing: 'Committing…',
+      commit: 'Commit',
+      commitAndPush: 'Commit & Push',
+      commitAndPushing: 'Commit & Push in progress…',
+      problem: {
+        empty: 'Enter a Commit message.',
+        tooLong: 'Commit messages can be up to {max} characters.',
+        invalidCharacters: 'The Commit message contains characters that cannot be used.'
+      },
+      readiness: {
+        stageFirst: 'Stage changes before Commit.',
+        notOnBranchPush: 'Cannot Push because you are not on a Branch.',
+        commitAndPush: 'Commit the staged changes, then Push them.'
+      }
+    },
+    sync: {
+      fetch: 'Fetch',
+      pull: 'Pull',
+      push: 'Push',
+      aria: '{label} -- {note}',
+      pushNotOnBranch: 'Cannot Push because you are not on a Branch.',
+      pushCreateUpstream: 'Create an upstream and Push this Branch.',
+      pushNothing: 'There are no Commits to Push to {upstream}.',
+      pushCommits: 'Push {count}Commits to {upstream}.',
+      pullNotOnBranch: 'Cannot Pull because you are not on a Branch.',
+      pullNoUpstream: 'Cannot Pull because no upstream is configured.',
+      pullChanges: 'Pull changes from {upstream}{count}.',
+      pullCount: ' ({count})',
+      fetchNote:
+        'Fetch the latest Remote state without merging. Branches deleted on the other side will also disappear from the list.',
+      upstreamUnknown: 'Upstream is {name} (progress could not be read)',
+      upstreamAheadBehind: '{name}: {ahead} ahead, {behind} behind'
+    },
+    branch: {
+      list: {
+        loading: 'Fetching Branches…',
+        notReady: 'Git operations are no longer available in this Workspace.',
+        failed: 'Could not fetch Branch list.',
+        empty: 'There are no Branches yet. Create the first Commit to record this Branch.',
+        truncated: 'There are many Branches, so only the first {count} are shown.'
+      },
+      switchCurrent: '{name} (currently on this Branch)',
+      switchTo: 'Switch to {name}.',
+      createEmpty: 'Create a new Branch from the current location and switch to it.',
+      createReady: 'Create {name} and switch to it.',
+      createFromCommitEmpty: 'Create a new Branch from {hash} and switch to it.',
+      createFromCommitReady: 'Create {name} from {hash} and switch to it.',
+      deleteCurrent: '{name} is currently checked out, so it cannot be deleted.',
+      deleteReady: 'Delete {name}.',
+      mergeCurrent: '{name} is the current Branch, so it cannot be merged into itself.',
+      mergeReady: 'Merge {name} into {into}.',
+      renameEmpty: 'Enter a new name for {name}.',
+      renameSame: 'Enter a new name.',
+      renameReady: 'Rename {name} to {newName}.',
+      nameProblem: {
+        empty: 'Enter a Branch name.',
+        tooLong: 'The Branch name is too long.',
+        invalidCharacters: 'Branch names cannot contain spaces or ~ ^ : ? * [ \\ " < > |.',
+        invalidShape:
+          'This Branch name cannot be used. Check .., slash positions, leading -, and leading ..',
+        reserved: 'This name is reserved by Git and cannot be used as a Branch name.'
+      },
+      deleteWarning: {
+        message: 'Delete Branch "{name}"?',
+        note: 'If this Branch has Commits that only exist here, Git will stop the deletion. This cannot be undone.',
+        confirm: 'Delete'
+      },
+      mergeWarning: {
+        message: 'Merge Branch "{name}" into {into}?',
+        note: 'If this can fast-forward, no merge Commit will be created. If conflicts occur, resolve them and Commit to finish.',
+        confirm: 'Merge'
+      },
+      abortWarning: {
+        message: 'Abort Merge?',
+        note: 'The Repository will return to the state before Merge started. Changes from before Merge started remain, but conflict-resolution edits made during Merge will be lost.',
+        confirm: 'Abort Merge',
+        title: 'Abort Merge and return to the state before it started.',
+        aria: 'Confirm Abort Merge'
+      },
+      ui: {
+        remoteSectionTitle: 'Create a local Branch from a Remote Branch.',
+        remoteSectionLabel: 'Create from Remote Branches',
+        newBranchPlaceholder: 'New Branch name',
+        newBranchAria: 'New Branch name',
+        createButton: 'Create',
+        cancelTitle: 'Cancel (Esc)',
+        cancelLabel: 'Cancel',
+        renameTitle: 'Rename {name}.',
+        renameAria: 'Rename {name}',
+        deleteAria: 'Delete {name}',
+        mergeAria: 'Merge {name}',
+        mergeConfirmAria: 'Confirm Merge for {name}',
+        deleteConfirmAria: 'Confirm Delete for {name}',
+        renameInputAria: 'New name for {name}',
+        changeButton: 'Change',
+        currentHint: 'Current',
+        trackNameAria: 'Local Branch name tracking {name}'
+      }
+    },
+    remoteBranch: {
+      list: {
+        loading: 'Fetching Remote Branches…',
+        notReady: 'Git operations are no longer available in this Workspace.',
+        failed: 'Could not fetch Remote Branch list.',
+        emptyWithRemote:
+          'No Remote Branches are available locally yet. Pull, or run git fetch in the Terminal panel, to show them.',
+        emptyWithoutRemote: 'No Remote is configured. Add one from Remote above.',
+        truncated: 'There are many Remote Branches, so only the first {count} are shown.',
+        freshness: 'This list is from the last Fetch. This panel does not Fetch.'
+      },
+      select: 'Create a local Branch tracking {name}.',
+      create: 'Create {local} tracking {remote} and switch to it.'
+    },
+    diff: {
+      aria: 'Diff for {path}',
+      changedByCommitTitle: 'Commit that changed this file',
+      closeTitle: 'Close Diff (Esc)',
+      closeLabel: 'Close Diff',
+      loading: 'Loading Diff…',
+      preparing: 'Preparing Diff…',
+      legendLeft: 'Left: {label}',
+      legendRight: 'Right: {label}',
+      sides: {
+        notInGit: 'Not in Git yet',
+        workingTree: 'working tree',
+        index: 'staged (index)',
+        deleted: 'Deleted',
+        head: 'HEAD (last Commit)',
+        currentBranchOurs: 'current Branch (ours / stage 2)',
+        incomingTheirs: 'incoming side (theirs / stage 3)',
+        ours: 'ours (stage 2)',
+        theirs: 'theirs (stage 3)',
+        missing: 'Not present yet',
+        parentCommit: 'parent Commit',
+        thisCommit: 'this Commit',
+        currentBranch: 'current Branch',
+        incoming: 'incoming side'
+      },
+      conflictMissingLeft: 'The file does not exist on the left ({name}).',
+      conflictMissingRight: 'The file does not exist on the right ({name}).',
+      conflictBothModified: 'Both {ours} and {theirs} modified this file.',
+      conflictBothAdded: 'Both {ours} and {theirs} added this file with no common base.',
+      conflictDeletedByThem: '{ours} modified this file, and {theirs} deleted it.',
+      conflictDeletedByUs: '{ours} deleted this file, and {theirs} modified it.',
+      conflictBothDeleted: 'Both {ours} and {theirs} deleted this file.',
+      conflictAddedByUs: 'Only {ours} added this file.',
+      conflictAddedByThem: 'Only {theirs} added this file.',
+      titleFrom: 'from {path}',
+      unavailable: {
+        notReady: 'Git operations are no longer available in this Workspace.',
+        notFound: 'This change could not be found. The list may have been refreshed.',
+        unsupportedTarget:
+          'Diff is not available for this row. Folders and submodules do not have file Diffs.',
+        binary: 'Cannot show Diff for binary files.',
+        tooLarge: 'Cannot show Diff because the file is too large (2 MB max).',
+        unreadable: 'Could not read Diff content.',
+        failed: 'Could not fetch Diff.'
+      }
+    },
+    history: {
+      ariaList: 'Commit History',
+      ariaDetail: 'Changed files in Commit',
+      backTitle: 'Back to History (Esc)',
+      backLabel: 'Back to History',
+      title: 'Commit History',
+      detailTitle: 'Changed Files',
+      closeTitle: 'Close History',
+      closeLabel: 'Close History',
+      list: {
+        loading: 'Fetching History…',
+        notReady: 'Git operations are no longer available in this Workspace.',
+        failed: 'Could not fetch History.',
+        empty: 'There are no Commits yet. Create the first Commit to show it here.',
+        truncated: 'Only the newest {count} are shown.'
+      },
+      row: {
+        emptySubject: '(No message)',
+        emptyAuthor: '(No name)',
+        mergeTitle: 'Commit with two or more parents',
+        mergeLabel: 'Merge',
+        openCommitTitle: 'View changed files in this Commit',
+        createBranchTitle: 'Create a Branch from {hash}'
+      },
+      time: {
+        future: 'in the future',
+        now: 'just now',
+        minutesAgo: '{count} minutes ago',
+        hoursAgo: '{count} hours ago',
+        daysAgo: '{count} days ago',
+        monthsAgo: '{count} months ago',
+        yearsAgo: '{count} years ago'
+      }
+    },
+    commitDetail: {
+      loading: 'Fetching changed files…',
+      empty: 'No files changed in this Commit.',
+      notReady: 'Git operations are no longer available in this Workspace.',
+      notFound: 'This Commit could not be found. History may have been refreshed.',
+      merge:
+        'Merge Commits cannot show changed files because there are two or more parents and no single parent to compare against.',
+      failed: 'Could not fetch changed files.',
+      truncated: 'Only the first {count} files are shown.',
+      from: 'from {path}',
+      fileDiffTitle: 'View Diff for {path}'
+    },
+    stash: {
+      title: 'Stash',
+      closeTitle: 'Close Stash',
+      closeLabel: 'Close Stash',
+      pushing: 'Stashing…',
+      pushButton: 'Stash Working Tree',
+      popButton: 'Apply',
+      popAria: 'Apply {subject} to the working tree',
+      dropAria: 'Drop {subject}',
+      dropConfirmAria: 'Confirm Drop Stash',
+      cancel: 'Cancel',
+      list: {
+        loading: 'Fetching Stash…',
+        notReady: 'Git operations are no longer available in this Workspace.',
+        failed: 'Could not fetch Stash list.',
+        empty:
+          'There is no Stash yet. Press "Stash Working Tree" below to move current changes here.',
+        truncated: 'There are many Stashes, so only the newest {count} are shown.'
+      },
+      row: {
+        emptySubject: '(No name)'
+      },
+      readiness: {
+        unresolvedConflicts:
+          'Cannot Stash because conflicts are unresolved. Resolve them first, then try again.',
+        noStashableChangesUntrackedOnly:
+          'There are no changes that can be Stashed. Untracked files are not included.',
+        noStashableChanges: 'There are no changes that can be Stashed.',
+        push: 'Stash {count} changes and return the working tree to the previous Commit.',
+        pop: 'Apply this Stash to the working tree and remove it from the list.',
+        drop: 'Drop this Stash.'
+      },
+      warning: {
+        message: 'Drop Stash "{subject}"?',
+        note: 'The contents of this Stash will no longer be applied to the working tree. This cannot be undone from the app.',
+        confirm: 'Drop'
+      }
+    },
+    remote: {
+      title: 'Remote',
+      closeTitle: 'Close Remote',
+      closeLabel: 'Close Remote',
+      nameLabel: 'Name',
+      urlLabel: 'URL',
+      nameAria: 'Remote name',
+      urlAria: 'Remote URL',
+      adding: 'Adding…',
+      addButton: 'Add',
+      currentLabel: 'Current',
+      nextLabel: 'After Change',
+      currentDestination: 'Current destination: {label}',
+      cancel: 'Cancel',
+      setUrlConfirmAria: 'Confirm Remote destination change',
+      removeConfirmAria: 'Confirm Remove Remote',
+      newUrlAria: 'New URL for {name}',
+      newNameAria: 'New name for {name}',
+      setUrlTitle: 'Change destination (URL) for {name}',
+      setUrlAria: 'Change URL for {name}',
+      renameTitle: 'Rename {name}',
+      renameAria: 'Rename {name}',
+      removeAria: 'Remove {name}',
+      list: {
+        loading: 'Fetching Remotes…',
+        notReady: 'Git operations are no longer available in this Workspace.',
+        failed: 'Could not fetch Remote list.',
+        empty:
+          'No Remote is configured yet. Enter a name and URL below to connect to an existing Repository.',
+        truncated: 'There are many Remotes, so only the first {count} are shown.'
+      },
+      readiness: {
+        addEmpty: 'Enter a name and URL to register a Remote.',
+        addReady: 'Register {name} without connecting yet.',
+        setUrlEmpty: 'Enter a new URL for {name}.',
+        setUrlReady: 'Change the destination for {name} without connecting yet.',
+        renameEmpty: 'Enter a new name for {name}.',
+        renameSame: 'Enter a new name.',
+        renameCaseOnly:
+          'Renaming only by letter case is not available because Git can stop midway and leave settings and upstreams inconsistent. Enter another name.',
+        renameReady: 'Rename {name} to {newName}.',
+        removeReady: 'Remove {name}.'
+      },
+      warning: {
+        removeMessage: 'Remove Remote "{name}"?',
+        removeNote:
+          'Branches that tracked this Remote will lose their upstream. Commits will not be lost. You can add it again with the same URL.',
+        removeConfirm: 'Delete',
+        setUrlMessage: 'Change destination for Remote "{name}"?',
+        setUrlNote:
+          'Existing remote-tracking information will still point to the previous destination, so until the next Pull the ↑ ↓ counts compare against the previous destination. Commits will not be lost.',
+        setUrlConfirm: 'Change'
+      },
+      nameProblem: {
+        empty: 'Enter a Remote name.',
+        tooLong: 'The Remote name is too long.',
+        invalidCharacters: 'Remote names cannot contain spaces or . ~ ^ : ? * [ \\ " < > |.',
+        invalidShape: 'This Remote name cannot be used. Check leading - and slash positions.',
+        reserved: 'This name is reserved by Git and cannot be used as a Remote name.'
+      },
+      urlProblem: {
+        empty: 'Enter the Remote URL.',
+        tooLong: 'The URL is too long.',
+        invalidCharacters: 'URLs cannot contain spaces or control characters.',
+        unsupportedScheme:
+          'This URL form cannot be registered. Use https://..., ssh://..., or user@host:path.',
+        credentials:
+          'URLs cannot include credentials. Enter the URL without a username or token. Authentication is handled by Git credential helper.',
+        invalidShape:
+          'The URL is missing a host or Repository path, for example https://github.com/owner/repo.git.'
+      }
+    },
+    inProgress: {
+      fallback: 'Cannot run because a Git operation is in progress.',
+      block: '{title} Cannot run during this operation. {description}',
+      mergeTitle: 'Merge is in progress.',
+      mergeDescription:
+        'Resolve conflicts, mark them as resolved, then Commit to finish. To stop, abort the Merge.',
+      rebaseTitle: 'rebase is in progress.',
+      rebaseDescription:
+        'Fluvix Nexus cannot handle rebase, so Git operations are stopped for now. Run `git rebase --continue` or `git rebase --abort` in the Terminal panel.',
+      cherryPickTitle: 'cherry-pick is in progress.',
+      cherryPickDescription:
+        'Fluvix Nexus cannot handle cherry-pick, so Git operations are stopped for now. Run `git cherry-pick --continue` or `git cherry-pick --abort` in the Terminal panel.',
+      revertTitle: 'revert is in progress.',
+      revertDescription:
+        'Fluvix Nexus cannot handle revert, so Git operations are stopped for now. Run `git revert --continue` or `git revert --abort` in the Terminal panel.'
+    },
+    githubPublish: {
+      openButton: 'Publish to GitHub',
+      title: 'Publish to GitHub',
+      closeTitle: 'Close',
+      closeLabel: 'Close Publish to GitHub panel',
+      retry: 'Check Again',
+      namePlaceholder: 'Repository name',
+      nameAria: 'GitHub Repository name',
+      visibilityLegend: 'Visibility',
+      publishing: 'Publishing…',
+      publishButton: 'Publish',
+      status: {
+        loadingTitle: 'Checking GitHub CLI…',
+        loadingDescription: 'Please wait.',
+        cliMissingTitle: 'GitHub CLI was not found.',
+        cliMissingDescription:
+          'Publishing to GitHub requires GitHub CLI. Run the following command in the Terminal panel, then press "Check Again".',
+        signedOutTitle: 'You are not signed in to GitHub.',
+        signedOutDescription:
+          'Run the following command in the Terminal panel to sign in to GitHub, then press "Check Again".',
+        failedTitle: 'Could not check GitHub CLI status.',
+        failedDescription: 'Try again. Details were written to the app log.'
+      },
+      readiness: {
+        checkingCli: 'Checking GitHub CLI…',
+        cliNotReady: 'Cannot publish because GitHub CLI is not ready.',
+        empty: 'Create a Repository on GitHub and Push the current Branch.',
+        ready: 'Create and publish a Repository named {name}.'
+      },
+      nameProblem: {
+        empty: 'Enter a Repository name.',
+        tooLong: 'The Repository name is too long.',
+        invalidCharacters: 'Repository names can only use letters, numbers, -, _, and ..',
+        invalidShape:
+          'This Repository name cannot be used. Check leading -, leading ., and trailing .git.'
+      },
+      visibility: {
+        privateLabel: 'Private',
+        privateNote: 'Only you can see it. You can make it public later on GitHub.',
+        publicLabel: 'Public',
+        publicNote: 'Anyone can see it. Sent content may remain in records even if you undo it.'
+      }
+    },
+    initConfirm: {
+      aria: 'Confirm Make Git Repository',
+      message: 'Make "{name}" a Git Repository.',
+      note: 'A .git folder will be created in this folder. File contents will not change.',
+      cancel: 'Cancel',
+      confirm: 'Make Repository'
+    }
+  },
   files: {
     toolbar: {
       newFileLabel: 'New File',

@@ -6,6 +6,9 @@ import {
 } from '@shared/git'
 import type { GitRemote, GitRemoteNameProblem, GitRemoteUrlProblem } from '@shared/git'
 import type { GitActionReadiness } from './gitChanges'
+import { createTranslator, type TFunction } from '../i18n/messages'
+
+const DEFAULT_T = createTranslator('ja')
 
 /**
  * remote の一覧・追加・削除（Session 3-8-16）と、URL の変更・rename
@@ -105,24 +108,25 @@ export const INITIAL_GIT_REMOTE_LIST: GitRemoteListState = {
  * 1件も無いときの文は**次の一手を含める** ── この面には下に追加の欄が
  * 在るので、行き先はその場にある（退避の面と同じ形）。
  */
-export function describeGitRemoteList(state: GitRemoteListState): string | null {
+export function describeGitRemoteList(
+  state: GitRemoteListState,
+  t: TFunction = DEFAULT_T
+): string | null {
   switch (state.status) {
     case 'loading':
-      return 'リモートを取得しています…'
+      return t('git.remote.list.loading')
 
     case 'not-ready':
-      return 'この Workspace では Git 操作を行えなくなりました。'
+      return t('git.remote.list.notReady')
 
     case 'failed':
-      return 'リモートの一覧を取得できませんでした。'
+      return t('git.remote.list.failed')
 
     case 'ready':
       break
   }
 
-  return state.remotes.length === 0
-    ? 'まだリモートがありません。下の欄に名前と URL を入れると、既にあるリポジトリに接続できます。'
-    : null
+  return state.remotes.length === 0 ? t('git.remote.list.empty') : null
 }
 
 /**
@@ -132,12 +136,15 @@ export function describeGitRemoteList(state: GitRemoteListState): string | null 
  * ことは現実にはほぼ無いが、言わずに切ると利用者は「消えた」と読む ──
  * しかもここでの「消えた」は、Push の送り先が無くなったという意味に読まれる。
  */
-export function describeGitRemoteTruncation(state: GitRemoteListState): string | null {
+export function describeGitRemoteTruncation(
+  state: GitRemoteListState,
+  t: TFunction = DEFAULT_T
+): string | null {
   if (state.status !== 'ready' || !state.truncated) {
     return null
   }
 
-  return `リモートが多いため、先頭の ${state.remotes.length.toLocaleString()} 件だけを表示しています。`
+  return t('git.remote.list.truncated', { count: state.remotes.length.toLocaleString() })
 }
 
 /**
@@ -165,7 +172,8 @@ export function describeGitRemoteTruncation(state: GitRemoteListState): string |
 export function toGitRemoteAddReadiness(
   name: string,
   url: string,
-  operating: boolean
+  operating: boolean,
+  t: TFunction = DEFAULT_T
 ): GitActionReadiness {
   const preparedName = prepareGitRemoteName(name)
   const preparedUrl = prepareGitRemoteUrl(url)
@@ -173,15 +181,15 @@ export function toGitRemoteAddReadiness(
   const urlProblem = findGitRemoteUrlProblem(preparedUrl)
 
   if (nameProblem === 'empty' && urlProblem === 'empty') {
-    return { enabled: false, note: '名前と URL を入れると、リモートを1つ登録します。' }
+    return { enabled: false, note: t('git.remote.readiness.addEmpty') }
   }
 
   if (nameProblem !== null) {
-    return { enabled: false, note: describeGitRemoteNameProblem(nameProblem) }
+    return { enabled: false, note: describeGitRemoteNameProblem(nameProblem, t) }
   }
 
   if (urlProblem !== null) {
-    return { enabled: false, note: describeGitRemoteUrlProblem(urlProblem) }
+    return { enabled: false, note: describeGitRemoteUrlProblem(urlProblem, t) }
   }
 
   /*
@@ -192,7 +200,7 @@ export function toGitRemoteAddReadiness(
   */
   return {
     enabled: !operating,
-    note: `${preparedName} として登録します（この時点では通信しません）。`
+    note: t('git.remote.readiness.addReady', { name: preparedName })
   }
 }
 
@@ -232,17 +240,18 @@ export function toGitRemoteAddReadiness(
 export function toGitRemoteSetUrlReadiness(
   remote: GitRemote,
   url: string,
-  operating: boolean
+  operating: boolean,
+  t: TFunction = DEFAULT_T
 ): GitActionReadiness {
   const preparedUrl = prepareGitRemoteUrl(url)
   const problem = findGitRemoteUrlProblem(preparedUrl)
 
   if (problem === 'empty') {
-    return { enabled: false, note: `${remote.name} の新しい URL を入力してください。` }
+    return { enabled: false, note: t('git.remote.readiness.setUrlEmpty', { name: remote.name }) }
   }
 
   if (problem !== null) {
-    return { enabled: false, note: describeGitRemoteUrlProblem(problem) }
+    return { enabled: false, note: describeGitRemoteUrlProblem(problem, t) }
   }
 
   /*
@@ -253,7 +262,7 @@ export function toGitRemoteSetUrlReadiness(
   */
   return {
     enabled: !operating,
-    note: `${remote.name} の送り先を変更します（この時点では通信しません）。`
+    note: t('git.remote.readiness.setUrlReady', { name: remote.name })
   }
 }
 
@@ -289,31 +298,35 @@ export function toGitRemoteSetUrlReadiness(
 export function toGitRemoteRenameReadiness(
   remote: GitRemote,
   newName: string,
-  operating: boolean
+  operating: boolean,
+  t: TFunction = DEFAULT_T
 ): GitActionReadiness {
   const prepared = prepareGitRemoteName(newName)
   const problem = findGitRemoteNameProblem(prepared)
 
   if (problem === 'empty') {
-    return { enabled: false, note: `${remote.name} の新しい名前を入力してください。` }
+    return { enabled: false, note: t('git.remote.readiness.renameEmpty', { name: remote.name }) }
   }
 
   if (problem !== null) {
-    return { enabled: false, note: describeGitRemoteNameProblem(problem) }
+    return { enabled: false, note: describeGitRemoteNameProblem(problem, t) }
   }
 
   if (prepared === remote.name) {
-    return { enabled: false, note: '新しい名前を入力してください。' }
+    return { enabled: false, note: t('git.remote.readiness.renameSame') }
   }
 
   if (prepared.toLowerCase() === remote.name.toLowerCase()) {
     return {
       enabled: false,
-      note: '大文字と小文字だけを変える改名は行えません（Git が途中で止まり、設定と追跡先が食い違った状態になります）。別の名前を入力してください。'
+      note: t('git.remote.readiness.renameCaseOnly')
     }
   }
 
-  return { enabled: !operating, note: `${remote.name} を ${prepared} に変更します。` }
+  return {
+    enabled: !operating,
+    note: t('git.remote.readiness.renameReady', { name: remote.name, newName: prepared })
+  }
 }
 
 /**
@@ -334,9 +347,10 @@ export function toGitRemoteRenameReadiness(
  */
 export function toGitRemoteRemoveReadiness(
   remote: GitRemote,
-  operating: boolean
+  operating: boolean,
+  t: TFunction = DEFAULT_T
 ): GitActionReadiness {
-  return { enabled: !operating, note: `${remote.name} を削除します。` }
+  return { enabled: !operating, note: t('git.remote.readiness.removeReady', { name: remote.name }) }
 }
 
 /**
@@ -362,15 +376,18 @@ export function toGitRemoteRemoveReadiness(
  * remote-tracking ref は戻る。**戻せるものを戻せないと書くと、本当に
  * 戻せない場面（退避を捨てる）の警告まで軽く読まれる**（§14.23 と同じ判断）。
  */
-export function describeGitRemoteRemoveWarning(remote: GitRemote): {
+export function describeGitRemoteRemoveWarning(
+  remote: GitRemote,
+  t: TFunction = DEFAULT_T
+): {
   readonly message: string
   readonly note: string
   readonly confirmLabel: string
 } {
   return {
-    message: `リモート「${remote.name}」を削除しますか？`,
-    note: 'このリモートを追跡していたブランチの追跡先も外れます。コミットは失われません。同じ URL で登録し直せます。',
-    confirmLabel: '削除'
+    message: t('git.remote.warning.removeMessage', { name: remote.name }),
+    note: t('git.remote.warning.removeNote'),
+    confirmLabel: t('git.remote.warning.removeConfirm')
   }
 }
 
@@ -412,7 +429,8 @@ export function describeGitRemoteRemoveWarning(remote: GitRemote): {
  */
 export function describeGitRemoteSetUrlWarning(
   remote: GitRemote,
-  url: string
+  url: string,
+  t: TFunction = DEFAULT_T
 ): {
   readonly message: string
   readonly currentLabel: string
@@ -421,11 +439,11 @@ export function describeGitRemoteSetUrlWarning(
   readonly confirmLabel: string
 } {
   return {
-    message: `リモート「${remote.name}」の送り先を変更しますか？`,
+    message: t('git.remote.warning.setUrlMessage', { name: remote.name }),
     currentLabel: remote.label,
     nextUrl: prepareGitRemoteUrl(url),
-    note: '取得済みのリモート追跡情報は前の送り先のまま残るため、次の Pull まで ↑ ↓ の数は前の送り先と比べたものになります。コミットは失われません。',
-    confirmLabel: '変更'
+    note: t('git.remote.warning.setUrlNote'),
+    confirmLabel: t('git.remote.warning.setUrlConfirm')
   }
 }
 
@@ -436,13 +454,16 @@ export function describeGitRemoteSetUrlWarning(
  * **何が使えないかを具体的に書く** ── 「使えない文字が含まれています」だけでは、
  * どれを消せばよいのかが分からない（`describeGitBranchNameProblem` と同じ分担）。
  */
-export function describeGitRemoteNameProblem(problem: GitRemoteNameProblem): string {
+export function describeGitRemoteNameProblem(
+  problem: GitRemoteNameProblem,
+  t: TFunction = DEFAULT_T
+): string {
   switch (problem) {
     case 'empty':
-      return 'リモート名を入力してください。'
+      return t('git.remote.nameProblem.empty')
 
     case 'too-long':
-      return 'リモート名が長すぎます。'
+      return t('git.remote.nameProblem.tooLong')
 
     /*
       `.` を挙げてあるのはブランチ名との違いそのもの ── remote 名は
@@ -450,13 +471,13 @@ export function describeGitRemoteNameProblem(problem: GitRemoteNameProblem): str
       後から扱えない名前になる（shared/git/remoteName.ts）。
     */
     case 'invalid-characters':
-      return 'リモート名に空白や . ~ ^ : ? * [ \\ " < > | は使えません。'
+      return t('git.remote.nameProblem.invalidCharacters')
 
     case 'invalid-shape':
-      return 'この形のリモート名は使えません（先頭の - や / の位置をご確認ください）。'
+      return t('git.remote.nameProblem.invalidShape')
 
     case 'reserved':
-      return 'この名前は Git が別の意味で使うため、リモート名にできません。'
+      return t('git.remote.nameProblem.reserved')
   }
 }
 
@@ -476,24 +497,27 @@ export function describeGitRemoteNameProblem(problem: GitRemoteNameProblem): str
  * 「認証の部分を消す」になる。アプリが token を `.git/config` へ書かない
  * という判断（設計判断 7）が、利用者から見える形になるのはここだけにあたる。
  */
-export function describeGitRemoteUrlProblem(problem: GitRemoteUrlProblem): string {
+export function describeGitRemoteUrlProblem(
+  problem: GitRemoteUrlProblem,
+  t: TFunction = DEFAULT_T
+): string {
   switch (problem) {
     case 'empty':
-      return 'リモートの URL を入力してください。'
+      return t('git.remote.urlProblem.empty')
 
     case 'too-long':
-      return 'URL が長すぎます。'
+      return t('git.remote.urlProblem.tooLong')
 
     case 'invalid-characters':
-      return 'URL に空白や制御文字は使えません。'
+      return t('git.remote.urlProblem.invalidCharacters')
 
     case 'unsupported-scheme':
-      return 'この形の URL は登録できません。https://… / ssh://… / user@host:path のいずれかで入力してください。'
+      return t('git.remote.urlProblem.unsupportedScheme')
 
     case 'credentials':
-      return 'URL に認証情報を含めることはできません。ユーザー名やトークンを除いた URL を入力してください（認証は Git の credential helper が扱います）。'
+      return t('git.remote.urlProblem.credentials')
 
     case 'invalid-shape':
-      return 'URL にホストかリポジトリの場所が足りません（例: https://github.com/owner/repo.git）。'
+      return t('git.remote.urlProblem.invalidShape')
   }
 }

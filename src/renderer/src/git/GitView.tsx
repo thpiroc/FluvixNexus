@@ -7,6 +7,7 @@ import type {
   GitGuardedOperation
 } from '@shared/git'
 import { useEditorContext } from '../editor/context'
+import { useI18n } from '../i18n/context'
 import { useWorkspaceFolder } from '../workspaceFolder/context'
 import { GitBranchMenu } from './GitBranchMenu'
 import { GitDiffOverlay } from './GitDiffOverlay'
@@ -62,6 +63,7 @@ import { GIT_STASH_PUSH_OPERATION_KEY, toGitStashPushReadiness } from './gitStas
 import { GITHUB_PUBLISH_OPERATION_KEY } from './githubPublish'
 import { describeGitRepositoryNotice } from './gitRepositoryMessage'
 import { useGitRepository } from './useGitRepository'
+import type { TFunction } from '../i18n/messages'
 
 /**
  * Git パネルの中身（Session 3-8-1 / 3-8-2 / 3-8-3 / 3-8-4 / 3-8-5 / 3-8-6 / 3-8-9 /
@@ -208,6 +210,7 @@ export function GitView(): JSX.Element {
     refreshGitHubStatus,
     publishToGitHub
   } = useGitRepository()
+  const { t } = useI18n()
   const { openFile, unsavedTabs } = useEditorContext()
   /*
     Workspace の表示名（Session 3-8-10）。
@@ -298,10 +301,10 @@ export function GitView(): JSX.Element {
     (change: GitFileChange): void => {
       openFile({
         relativePath: change.relativePath,
-        name: describeGitChangeRow(change).name
+        name: describeGitChangeRow(change, t).name
       })
     },
-    [openFile]
+    [openFile, t]
   )
 
   /*
@@ -476,7 +479,7 @@ export function GitView(): JSX.Element {
     return <div className="fx-git" />
   }
 
-  const notice = describeGitRepositoryNotice(repository)
+  const notice = describeGitRepositoryNotice(repository, t)
 
   if (notice !== null) {
     return (
@@ -508,7 +511,7 @@ export function GitView(): JSX.Element {
         )}
         {notice.retryable ? (
           <button type="button" className="fx-git__action" onClick={refresh} disabled={busy}>
-            もう一度確認する
+            {t('common.actions.retry')}
           </button>
         ) : null}
         {/*
@@ -518,12 +521,13 @@ export function GitView(): JSX.Element {
         */}
         {failure === null ? null : (
           <p className="fx-git__operation-error" role="status">
-            {describeGitOperationFailure(failure)}
+            {describeGitOperationFailure(failure, t)}
           </p>
         )}
         {initializing ? (
           <GitInitConfirm
             workspaceName={workspaceName}
+            t={t}
             busy={pending.has(GIT_INIT_OPERATION_KEY)}
             onConfirm={() => {
               init()
@@ -541,9 +545,9 @@ export function GitView(): JSX.Element {
     return <div className="fx-git" />
   }
 
-  const groups = toGitChangeGroups(repository.changes)
+  const groups = toGitChangeGroups(repository.changes, t)
   const total = countGitChanges(repository.changes)
-  const upstream = describeGitUpstream(repository.upstream)
+  const upstream = describeGitUpstream(repository.upstream, t)
 
   /*
     Commit が押せるか（gitChanges.ts）。
@@ -554,7 +558,7 @@ export function GitView(): JSX.Element {
     互いを止めないのとは、そこが違う。
   */
   const operating = pending.size > 0
-  const commitReady = toGitCommitReadiness(message, repository.changes.staged.length, operating)
+  const commitReady = toGitCommitReadiness(message, repository.changes.staged.length, operating, t)
   const committing = pending.has(GIT_COMMIT_OPERATION_KEY)
 
   /*
@@ -582,19 +586,19 @@ export function GitView(): JSX.Element {
     「できない操作を見せない」ためで、許可の根拠は Main の側に在る。
   */
   const guard = (operation: GitGuardedOperation): string | null =>
-    describeGitInProgressBlock(repository.inProgress, operation)
+    describeGitInProgressBlock(repository.inProgress, operation, t)
 
   const pushReady = withGitInProgressBlock(
-    toGitPushReadiness(repository.head, repository.upstream, operating),
+    toGitPushReadiness(repository.head, repository.upstream, operating, t),
     guard('push')
   )
   const pullReady = withGitInProgressBlock(
-    toGitPullReadiness(repository.head, repository.upstream, operating),
+    toGitPullReadiness(repository.head, repository.upstream, operating, t),
     guard('pull')
   )
-  const fetchReady = withGitInProgressBlock(toGitFetchReadiness(operating), guard('fetch'))
+  const fetchReady = withGitInProgressBlock(toGitFetchReadiness(operating, t), guard('fetch'))
   const commitAndPushReady = withGitInProgressBlock(
-    toGitCommitAndPushReadiness(commitReady, repository.head),
+    toGitCommitAndPushReadiness(commitReady, repository.head, t),
     guard('commit-and-push')
   )
   const guardedCommitReady = withGitInProgressCommitBlock(commitReady, guard('commit'))
@@ -614,13 +618,13 @@ export function GitView(): JSX.Element {
     途中の操作の帯（Session 3-8-20 / 3-8-22A）。文言と、中止の口を出すかを
     決めるのは gitInProgress.ts で、ここが持つのは置き場所だけになる。
   */
-  const inProgressNotice = describeGitInProgressNotice(repository.inProgress)
+  const inProgressNotice = describeGitInProgressNotice(repository.inProgress, t)
 
   return (
     <div className="fx-git">
       <div className="fx-git__bar">
         {/* 何の名前かが分かるようにする。ブランチ名だけだと、それが何なのか伝わらない。 */}
-        <span className="fx-git__branch-label">ブランチ</span>
+        <span className="fx-git__branch-label">{t('git.panel.branchPanelLabel')}</span>
         {/*
           ブランチ名を押せる場所にする（Session 3-8-6）。
 
@@ -656,6 +660,7 @@ export function GitView(): JSX.Element {
           onRename={renameBranch}
           onMerge={mergeBranch}
           onCreateTracking={createTrackingBranch}
+          t={t}
         />
         {upstream === null ? null : (
           <span className="fx-git__upstream" title={upstream.title}>
@@ -678,10 +683,10 @@ export function GitView(): JSX.Element {
           type="button"
           className="fx-git__history-open"
           onClick={openHistory}
-          title="コミット履歴を見る"
-          aria-label="コミット履歴を見る"
+          title={t('git.panel.historyTitle')}
+          aria-label={t('git.panel.historyTitle')}
         >
-          履歴
+          {t('git.panel.historyLabel')}
         </button>
         {/*
           退避（Session 3-8-15）。
@@ -699,10 +704,10 @@ export function GitView(): JSX.Element {
           type="button"
           className="fx-git__stash-open"
           onClick={openStash}
-          title="退避（stash）を見る"
-          aria-label="退避を見る"
+          title={t('git.panel.stashTitle')}
+          aria-label={t('git.panel.stashTitle')}
         >
-          退避
+          {t('git.panel.stashLabel')}
         </button>
         {/*
           リモート（Session 3-8-16）。
@@ -726,10 +731,10 @@ export function GitView(): JSX.Element {
           type="button"
           className="fx-git__remote-open"
           onClick={openRemotes}
-          title="リモート（remote）を見る"
-          aria-label="リモートを見る"
+          title={t('git.panel.remoteTitle')}
+          aria-label={t('git.panel.remoteTitle')}
         >
-          リモート
+          {t('git.panel.remoteLabel')}
         </button>
         <button
           type="button"
@@ -737,8 +742,8 @@ export function GitView(): JSX.Element {
           onClick={refresh}
           disabled={busy}
           // 記号だけのボタンなので、読み上げと hover の両方に名前を用意する。
-          title="Git の状態を再取得"
-          aria-label="Git の状態を再取得"
+          title={t('git.panel.refreshTitle')}
+          aria-label={t('git.panel.refreshLabel')}
         >
           ⟳
         </button>
@@ -749,7 +754,7 @@ export function GitView(): JSX.Element {
       */}
       {failure === null ? null : (
         <p className="fx-git__operation-error" role="status">
-          {describeGitOperationFailure(failure)}
+          {describeGitOperationFailure(failure, t)}
         </p>
       )}
       {/*
@@ -800,11 +805,12 @@ export function GitView(): JSX.Element {
               }
             })
           }}
+          t={t}
         />
       )}
       <div className="fx-git__body">
         {total === 0 ? (
-          <p className="fx-git__empty">変更はありません。</p>
+          <p className="fx-git__empty">{t('git.panel.clean')}</p>
         ) : (
           groups.map((group) => {
             const groupTarget = toGitGroupStageTarget(group.id)
@@ -828,9 +834,9 @@ export function GitView(): JSX.Element {
                         ボタンは**そこに在り続ける**（グループの件数の隣に
                         空きができると、一覧の形が状態で変わる）。
                       */
-                      title={rowBlocked ?? `${group.label}をすべて Stage`}
+                      title={rowBlocked ?? t('git.panel.stageAllTitle', { label: group.label })}
                     >
-                      すべて Stage
+                      {t('git.panel.stageAllLabel')}
                     </button>
                   )}
                 </h3>
@@ -849,6 +855,7 @@ export function GitView(): JSX.Element {
                       onAct={act}
                       onDiff={showDiff}
                       onDiscard={askDiscard}
+                      t={t}
                     />
                   ))}
                 </ul>
@@ -875,6 +882,7 @@ export function GitView(): JSX.Element {
         pushReadiness={commitAndPushReady}
         committing={committing}
         pushing={pending.has(GIT_COMMIT_AND_PUSH_OPERATION_KEY)}
+        t={t}
       />
       {/*
         Pull / Push（Session 3-8-5）。
@@ -906,22 +914,25 @@ export function GitView(): JSX.Element {
           Push / Pull と同じ性質の操作なので、同じ並びに置く。
         */}
         <GitSyncButton
-          label="Fetch"
+          label={t('git.sync.fetch')}
           readiness={fetchReady}
           running={pending.has(GIT_FETCH_OPERATION_KEY)}
           onClick={fetch}
+          t={t}
         />
         <GitSyncButton
-          label="Pull"
+          label={t('git.sync.pull')}
           readiness={pullReady}
           running={pending.has(GIT_PULL_OPERATION_KEY)}
           onClick={pull}
+          t={t}
         />
         <GitSyncButton
-          label="Push"
+          label={t('git.sync.push')}
           readiness={pushReady}
           running={pending.has(GIT_PUSH_OPERATION_KEY)}
           onClick={push}
+          t={t}
         />
       </div>
       {/*
@@ -943,6 +954,7 @@ export function GitView(): JSX.Element {
             publishing={pending.has(GITHUB_PUBLISH_OPERATION_KEY)}
             onRefreshStatus={refreshGitHubStatus}
             onPublish={publishToGitHub}
+            t={t}
           />
           {/*
             既にあるリポジトリに接続する（Session 3-8-16）。
@@ -967,9 +979,9 @@ export function GitView(): JSX.Element {
             公開は「作る」、こちらは「繋ぐ」で、多くの人にとっては前者になる。
           */}
           <p className="fx-git__connect">
-            既にあるリポジトリがある場合は
+            {t('git.panel.existingRepositoryLead')}
             <button type="button" className="fx-git__connect-open" onClick={openRemotes}>
-              既存のリポジトリに接続する
+              {t('git.panel.existingRepositoryLink')}
             </button>
           </p>
         </>
@@ -1010,6 +1022,7 @@ export function GitView(): JSX.Element {
           onOpenFile={showCommitFileDiff}
           onCreateBranch={createBranchFromCommit}
           onClose={closeHistory}
+          t={t}
         />
       ) : null}
       {/*
@@ -1046,6 +1059,7 @@ export function GitView(): JSX.Element {
           onRename={renameRemote}
           onRemove={removeRemote}
           onClose={closeRemotes}
+          t={t}
         />
       ) : null}
       {stashOpen ? (
@@ -1068,7 +1082,7 @@ export function GitView(): JSX.Element {
             通る。ここで1つにまとめると、その違いが消える。
           */
           pushReadiness={withGitInProgressBlock(
-            toGitStashPushReadiness(repository.changes, operating),
+            toGitStashPushReadiness(repository.changes, operating, t),
             guard('stash-push')
           )}
           popBlocked={guard('stash-pop')}
@@ -1077,6 +1091,7 @@ export function GitView(): JSX.Element {
           onPop={stashPop}
           onDrop={stashDrop}
           onClose={closeStash}
+          t={t}
         />
       ) : null}
       {/*
@@ -1091,7 +1106,7 @@ export function GitView(): JSX.Element {
         履歴の面の上に出る必要がある。
       */}
       {diffRequest === null ? null : (
-        <GitDiffOverlay request={diffRequest} diff={diff} onClose={closeDiff} />
+        <GitDiffOverlay request={diffRequest} diff={diff} onClose={closeDiff} t={t} />
       )}
       {/*
         破棄の確認（Session 3-8-9）。
@@ -1103,7 +1118,7 @@ export function GitView(): JSX.Element {
         <GitDiscardConfirm
           group={discarding.group}
           change={discarding.change}
-          blocker={findGitDiscardBlocker(discarding.change.relativePath, unsavedPaths)}
+          blocker={findGitDiscardBlocker(discarding.change.relativePath, unsavedPaths, t)}
           busy={pending.has(
             toGitOperationKey({
               kind: 'discard',
@@ -1112,6 +1127,7 @@ export function GitView(): JSX.Element {
           )}
           onConfirm={runDiscard}
           onCancel={() => setDiscarding(null)}
+          t={t}
         />
       )}
     </div>
@@ -1165,7 +1181,8 @@ function GitInProgressBanner({
   aborting,
   onOpenAbort,
   onCancelAbort,
-  onAbort
+  onAbort,
+  t
 }: {
   /** 何の途中で、次に何をすればよいか（gitInProgress.ts）。 */
   readonly notice: GitInProgressNotice
@@ -1175,8 +1192,9 @@ function GitInProgressBanner({
   readonly onOpenAbort: () => void
   readonly onCancelAbort: () => void
   readonly onAbort: () => void
+  readonly t: TFunction
 }): JSX.Element {
-  const warning = describeGitAbortMergeWarning()
+  const warning = describeGitAbortMergeWarning(t)
 
   /*
     Esc で中止の確認を畳む（Session 3-8-22A）。
@@ -1243,9 +1261,9 @@ function GitInProgressBanner({
             onClick={onOpenAbort}
             disabled={operating}
             aria-expanded={aborting}
-            title="マージを中止して、開始する前の状態に戻します。"
+            title={t('git.branch.abortWarning.title')}
           >
-            マージを中止
+            {warning.confirmLabel}
           </button>
         ) : null}
       </div>
@@ -1253,7 +1271,7 @@ function GitInProgressBanner({
         <div
           className="fx-git__branch-confirm"
           role="alertdialog"
-          aria-label="マージの中止の確認"
+          aria-label={t('git.branch.abortWarning.aria')}
           data-testid="git-merge-abort-confirm"
         >
           <p className="fx-git__branch-confirm-message">{warning.message}</p>
@@ -1266,7 +1284,7 @@ function GitInProgressBanner({
               // 確認を出す目的は誤操作を止めることなので、既定はこちらに置く。
               autoFocus
             >
-              やめる
+              {t('git.common.stop')}
             </button>
             <button
               type="button"
@@ -1301,13 +1319,15 @@ function GitSyncButton({
   label,
   readiness,
   running,
-  onClick
+  onClick,
+  t
 }: {
   readonly label: string
   readonly readiness: GitActionReadiness
   /** この操作が動いている最中か。 */
   readonly running: boolean
   readonly onClick: () => void
+  readonly t: TFunction
 }): JSX.Element {
   return (
     <button
@@ -1316,9 +1336,9 @@ function GitSyncButton({
       onClick={onClick}
       disabled={!readiness.enabled}
       title={readiness.note}
-      aria-label={`${label} ── ${readiness.note}`}
+      aria-label={t('git.sync.aria', { label, note: readiness.note })}
     >
-      {running ? `${label} 中…` : label}
+      {running ? t('git.common.runningSuffix', { label }) : label}
     </button>
   )
 }
@@ -1356,7 +1376,8 @@ function GitCommitForm({
   readiness,
   pushReadiness,
   committing,
-  pushing
+  pushing,
+  t
 }: {
   readonly message: string
   readonly onChange: (message: string) => void
@@ -1371,6 +1392,7 @@ function GitCommitForm({
   readonly committing: boolean
   /** Commit & Push が動いている最中か。 */
   readonly pushing: boolean
+  readonly t: TFunction
 }): JSX.Element {
   const { enabled, note, remaining } = readiness
 
@@ -1397,15 +1419,17 @@ function GitCommitForm({
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={onKeyDown}
         // 入力そのものは止めない（止めると、貼り付けた文章を自分で削れなくなる）。
-        placeholder="Commit メッセージ（Ctrl + Enter で Commit）"
-        aria-label="Commit メッセージ"
+        placeholder={t('git.commit.placeholder')}
+        aria-label={t('git.commit.aria')}
         rows={3}
         spellCheck={false}
       />
       <div className="fx-git__commit-bar">
         {note === null ? (
           <span className="fx-git__commit-count">
-            {remaining === null ? '' : `残り ${remaining.toLocaleString()} 文字`}
+            {remaining === null
+              ? ''
+              : t('git.commit.remaining', { count: remaining.toLocaleString() })}
           </span>
         ) : (
           <span className="fx-git__commit-note" role="status">
@@ -1417,9 +1441,9 @@ function GitCommitForm({
           className="fx-git__commit-action"
           onClick={onCommit}
           disabled={!enabled}
-          title="ステージ済みの変更を Commit"
+          title={t('git.commit.title')}
         >
-          {committing ? 'Commit 中…' : 'Commit'}
+          {committing ? t('git.commit.committing') : t('git.commit.commit')}
         </button>
         {/*
           Commit & Push（Session 3-8-5）。
@@ -1437,7 +1461,7 @@ function GitCommitForm({
           disabled={!pushReadiness.enabled}
           title={pushReadiness.note}
         >
-          {pushing ? 'Commit & Push 中…' : 'Commit & Push'}
+          {pushing ? t('git.commit.commitAndPushing') : t('git.commit.commitAndPush')}
         </button>
       </div>
     </div>
@@ -1461,7 +1485,8 @@ function GitChangeRow({
   onOpen,
   onAct,
   onDiff,
-  onDiscard
+  onDiscard,
+  t
 }: {
   /** どのグループの行か（差分と破棄で、何が起きるかが変わる。Session 3-8-9）。 */
   readonly groupId: GitChangeGroup['id']
@@ -1486,10 +1511,11 @@ function GitChangeRow({
   readonly onAct: (action: Exclude<GitRowAction, null>, change: GitFileChange) => void
   readonly onDiff: (groupId: GitChangeGroup['id'], change: GitFileChange) => void
   readonly onDiscard: (groupId: GitChangeGroup['id'], change: GitFileChange) => void
+  readonly t: TFunction
 }): JSX.Element {
-  const kind = describeGitChangeKind(change.kind)
-  const row = describeGitChangeRow(change)
-  const label = `${change.relativePath}（${kind.label}）`
+  const kind = describeGitChangeKind(change.kind, t)
+  const row = describeGitChangeRow(change, t)
+  const label = t('git.changes.row.label', { path: change.relativePath, kind: kind.label })
 
   const content = (
     <>
@@ -1508,7 +1534,7 @@ function GitChangeRow({
     操作の名前は行ごとに作る。「Stage」だけだと、読み上げでは同じ名前のボタンが
     並ぶことになり、どのファイルのものか分からない。
   */
-  const actionLabel = action === null ? '' : describeGitRowAction(action, change)
+  const actionLabel = action === null ? '' : describeGitRowAction(action, change, t)
 
   /*
     差分と破棄（Session 3-8-9）。
@@ -1528,8 +1554,8 @@ function GitChangeRow({
     別のボタンを競合の行にだけ置くと、一覧を縦に読む人にとって
     「左から2つめは差分」という並びがそこで崩れる。
   */
-  const diffLabel = `${change.relativePath} の差分を見る`
-  const discardLabel = `${change.relativePath} の変更を破棄`
+  const diffLabel = t('git.changes.row.diff', { path: change.relativePath })
+  const discardLabel = t('git.changes.row.discard', { path: change.relativePath })
 
   return (
     <li className="fx-git__change" data-kind={change.kind}>

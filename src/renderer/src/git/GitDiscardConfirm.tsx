@@ -1,6 +1,7 @@
 import { useEffect, useRef, type JSX } from 'react'
 import type { GitDiscardTarget, GitFileChange } from '@shared/git'
 import { describeGitDiscardWarning } from './gitChanges'
+import type { TFunction } from '../i18n/messages'
 
 /**
  * 破棄の確認（Session 3-8-9）。
@@ -39,6 +40,7 @@ interface GitDiscardConfirmProps {
   readonly busy: boolean
   readonly onConfirm: () => void
   readonly onCancel: () => void
+  readonly t: TFunction
 }
 
 export function GitDiscardConfirm({
@@ -47,7 +49,8 @@ export function GitDiscardConfirm({
   blocker,
   busy,
   onConfirm,
-  onCancel
+  onCancel,
+  t
 }: GitDiscardConfirmProps): JSX.Element {
   const cancelRef = useRef<HTMLButtonElement | null>(null)
 
@@ -77,7 +80,7 @@ export function GitDiscardConfirm({
     }
   }, [onCancel])
 
-  const warning = describeGitDiscardWarning(group, change)
+  const warning = describeGitDiscardWarning(group, change, t)
 
   return (
     <div className="fx-git__confirm" role="presentation" onPointerDown={onCancel}>
@@ -85,7 +88,7 @@ export function GitDiscardConfirm({
         className="fx-git__confirm-panel"
         role="alertdialog"
         aria-modal="true"
-        aria-label="変更の破棄の確認"
+        aria-label={t('git.common.discard')}
         data-testid="git-discard-confirm"
         data-group={group}
         data-relative-path={change.relativePath}
@@ -110,7 +113,7 @@ export function GitDiscardConfirm({
             className="fx-git__confirm-button"
             onClick={onCancel}
           >
-            {blocker === null ? 'キャンセル' : '閉じる'}
+            {blocker === null ? t('common.actions.cancel') : t('common.actions.close')}
           </button>
           {blocker === null ? (
             <button

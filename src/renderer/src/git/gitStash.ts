@@ -1,6 +1,9 @@
 import type { GitStashEntry, GitWorkingTreeChanges } from '@shared/git'
 import type { GitActionReadiness } from './gitChanges'
 import { describeGitCommitAbsoluteTime, describeGitCommitRelativeTime } from './gitHistory'
+import { createTranslator, type TFunction } from '../i18n/messages'
+
+const DEFAULT_T = createTranslator('ja')
 
 /**
  * 退避の一覧 → 画面に並べる形（React / DOM 非依存・テスト対象・Session 3-8-15）。
@@ -73,24 +76,25 @@ export const INITIAL_GIT_STASH_LIST: GitStashListState = {
  * 在るので、行き先はその場にある（ブランチや履歴で「下の Commit 欄で」と
  * 案内したのとは違い、目を動かす先が同じ面の中になる）。
  */
-export function describeGitStashList(state: GitStashListState): string | null {
+export function describeGitStashList(
+  state: GitStashListState,
+  t: TFunction = DEFAULT_T
+): string | null {
   switch (state.status) {
     case 'loading':
-      return '退避を取得しています…'
+      return t('git.stash.list.loading')
 
     case 'not-ready':
-      return 'この Workspace では Git 操作を行えなくなりました。'
+      return t('git.stash.list.notReady')
 
     case 'failed':
-      return '退避の一覧を取得できませんでした。'
+      return t('git.stash.list.failed')
 
     case 'ready':
       break
   }
 
-  return state.entries.length === 0
-    ? 'まだ退避がありません。下の「作業ツリーを退避」を押すと、今の変更をここへ避けられます。'
-    : null
+  return state.entries.length === 0 ? t('git.stash.list.empty') : null
 }
 
 /**
@@ -103,12 +107,15 @@ export function describeGitStashList(state: GitStashListState): string | null {
  * ここでできることまで案内する ── それより先は Terminal パネルの
  * `git stash list` になる（続きを読む欄は作っていない）。
  */
-export function describeGitStashTruncation(state: GitStashListState): string | null {
+export function describeGitStashTruncation(
+  state: GitStashListState,
+  t: TFunction = DEFAULT_T
+): string | null {
   if (state.status !== 'ready' || !state.truncated) {
     return null
   }
 
-  return `退避が多いため、新しい方から ${state.entries.length.toLocaleString()} 件だけを表示しています。`
+  return t('git.stash.list.truncated', { count: state.entries.length.toLocaleString() })
 }
 
 /** 1行に出すもの（GitStashOverlay.tsx はこれを並べるだけ）。 */
@@ -135,13 +142,17 @@ export interface GitStashRow {
  * 中で `Date.now()` を読むと、この関数をテストで固定できなくなる
  * （`describeGitCommitRow` と同じ形）。
  */
-export function describeGitStashRow(entry: GitStashEntry, now: number): GitStashRow {
+export function describeGitStashRow(
+  entry: GitStashEntry,
+  now: number,
+  t: TFunction = DEFAULT_T
+): GitStashRow {
   const subject = entry.subject.trim()
 
   return {
-    subject: subject.length === 0 ? '（名前なし）' : subject,
+    subject: subject.length === 0 ? t('git.stash.row.emptySubject') : subject,
     emptySubject: subject.length === 0,
-    relativeTime: describeGitCommitRelativeTime(entry.stashedAt, now),
+    relativeTime: describeGitCommitRelativeTime(entry.stashedAt, now, t),
     absoluteTime: describeGitCommitAbsoluteTime(entry.stashedAt)
   }
 }
@@ -174,12 +185,13 @@ export function describeGitStashRow(entry: GitStashEntry, now: number): GitStash
  */
 export function toGitStashPushReadiness(
   changes: GitWorkingTreeChanges,
-  operating: boolean
+  operating: boolean,
+  t: TFunction = DEFAULT_T
 ): GitActionReadiness {
   if (changes.conflicted.length > 0) {
     return {
       enabled: false,
-      note: '競合が解決されていないため退避できません。先に解決してからお試しください。'
+      note: t('git.stash.readiness.unresolvedConflicts')
     }
   }
 
@@ -190,14 +202,14 @@ export function toGitStashPushReadiness(
       enabled: false,
       note:
         changes.untracked.length > 0
-          ? '退避できる変更がありません（未追跡のファイルは退避に含まれません）。'
-          : '退避できる変更がありません。'
+          ? t('git.stash.readiness.noStashableChangesUntrackedOnly')
+          : t('git.stash.readiness.noStashableChanges')
     }
   }
 
   return {
     enabled: !operating,
-    note: `${count.toLocaleString()} 件の変更を退避し、作業ツリーを直前の Commit の状態に戻します。`
+    note: t('git.stash.readiness.push', { count: count.toLocaleString() })
   }
 }
 
@@ -216,10 +228,13 @@ export function toGitStashPushReadiness(
  * 持っているのは git** で、通らなければ `local-changes-blocked` として返る
  * （切り替えで確認を挟まないと決めたのと、まったく同じ判断。§14.14）。
  */
-export function toGitStashPopReadiness(operating: boolean): GitActionReadiness {
+export function toGitStashPopReadiness(
+  operating: boolean,
+  t: TFunction = DEFAULT_T
+): GitActionReadiness {
   return {
     enabled: !operating,
-    note: 'この退避を作業ツリーへ戻し、一覧から取り除きます。'
+    note: t('git.stash.readiness.pop')
   }
 }
 
@@ -230,8 +245,11 @@ export function toGitStashPopReadiness(operating: boolean): GitActionReadiness {
  * 1つも無い（ブランチの削除で「今チェックアウト中」だけを押せなくしたような
  * 事情が、退避には無い）。
  */
-export function toGitStashDropReadiness(operating: boolean): GitActionReadiness {
-  return { enabled: !operating, note: 'この退避を捨てます。' }
+export function toGitStashDropReadiness(
+  operating: boolean,
+  t: TFunction = DEFAULT_T
+): GitActionReadiness {
+  return { enabled: !operating, note: t('git.stash.readiness.drop') }
 }
 
 /**
@@ -258,17 +276,18 @@ export function toGitStashDropReadiness(operating: boolean): GitActionReadiness 
  */
 export function describeGitStashDropWarning(
   entry: GitStashEntry,
-  now: number
+  now: number,
+  t: TFunction = DEFAULT_T
 ): {
   readonly message: string
   readonly note: string
   readonly confirmLabel: string
 } {
-  const row = describeGitStashRow(entry, now)
+  const row = describeGitStashRow(entry, now, t)
 
   return {
-    message: `退避「${row.subject}」を捨てますか？`,
-    note: 'この退避の中身は作業ツリーへ戻らなくなります。アプリからは取り消せません。',
-    confirmLabel: '捨てる'
+    message: t('git.stash.warning.message', { subject: row.subject }),
+    note: t('git.stash.warning.note'),
+    confirmLabel: t('git.stash.warning.confirm')
   }
 }

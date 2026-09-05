@@ -105,7 +105,7 @@ describe('toGitBranchSwitchReadiness', () => {
     const readiness = toGitBranchSwitchReadiness({ name: 'main', current: true }, false)
 
     expect(readiness.enabled).toBe(true)
-    expect(readiness.note).toContain('今このブランチ')
+    expect(readiness.note).toContain('今この Branch')
   })
 
   it('他のブランチは「切り替えます」と言う', () => {
@@ -147,7 +147,7 @@ describe('toGitBranchCreateReadiness', () => {
     const readiness = toGitBranchCreateReadiness('', false)
 
     expect(readiness.enabled).toBe(false)
-    expect(readiness.note).toContain('新しいブランチ')
+    expect(readiness.note).toContain('新しい Branch')
   })
 
   it.each([
@@ -446,12 +446,12 @@ describe('describeGitBranchMergeWarning', () => {
     知らされていなければ「壊れた」と読まれる。
   */
   it('競合しうることを先に言う', () => {
-    expect(warning.note).toContain('競合')
+    expect(warning.note).toContain('Conflict')
   })
 
   /* 設計判断 1 の前半（不要な merge commit を作らない）が読める。 */
   it('早送りではマージコミットを作らないことが読める', () => {
-    expect(warning.note).toContain('マージコミット')
+    expect(warning.note).toContain('Merge Commit')
   })
 
   it('押すボタンの言葉がある', () => {

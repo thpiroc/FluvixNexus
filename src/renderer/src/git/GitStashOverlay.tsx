@@ -11,6 +11,7 @@ import {
   toGitStashPopReadiness,
   type GitStashListState
 } from './gitStash'
+import type { TFunction } from '../i18n/messages'
 
 /**
  * 退避（stash）を見る / 戻す / 捨てる / 新しく避ける面（Session 3-8-15）。
@@ -70,7 +71,8 @@ export function GitStashOverlay({
   onPush,
   onPop,
   onDrop,
-  onClose
+  onClose,
+  t
 }: {
   readonly list: GitStashListState
   /** 何かしらの Git 操作が動いている最中か。 */
@@ -95,6 +97,7 @@ export function GitStashOverlay({
   readonly onPop: (entry: GitStashEntry) => Promise<GitOperationOutcome | null>
   readonly onDrop: (entry: GitStashEntry) => Promise<GitOperationOutcome | null>
   readonly onClose: () => void
+  readonly t: TFunction
 }): JSX.Element {
   /*
     どの行の下に、捨てる確認が開いているか。
@@ -177,8 +180,8 @@ export function GitStashOverlay({
     }
   }, [list.entries, dropping])
 
-  const notice = describeGitStashList(list)
-  const truncation = describeGitStashTruncation(list)
+  const notice = describeGitStashList(list, t)
+  const truncation = describeGitStashTruncation(list, t)
 
   /*
     「今」は、届いた一覧ごとに1つだけ決める（履歴の面と同じ）── 行を描くたびに
@@ -198,10 +201,10 @@ export function GitStashOverlay({
       data-testid="git-stash"
       role="dialog"
       aria-modal="false"
-      aria-label="退避"
+      aria-label={t('git.stash.title')}
     >
       <div className="fx-git__stash-bar">
-        <span className="fx-git__stash-title">退避</span>
+        <span className="fx-git__stash-title">{t('git.stash.title')}</span>
         {/* 件数は見出しの一部（履歴・変更の一覧と同じ形）。 */}
         {list.status === 'ready' && list.entries.length > 0 ? (
           <span className="fx-git__stash-count">{list.entries.length}</span>
@@ -210,8 +213,8 @@ export function GitStashOverlay({
           type="button"
           className="fx-git__stash-close"
           onClick={onClose}
-          title="退避を閉じる"
-          aria-label="退避を閉じる"
+          title={t('git.stash.closeTitle')}
+          aria-label={t('git.stash.closeLabel')}
         >
           ×
         </button>
@@ -234,6 +237,7 @@ export function GitStashOverlay({
                 onOpenRow={openRow}
                 onCloseRow={closeRow}
                 onOutcome={setFailure}
+                t={t}
               />
             ))}
           </ul>
@@ -264,7 +268,7 @@ export function GitStashOverlay({
           title={pushReadiness.note}
           aria-label={pushReadiness.note}
         >
-          {pushing ? '退避しています…' : '作業ツリーを退避'}
+          {pushing ? t('git.stash.pushing') : t('git.stash.pushButton')}
         </button>
         {/*
           こちらの理由だけは**ボタンの下に出す。** 行の操作と違って押した場所が
@@ -278,7 +282,7 @@ export function GitStashOverlay({
       */}
       {failure === null || dropping !== null ? null : (
         <p className="fx-git__stash-failure" role="alert">
-          {describeGitOperationFailure(failure)}
+          {describeGitOperationFailure(failure, t)}
         </p>
       )}
     </div>
@@ -318,7 +322,8 @@ function GitStashRowView({
   onDrop,
   onOpenRow,
   onCloseRow,
-  onOutcome
+  onOutcome,
+  t
 }: {
   readonly entry: GitStashEntry
   readonly now: number
@@ -335,14 +340,15 @@ function GitStashRowView({
   readonly onOpenRow: (shortHash: string) => void
   readonly onCloseRow: () => void
   readonly onOutcome: (failure: GitOperationFailure | null) => void
+  readonly t: TFunction
 }): JSX.Element {
-  const row = describeGitStashRow(entry, now)
+  const row = describeGitStashRow(entry, now, t)
   /*
     途中の操作の禁止を、行の2つにも被せる（Session 3-8-22B）── 被せ方は
     GitView.tsx の他の箇所と同じで、理由は `title` / `aria-label` に載る。
   */
-  const popReadiness = withGitInProgressBlock(toGitStashPopReadiness(operating), popBlocked)
-  const dropReadiness = withGitInProgressBlock(toGitStashDropReadiness(operating), dropBlocked)
+  const popReadiness = withGitInProgressBlock(toGitStashPopReadiness(operating, t), popBlocked)
+  const dropReadiness = withGitInProgressBlock(toGitStashDropReadiness(operating, t), dropBlocked)
 
   const runPop = useCallback((): void => {
     void onPop(entry).then((outcome) => {
@@ -373,9 +379,9 @@ function GitStashRowView({
           disabled={!popReadiness.enabled}
           title={popReadiness.note}
           // 押せないときは理由を名前にも載せる（GitView.tsx の行の操作と同じ）。
-          aria-label={popBlocked ?? `${row.subject} を作業ツリーへ戻す`}
+          aria-label={popBlocked ?? t('git.stash.popAria', { subject: row.subject })}
         >
-          戻す
+          {t('git.stash.popButton')}
         </button>
         {/*
           ✕ は押すと**その場で git が動くのではなく行の下が開く。**
@@ -389,7 +395,7 @@ function GitStashRowView({
           disabled={!dropReadiness.enabled}
           aria-expanded={dropping}
           title={dropReadiness.note}
-          aria-label={dropBlocked ?? `${row.subject} を捨てる`}
+          aria-label={dropBlocked ?? t('git.stash.dropAria', { subject: row.subject })}
         >
           ✕
         </button>
@@ -403,6 +409,7 @@ function GitStashRowView({
           onConfirm={onDrop}
           onCancel={onCloseRow}
           onOutcome={onOutcome}
+          t={t}
         />
       ) : null}
     </li>
@@ -431,7 +438,8 @@ function GitStashDropConfirm({
   failure,
   onConfirm,
   onCancel,
-  onOutcome
+  onOutcome,
+  t
 }: {
   readonly entry: GitStashEntry
   readonly now: number
@@ -440,8 +448,9 @@ function GitStashDropConfirm({
   readonly onConfirm: (entry: GitStashEntry) => Promise<GitOperationOutcome | null>
   readonly onCancel: () => void
   readonly onOutcome: (failure: GitOperationFailure | null) => void
+  readonly t: TFunction
 }): JSX.Element {
-  const warning = describeGitStashDropWarning(entry, now)
+  const warning = describeGitStashDropWarning(entry, now, t)
 
   const confirm = useCallback((): void => {
     void onConfirm(entry).then((outcome) => {
@@ -453,7 +462,7 @@ function GitStashDropConfirm({
     <div
       className="fx-git__stash-confirm"
       role="alertdialog"
-      aria-label="退避を捨てる確認"
+      aria-label={t('git.stash.dropConfirmAria')}
       data-testid="git-stash-drop-confirm"
     >
       <p className="fx-git__stash-confirm-message">{warning.message}</p>
@@ -466,7 +475,7 @@ function GitStashDropConfirm({
           // 確認を出す目的は誤操作を止めることなので、既定はこちらに置く。
           autoFocus
         >
-          やめる
+          {t('git.stash.cancel')}
         </button>
         <button
           type="button"
@@ -481,7 +490,7 @@ function GitStashDropConfirm({
       </div>
       {failure === null ? null : (
         <p className="fx-git__stash-failure" role="alert">
-          {describeGitOperationFailure(failure)}
+          {describeGitOperationFailure(failure, t)}
         </p>
       )}
     </div>

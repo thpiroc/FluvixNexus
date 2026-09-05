@@ -56,7 +56,7 @@ describe('describeGitCommitDetail', () => {
       describeGitCommitDetail(
         state({ status: 'ready', commit: commit(1), files: [], truncated: false })
       )
-    ).toBe('このコミットで変わったファイルはありません。')
+    ).toBe('この Commit で変わったファイルはありません。')
   })
 
   it('行が出せるときは一言を出さない', () => {

@@ -2,6 +2,9 @@ import { findGitBranchNameProblem, prepareGitBranchName } from '@shared/git'
 import type { GitRemoteBranch } from '@shared/git'
 import type { GitActionReadiness } from './gitChanges'
 import { describeGitBranchNameProblem } from './gitBranches'
+import { createTranslator, type TFunction } from '../i18n/messages'
+
+const DEFAULT_T = createTranslator('ja')
 
 /**
  * remote-tracking branch の一覧 → 面に並べる形（React / DOM 非依存・テスト対象・
@@ -114,16 +117,19 @@ export const INITIAL_GIT_REMOTE_BRANCH_LIST: GitRemoteBranchListState = {
  * 決めたもの**で、こちらは**まだ足していないもの**になる。Pull を先に書くのは、
  * それがこのパネルの中に既に在るためで、そちらで済む人を端末へ出さない。
  */
-export function describeGitRemoteBranchList(state: GitRemoteBranchListState): string | null {
+export function describeGitRemoteBranchList(
+  state: GitRemoteBranchListState,
+  t: TFunction = DEFAULT_T
+): string | null {
   switch (state.status) {
     case 'loading':
-      return 'リモートのブランチを取得しています…'
+      return t('git.remoteBranch.list.loading')
 
     case 'not-ready':
-      return 'この Workspace では Git 操作を行えなくなりました。'
+      return t('git.remoteBranch.list.notReady')
 
     case 'failed':
-      return 'リモートのブランチの一覧を取得できませんでした。'
+      return t('git.remoteBranch.list.failed')
 
     case 'ready':
       break
@@ -134,8 +140,8 @@ export function describeGitRemoteBranchList(state: GitRemoteBranchListState): st
   }
 
   return state.hasRemote
-    ? 'リモートのブランチがまだ手元にありません。Pull するか、Terminal パネルで git fetch を実行すると表示されます。'
-    : 'リモートが設定されていません。上の「リモート」から追加してください。'
+    ? t('git.remoteBranch.list.emptyWithRemote')
+    : t('git.remoteBranch.list.emptyWithoutRemote')
 }
 
 /**
@@ -148,12 +154,17 @@ export function describeGitRemoteBranchList(state: GitRemoteBranchListState): st
  * 今のところ Terminal パネルで `git switch --track` を使う（名前を打って
  * 指す欄は作っていない。docs/ARCHITECTURE.md §14.27）。
  */
-export function describeGitRemoteBranchTruncation(state: GitRemoteBranchListState): string | null {
+export function describeGitRemoteBranchTruncation(
+  state: GitRemoteBranchListState,
+  t: TFunction = DEFAULT_T
+): string | null {
   if (state.status !== 'ready' || !state.truncated) {
     return null
   }
 
-  return `リモートのブランチが多いため、先頭の ${state.branches.length.toLocaleString()} 件だけを表示しています。`
+  return t('git.remoteBranch.list.truncated', {
+    count: state.branches.length.toLocaleString()
+  })
 }
 
 /**
@@ -175,12 +186,15 @@ export function describeGitRemoteBranchTruncation(state: GitRemoteBranchListStat
  * 読むことになり、一覧を開くたびに読むもの（と、それを運ぶ欄）が1つ増える。
  * **「取得済みのもの」と言えば、次の一手（Pull / fetch）は上の案内と同じ**になる。
  */
-export function describeGitRemoteBranchFreshness(state: GitRemoteBranchListState): string | null {
+export function describeGitRemoteBranchFreshness(
+  state: GitRemoteBranchListState,
+  t: TFunction = DEFAULT_T
+): string | null {
   if (state.status !== 'ready' || state.branches.length === 0) {
     return null
   }
 
-  return '最後に取得した時点の一覧です（この面では取得しません）。'
+  return t('git.remoteBranch.list.freshness')
 }
 
 /**
@@ -202,11 +216,12 @@ export function describeGitRemoteBranchFreshness(state: GitRemoteBranchListState
  */
 export function toGitRemoteBranchSelectReadiness(
   branch: GitRemoteBranch,
-  operating: boolean
+  operating: boolean,
+  t: TFunction = DEFAULT_T
 ): GitActionReadiness {
   return {
     enabled: !operating,
-    note: `${branch.name} を追うローカルブランチを作ります。`
+    note: t('git.remoteBranch.select', { name: branch.name })
   }
 }
 
@@ -239,17 +254,18 @@ export function toGitRemoteBranchSelectReadiness(
 export function toGitTrackingBranchCreateReadiness(
   branch: GitRemoteBranch,
   name: string,
-  operating: boolean
+  operating: boolean,
+  t: TFunction = DEFAULT_T
 ): GitActionReadiness {
   const prepared = prepareGitBranchName(name)
   const problem = findGitBranchNameProblem(prepared)
 
   if (problem !== null) {
-    return { enabled: false, note: describeGitBranchNameProblem(problem) }
+    return { enabled: false, note: describeGitBranchNameProblem(problem, t) }
   }
 
   return {
     enabled: !operating,
-    note: `${branch.name} を追う ${prepared} を作って切り替えます。`
+    note: t('git.remoteBranch.create', { remote: branch.name, local: prepared })
   }
 }
