@@ -25,9 +25,11 @@ import type { CommandId } from './commandIds'
  * `CommandId` の先頭の語と対応させてある（`view.togglePanel.files` → `'view'`）。
  * registry.test.ts がその対応を実数で確かめるので、片方だけ足すと落ちる。
  *
- * Session 4-7B で `'git'` / `'files'` / `'terminal'` が増える。
+ * Session 4-7B で `'git'` / `'files'` が増えた（`'terminal'` はまだ ──
+ * 端末の打鍵は `terminal/terminalDisplay.ts` が `event.key` で受けており、
+ * registry へ移すには日本語配列の `=` / `_` の読み替えごと設計し直すことになる）。
  */
-export type CommandCategory = 'workspace' | 'editor' | 'view' | 'settings'
+export type CommandCategory = 'workspace' | 'editor' | 'view' | 'settings' | 'git' | 'files'
 
 /** command が実行されたときに走るもの。引数も戻り値も持たない。 */
 export type CommandHandler = () => void
@@ -43,14 +45,20 @@ export interface CommandDescriptor {
    */
   readonly title: string
   /**
-   * 画面に出す名前（Session 4-7B で入る）。
+   * 画面に出す名前（まだどの command も持たない）。
    *
-   * **Session 4-7A では、どの command もこれを持たない。** 翻訳キーを足すには
-   * `i18n/locales/en.ts` / `ja.ts` を変えることになり、Session 4-5C（Git の
-   * Localization）が並行して同じ2ファイルを触っているため、今回は接続だけを
-   * 用意して値は入れない。
+   * **Session 4-7B でも入れていない。** 理由は 4-7A のとき（Session 4-5C が
+   * 同じ2ファイルを触っている）とは別で、**読む相手がまだ居ない**ことにある ──
+   * `commandTitle()` を呼ぶのは Keyboard Shortcuts の一覧と Command Palette で、
+   * どちらも存在しない。今 `titleKey` を埋めても画面には1文字も出ない一方、
+   * `i18n/locales/en.ts` / `ja.ts` は Session 4-5C の構造を持ったまま
+   * 21 command 分だけ増えることになる。
    *
-   * 任意にしてあるので、4-7B で足すのは**この表に1行ずつ `titleKey` を書く**だけ
+   * **入れるなら全件を一度に。** 一部だけ埋めると `commandTitle()` が
+   * 「翻訳されるものとされないもの」の混ざった一覧を返し、その半端さを
+   * 画面を作る側が引き継ぐ。
+   *
+   * 任意にしてあるので、足すのは**この表に1行ずつ `titleKey` を書く**だけ
    * ── 型も `commandTitle()` も変わらない。
    */
   readonly titleKey?: TranslationKey

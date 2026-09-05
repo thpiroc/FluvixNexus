@@ -10,6 +10,7 @@ import { useEditorContext } from '../editor/context'
 import { useI18n } from '../i18n/context'
 import { useWorkspaceFolder } from '../workspaceFolder/context'
 import { GitBranchMenu } from './GitBranchMenu'
+import { GitCommands } from './GitCommands'
 import { GitDiffOverlay } from './GitDiffOverlay'
 import { GitDiscardConfirm } from './GitDiscardConfirm'
 import { GitHistoryOverlay } from './GitHistoryOverlay'
@@ -622,6 +623,36 @@ export function GitView(): JSX.Element {
 
   return (
     <div className="fx-git">
+      {/*
+        このパネルが名乗る command（Session 4-7B。git/GitCommands.tsx）。
+
+        **置き場所そのものが条件になっている。** ここは
+        「リポジトリが使えて、readiness が出そろっている」枝で、
+        取得中も、案内の画面も、背面タブも、ここへは来ない ──
+        そのときは登録されず、command は実行できない（＝正しい状態）。
+
+        渡しているのは、すぐ上でボタンの活性に使っているのと**同じ値**になる。
+        `gitChanges.ts` と `gitInProgress.ts` の判断を1箇所に保つため、
+        向こう側には条件が1つも無い。
+
+        画面には何も出さない（`null` を返す）ので、置く高さは自由 ──
+        いちばん上に置いてあるのは、パネルが何を名乗っているかを
+        読み始めで分かるようにするため。
+      */}
+      <GitCommands
+        onRefresh={refresh}
+        refreshEnabled={!busy}
+        onCommit={runCommit}
+        commitEnabled={guardedCommitReady.enabled}
+        onPush={push}
+        pushEnabled={pushReady.enabled}
+        onPull={pull}
+        pullEnabled={pullReady.enabled}
+        onFetch={fetch}
+        fetchEnabled={fetchReady.enabled}
+        onOpenHistory={openHistory}
+        onOpenStash={openStash}
+      />
       <div className="fx-git__bar">
         {/* 何の名前かが分かるようにする。ブランチ名だけだと、それが何なのか伝わらない。 */}
         <span className="fx-git__branch-label">{t('git.panel.branchPanelLabel')}</span>

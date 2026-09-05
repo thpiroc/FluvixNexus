@@ -18,6 +18,7 @@ import { describeFileActionError } from './filesError'
 import { countLoadedEntries, resolveCreateTarget } from './fileTreeModel'
 import type { FilesLayoutController } from './useFilesLayout'
 import { useFilesController } from './useFilesController'
+import { useCommand } from '../commands/useCommand'
 import { useI18n } from '../i18n/context'
 import './files.css'
 
@@ -65,6 +66,36 @@ export function FilesExplorer({
   const { t } = useI18n()
   const controller = useFilesController({ workspace, mode: layout.mode, revealTarget })
   const { tree, actions, drag } = controller
+
+  /*
+    再読み込みを command としても呼べるようにする（Session 4-7B）。
+
+    ## ここが名乗る理由
+
+    `tree.reloadAll` はこの component の中の controller のもので、
+    FilesView からは届かない ── **その状態を持っている場所が名乗る**という
+    commands/useCommand.ts の作法どおりになる（Editor の保存を
+    EditorProvider が名乗るのと同じ）。
+
+    ## 押せなくする条件を持たない
+
+    ツールバーの `⟳` も条件を持っていない（下）。読み直しはいつ押しても
+    正しく、展開状態も保たれる（useFileTree.ts の `reloadAll`）。
+
+    ## 検索を見ている間も登録されたまま
+
+    この component は検索モードのあいだ `hidden` で隠れるだけで、
+    mount は続く（FilesView.tsx の「どちらも作り直さない」）── 隠れていても
+    ツリーは変化の通知を受け続けており、読み直しは正しい操作にあたる。
+
+    ## 1画面に2つ置かない
+
+    `useCommand` は同じ id が2度登録されると例外を投げる
+    （commands/CommandProvider.tsx）。この component が同時に2つ出る形は
+    今は無い（Files パネルは1枚で、前面のときしか mount されない）が、
+    **将来どこかへ2つ目を置くなら、この登録ごと持ち主を考え直すこと。**
+  */
+  useCommand('files.refresh', tree.reloadAll)
 
   const createTarget = resolveCreateTarget(tree.selectedEntry)
   const createTargetLabel = createTarget === '' ? workspace.displayName : createTarget

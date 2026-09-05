@@ -68,13 +68,65 @@ describe('listCommands', () => {
   })
 })
 
+describe('Session 4-7B で足した contribution（git / files）', () => {
+  /*
+    「登録されているか」を実数で押さえる。所有者が誰かは jsdom 側
+    （commands/contribution.dom.test.ts）で、ここは表の側だけを見る。
+  */
+  const ids = new Set<string>(COMMAND_IDS)
+
+  it('Git の7件が表に載っている', () => {
+    for (const id of [
+      'git.refresh',
+      'git.commit',
+      'git.push',
+      'git.pull',
+      'git.fetch',
+      'git.openHistory',
+      'git.stashPush'
+    ]) {
+      expect(ids.has(id), id).toBe(true)
+    }
+  })
+
+  it('Files の3件が表に載っている', () => {
+    for (const id of ['files.refresh', 'files.search.byName', 'files.search.byContent']) {
+      expect(ids.has(id), id).toBe(true)
+    }
+  })
+
+  it('category は id の先頭語のまま（git / files が CommandCategory に居る）', () => {
+    // 上の listCommands の同名テストと重なるが、あちらは全体、ここは新しい2つ。
+    for (const command of listCommands()) {
+      if (command.id.startsWith('git.')) {
+        expect(command.category).toBe('git')
+      }
+
+      if (command.id.startsWith('files.')) {
+        expect(command.category).toBe('files')
+      }
+    }
+  })
+
+  it('3段の id（files.search.*）も id の形を満たす', () => {
+    // commandIds.ts の「`<領域>.<動詞>` の2段（対象が続くものだけ3段）」。
+    expect('files.search.byName').toMatch(/^[a-z]+(\.[a-zA-Z]+)+$/)
+    expect('files.search.byContent').toMatch(/^[a-z]+(\.[a-zA-Z]+)+$/)
+  })
+})
+
 describe('commandTitle', () => {
   /*
-    Session 4-7A では、どの command も titleKey を持たない
-    （i18n/locales/en.ts・ja.ts を変えないため。types.ts の titleKey）。
-    4-7B で足したときに接続が効くことを、ここで先に固定しておく。
+    Session 4-7B の時点でも、どの command も titleKey を持たない。
+
+    4-7A は「4-5C が同じ2ファイルを触っているから」だったが、4-7B の理由は
+    別で、**読む相手がまだ居ない**ことにある ── `commandTitle()` を呼ぶのは
+    Keyboard Shortcuts の一覧と Command Palette で、どちらも無い
+    （commands/types.ts の titleKey）。
+
+    足すときに接続が効くことは、下の2つが先に固定してある。
   */
-  it('Session 4-7A では、どの command も titleKey を持たない', () => {
+  it('Session 4-7B の時点でも、どの command も titleKey を持たない', () => {
     for (const command of listCommands()) {
       expect(command.titleKey).toBeUndefined()
     }
@@ -90,12 +142,12 @@ describe('commandTitle', () => {
     ).toBe(descriptor.title)
   })
 
-  it('titleKey があれば翻訳を通す（Session 4-7B の接続）', () => {
+  it('titleKey があれば翻訳を通す（一覧 UI を作るときの接続）', () => {
     const descriptor = {
       id: 'settings.open' satisfies CommandId,
       category: 'settings',
       title: 'Open Settings',
-      // 実在する翻訳キーなら何でもよい（4-7B で command ごとの key に差し替わる）。
+      // 実在する翻訳キーなら何でもよい（後で command ごとの key に差し替わる）。
       titleKey: 'settings.title'
     } as const satisfies CommandDescriptor
 

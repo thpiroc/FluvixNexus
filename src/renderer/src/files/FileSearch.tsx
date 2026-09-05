@@ -1,4 +1,4 @@
-import { useState, type JSX } from 'react'
+import type { JSX } from 'react'
 import type { FileEntry } from '@shared/files'
 import type { WorkspaceFolder } from '@shared/workspace'
 import { FileContentSearch, type FileContentOpenTarget } from './FileContentSearch'
@@ -39,6 +39,25 @@ import { useI18n } from '../i18n/context'
  *
  * 隠れている側は何もしない ── 検索語が入るまで要求を出さないため。
  *
+ * ## 探し方の選択は、上（FilesView）が持つ（Session 4-7B）
+ *
+ * Session 3-6-5 から 4-5C までは、この `mode` はここの `useState` だった。
+ * 4-7B で **FilesView へ持ち上げ、props で受ける形にした**（controlled）。
+ *
+ * 変えた理由は1つで、`files.search.byName` / `files.search.byContent` という
+ * command が**2段の state を同時に動かす**必要があるため ──
+ *
+ *   FilesView の `mode`     … ツリーを見せるか、検索を見せるか
+ *   ここの `mode`（探し方） … 名前で探すか、中身で探すか
+ *
+ * 下に置いたままだと、上からは後者へ手が届かない（検索を開くことはできても、
+ * どちらの探し方で開くかを言えない）。**持ち上げれば、両方を持つ場所が
+ * 1つになる。**
+ *
+ * 変わったのは持ち主だけで、**振る舞いは1つも変えていない** ──
+ * 初期値は `'name'`、切り替えは同じボタン、隠す形も、`active` の配り方も
+ * そのままになる。
+ *
  * ## 走っている検索は Main 側で1本に絞られる
  *
  * モードを切り替えても、Renderer 側では前のモードの検索を止めていない。
@@ -48,8 +67,13 @@ import { useI18n } from '../i18n/context'
  * 片方だけを直したときに食い違う。
  */
 
-/** 探し方。将来ここに増える場合も、増えるのは行の並べ方であって開く経路ではない。 */
-type FileSearchMode = 'name' | 'content'
+/**
+ * 探し方。将来ここに増える場合も、増えるのは行の並べ方であって開く経路ではない。
+ *
+ * 持ち主は FilesView（Session 4-7B。上記）。command から選べるようにするため、
+ * 名前を外へ出してある。
+ */
+export type FileSearchMode = 'name' | 'content'
 
 const MODES: readonly FileSearchMode[] = ['name', 'content']
 
@@ -57,6 +81,10 @@ interface FileSearchProps {
   readonly workspace: WorkspaceFolder
   /** 今この表示が見えているか。見えた瞬間に入力欄へ焦点を移すのに使う。 */
   readonly active: boolean
+  /** どちらで探しているか（持ち主は FilesView。Session 4-7B）。 */
+  readonly mode: FileSearchMode
+  /** 探し方を変える。 */
+  readonly onModeChange: (mode: FileSearchMode) => void
   /** ツリーへ戻る。 */
   readonly onExit: () => void
   /** 名前の検索の結果を開く（フォルダはツリーで場所を見せる）。 */
@@ -68,12 +96,13 @@ interface FileSearchProps {
 export function FileSearch({
   workspace,
   active,
+  mode,
+  onModeChange,
   onExit,
   onOpen,
   onOpenMatch
 }: FileSearchProps): JSX.Element {
   const { t } = useI18n()
-  const [mode, setMode] = useState<FileSearchMode>('name')
 
   return (
     <div className="fx-files fx-search">
@@ -105,7 +134,7 @@ export function FileSearch({
               className="fx-search__mode-button"
               data-active={value === mode}
               aria-pressed={value === mode}
-              onClick={() => setMode(value)}
+              onClick={() => onModeChange(value)}
             >
               {value === 'name' ? t('files.search.nameMode') : t('files.search.contentMode')}
             </button>

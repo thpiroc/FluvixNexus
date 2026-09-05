@@ -9,6 +9,7 @@ import type { CommandHandler } from './types'
  *
  * ```tsx
  * useCommand('editor.save', saveActiveTab)
+ * useCommand('git.push', push, pushReady.enabled) // 押せるときだけ（Session 4-7B）
  * ```
  *
  * ## 所有者が自分で名乗る（contribution）
@@ -27,8 +28,25 @@ import type { CommandHandler } from './types'
  * **描画のたびに解除と登録が走る**。ここでは ref に最新を置き、登録するのは
  * 「ref を呼ぶだけの、変わらない関数」1つにしてある ── 登録が走るのは
  * mount と unmount のときだけになる。
+ *
+ * ## 今できない操作は、登録しない（Session 4-7B）
+ *
+ * `enabled` が false の間、その command は**表に載らない** ── 何もしない
+ * handler を載せるのではなく、載せない。
+ *
+ * 分けて考えると理由が出る。`execute` は「handler が居たか」を返し、
+ * KeybindingProvider はその返り値で `preventDefault()` を呼ぶかを決める
+ * （あちらの「`preventDefault()` を呼ぶ条件」）。何もしない handler を載せると、
+ * **何も起きないのにブラウザの既定まで止まる**打鍵ができる。
+ * `isRegistered` も同じで、あれは将来の一覧の活性判定にあたる ──
+ * 「登録されているが押しても何も起きない」を作ると、その判定が嘘になる。
+ *
+ * **`enabled` に渡すのは、画面のボタンを押せなくしているのと同じ値にすること。**
+ * Git なら `gitChanges.ts` / `gitInProgress.ts` が返す readiness で、
+ * command 側で条件を書き直すと、途中の Git 操作の禁止
+ * （`withGitInProgressBlock`）を迂回する経路ができる（git/GitCommands.tsx）。
  */
-export function useCommand(id: CommandId, handler: CommandHandler): void {
+export function useCommand(id: CommandId, handler: CommandHandler, enabled = true): void {
   const { register } = useCommands()
   const handlerRef = useRef<CommandHandler>(handler)
 
@@ -37,5 +55,11 @@ export function useCommand(id: CommandId, handler: CommandHandler): void {
     handlerRef.current = handler
   })
 
-  useEffect(() => register(id, () => handlerRef.current()), [register, id])
+  useEffect(() => {
+    if (!enabled) {
+      return
+    }
+
+    return register(id, () => handlerRef.current())
+  }, [register, id, enabled])
 }

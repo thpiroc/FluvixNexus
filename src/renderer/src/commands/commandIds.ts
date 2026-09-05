@@ -33,19 +33,52 @@
  * **一度決めた id は変えない。** 将来ユーザーの割り当てがディスクに残るため、
  * 名前を変えると「その人が設定した打鍵だけが静かに効かなくなる」。
  *
- * ## Session 4-7A に載せていないもの
+ * ## Session 4-7B で足したもの
  *
  * Git（`git.commit` / `git.push` …）と Files 検索（`files.search.*`）は
  * handler が panel の中（`GitView` / `FilesView` のローカル state）にあり、
- * 所有者が自分で登録する形（contribution）になる。**Session 4-7B の範囲。**
+ * 所有者が自分で登録する形（contribution）になる。
  *
- * Terminal の文字の大きさ（Ctrl + `+` / `-` / `0`）もここには無い。既存の経路
+ * **10件とも打鍵を持たない。** `keybindings/defaults.ts` は Session 4-7B で
+ * 1行も変えていない ── 「割り当ての無い command」は 4-7A が既に正常な状態
+ * として設計してあり（defaults.ts の「割り当ての無い command」）、将来の
+ * Settings の一覧に「未割り当て」として並ぶ。打鍵を足さなかった理由は
+ * 3つある。
+ *
+ *   1. `git.refresh` と `files.refresh` に**同じ打鍵を割り当てられない** ──
+ *      「今見ているパネルを更新」が自然だが、同じ打鍵 × 重なる条件は
+ *      `findKeybindingConflicts` が競合として拾う（defaults.test.ts）。
+ *      避けるには `gitFocused` / `filesFocused` という条件を増やすことになり、
+ *      それは `WHEN_KEYS` と `readWhenContext` の両方を広げる話になる
+ *   2. `ctrl+enter` は取れない。Git の Commit 欄の `onKeyDown` は
+ *      `preventDefault()` を呼ぶが `stopPropagation()` は呼ばず、
+ *      KeybindingProvider は `defaultPrevented` を見ない（意図的。あちらの冒頭）
+ *      ── window にも同じ打鍵が届き、2度目の `commit` は `operate` の
+ *      目印で捨てられるため、**成功しても入力欄が空にならない**
+ *   3. Git の操作はパネルを見ながら行うもので、しかも背面タブでは
+ *      command 自体が登録されない（下記）── 打鍵で得られるものが小さい
+ *
+ * Terminal の文字の大きさ（Ctrl + `+` / `-` / `0`）はここには無い。既存の経路
  * （`terminal/terminalDisplay.ts` → `TerminalSurface.tsx` の `onAppKey`）を
  * 1行も変えないためで、あちらは日本語配列のための `=` / `_` の読み替えを持っている
  * ── registry へ移すなら、その読み替えごと設計し直すことになる（4-7B）。
  *
  * `Ctrl+P` / `Ctrl+Shift+P` は **Command Palette のために空けてある**。
  * ここにも defaults.ts にも現れない。
+ *
+ * ## 所有者がパネルの中に居るということ
+ *
+ * `git.*` / `files.*` の handler を持つのは Git / Files パネルの中で、
+ * **前面に出ているパネルしか mount されない**
+ * （`workspace/shell/PanelGroup.tsx` は `activePanelId` の Component だけを描く）。
+ * したがって、
+ *
+ *   - 同じ command が2度登録されることが**起こりえない**（インスタンスが1つしかない）
+ *   - Git が背面タブに居る間、`git.*` は登録されていない ＝ 実行できない
+ *
+ * となる。これは失敗ではなく「今はその操作ができない」という正しい状態で、
+ * `when` に `gitPanelVisible` のような条件を足さずに済む理由でもある
+ * （`keybindings/when.ts` が `gitRepositoryAvailable` を入れなかったのと同じ判断）。
  */
 
 /**
@@ -67,7 +100,28 @@ export const COMMAND_IDS = [
   'view.togglePanel.git',
   'view.resetLayout',
   'settings.open',
-  'settings.close'
+  'settings.close',
+  /*
+    Git（Session 4-7B）。所有者は GitView の中の GitCommands で、
+    **リポジトリが使える状態のときだけ**登録される（git/GitCommands.tsx）。
+
+    `git.stashPush` だけは名前と挙動がずれている ── 繋いであるのは
+    「退避の面を開く」で、退避そのものは走らない（理由は registry.ts）。
+  */
+  'git.refresh',
+  'git.commit',
+  'git.push',
+  'git.pull',
+  'git.fetch',
+  'git.openHistory',
+  'git.stashPush',
+  /*
+    Files（Session 4-7B）。`files.refresh` の所有者は FilesExplorer
+    （ツリーの状態を持つ場所）、検索の2つは FilesView になる。
+  */
+  'files.refresh',
+  'files.search.byName',
+  'files.search.byContent'
 ] as const
 
 /** 既知の command の名前。ここに無い名前は command ではない。 */

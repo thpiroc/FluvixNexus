@@ -1,10 +1,11 @@
 import { useCallback, useState, type JSX } from 'react'
 import type { FileEntry } from '@shared/files'
 import type { WorkspaceFolder } from '@shared/workspace'
+import { useCommand } from '../commands/useCommand'
 import { useEditorContext } from '../editor/context'
 import type { FileContentOpenTarget } from './FileContentSearch'
 import { FilesExplorer } from './FilesExplorer'
-import { FileSearch } from './FileSearch'
+import { FileSearch, type FileSearchMode } from './FileSearch'
 import type { FilesLayoutController } from './useFilesLayout'
 import './files.css'
 
@@ -45,6 +46,26 @@ import './files.css'
  * 中では同じ `openTab` を通り、**既に開いているファイルなら2枚目のタブを作らない**。
  * 違うのは「開いた後にこの行・桁を見せてほしい」という依頼が付くところだけになる
  * （editor/editorReveal.ts）。
+ *
+ * ## 検索の2つの state を、ここが両方持つ（Session 4-7B）
+ *
+ * 3-6-5 から 4-5C までは分かれていた ── 「ツリーか検索か」はここ、
+ * 「名前で探すか中身で探すか」は FileSearch の中。4-7B で後者を
+ * ここへ持ち上げた（FileSearch.tsx は props で受ける）。
+ *
+ * `files.search.byName` / `files.search.byContent` が**2段を同時に動かす**
+ * ためになる ── 「検索を開いて、かつ中身の側を選ぶ」は、片方しか持っていない
+ * 場所からは言えない。持ち上げれば、両方を知っている場所が1つになり、
+ * command はそこが名乗る。
+ *
+ * 持ち上げたのは持ち主だけで、**振る舞いは1つも変えていない。**
+ *
+ * ## `files.refresh` はここが名乗らない
+ *
+ * ツリーの状態（読み込み済みの中身・展開状態）を持っているのは
+ * FilesExplorer の中の controller で、ここからは届かない ──
+ * **その状態を持っている場所が名乗る**という commands/useCommand.ts の作法
+ * どおり、あちらが名乗る（FilesExplorer.tsx）。
  */
 
 type FilesViewMode = 'files' | 'search'
@@ -57,6 +78,14 @@ interface FilesViewProps {
 
 export function FilesView({ workspace, layout }: FilesViewProps): JSX.Element {
   const [mode, setMode] = useState<FilesViewMode>('files')
+  /**
+   * どちらで探しているか（Session 4-7B で FileSearch から持ち上げた。上記）。
+   *
+   * 検索を閉じても**戻さない** ── 持ち上げる前の FileSearch は隠れるだけで
+   * 作り直されなかったので、ツリーへ戻って検索を開き直すと前の探し方のままだった。
+   * ここで `'name'` へ戻すと、それが変わってしまう。
+   */
+  const [searchMode, setSearchMode] = useState<FileSearchMode>('name')
   /**
    * 一覧の中で場所を見せる対象（見せる必要が無ければ null）。
    *
@@ -122,6 +151,30 @@ export function FilesView({ workspace, layout }: FilesViewProps): JSX.Element {
     [openFileAt]
   )
 
+  /*
+    ------------------------------------------------ command（Session 4-7B）
+
+    検索を、指定した探し方で開く。**ツールバーの虫めがねを押してから
+    探し方のボタンを押す**のと同じ2手を、1回で行うだけになる ──
+    新しい経路を作っていないので、押した後の姿はどちらでも同じ。
+
+    入力欄への焦点は**ここでは触らない。** 見えるようになったモードが
+    自分で移す（FileNameSearch.tsx / FileContentSearch.tsx の `active`）──
+    そこに既にある約束で、command のために2つ目の焦点の移し方を作らない。
+
+    既に同じモードを見ているときは何も起きない（`active` が false → true に
+    変わらないため、焦点も動かない）。押し直しで入力欄へ戻れる形にするなら
+    `active` の側の設計を変えることになり、それは検索の話であって
+    command の話ではない ── 後続へ送ってある。
+  */
+  const showSearch = useCallback((next: FileSearchMode): void => {
+    setSearchMode(next)
+    setMode('search')
+  }, [])
+
+  useCommand('files.search.byName', () => showSearch('name'))
+  useCommand('files.search.byContent', () => showSearch('content'))
+
   return (
     <div className="fx-files-view">
       <div className="fx-files-view__pane" hidden={mode !== 'files'}>
@@ -137,6 +190,8 @@ export function FilesView({ workspace, layout }: FilesViewProps): JSX.Element {
         <FileSearch
           workspace={workspace}
           active={mode === 'search'}
+          mode={searchMode}
+          onModeChange={setSearchMode}
           onExit={() => setMode('files')}
           onOpen={openEntry}
           onOpenMatch={openMatch}

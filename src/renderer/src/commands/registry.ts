@@ -21,7 +21,13 @@ import type { CommandDescriptor } from './types'
  *
  * 前者は静的に、後者は実行時にしか分からない ── descriptor は表だが handler は
  * 所有者が動的に付けるものなので、「Git パネルが2枚開いていて両方が
- * `git.commit` を登録した」は型では防げない（Session 4-7B の話）。
+ * `git.commit` を登録した」は型では防げない。
+ *
+ * ただし Session 4-7B で分かったのは、**その形は今の Shell では作れない**という
+ * ことになる ── パネルは1つの id につき1枚しか存在せず、しかもタブ群では
+ * 前面のものしか mount されない（`workspace/shell/PanelGroup.tsx`）。
+ * それでも CommandProvider の例外を外さないのは、これが「所有者は1つ」という
+ * 約束そのものだからで、守られていることと確かめないことは別にあたる。
  *
  * ## 並び
  *
@@ -84,6 +90,72 @@ const COMMAND_REGISTRY: Readonly<Record<CommandId, CommandDescriptor>> = {
     id: 'settings.close',
     category: 'settings',
     title: 'Close Settings'
+  },
+  'git.refresh': {
+    id: 'git.refresh',
+    category: 'git',
+    title: 'Refresh Git Status'
+  },
+  'git.commit': {
+    id: 'git.commit',
+    category: 'git',
+    title: 'Commit'
+  },
+  'git.push': {
+    id: 'git.push',
+    category: 'git',
+    title: 'Push'
+  },
+  'git.pull': {
+    id: 'git.pull',
+    category: 'git',
+    title: 'Pull'
+  },
+  'git.fetch': {
+    id: 'git.fetch',
+    category: 'git',
+    title: 'Fetch'
+  },
+  'git.openHistory': {
+    id: 'git.openHistory',
+    category: 'git',
+    title: 'Open Commit History'
+  },
+  'git.stashPush': {
+    /*
+      **名前は `stashPush` だが、繋いであるのは「退避の面を開く」になる**
+      （git/GitCommands.tsx）。title もそう書いてある。
+
+      退避そのものを打鍵1つに繋がないのは、`stashPush` が確認を1つも挟まずに
+      作業ツリー全体を退避するため ── しかも結末（`GitOperationOutcome`）は
+      面の中で読ませる設計になっており（useGitRepository.ts の `stashPush`）、
+      面を閉じたまま実行すると、何が起きたかがパネル下部の1行にしか出ない。
+      戻せない操作は確認の形と一緒に設計する、という 3-8-9 からの線に従う。
+
+      id を `git.openStash` にしなかったのは、**id を後から変えられない**ため
+      （commandIds.ts の「一度決めた id は変えない」）。将来「確認を出してから
+      退避する」形に育てるとき、id はこのままで handler だけが変わる ──
+      逆に `openStash` と名乗っておくと、そのとき名前を変えることになり、
+      利用者が設定した打鍵が静かに効かなくなる。
+    */
+    id: 'git.stashPush',
+    category: 'git',
+    title: 'Stash Working Tree…'
+  },
+  'files.refresh': {
+    id: 'files.refresh',
+    category: 'files',
+    title: 'Reload File Tree'
+  },
+  'files.search.byName': {
+    id: 'files.search.byName',
+    category: 'files',
+    title: 'Search by File Name'
+  },
+  'files.search.byContent': {
+    id: 'files.search.byContent',
+    category: 'files',
+    title: 'Search File Contents'
   }
 }
 
