@@ -1,7 +1,7 @@
 # Fluvix Nexus 設計ドキュメント
 
-> ステータス: STEP 1（基盤構築）完了 / STEP 2（Dockable Workspace 基盤）完了 / STEP 3（各パネルの本機能）完了 / **STEP 4（日常使用の土台）進行中** — Session 4-2（別名で保存）まで完了
-> 最終更新: 2026-09-02
+> ステータス: STEP 1（基盤構築）完了 / STEP 2（Dockable Workspace 基盤）完了 / STEP 3（各パネルの本機能）完了 / **STEP 4（日常使用の土台）完了** / STEP 5（LSP）着手前
+> 最終更新: 2026-09-06
 
 このドキュメントは**製品としての設計方針**を扱う。実装の構造と開発手順は以下を参照。
 
@@ -1187,7 +1187,7 @@ Git まわりで、Session 3-8-1 〜 3-8-22B の範囲から意図的に外し�
 
 ---
 
-## 11. STEP 4（進行中）— 日常使用の土台
+## 11. STEP 4（完了）— 日常使用の土台
 
 Session 4-1 の調査で、Editor は「編集して保存して Git で送る」までは実際に使えるものの、**毎日使うには足りていない**ことが分かった。STEP 4 はその土台を揃える段で、LSP（STEP 5 の予定）を載せる前提にもあたる。
 
@@ -1204,7 +1204,8 @@ Session 4-1 の調査で、Editor は「編集して保存して Git で送る�
 | 4-7B       | Git / Files の操作を command として名乗る    | 完了 |
 | 4-7C       | Keyboard Shortcuts の一覧                    | 完了 |
 | 4-8A       | production app での統合確認                  | 完了 |
-| 4-8B       | ドキュメントの追従（この更新）               | 完了 |
+| 4-8B       | ドキュメントの追従                           | 完了 |
+| 4-8C       | STEP 4 Closing                               | 完了 |
 
 **4-6 は欠番。** Localization（4-5）の次にショートカット（4-7）へ進んだときの採番の飛びで、飛ばした内容は無い。
 
@@ -1457,3 +1458,81 @@ Session 4-5 と 4-7 は、**実装は済んでいたが production app で通し
 | Terminal の新規ボタンの `＋`    | 全角のまま。`aria-label` / `title` は訳されているが、**英語の案内文が半角の `+` を指している**ので食い違っている ── 字面の判断なので触っていない |
 | `PanelPlaceholder.tsx`          | **どこからも参照されていない**（Session 2-2 の名残）。文言も訳されていないが、画面に出ないので触っていない                                       |
 | Monaco / xterm 側の打鍵の一覧化 | していない。一覧に出るのはアプリが持つ command だけで、Monaco の既定は出ない                                                                     |
+
+### Session 4-8B（完了）— ドキュメントの追従
+
+Session 4-8B では、STEP 4 の実装結果を [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) と [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) へ追従した。Localization と Keyboard Shortcuts の構造、production app での確認結果、セキュリティ境界、未実装項目を「まだやっていない欠陥」ではなく**この段で入れないと決めた範囲**として記録している。
+
+- Localization は `TranslationKey` / `t` / `LanguageProvider` / `language` 設定の構造として記録済み
+- Command Registry と Keyboard Shortcut Registry は Renderer 内の閉じた操作表として記録済み
+- Keyboard Shortcuts は読むだけの Settings カテゴリであり、保存 section を持たないことを記録済み
+- Session 4-8A の production verification は **205項目、全項目 PASS**（Localization 94 / Keyboard Shortcuts 111）として記録済み
+- `window.fluvix` の名前空間、IPC、CSP、`keybindings.json` 非作成、Workspace へ書き込まない方針を記録済み
+
+### Session 4-8C（完了）— STEP 4 Closing
+
+この Session は Closing であり、**LSP 実装・ショートカット編集・Command Palette・`keybindings.json`・terminal command category は入れていない**。STEP 4 の目的は「LSP の前に日常使用の土台を揃える」ことであり、以下の実装と検証が揃った時点で完了とする。
+
+| 範囲                                 | STEP 4 で閉じたこと                                                                                   |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| Save As / deleted file recovery      | 削除されたタブを内容ごと救える別名保存、通常タブからの別名保存、未保存印の消失不具合の修正            |
+| unified Settings persistence         | `%APPDATA%/Fluvix Nexus/settings.json` への section 単位保存、旧3ファイルからの移行、壊れた値の切離し |
+| Settings UI                          | Editor / Files / Terminal / Appearance / General / Keyboard Shortcuts を同じ面へ整理                  |
+| Theme / Appearance                   | Dark / Light、起動時のちらつき防止、Monaco / xterm の theme token 生成                                |
+| Localization foundation              | 日本語 / English、初期描画前の language 適用、辞書と翻訳キーの型安全化                                |
+| Files / Editor / Terminal            | Files・Editor・Terminal と確認ダイアログの文言を翻訳キーへ移動                                        |
+| Git Localization                     | Changes / Branch / History / Stash / Remote / Diff / in-progress 系の文言を翻訳キーへ移動             |
+| Command Registry                     | アプリが持つ操作を閉じた id 集合として表し、handler は所有者が mount している間だけ登録               |
+| Keyboard Shortcut Registry           | 既定7件の打鍵、物理キー基準、確認ダイアログ中の停止、Monaco / Terminal との境界                       |
+| Git / Files command contribution     | Git 7件、Files 3件を command として追加し、押せる条件は既存 UI の状態を再利用                         |
+| Keyboard Shortcuts Settings UI       | 21件の command と既定打鍵を Settings から読める一覧にした                                             |
+| Session 4-8A production verification | production app で Localization 94 / Keyboard Shortcuts 111、合計205項目 PASS                          |
+
+STEP 4 で意図的に入れていないもの:
+
+| 項目                                | Closing の判断                                                                                                                      |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| ショートカット編集                  | 一覧は読むだけ。編集を入れるには競合検出・保存先・初期値への戻し方を同時に決める必要があるため、STEP 4 の範囲ではない               |
+| User / Workspace shortcut override  | Registry は将来の連結順で受けられる形だが、現時点ではアプリ既定だけ。Workspace に設定ファイルを書かない方針を保つ                   |
+| `keybindings.json` persistence      | 保存先も IPC も作っていない。任意の keybinding ファイルを読み書きする設計は STEP 5 以降で必要になった時点で閉じてから入れる         |
+| Command Palette                     | `Ctrl+P` / `Ctrl+Shift+P` は空けてある。実行対象の検索・表示・disabled 理由・危険操作の扱いを別途設計する                           |
+| `terminal` command category         | 端末の既存 `Ctrl + ± / 0` は xterm 入力と日本語配列の読み替えを含むため、Command Registry へ急いで移さない                          |
+| Source 列表示                       | v1 は既定しか無いため表示しても同じ値が並ぶ。User / Workspace override を入れる段で Source / When / conflict と一緒に扱う           |
+| Monaco / xterm 側の既存打鍵の一覧化 | FluvixNexus Command Registry はアプリ自身の操作だけを扱う。Monaco の検索・置換・コメント切替や xterm の入力規則はそれぞれの器が持つ |
+
+STEP 4 Closing 時点の既知事項:
+
+| 項目                              | 扱い                                                                                                                                        |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| TerminalTabs の新規ボタン `＋`    | `aria-label` / `title` は localized。字面だけが全角記号で残っている。表示ポリッシュ候補であり、STEP 4 の機能欠陥ではない                    |
+| `PanelPlaceholder.tsx`            | どこからも参照されていない Session 2-2 の名残。未参照コードの掃除候補であり、画面に出ないため Localization 欠陥ではない                     |
+| Monaco / xterm と Registry の境界 | Monaco / xterm の既存打鍵は FluvixNexus command ではない。アプリ横断操作だけを Registry に載せる現在の境界を維持する                        |
+| terminal command category         | 未導入。端末固有の入力処理を command 化するなら、日本語配列・xterm 入力・端末 focus 中の横取り禁止を改めて設計する                          |
+| Source 列表示                     | 未表示。今は default しか存在しないため、override を持つ段で Source / When / conflict と一緒に導入する                                      |
+| 古い Session 4-7 予定記述         | 4-8B と 4-8C で追従し、STEP 4 の表と本文は完了状態へ更新済み                                                                                |
+| Session 4-6 相当の欠落            | 4-6 は採番上の欠番。Localization（4-5）の次に Command / Keyboard Shortcuts（4-7）へ進んだだけで、飛ばした実装範囲は無いことを本文に記録済み |
+
+STEP 4 を Close するための必須条件:
+
+| 条件                                     | 状態                                                                                   |
+| ---------------------------------------- | -------------------------------------------------------------------------------------- |
+| STEP 4 の全実装 Session が main にある   | Session 4-2 から 4-8B まで Commit / Push 済み                                          |
+| production app で統合確認済み            | Session 4-8A で Localization 94 / Keyboard Shortcuts 111、合計205項目 PASS             |
+| セキュリティ境界が維持されている         | Main / preload / Renderer / IPC / CSP に STEP 4 Closing で変更なし                     |
+| 意図的未実装項目が後続項目として明記済み | ショートカット編集、override、`keybindings.json`、Command Palette などを上表で明記済み |
+| STEP 5 へ渡す設計境界が明記済み          | 下記の LSP 引き継ぎにまとめる                                                          |
+
+STEP 5（LSP）への引き継ぎ:
+
+| 項目                      | STEP 5 で守ること                                                                                                                                        |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Main / preload / Renderer | LSP server の起動・停止・stdio 管理は Main が持つ。Renderer は任意の executable path / args / cwd を渡さず、閉じた language id や workspace 情報だけ渡す |
+| IPC                       | 汎用 execute API ではなく、型付きの LSP 用契約を作る。長命プロセスの通知は Session 3-3 以降の Main → Renderer イベント経路に載せる                       |
+| Settings architecture     | LSP 設定を足す場合も、値が決まった section / key だけを `settings.json` に追加する。空のカテゴリや先行する保存口は作らない                               |
+| Localization architecture | Renderer に出る文言は翻訳キー化する。Main が返すのは分類可能な失敗種別や machine-readable な状態で、UI 文言を Main に埋め込まない                        |
+| Command Registry          | Go to Definition / Rename / Format などを command にする場合も、id は閉じた集合にし、handler は Editor / LSP の準備がある間だけ登録する                  |
+| Keybinding Registry       | LSP 由来の既定打鍵を足す場合は Monaco 既定・Terminal focus・Command Palette 予約キーとの衝突を先に確認する。編集や override は別設計のまま               |
+| executable path の扱い    | Renderer 任意文字列を Main に実行させない。検出済み候補、固定の adapter、または Main 側で検証済みの設定だけを使う                                        |
+| Monaco との境界           | Monaco の基本編集打鍵は引き続き Monaco が持つ。FluvixNexus command はアプリ横断または LSP 連携として明示した操作だけを扱う                               |
+
+以上により、STEP 4 は「日常使用の土台」として正式に完了し、STEP 5 は LSP の process / IPC / settings / command 設計から開始する。
