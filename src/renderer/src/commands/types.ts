@@ -45,21 +45,20 @@ export interface CommandDescriptor {
    */
   readonly title: string
   /**
-   * 画面に出す名前（まだどの command も持たない）。
+   * 画面に出す名前。
    *
-   * **Session 4-7B でも入れていない。** 理由は 4-7A のとき（Session 4-5C が
-   * 同じ2ファイルを触っている）とは別で、**読む相手がまだ居ない**ことにある ──
-   * `commandTitle()` を呼ぶのは Keyboard Shortcuts の一覧と Command Palette で、
-   * どちらも存在しない。今 `titleKey` を埋めても画面には1文字も出ない一方、
-   * `i18n/locales/en.ts` / `ja.ts` は Session 4-5C の構造を持ったまま
-   * 21 command 分だけ増えることになる。
+   * **Session 4-7C で 21件すべてが持つようになった**（`commands/registry.ts`）。
+   * 4-7A / 4-7B が見送っていたのは「読む相手がまだ居ない」ためで、
+   * Settings の Keyboard Shortcuts 一覧ができたことでその理由は消えている。
    *
-   * **入れるなら全件を一度に。** 一部だけ埋めると `commandTitle()` が
+   * 予告どおり**全件を一度に**入れてある ── 一部だけ埋めると `commandTitle()` が
    * 「翻訳されるものとされないもの」の混ざった一覧を返し、その半端さを
-   * 画面を作る側が引き継ぐ。
+   * 画面を作る側が引き継ぐ。key は `command.<CommandId>` に1対1で対応する。
    *
-   * 任意にしてあるので、足すのは**この表に1行ずつ `titleKey` を書く**だけ
-   * ── 型も `commandTitle()` も変わらない。
+   * 型は任意のままにしてある。埋まっていることは型ではなく実数で確かめており
+   * （commands/commandLocalization.test.ts）、必須にすると
+   * `commandTitle()` の「無ければ `title`」という分岐が死んで、
+   * 翻訳を持たない descriptor をテストで組み立てられなくなる。
    */
   readonly titleKey?: TranslationKey
 }
@@ -68,9 +67,9 @@ export interface CommandDescriptor {
  * 画面に出す名前を決める。
  *
  * `titleKey` があれば翻訳、無ければ `title`（英語の識別名）。
- * Session 4-7A では常に後者になる。**呼び出し側がこの分岐を書かない**ように
- * 1箇所へ寄せてあり、4-7B で `titleKey` が埋まれば、ここを通る全ての表示が
- * 同時に翻訳へ切り替わる。
+ * **呼び出し側がこの分岐を書かない**ように1箇所へ寄せてあり、Session 4-7C で
+ * `titleKey` が埋まった結果、ここを通る表示はすべて同時に翻訳へ切り替わった
+ * （`keybindings/shortcutRows.ts` に渡す `title` がその唯一の経路になる）。
  */
 export function commandTitle(
   descriptor: CommandDescriptor,

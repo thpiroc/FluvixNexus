@@ -22,6 +22,60 @@ export const enMessages = {
       internal: 'An unexpected error occurred.'
     }
   },
+  /*
+    Command の表示名（Session 4-7C）。
+
+    key は `command.<CommandId>` に1対1で対応させてある
+    （`commands/registry.ts` の `titleKey`）── 対応が機械的なので、
+    足し忘れも綴り違いも commandLocalization.test.ts が実数で拾う。
+
+    **既存の UI ラベルを流用していない。** `git.panel.refreshLabel` などは
+    パネルのボタンのための文言で、長さも文脈も違う ── key を共有すると、
+    片方を直したときにもう片方が黙って変わる。重複はここでは意図したものになる。
+
+    **カテゴリを名前に埋め込まない**（`'Git: Commit'` にしない）。
+    どのカテゴリのものかは一覧の見出しが持つ
+    （settings/KeyboardShortcutsView.tsx）。
+  */
+  command: {
+    workspace: {
+      openFolder: 'Open Folder',
+      closeFolder: 'Close Workspace'
+    },
+    editor: {
+      save: 'Save',
+      saveAs: 'Save As'
+    },
+    view: {
+      togglePanel: {
+        files: 'Toggle Files Panel',
+        editor: 'Toggle Editor Panel',
+        terminal: 'Toggle Terminal Panel',
+        git: 'Toggle Git Panel'
+      },
+      resetLayout: 'Reset Layout'
+    },
+    settings: {
+      open: 'Open Settings',
+      close: 'Close Settings'
+    },
+    git: {
+      refresh: 'Refresh Git Status',
+      commit: 'Commit',
+      push: 'Push',
+      pull: 'Pull',
+      fetch: 'Fetch',
+      openHistory: 'Open Commit History',
+      stashPush: 'Stash Working Tree…'
+    },
+    files: {
+      refresh: 'Reload File Tree',
+      search: {
+        byName: 'Search by File Name',
+        byContent: 'Search File Contents'
+      }
+    }
+  },
   git: {
     common: {
       cancel: 'Cancel',
@@ -904,6 +958,10 @@ export const enMessages = {
       terminal: {
         title: 'Terminal',
         description: 'Terminal display settings. These apply to every open tab.'
+      },
+      keyboard: {
+        title: 'Keyboard Shortcuts',
+        description: 'Keys assigned to app commands. This version is view-only.'
       }
     },
     items: {
@@ -989,6 +1047,42 @@ export const enMessages = {
       theme: {
         dark: 'Dark',
         light: 'Light'
+      }
+    },
+    /*
+      Keyboard Shortcuts の一覧（Session 4-7C）。
+
+      `sources.*` は**まだ画面に出ていない**（v1 は Source 列を持たない ──
+      すべての行が Default か未割り当てで、値が1種類しかない列になる）。
+      それでも先に置いてあるのは、User / Workspace の割り当てが入ったときに
+      **翻訳ではなく列を足すだけで済む**ようにするため。
+    */
+    keyboard: {
+      tableLabel: 'Keyboard shortcuts',
+      searchLabel: 'Filter shortcuts',
+      searchPlaceholder: 'Search by command or key',
+      searchClear: 'Clear',
+      noResults: 'No command matches “{query}”.',
+      viewOnlyNote: 'Shortcuts cannot be changed in this version.',
+      terminalNote:
+        'Terminal font size (Ctrl and Plus / Minus / 0) is handled by the Terminal panel and is not listed here.',
+      columns: {
+        command: 'Command',
+        shortcut: 'Shortcut'
+      },
+      unassigned: 'Unassigned',
+      categories: {
+        workspace: 'Workspace',
+        editor: 'Editor',
+        view: 'View',
+        settings: 'Settings',
+        git: 'Git',
+        files: 'Files'
+      },
+      sources: {
+        default: 'Default',
+        user: 'User',
+        workspace: 'Workspace'
       }
     }
   },

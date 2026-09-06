@@ -230,3 +230,158 @@
   color: var(--fx-color-danger);
   font-size: var(--fx-font-size-sm);
 }
+
+/*
+ * Keyboard Shortcuts の一覧（settings/KeyboardShortcutsView.tsx。Session 4-7C）。
+ *
+ * 他のカテゴリが「名前・説明・操作 UI」の3列（.fx-settings__row）なのに対し、
+ * こちらは**操作 UI を持たない2列**になる ── 閲覧専用なので、押せるものが
+ * 並ぶ場所そのものが要らない。
+ *
+ * 色・間隔は styles/theme.css の変数だけを使う（Dark / Light の両方が
+ * 同じ変数を持つことは themeCss.test.ts が確かめている）。
+ */
+.fx-shortcuts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-3);
+  max-width: 640px;
+}
+
+.fx-shortcuts__toolbar {
+  display: flex;
+  gap: var(--fx-space-2);
+  align-items: center;
+}
+
+.fx-shortcuts__search {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: var(--fx-space-1) var(--fx-space-2);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 2px;
+  background: var(--fx-color-surface-sunken);
+  color: var(--fx-color-text);
+  font: inherit;
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-shortcuts__search:focus {
+  outline: none;
+  border-color: var(--fx-accent-blue);
+}
+
+.fx-shortcuts__clear {
+  flex: none;
+  padding: var(--fx-space-1) var(--fx-space-2);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 2px;
+  background: var(--fx-color-surface-sunken);
+  color: var(--fx-color-text-muted);
+  font: inherit;
+  font-size: var(--fx-font-size-sm);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.fx-shortcuts__clear:hover {
+  background: var(--fx-color-surface-hover);
+  color: var(--fx-color-text);
+}
+
+.fx-shortcuts__groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-4);
+}
+
+/* カテゴリ1つ分（Workspace / Editor / View / Settings / Git / Files）。 */
+.fx-shortcuts__group-title {
+  margin: 0 0 var(--fx-space-1);
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--fx-color-border);
+  color: var(--fx-color-text-muted);
+  font-size: var(--fx-font-size-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/*
+ * 1件分。左に操作の名前、右に打鍵。
+ *
+ * 名前の側を伸ばして打鍵を右端へ寄せてあるのは、**打鍵の列が縦に揃う**方が
+ * 「Ctrl+S は何だったか」を上から追いやすいため。
+ */
+.fx-shortcuts__row {
+  display: flex;
+  gap: var(--fx-space-3);
+  align-items: baseline;
+  justify-content: space-between;
+  padding: var(--fx-space-1) 0;
+  border-bottom: 1px solid var(--fx-color-border);
+}
+
+.fx-shortcuts__row:last-child {
+  border-bottom: none;
+}
+
+.fx-shortcuts__command {
+  min-width: 0;
+  color: var(--fx-color-text);
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-shortcuts__key {
+  flex: none;
+  padding: 1px var(--fx-space-1);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  background: var(--fx-color-surface-sunken);
+  color: var(--fx-color-text-strong);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: var(--fx-font-size-sm);
+  white-space: nowrap;
+}
+
+/*
+ * 未割り当て（Session 4-7B の Git / Files 10件など14件）。
+ *
+ * 打鍵の枠を外して弱い色にしてある ── 枠のまま薄くすると「押せない打鍵」に
+ * 見えるが、これは**打鍵が存在しない**という意味になる。
+ *
+ * **`--fx-color-text-faint` は使わない。** これは装飾ではなく「打鍵」の欄の
+ * *値*にあたり、21行のうち14行がこれになる ── 弱めるのは枠と字体までで、
+ * 読めなくしてよい文字ではない（実測で faint は 3.08:1、muted は 4.8:1 以上。
+ * Session 4-7C の production verification）。
+ */
+.fx-shortcuts__key--unassigned {
+  border-color: transparent;
+  background: transparent;
+  color: var(--fx-color-text-muted);
+  font-family: inherit;
+  font-style: italic;
+}
+
+.fx-shortcuts__empty {
+  margin: 0;
+  color: var(--fx-color-text-muted);
+  font-size: var(--fx-font-size-sm);
+}
+
+/* 一覧の下の断り書き（閲覧専用であること・端末の打鍵がここに無いこと）。 */
+.fx-shortcuts__notes {
+  padding-top: var(--fx-space-2);
+  border-top: 1px solid var(--fx-color-border);
+}
+
+.fx-shortcuts__note {
+  margin: 0 0 var(--fx-space-1);
+  color: var(--fx-color-text-muted);
+  font-size: var(--fx-font-size-sm);
+  line-height: 1.5;
+}
+
+.fx-shortcuts__note:last-child {
+  margin-bottom: 0;
+}

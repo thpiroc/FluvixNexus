@@ -29,10 +29,12 @@ import {
   TERMINAL_SCROLLBACK_MIN
 } from '../terminal/terminalDisplay'
 import { NumberField } from '../ui/NumberField'
+import { KeyboardShortcutsView } from './KeyboardShortcutsView'
 import {
   DEFAULT_SETTINGS_CATEGORY_ID,
   getSettingsCategory,
   listSettingsCategories,
+  type SettingsCategoryDescriptor,
   type SettingsCategoryId,
   type SettingsItemDescriptor
 } from './settingsCatalog'
@@ -91,6 +93,13 @@ import './settings.css'
  * 「Settings で変えたのに Files パネルが変わらない」「ツールバーで変えたのに
  * Settings が古い値を出す」が生まれる。片方で変えればもう片方にもその場で出るのは、
  * 二重に持っていないからにほかならない。
+ *
+ * ## 値を持たないカテゴリ（Session 4-7C）
+ *
+ * Keyboard Shortcuts は**設定を1つも持たない**カテゴリで、
+ * Command と打鍵の一覧を読むだけの場所にあたる（KeyboardShortcutsView.tsx）。
+ * 保存も IPC も増えていない ── この面がもともと値を持たない設計だったので、
+ * 「保存されない中身」を足すのに新しい約束が要らなかった。
  *
  * ## 並ぶものはここが決めていない
  *
@@ -158,7 +167,7 @@ export function SettingsOverlay({ onClose }: { readonly onClose: () => void }): 
       <div className="fx-settings__body">
         {/*
           カテゴリの一覧。上部バーの View / Layout のようなメニューにしなかったのは、
-          **今どこを見ているかが常に見えている**方がよいため ── 3つしか無いので
+          **今どこを見ているかが常に見えている**方がよいため ── 数が限られているので
           畳む必要が無く、畳むと切り替えのたびに2回押すことになる。
         */}
         <nav className="fx-settings__nav" aria-label={t('settings.categoryNavLabel')}>
@@ -183,12 +192,39 @@ export function SettingsOverlay({ onClose }: { readonly onClose: () => void }): 
             <p className="fx-settings__heading-note">{t(category.descriptionKey)}</p>
           </div>
 
-          {category.items.map((item) => (
-            <SettingsRow key={item.id} item={item} />
-          ))}
+          <SettingsCategoryBody category={category} />
         </div>
       </div>
     </div>
+  )
+}
+
+/**
+ * カテゴリの中身。
+ *
+ * **`kind` で2つに分かれる**（Session 4-7C。settingsCatalog.ts）。
+ *
+ *   `items`     … 値の項目が並ぶ（Session 4-3B からの形）
+ *   `shortcuts` … Command と打鍵の一覧表（閲覧専用）
+ *
+ * 判別可能なユニオンなので、3つめの `kind` を足すと**ここが型エラーになる**
+ * ── 中身の出ないカテゴリが黙って生まれることがない。
+ */
+function SettingsCategoryBody({
+  category
+}: {
+  readonly category: SettingsCategoryDescriptor
+}): JSX.Element {
+  if (category.kind === 'shortcuts') {
+    return <KeyboardShortcutsView />
+  }
+
+  return (
+    <>
+      {category.items.map((item) => (
+        <SettingsRow key={item.id} item={item} />
+      ))}
+    </>
   )
 }
 

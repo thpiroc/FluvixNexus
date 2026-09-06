@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
+import { createTranslator } from '../i18n/messages'
 import { listCommands } from '../commands/registry'
 import { commandTitle } from '../commands/types'
 import { DEFAULT_KEYBINDINGS } from './defaults'
 import { resolveKeybindings, type KeybindingRule } from './resolve'
-import { buildShortcutRows } from './shortcutRows'
+import { buildShortcutRows, filterShortcutRows } from './shortcutRows'
 
 const title = (descriptor: Parameters<typeof commandTitle>[0]): string =>
   commandTitle(descriptor, (key) => key)
@@ -91,5 +92,118 @@ describe('buildShortcutRows', () => {
       expect(row.title.length).toBeGreaterThan(0)
       expect(row.category.length).toBeGreaterThan(0)
     }
+  })
+
+  /* Session 4-7C から、画面に出るのは翻訳された名前になる。 */
+  it('渡された title がそのまま行に出る（翻訳の経路）', () => {
+    const t = createTranslator('ja')
+    const translated = buildShortcutRows(
+      listCommands(),
+      resolveKeybindings(DEFAULT_KEYBINDINGS).entries,
+      (descriptor) => commandTitle(descriptor, t)
+    )
+
+    expect(translated.find((row) => row.commandId === 'editor.save')?.title).toBe('保存')
+    expect(translated.find((row) => row.commandId === 'git.push')?.title).toBe('プッシュ')
+  })
+})
+
+/** 一覧の絞り込み（Session 4-7C）。 */
+describe('filterShortcutRows', () => {
+  const all = rows()
+
+  it('空・空白だけなら全件返す', () => {
+    expect(filterShortcutRows(all, '')).toHaveLength(all.length)
+    expect(filterShortcutRows(all, '   ')).toHaveLength(all.length)
+  })
+
+  it('表示名に当たる', () => {
+    const found = filterShortcutRows(all, 'Toggle')
+
+    expect(found.map((row) => row.commandId)).toEqual([
+      'view.togglePanel.files',
+      'view.togglePanel.editor',
+      'view.togglePanel.terminal',
+      'view.togglePanel.git'
+    ])
+  })
+
+  it('command の id に当たる（表示が翻訳されていても英語で探せる）', () => {
+    const found = filterShortcutRows(all, 'git.')
+
+    expect(found).toHaveLength(7)
+    for (const row of found) {
+      expect(row.category).toBe('git')
+    }
+  })
+
+  it('打鍵に当たる（Ctrl+Shift+S から逆に引ける）', () => {
+    const found = filterShortcutRows(all, 'ctrl+shift+s')
+
+    expect(found.map((row) => row.commandId)).toEqual(['editor.saveAs'])
+  })
+
+  /*
+    素の部分一致なので、`ctrl+s` は `Ctrl+Shift+E` にも当たる
+    （`'Ctrl+S'` が `'Ctrl+Shift+E'` の一部になっている）。
+
+    打鍵を修飾キーごとに分解して厳密に当てることもできるが、v1 では取らない
+    ── 出しすぎは目で捨てられる一方、絞りすぎは「あるはずのものが出ない」に
+    なり、しかもなぜ出ないかが画面から分からない。
+  */
+  it('打鍵の一致は素の部分一致（Ctrl+S は Ctrl+Shift+… にも当たる）', () => {
+    const found = filterShortcutRows(all, 'ctrl+s')
+
+    expect(found.map((row) => row.commandId)).toEqual([
+      'editor.save',
+      'editor.saveAs',
+      'view.togglePanel.files',
+      'view.togglePanel.git'
+    ])
+  })
+
+  it('大小を無視する', () => {
+    expect(filterShortcutRows(all, 'PUSH')).toHaveLength(filterShortcutRows(all, 'push').length)
+    expect(filterShortcutRows(all, 'PUSH').length).toBeGreaterThan(0)
+  })
+
+  it('未割り当ての行も絞り込みの対象になる', () => {
+    const found = filterShortcutRows(all, 'resetLayout')
+
+    expect(found).toHaveLength(1)
+    expect(found[0].keybinding).toBeNull()
+  })
+
+  /* 「未割り当て」は画面の文言であって、行の持つ文字列ではない。 */
+  it('打鍵の無い行が、打鍵での検索に当たらない', () => {
+    const found = filterShortcutRows(all, 'ctrl')
+
+    for (const row of found) {
+      expect(row.keybinding, row.commandId).not.toBeNull()
+    }
+  })
+
+  it('当たらなければ空を返す', () => {
+    expect(filterShortcutRows(all, 'zzzznope')).toEqual([])
+  })
+
+  it('元の並びを保つ', () => {
+    const found = filterShortcutRows(all, 'e')
+
+    expect(found).toEqual(all.filter((row) => found.includes(row)))
+  })
+
+  it('翻訳された名前でも探せる（日本語）', () => {
+    const t = createTranslator('ja')
+    const japanese = buildShortcutRows(
+      listCommands(),
+      resolveKeybindings(DEFAULT_KEYBINDINGS).entries,
+      (descriptor) => commandTitle(descriptor, t)
+    )
+
+    expect(filterShortcutRows(japanese, '保存').map((row) => row.commandId)).toEqual([
+      'editor.save',
+      'editor.saveAs'
+    ])
   })
 })

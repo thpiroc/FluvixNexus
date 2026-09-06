@@ -26,7 +26,7 @@ import type { TranslationKey } from '../i18n/messages'
  *
  * ## 中身の無いカテゴリを作らない
  *
- * `general`・`git`・`workspace`・`language`（LSP）・`debug`（DAP）はここに**無い**。
+ * `git`・`workspace`・`language`（LSP）・`debug`（DAP）はここに**無い**。
  * 並べるものがまだ1つも無いためで、空のカテゴリは「まだ何も無い場所」を画面に
  * 作るだけになる（保存側で「中身が決まっていない section を先に作らない」と
  * しているのと同じ線 ── shared/settings/sections.ts）。
@@ -35,20 +35,36 @@ import type { TranslationKey } from '../i18n/messages'
  * 最初のカテゴリで、触ったのはこの表と `SettingsCategoryId` だけになる。
  * **項目を1つも持たないカテゴリは足せない**（テストが落ちる）。
  *
- * ## Files のカラムの幅がここに無い理由
+ * ## カテゴリには2種類ある（Session 4-7C）
  *
- * 保存されている設定は6つあるが、この画面に並ぶのは5つになる。
- * カラムの幅（`files.columnWidth`）は**掴んで動かして決めるもの**で、
- * 数字で入れたい人はいない ── 動かしている最中に結果が見えることがこの値の
- * すべてで、画面を覆う Settings の中に数字の欄として置くと、閉じてから
- * 確かめることになる。操作は FileColumns.tsx の直接操作のまま残してある。
+ * Session 4-7C まで、カテゴリは `SettingsSectionId` と **ID も並びも1対1**
+ * だった ── どのカテゴリも「保存される値の項目」を並べるものだったため、
+ * その一致は自然に成り立っていた。
  *
- * 保存基盤の側では今までどおり `files` section の key として持ち続ける
- * （消しても schema を変えてもいない）。
+ * Keyboard Shortcuts はそこから外れる**最初のカテゴリ**にあたる。
+ *
+ *   - 並べるのは値の項目ではなく、**Command と打鍵の一覧表**
+ *   - したがって `SettingsItemDescriptor`（`section` 必須）に乗らない
+ *   - **保存するものが1つも無い** ── 対応する section が存在しない
+ *
+ * そこでカテゴリを `kind` で分けた判別可能なユニオンにしてある。
+ *
+ *   `kind: 'items'`     … 値の項目が並ぶ。`SettingsSectionId` と1対1（従来どおり）
+ *   `kind: 'shortcuts'` … 一覧表。section を持たない
+ *
+ * **1対1の約束は消えていない。** 移ったのは掛かる相手だけで、
+ * 「**値カテゴリ**の並びが section の並びと一致する」は今も成り立つ
+ * （settingsCatalog.test.ts）── `keyboard` を末尾に置いてあるのは、
+ * 値カテゴリがこの配列の前方にそのまま残るようにするためでもある。
+ *
+ * `shared/settings/sections.ts` は Session 4-7C で1行も変えていない。
  */
 
+/** 値の項目が並ぶカテゴリ。**`SettingsSectionId` と1対1**（並びも同じ）。 */
+export type SettingsValueCategoryId = SettingsSectionId
+
 /** Settings 画面のカテゴリ。**中身のあるものだけ**を並べる。 */
-export type SettingsCategoryId = 'general' | 'appearance' | 'editor' | 'files' | 'terminal'
+export type SettingsCategoryId = SettingsValueCategoryId | 'keyboard'
 
 /**
  * 1つの設定項目。
@@ -66,15 +82,37 @@ export interface SettingsItemDescriptor {
   readonly section: SettingsSectionId
 }
 
-export interface SettingsCategoryDescriptor {
-  readonly id: SettingsCategoryId
+/** どのカテゴリにも共通するもの（左の一覧と右の見出しが読む）。 */
+interface SettingsCategoryBase {
   /** カテゴリの名前（左の一覧に出る）。 */
   readonly titleKey: TranslationKey
   /** カテゴリの1行説明（右の見出しの下に出る）。 */
   readonly descriptionKey: TranslationKey
+}
+
+/** 値の項目が並ぶカテゴリ（Session 4-3B からの形）。 */
+export interface SettingsItemsCategoryDescriptor extends SettingsCategoryBase {
+  readonly kind: 'items'
+  readonly id: SettingsValueCategoryId
   /** 並べる項目。**空にはできない**（中身の無いカテゴリを作らない）。 */
   readonly items: readonly SettingsItemDescriptor[]
 }
+
+/**
+ * 一覧表のカテゴリ（Session 4-7C）。
+ *
+ * `items` を持たない ── 並べるものは目録ではなく
+ * `commands/registry.ts` ＋ `keybindings/` から**実行時に組み立てられる**
+ * （`keybindings/shortcutRows.ts` の `buildShortcutRows`）。
+ * ここに書き写すと、command を足すたびに2箇所を直すことになる。
+ */
+export interface SettingsShortcutsCategoryDescriptor extends SettingsCategoryBase {
+  readonly kind: 'shortcuts'
+  readonly id: 'keyboard'
+}
+
+export type SettingsCategoryDescriptor =
+  SettingsItemsCategoryDescriptor | SettingsShortcutsCategoryDescriptor
 
 /**
  * 並ぶものすべて。
@@ -83,13 +121,13 @@ export interface SettingsCategoryDescriptor {
  * 合わせてある ── 保存ファイルの section の並びとも、Workspace のパネルの並びとも
  * 同じで、探す人が別の順序を覚え直さずに済む。
  *
- * **Appearance は末尾**（Session 4-4）。前の3つが「その機能の見え方・振る舞い」
- * であるのに対し、Appearance は**アプリ全体の見た目**にあたる ── 機能の並びの
- * 途中に挟むと、どの機能の話をしているのか分からない場所ができる。
- * 保存ファイルの section の並びとも同じにしてある。
+ * **Keyboard Shortcuts は末尾**（Session 4-7C）。値カテゴリの並びを
+ * `SETTINGS_SECTION_IDS` と同じまま保つためで、値を変える場所と
+ * 一覧を見る場所を混ぜないためでもある。
  */
 export const SETTINGS_CATEGORIES: readonly SettingsCategoryDescriptor[] = [
   {
+    kind: 'items',
     id: 'general',
     titleKey: 'settings.categories.general.title',
     descriptionKey: 'settings.categories.general.description',
@@ -103,6 +141,7 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategoryDescriptor[] = [
     ]
   },
   {
+    kind: 'items',
     id: 'appearance',
     titleKey: 'settings.categories.appearance.title',
     descriptionKey: 'settings.categories.appearance.description',
@@ -116,6 +155,7 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategoryDescriptor[] = [
     ]
   },
   {
+    kind: 'items',
     id: 'editor',
     titleKey: 'settings.categories.editor.title',
     descriptionKey: 'settings.categories.editor.description',
@@ -135,6 +175,7 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategoryDescriptor[] = [
     ]
   },
   {
+    kind: 'items',
     id: 'files',
     titleKey: 'settings.categories.files.title',
     descriptionKey: 'settings.categories.files.description',
@@ -148,6 +189,7 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategoryDescriptor[] = [
     ]
   },
   {
+    kind: 'items',
     id: 'terminal',
     titleKey: 'settings.categories.terminal.title',
     descriptionKey: 'settings.categories.terminal.description',
@@ -165,6 +207,12 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategoryDescriptor[] = [
         section: 'terminal'
       }
     ]
+  },
+  {
+    kind: 'shortcuts',
+    id: 'keyboard',
+    titleKey: 'settings.categories.keyboard.title',
+    descriptionKey: 'settings.categories.keyboard.description'
   }
 ]
 
@@ -174,6 +222,18 @@ export const DEFAULT_SETTINGS_CATEGORY_ID: SettingsCategoryId = 'general'
 /** 並べる順に取り出す。 */
 export function listSettingsCategories(): readonly SettingsCategoryDescriptor[] {
   return SETTINGS_CATEGORIES
+}
+
+/**
+ * 値の項目が並ぶカテゴリだけを取り出す（Session 4-7C）。
+ *
+ * 保存形式との対応を確かめるために使う ── 一覧表のカテゴリは section を
+ * 持たないので、そちらまで含めて突き合わせることはできない。
+ */
+export function listSettingsValueCategories(): readonly SettingsItemsCategoryDescriptor[] {
+  return SETTINGS_CATEGORIES.filter(
+    (category): category is SettingsItemsCategoryDescriptor => category.kind === 'items'
+  )
 }
 
 /**
@@ -201,7 +261,7 @@ export function isSettingsCategoryId(value: unknown): value is SettingsCategoryI
  * 目録が保存形式と食い違っていないかを確かめるために使う（テスト）。
  */
 export function listSettingsItems(): readonly SettingsItemDescriptor[] {
-  return SETTINGS_CATEGORIES.flatMap((category) => category.items)
+  return listSettingsValueCategories().flatMap((category) => category.items)
 }
 
 /** 目録の中の section 名がすべて既知か（shared 側の閉じた集合との突き合わせ）。 */

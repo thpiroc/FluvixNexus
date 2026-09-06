@@ -117,29 +117,39 @@ describe('Session 4-7B で足した contribution（git / files）', () => {
 
 describe('commandTitle', () => {
   /*
-    Session 4-7B の時点でも、どの command も titleKey を持たない。
+    Session 4-7C で 21件すべてが titleKey を持つようになった。
 
-    4-7A は「4-5C が同じ2ファイルを触っているから」だったが、4-7B の理由は
-    別で、**読む相手がまだ居ない**ことにある ── `commandTitle()` を呼ぶのは
-    Keyboard Shortcuts の一覧と Command Palette で、どちらも無い
-    （commands/types.ts の titleKey）。
+    4-7A / 4-7B が見送っていたのは**読む相手が居なかった**ためで、
+    Settings の Keyboard Shortcuts 一覧ができたことでその理由は消えている。
+    予告どおり全件を一度に入れてある ── 一部だけ埋まっていると
+    `commandTitle()` が「翻訳されるものとされないもの」の混ざった一覧を返す。
 
-    足すときに接続が効くことは、下の2つが先に固定してある。
+    key の形と en / ja の対応は commandLocalization.test.ts が受け持つ。
+    ここでは `commandTitle()` の分岐だけを見る。
   */
-  it('Session 4-7B の時点でも、どの command も titleKey を持たない', () => {
+  it('21件すべてが titleKey を持つ', () => {
     for (const command of listCommands()) {
-      expect(command.titleKey).toBeUndefined()
+      expect(command.titleKey, command.id).toBeDefined()
     }
   })
 
+  /*
+    分岐そのものは残してある（`titleKey` は型の上では任意のまま）。
+    表の21件はすべて titleKey を持つので、ここは組み立てた descriptor で見る
+    ── 必須にしてこの道を消さない理由は commands/types.ts にある。
+  */
   it('titleKey が無ければ title を返す（翻訳を呼ばない）', () => {
-    const descriptor = getCommandDescriptor('editor.save')
+    const descriptor = {
+      id: 'editor.save' satisfies CommandId,
+      category: 'editor',
+      title: 'Save'
+    } as const satisfies CommandDescriptor
 
     expect(
       commandTitle(descriptor, () => {
         throw new Error('titleKey が無いのに翻訳が呼ばれた')
       })
-    ).toBe(descriptor.title)
+    ).toBe('Save')
   })
 
   it('titleKey があれば翻訳を通す（一覧 UI を作るときの接続）', () => {

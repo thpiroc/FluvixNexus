@@ -24,6 +24,46 @@ export const jaMessages = {
       internal: '予期しないエラーが発生しました。'
     }
   },
+  /* 英語側（locales/en.ts の `command`）に構造の説明がある。 */
+  command: {
+    workspace: {
+      openFolder: 'フォルダを開く',
+      closeFolder: 'Workspace を閉じる'
+    },
+    editor: {
+      save: '保存',
+      saveAs: '名前を付けて保存'
+    },
+    view: {
+      togglePanel: {
+        files: 'Files パネルの表示を切り替える',
+        editor: 'Editor パネルの表示を切り替える',
+        terminal: 'Terminal パネルの表示を切り替える',
+        git: 'Git パネルの表示を切り替える'
+      },
+      resetLayout: 'レイアウトを初期化'
+    },
+    settings: {
+      open: '設定を開く',
+      close: '設定を閉じる'
+    },
+    git: {
+      refresh: 'Git の状態を調べ直す',
+      commit: 'コミット',
+      push: 'プッシュ',
+      pull: 'プル',
+      fetch: 'フェッチ',
+      openHistory: 'コミット履歴を開く',
+      stashPush: '作業ツリーを退避…'
+    },
+    files: {
+      refresh: 'ファイルツリーを読み直す',
+      search: {
+        byName: 'ファイル名で探す',
+        byContent: 'ファイルの内容で探す'
+      }
+    }
+  },
   git: {
     common: {
       cancel: 'キャンセル',
@@ -908,6 +948,10 @@ export const jaMessages = {
       terminal: {
         title: 'ターミナル',
         description: 'ターミナルの見え方。開いているタブすべてに効きます。'
+      },
+      keyboard: {
+        title: 'キーボードショートカット',
+        description: 'アプリの操作に割り当てられている打鍵の一覧。この版は閲覧のみです。'
       }
     },
     items: {
@@ -995,6 +1039,35 @@ export const jaMessages = {
       theme: {
         dark: 'ダーク',
         light: 'ライト'
+      }
+    },
+    /* 英語側（locales/en.ts の `settings.keyboard`）に構造の説明がある。 */
+    keyboard: {
+      tableLabel: 'キーボードショートカット',
+      searchLabel: 'ショートカットを絞り込む',
+      searchPlaceholder: '操作名・打鍵で探す',
+      searchClear: 'クリア',
+      noResults: '「{query}」に当てはまる操作がありません。',
+      viewOnlyNote: 'この版では打鍵を変更できません。',
+      terminalNote:
+        'ターミナルの文字の大きさ（Ctrl と ＋ / － / 0）はターミナルパネルが受け持っており、ここには並びません。',
+      columns: {
+        command: '操作',
+        shortcut: '打鍵'
+      },
+      unassigned: '未割り当て',
+      categories: {
+        workspace: 'Workspace',
+        editor: 'Editor',
+        view: 'View',
+        settings: '設定',
+        git: 'Git',
+        files: 'Files'
+      },
+      sources: {
+        default: '既定',
+        user: 'ユーザー',
+        workspace: 'Workspace'
       }
     }
   },

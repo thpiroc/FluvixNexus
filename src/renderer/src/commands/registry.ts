@@ -32,94 +32,126 @@ import type { CommandDescriptor } from './types'
  * ## 並び
  *
  * `COMMAND_IDS` の並びが正本で、`listCommands()` はその順に返す。
- * この表の見た目の順序には依存しない ── 将来 Settings の一覧に出すとき、
+ * この表の見た目の順序には依存しない ── Settings の一覧に出すとき、
  * 並びが「表をどう書いたか」で決まっていると、行を足す場所で見え方が変わる。
+ *
+ * ## `titleKey`（Session 4-7C）
+ *
+ * 21件すべてが `titleKey` を持つ。**読む相手ができたので、全件を一度に入れた**
+ * ── Session 4-7A / 4-7B が見送っていた理由（`commandTitle()` を呼ぶ画面が
+ * 無かった）は、Settings の Keyboard Shortcuts 一覧
+ * （`settings/KeyboardShortcutsView.tsx`）ができたことで消えている。
+ *
+ * key は **`command.<CommandId>` に1対1**で対応させてある。機械的に決まる形に
+ * しておくと、足し忘れも綴り違いも実数で拾える
+ * （commands/commandLocalization.test.ts）── 一部だけ埋まった状態は
+ * 「翻訳されるものとされないものが混ざった一覧」として画面に出てしまう。
+ *
+ * `title`（英語の識別名）は消していない。ログとテストが読むもので、
+ * 画面に出るのは `commandTitle()` を通った `titleKey` の側になる。
  */
 const COMMAND_REGISTRY: Readonly<Record<CommandId, CommandDescriptor>> = {
   'workspace.openFolder': {
     id: 'workspace.openFolder',
     category: 'workspace',
-    title: 'Open Folder'
+    title: 'Open Folder',
+    titleKey: 'command.workspace.openFolder'
   },
   'workspace.closeFolder': {
     id: 'workspace.closeFolder',
     category: 'workspace',
-    title: 'Close Workspace'
+    title: 'Close Workspace',
+    titleKey: 'command.workspace.closeFolder'
   },
   'editor.save': {
     id: 'editor.save',
     category: 'editor',
-    title: 'Save'
+    title: 'Save',
+    titleKey: 'command.editor.save'
   },
   'editor.saveAs': {
     id: 'editor.saveAs',
     category: 'editor',
-    title: 'Save As'
+    title: 'Save As',
+    titleKey: 'command.editor.saveAs'
   },
   'view.togglePanel.files': {
     id: 'view.togglePanel.files',
     category: 'view',
-    title: 'Toggle Files Panel'
+    title: 'Toggle Files Panel',
+    titleKey: 'command.view.togglePanel.files'
   },
   'view.togglePanel.editor': {
     id: 'view.togglePanel.editor',
     category: 'view',
-    title: 'Toggle Editor Panel'
+    title: 'Toggle Editor Panel',
+    titleKey: 'command.view.togglePanel.editor'
   },
   'view.togglePanel.terminal': {
     id: 'view.togglePanel.terminal',
     category: 'view',
-    title: 'Toggle Terminal Panel'
+    title: 'Toggle Terminal Panel',
+    titleKey: 'command.view.togglePanel.terminal'
   },
   'view.togglePanel.git': {
     id: 'view.togglePanel.git',
     category: 'view',
-    title: 'Toggle Git Panel'
+    title: 'Toggle Git Panel',
+    titleKey: 'command.view.togglePanel.git'
   },
   'view.resetLayout': {
     id: 'view.resetLayout',
     category: 'view',
-    title: 'Reset Layout'
+    title: 'Reset Layout',
+    titleKey: 'command.view.resetLayout'
   },
   'settings.open': {
     id: 'settings.open',
     category: 'settings',
-    title: 'Open Settings'
+    title: 'Open Settings',
+    titleKey: 'command.settings.open'
   },
   'settings.close': {
     id: 'settings.close',
     category: 'settings',
-    title: 'Close Settings'
+    title: 'Close Settings',
+    titleKey: 'command.settings.close'
   },
   'git.refresh': {
     id: 'git.refresh',
     category: 'git',
-    title: 'Refresh Git Status'
+    title: 'Refresh Git Status',
+    titleKey: 'command.git.refresh'
   },
   'git.commit': {
     id: 'git.commit',
     category: 'git',
-    title: 'Commit'
+    title: 'Commit',
+    titleKey: 'command.git.commit'
   },
   'git.push': {
     id: 'git.push',
     category: 'git',
-    title: 'Push'
+    title: 'Push',
+    titleKey: 'command.git.push'
   },
   'git.pull': {
     id: 'git.pull',
     category: 'git',
-    title: 'Pull'
+    title: 'Pull',
+    titleKey: 'command.git.pull'
   },
   'git.fetch': {
     id: 'git.fetch',
     category: 'git',
-    title: 'Fetch'
+    title: 'Fetch',
+    titleKey: 'command.git.fetch'
   },
   'git.openHistory': {
     id: 'git.openHistory',
     category: 'git',
-    title: 'Open Commit History'
+    title: 'Open Commit History',
+    titleKey: 'command.git.openHistory'
   },
   'git.stashPush': {
     /*
@@ -140,22 +172,26 @@ const COMMAND_REGISTRY: Readonly<Record<CommandId, CommandDescriptor>> = {
     */
     id: 'git.stashPush',
     category: 'git',
-    title: 'Stash Working Tree…'
+    title: 'Stash Working Tree…',
+    titleKey: 'command.git.stashPush'
   },
   'files.refresh': {
     id: 'files.refresh',
     category: 'files',
-    title: 'Reload File Tree'
+    title: 'Reload File Tree',
+    titleKey: 'command.files.refresh'
   },
   'files.search.byName': {
     id: 'files.search.byName',
     category: 'files',
-    title: 'Search by File Name'
+    title: 'Search by File Name',
+    titleKey: 'command.files.search.byName'
   },
   'files.search.byContent': {
     id: 'files.search.byContent',
     category: 'files',
-    title: 'Search File Contents'
+    title: 'Search File Contents',
+    titleKey: 'command.files.search.byContent'
   }
 }
 
@@ -170,6 +206,10 @@ export function getCommandDescriptor(id: CommandId): CommandDescriptor {
  * 「今 handler が付いているか」は見ない ── 一覧に出すのは
  * **アプリが持つ操作の全体**であって、その瞬間に実行できるものではない
  * （実行できるかは CommandProvider が知っている）。
+ *
+ * Session 4-7C の一覧はこれをそのまま並べる。したがって Git パネルを
+ * 閉じていても Git の7件は表に出る ── descriptor と handler を分けた
+ * （commands/types.ts の冒頭）ことが、そのまま画面に現れている。
  */
 export function listCommands(): readonly CommandDescriptor[] {
   return COMMAND_IDS.map((id) => COMMAND_REGISTRY[id])
