@@ -365,6 +365,17 @@ export class EditorDocumentStore {
     return this.entries.get(relativePath)?.model ?? null
   }
 
+  /** その Model が対応している Workspace 相対位置。開いていなければ null。 */
+  getPathForModel(model: monaco.editor.ITextModel): string | null {
+    for (const entry of this.entries.values()) {
+      if (entry.model === model) {
+        return entry.relativePath
+      }
+    }
+
+    return null
+  }
+
   /**
    * 今のエディタ本体を預かる / 返す。
    *

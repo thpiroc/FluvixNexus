@@ -2,6 +2,8 @@ import {
   IPC_CHANNELS,
   type ChangeLspDocumentRequest,
   type CloseLspDocumentRequest,
+  type LspCompletionRequest,
+  type LspCompletionResponse,
   type LspStatusResponse,
   type OpenLspDocumentRequest,
   type OpenLspDocumentResponse,
@@ -12,6 +14,8 @@ import {
   isTextDocumentVersion,
   LSP_DOCUMENT_MAX_CONTENT_CHANGES,
   LSP_DOCUMENT_MAX_TEXT_LENGTH,
+  type LspCompletionTriggerKind,
+  type TextDocumentPosition,
   type TextDocumentContentChange
 } from '@shared/lsp'
 import { normalizeWorkspaceRelativePath } from '../../files/workspacePath'
@@ -21,6 +25,7 @@ import {
   openLspDocument,
   saveLspDocument
 } from '../../lsp/documentSync'
+import { requestLspCompletion } from '../../lsp/completion'
 import { getLanguageServerStatuses } from '../../lsp/serverStatus'
 import { IpcError, invalidRequest } from '../errors'
 import { handleIpc } from '../registry'
@@ -105,6 +110,24 @@ export function registerLspHandlers(): void {
     closeLspDocument(normalizeDocumentPath(request?.relativePath))
   })
 
+  handleIpc(
+    IPC_CHANNELS.LSP_COMPLETION,
+    async (request: LspCompletionRequest): Promise<LspCompletionResponse> => {
+      const outcome = await requestLspCompletion({
+        relativePath: normalizeDocumentPath(request?.relativePath),
+        version: normalizeVersion(request?.version),
+        position: normalizePosition(request?.position),
+        ...normalizeCompletionContext(request?.triggerKind, request?.triggerCharacter)
+      })
+
+      if (outcome.status === 'outside-workspace') {
+        throw outsideWorkspace()
+      }
+
+      return outcome
+    }
+  )
+
   /*
     サーバの状態（Session 5-4）。**要求に欄が1つも無い** ── どのサーバの
     状態を返すかも Renderer は言わず、返るのは常に3本ぶんになる。
@@ -176,6 +199,50 @@ function normalizeChanges(value: unknown): readonly TextDocumentContentChange[] 
   }
 
   return value as readonly TextDocumentContentChange[]
+}
+
+function normalizePosition(value: unknown): TextDocumentPosition {
+  if (typeof value !== 'object' || value === null) {
+    throw invalidRequest('the completion position has an unexpected shape.')
+  }
+
+  const position = value as { readonly line: unknown; readonly character: unknown }
+
+  if (!isTextDocumentVersion(position.line) || !isTextDocumentVersion(position.character)) {
+    throw invalidRequest('the completion position must use non-negative integers.')
+  }
+
+  return { line: position.line, character: position.character }
+}
+
+function normalizeCompletionContext(
+  rawTriggerKind: unknown,
+  rawTriggerCharacter: unknown
+): {
+  readonly triggerKind?: LspCompletionTriggerKind
+  readonly triggerCharacter?: string
+} {
+  if (rawTriggerKind === undefined) {
+    return {}
+  }
+
+  if (
+    rawTriggerKind !== 'invoked' &&
+    rawTriggerKind !== 'trigger-character' &&
+    rawTriggerKind !== 'trigger-for-incomplete-completions'
+  ) {
+    throw invalidRequest('the completion trigger kind is not supported.')
+  }
+
+  if (rawTriggerCharacter === undefined) {
+    return { triggerKind: rawTriggerKind }
+  }
+
+  if (typeof rawTriggerCharacter !== 'string' || rawTriggerCharacter.length !== 1) {
+    throw invalidRequest('the completion trigger character must be a single character.')
+  }
+
+  return { triggerKind: rawTriggerKind, triggerCharacter: rawTriggerCharacter }
 }
 
 /**

@@ -18,6 +18,24 @@ export {
 
 export type { TextDocumentContentChange, TextDocumentPosition, TextDocumentRange } from './document'
 
+export {
+  LSP_COMPLETION_COMMIT_CHARACTERS_MAX,
+  LSP_COMPLETION_LABEL_MAX_LENGTH,
+  LSP_COMPLETION_MAX_ITEMS,
+  LSP_COMPLETION_TEXT_MAX_LENGTH
+} from './completion'
+
+export type {
+  LspCompletionInsertTextFormat,
+  LspCompletionItem,
+  LspCompletionItemKind,
+  LspCompletionList,
+  LspCompletionRequest,
+  LspCompletionResponse,
+  LspCompletionTextEdit,
+  LspCompletionTriggerKind
+} from './completion'
+
 export { LSP_DIAGNOSTIC_MESSAGE_MAX_LENGTH, LSP_DIAGNOSTICS_MAX_PER_DOCUMENT } from './diagnostic'
 
 export type { LspDiagnostic, LspDiagnosticSeverity, LspDiagnosticTag } from './diagnostic'

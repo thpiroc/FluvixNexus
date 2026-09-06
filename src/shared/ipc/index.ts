@@ -75,6 +75,8 @@ export type {
 export type {
   ChangeLspDocumentRequest,
   CloseLspDocumentRequest,
+  LspCompletionRequest,
+  LspCompletionResponse,
   LspIpcContract,
   LspStatusResponse,
   OpenLspDocumentRequest,

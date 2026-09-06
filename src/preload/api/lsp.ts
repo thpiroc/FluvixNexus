@@ -32,6 +32,7 @@ export const lspApi: LspApi = {
   didChange: (request) => invokeIpc(IPC_CHANNELS.LSP_DID_CHANGE, request),
   didSave: (request) => invokeIpc(IPC_CHANNELS.LSP_DID_SAVE, request),
   didClose: (request) => invokeIpc(IPC_CHANNELS.LSP_DID_CLOSE, request),
+  completion: (request) => invokeIpc(IPC_CHANNELS.LSP_COMPLETION, request),
   getStatus: () => invokeIpc(IPC_CHANNELS.LSP_GET_STATUS),
   onSyncRequested: (listener) => subscribeIpcEvent(IPC_EVENT_CHANNELS.LSP_SYNC_REQUESTED, listener),
   onDiagnostics: (listener) => subscribeIpcEvent(IPC_EVENT_CHANNELS.LSP_DIAGNOSTICS, listener),

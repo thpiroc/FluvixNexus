@@ -272,6 +272,25 @@ describe('rename', () => {
   })
 })
 
+describe('getPathForModel', () => {
+  it('Model から現在の Workspace 相対位置を引ける', () => {
+    const store = createStore()
+    const model = store.acquire('src/app.ts', sourceOf('export {}'), factory)
+
+    expect(store.getPathForModel(model)).toBe('src/app.ts')
+
+    store.rename('src/app.ts', 'src/main.ts')
+
+    expect(store.getPathForModel(model)).toBe('src/main.ts')
+  })
+
+  it('知らない Model は null', () => {
+    const store = createStore()
+
+    expect(store.getPathForModel(createFakeModel(''))).toBeNull()
+  })
+})
+
 describe('readForSave', () => {
   it('移した後も、書き出す一式が同じ形で取れる（BOM と版を持ち回る）', () => {
     const store = createStore()

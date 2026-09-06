@@ -1,5 +1,8 @@
 import type { TextDocumentContentChange } from '../../lsp/document'
+import type { LspCompletionRequest, LspCompletionResponse } from '../../lsp/completion'
 import type { LanguageServerStatus } from '../../lsp/serverStatus'
+
+export type { LspCompletionRequest, LspCompletionResponse } from '../../lsp/completion'
 
 /**
  * lsp ドメインの IPC 契約（Session 5-2 ── Document Synchronization、5-4 で状態を1本）。
@@ -131,6 +134,10 @@ export interface LspIpcContract {
   'lsp:did-close': {
     request: CloseLspDocumentRequest
     response: void
+  }
+  'lsp:completion': {
+    request: LspCompletionRequest
+    response: LspCompletionResponse
   }
   'lsp:get-status': {
     request: void

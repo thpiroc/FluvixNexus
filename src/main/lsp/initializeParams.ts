@@ -99,6 +99,17 @@ export function createInitializeParams(
           relatedInformation: false,
           versionSupport: true,
           tagSupport: { valueSet: [1, 2] }
+        },
+        completion: {
+          dynamicRegistration: false,
+          contextSupport: true,
+          completionItem: {
+            snippetSupport: true,
+            commitCharactersSupport: true,
+            documentationFormat: ['markdown', 'plaintext'],
+            deprecatedSupport: false,
+            preselectSupport: true
+          }
         }
       },
       workspace: {

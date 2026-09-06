@@ -158,6 +158,7 @@ export function applyMonacoTheme(theme: ThemeId): void {
  * （決めるのは renderer/src/editor/lsp/useDiagnostics.ts）。
  */
 let builtInValidationSuppressed = false
+let builtInCompletionSuppressed = true
 
 /**
  * 今の設定を Monaco へ当てる。
@@ -216,6 +217,39 @@ export function setBuiltInValidationSuppressed(suppressed: boolean): void {
   }
 }
 
+function applyBuiltInModeConfiguration(): void {
+  const configuration: monaco.typescript.ModeConfiguration = {
+    completionItems: !builtInCompletionSuppressed,
+    hovers: true,
+    documentSymbols: true,
+    definitions: true,
+    references: true,
+    documentHighlights: true,
+    rename: true,
+    diagnostics: true,
+    documentRangeFormattingEdits: true,
+    signatureHelp: true,
+    onTypeFormattingEdits: true,
+    codeActions: true,
+    inlayHints: true
+  }
+
+  monaco.typescript.typescriptDefaults.setModeConfiguration(configuration)
+  monaco.typescript.javascriptDefaults.setModeConfiguration(configuration)
+}
+
+export function setBuiltInCompletionSuppressed(suppressed: boolean): void {
+  if (builtInCompletionSuppressed === suppressed) {
+    return
+  }
+
+  builtInCompletionSuppressed = suppressed
+
+  if (initialized) {
+    applyBuiltInModeConfiguration()
+  }
+}
+
 /* ------------------------------------------------------------------- 初期化 */
 
 let initialized = false
@@ -266,6 +300,7 @@ export function setupMonaco(): void {
 
   // 内蔵の検査は既定（構文だけ）から始める。切り替えの理由は下記。
   applyBuiltInValidation()
+  applyBuiltInModeConfiguration()
 
   // JSON。構文の検査は1ファイルで完結するので残し、外部スキーマの取得だけを止める。
   monaco.json.jsonDefaults.setDiagnosticsOptions({

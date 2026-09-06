@@ -82,10 +82,19 @@ describe('createInitializeParams', () => {
     expect(publishDiagnostics.relatedInformation).toBe(false)
   })
 
-  it('補完も定義も Rename も整形も名乗らない（受け取る器がまだ無い ── Session 5-4 以降）', () => {
+  it('補完は名乗り、定義も Rename も整形も名乗らない（Session 5-5）', () => {
     const textDocument = capabilities.textDocument
 
-    expect('completion' in textDocument).toBe(false)
+    expect(textDocument.completion).toMatchObject({
+      dynamicRegistration: false,
+      contextSupport: true,
+      completionItem: {
+        snippetSupport: true,
+        commitCharactersSupport: true,
+        documentationFormat: ['markdown', 'plaintext'],
+        preselectSupport: true
+      }
+    })
     expect('definition' in textDocument).toBe(false)
     expect('references' in textDocument).toBe(false)
     expect('hover' in textDocument).toBe(false)

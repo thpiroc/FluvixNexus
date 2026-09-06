@@ -10,7 +10,11 @@ import {
 } from '../workspaceFolder/currentWorkspaceFolder'
 import { toWorkspaceRootUri } from './documentUri'
 import { createInitializeParams } from './initializeParams'
-import { createJsonRpcConnection, type JsonRpcConnection } from './jsonRpcConnection'
+import {
+  createJsonRpcConnection,
+  type JsonRpcConnection,
+  type JsonRpcRequestOutcome
+} from './jsonRpcConnection'
 import {
   resolveLanguageServerCommand,
   type LanguageServerCommand,
@@ -582,6 +586,26 @@ export function notifyLanguageServer(
   record.connection.notify(method, params)
 
   return true
+}
+
+/**
+ * 立っているサーバへ要求を送る。送れなければ `null`。
+ *
+ * Renderer へ汎用 JSON-RPC を開けるものではない。呼び出し元は Main の各機能だけで、
+ * method も params もそこで固定される。
+ */
+export function requestLanguageServer(
+  id: LanguageServerId,
+  method: string,
+  params: unknown
+): Promise<JsonRpcRequestOutcome> | null {
+  const record = servers.get(id)
+
+  if (record === undefined || !record.ready) {
+    return null
+  }
+
+  return record.connection.request(method, params)
 }
 
 /* ------------------------------------------------------------- サーバからの通知 */

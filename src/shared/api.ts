@@ -49,6 +49,7 @@ import type { PublishGitHubRepositoryRequest } from './ipc/contracts/github'
 import type {
   ChangeLspDocumentRequest,
   CloseLspDocumentRequest,
+  LspCompletionRequest,
   OpenLspDocumentRequest,
   SaveLspDocumentRequest
 } from './ipc/contracts/lsp'
@@ -979,6 +980,7 @@ export interface LspApi {
   readonly didSave: (request: SaveLspDocumentRequest) => IpcInvokeResult<'lsp:did-save'>
   /** 文書を閉じたことを伝える（Model を捨てたとき）。 */
   readonly didClose: (request: CloseLspDocumentRequest) => IpcInvokeResult<'lsp:did-close'>
+  readonly completion: (request: LspCompletionRequest) => IpcInvokeResult<'lsp:completion'>
   /**
    * 開いている文書を送り直してほしい、という Main からの依頼。
    *

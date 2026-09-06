@@ -12,6 +12,7 @@ import {
   type AutoSaveSettings
 } from './autoSave'
 import type { EditorFailure } from './editorError'
+import { useCompletion } from './lsp/useCompletion'
 import { useDiagnostics } from './lsp/useDiagnostics'
 import { useDocumentSync } from './lsp/useDocumentSync'
 import type { EditorRevealRequest } from './editorReveal'
@@ -254,6 +255,7 @@ export function useEditorSession(workspaceId: string | null): EditorController {
     （Language Server が1つも入っていない PC でも、ここは同じように動く）。
   */
   useDocumentSync(documents, workspaceId)
+  useCompletion(documents, workspaceId)
 
   /*
     サーバが出した指摘を Monaco の marker にする（Session 5-3）。
