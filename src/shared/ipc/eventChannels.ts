@@ -16,7 +16,8 @@ export const IPC_EVENT_CHANNELS = {
   WINDOW_CLOSE_REQUESTED: 'window:close-requested',
   TERMINAL_DATA: 'terminal:data',
   TERMINAL_EXIT: 'terminal:exit',
-  GIT_CHANGED: 'git:changed'
+  GIT_CHANGED: 'git:changed',
+  LSP_SYNC_REQUESTED: 'lsp:sync-requested'
 } as const satisfies Record<string, IpcEventChannel>
 
 /**

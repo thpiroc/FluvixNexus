@@ -6,9 +6,11 @@ import {
   type FileRevision,
   type WorkspaceFileChange
 } from '@shared/files'
+import type { TextDocumentContentChange } from '@shared/lsp'
 // 型だけ。実体を import すると、このモジュールを読むだけで Monaco が読み込まれる（下記）。
 import type * as monaco from 'monaco-editor'
 import { resolveEditorTabState, type EditorTabState } from '../editorTabState'
+import { toTextDocumentContentChanges } from './documentChanges'
 
 /**
  * 開いているファイルの Monaco Model を持つ層。
@@ -75,6 +77,42 @@ import { resolveEditorTabState, type EditorTabState } from '../editorTabState'
  *
  * 分担としても素直になる ── ここが持つのは**持ち物の管理**（何を開いていて、
  * 未保存か、どこを見ていたか）で、Monaco の作法を知っているのは器の側だけになる。
+ *
+ * ## Language Server への同期も、ここから起こす（Session 5-2）
+ *
+ * `didOpen` / `didChange` / `didSave` / `didClose` の4つは、**Model の生き死にと
+ * 1対1で対応する**。それを知っているのはこの層しか無い ── 画面の部品は
+ * 「今どのタブが手前か」しか知らず、Model が作られた / 捨てられた瞬間を持っていない。
+ *
+ * ```
+ * acquire（新しく作った）  → opened
+ * onDidChangeContent       → changed
+ * markSaved                → saved
+ * release                  → closed
+ * rekey（改名・別名で保存） → closed（元の位置）→ opened（新しい位置）
+ * ```
+ *
+ * それでも IPC はここから呼ばない。出すのは出来事だけで、送るのは
+ * つなぐ側（editor/lsp/useDocumentSync.ts）にする ── この層が IPC を知ると、
+ * Monaco を持ち込まずに試せるという性質（下の「Monaco を型としてしか使わない」）が
+ * そのまま失われる。
+ *
+ * ### 改名は「移す」ではなく「閉じて開く」
+ *
+ * 鍵の付け替え（`rekey`）では Model を作り直さない ── Undo 履歴を保つためで、
+ * その判断は変わらない。だが **Language Server から見た文書は URI で決まる**ので、
+ * 位置が変われば別の文書になる。移動を伝える通知は LSP に無く、
+ * 閉じて開き直すのが唯一の伝え方になる。
+ *
+ * ### 版番号は2つある。混ぜない
+ *
+ * ```
+ * getAlternativeVersionId() … 未保存かの判定に使う。**Undo で戻る**
+ * getVersionId()            … LSP の版として送る。編集のたびに増え、戻らない
+ * ```
+ *
+ * 前者を LSP へ送ると、Undo した瞬間に「古い版が後から来た」ことになり、
+ * サーバはそれ以降の変更を捨てる。**未保存かどうかと、何版目かは別の話**にあたる。
  */
 
 /**
@@ -166,6 +204,41 @@ interface DocumentEntry {
 export type DocumentStateListener = (relativePath: string, state: EditorTabState) => void
 
 /**
+ * Model の生き死に（Session 5-2）。
+ *
+ * LSP の4つの通知と1対1で対応するが、**この型は LSP を知らない**
+ * ── 運ぶのは相対位置・版・中身だけで、URI もサーバも出てこない
+ * （それらを決めるのは Main。main/lsp/documentSync.ts）。
+ */
+export type EditorDocumentSyncEvent =
+  | {
+      readonly kind: 'opened'
+      readonly relativePath: string
+      /** Model の版（`getVersionId()`。未保存かの判定に使う数とは別物）。 */
+      readonly version: number
+      readonly content: string
+    }
+  | {
+      readonly kind: 'changed'
+      readonly relativePath: string
+      /** 変更を適用した**後**の版。 */
+      readonly version: number
+      readonly changes: readonly TextDocumentContentChange[]
+    }
+  /** 版を持たない ── 保存は中身を変えないため（shared/ipc/contracts/lsp.ts）。 */
+  | { readonly kind: 'saved'; readonly relativePath: string }
+  | { readonly kind: 'closed'; readonly relativePath: string }
+
+export type DocumentSyncListener = (event: EditorDocumentSyncEvent) => void
+
+/** 開いている文書を送り直すときの一式（`lsp:sync-requested` への返事）。 */
+export interface EditorDocumentSnapshot {
+  readonly relativePath: string
+  readonly version: number
+  readonly content: string
+}
+
+/**
  * 同じ版か。
  *
  * mtime と size の組で見るのは shared/files/content.ts の判断そのままで、
@@ -179,6 +252,7 @@ function isSameRevision(a: FileRevision, b: FileRevision): boolean {
 export class EditorDocumentStore {
   private readonly entries = new Map<string, DocumentEntry>()
   private readonly stateListeners = new Set<DocumentStateListener>()
+  private readonly syncListeners = new Set<DocumentSyncListener>()
 
   /**
    * 今エディタに載っているエディタ本体。
@@ -230,9 +304,24 @@ export class EditorDocumentStore {
       閉じ込めると、位置が変わった後も古い位置を知らせ続ける
       （DocumentEntry.relativePath の但し書き）。
     */
-    entry.subscription = model.onDidChangeContent(() => this.notifyState(entry.relativePath))
+    entry.subscription = model.onDidChangeContent((event) => {
+      /*
+        差分を先に出す。未保存の印（notifyState）は自動保存のタイマーを張り直す
+        入口でもあり、**保存より先に変更が届いている**方が順として素直になる。
+      */
+      this.emitSync(() => ({
+        kind: 'changed',
+        relativePath: entry.relativePath,
+        version: entry.model.getVersionId(),
+        changes: toTextDocumentContentChanges(event, () => entry.model.getValue())
+      }))
+
+      this.notifyState(entry.relativePath)
+    })
 
     this.entries.set(relativePath, entry)
+
+    this.emitSync(() => this.toSnapshotEvent(entry))
 
     return model
   }
@@ -256,6 +345,19 @@ export class EditorDocumentStore {
     this.entries.delete(fromRelativePath)
     entry.relativePath = toRelativePath
     this.entries.set(toRelativePath, entry)
+
+    /*
+      Language Server から見れば、**位置が変わった時点で別の文書**になる
+      （文書を指すのは URI で、移動を伝える通知は LSP に無い）。
+      閉じて開き直すのが唯一の伝え方で、それをここで起こす
+      ── 鍵が動く経路はこの1箇所に集めてあるので、`rename` からも
+      アプリの外での改名（`applyFileChanges`）からも同じ結果になる。
+
+      Model は作り直していない（Undo 履歴はそのまま）。**開き直すのは
+      サーバから見た文書だけ**で、利用者から見た編集の連続性は切れない。
+    */
+    this.emitSync(() => ({ kind: 'closed', relativePath: fromRelativePath }))
+    this.emitSync(() => this.toSnapshotEvent(entry))
   }
 
   /** その位置の Model。開いていなければ null。 */
@@ -331,6 +433,71 @@ export class EditorDocumentStore {
     }
   }
 
+  /* --------------------------------------------- Language Server への同期 */
+
+  /**
+   * Model の生き死にを受け取る（Session 5-2）。
+   *
+   * 戻り値が解除の関数（`onStateChange` と同じ形）。
+   * 受け取った側が IPC で Main へ渡す（editor/lsp/useDocumentSync.ts）。
+   */
+  onDocumentSync(listener: DocumentSyncListener): () => void {
+    this.syncListeners.add(listener)
+
+    return () => {
+      this.syncListeners.delete(listener)
+    }
+  }
+
+  /**
+   * 出来事を配る。**受け手が居なければ組み立てない。**
+   *
+   * 引数が値ではなく関数なのはそのため。`changed` の組み立ては
+   * 打鍵1回ごとに走り、全文の置き換えでは Model の全行を連結することになる
+   * ── 聞いている相手が居ないときにその費用を払う理由が無い
+   * （Editor は Language Server を使わない設定でも、Model を持たない環境でも動く）。
+   */
+  private emitSync(build: () => EditorDocumentSyncEvent | null): void {
+    if (this.syncListeners.size === 0) {
+      return
+    }
+
+    const event = build()
+
+    if (event === null) {
+      return
+    }
+
+    for (const listener of this.syncListeners) {
+      listener(event)
+    }
+  }
+
+  /** 今の中身を「開いた」の形にする（新しく作ったとき・鍵を移したとき）。 */
+  private toSnapshotEvent(entry: DocumentEntry): EditorDocumentSyncEvent {
+    return {
+      kind: 'opened',
+      relativePath: entry.relativePath,
+      version: entry.model.getVersionId(),
+      content: entry.model.getValue()
+    }
+  }
+
+  /**
+   * 開いている文書の一式（送り直しの依頼に応えるため）。
+   *
+   * 中身を持っているのはこの層だけなので、Main から
+   * 「もう一度開いて」と頼まれたときに答えられるのもここになる
+   * （shared/ipc/events/lsp.ts）。
+   */
+  listOpenDocuments(): readonly EditorDocumentSnapshot[] {
+    return [...this.entries.values()].map((entry) => ({
+      relativePath: entry.relativePath,
+      version: entry.model.getVersionId(),
+      content: entry.model.getValue()
+    }))
+  }
+
   /* ------------------------------------------------------------- 保存 */
 
   /** 保存に必要なものを取り出す。開いていなければ null。 */
@@ -370,6 +537,13 @@ export class EditorDocumentStore {
     entry.revision = revision
     entry.externalRevision = null
     entry.missing = false
+
+    /*
+      ディスクへ書けたことを知らせる（Session 5-2）。**版は載せない** ──
+      保存は中身を変えないので Model の版は動かず、ここで渡している `versionId`
+      は未保存かの判定に使う別の数（Undo で戻る）にあたる。
+    */
+    this.emitSync(() => ({ kind: 'saved', relativePath }))
 
     this.notifyState(relativePath)
   }
@@ -568,6 +742,12 @@ export class EditorDocumentStore {
     this.entries.delete(relativePath)
     entry.subscription.dispose()
     entry.model.dispose()
+
+    /*
+      Model が無くなった ＝ その文書はもう開いていない。**捨てた後に知らせる**
+      ので、受け取った側が中身を取りに戻ることはない（`closed` は位置しか運ばない）。
+    */
+    this.emitSync(() => ({ kind: 'closed', relativePath }))
 
     // 未保存だったものが消えたことを、印を出している側へ伝える。
     this.notifyState(relativePath)

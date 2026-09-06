@@ -46,6 +46,12 @@ import type {
   UnstageGitChangesRequest
 } from './ipc/contracts/git'
 import type { PublishGitHubRepositoryRequest } from './ipc/contracts/github'
+import type {
+  ChangeLspDocumentRequest,
+  CloseLspDocumentRequest,
+  OpenLspDocumentRequest,
+  SaveLspDocumentRequest
+} from './ipc/contracts/lsp'
 import type { IpcEventListener, IpcEventUnsubscribe } from './ipc/event'
 import type { SaveSettingsSectionRequest } from './ipc/contracts/settings'
 import type { PingRequest } from './ipc/contracts/system'
@@ -933,6 +939,60 @@ export interface GitHubApi {
 }
 
 /**
+ * 開いている文書を Language Server と同期する API（Session 5-2）。
+ *
+ * ## 公開しているのは「開いた」「変わった」「保存した」「閉じた」の4つ
+ *
+ * **どのサーバへ送るかを指定できない。** 決めるのは開いたファイルの拡張子で
+ * （main/lsp/documentLanguage.ts）、サーバの起動もその結果として Main が行う。
+ * Terminal では「表のどの行か」（shellId）まで渡せるようにしたが、こちらは
+ * その欄すら無い ── 起動のきっかけが**利用者の操作ではなくファイルの言語**
+ * だからで、実行ファイル・引数・作業ディレクトリはもちろん、
+ * サーバを名指しする手段も Renderer には無い（DESIGN.md の STEP 5 引き継ぎ）。
+ *
+ * 指せるのは Workspace root からの相対位置だけで、URI を組み立てるのも
+ * Workspace の外を断るのも Main になる（shared/ipc/contracts/lsp.ts）。
+ *
+ * ## 呼ぶのは1箇所だけ
+ *
+ * 呼び出しは Monaco の Model の生き死にから起こす
+ * （renderer/src/editor/lsp/useDocumentSync.ts）。画面の部品がこの API を
+ * 直に呼ぶことはない ── **何が開いているかを知っているのは Model を持つ層だけ**で、
+ * そこ以外から呼ぶと「開いていない文書を変更した」という電文が作れてしまう。
+ */
+export interface LspApi {
+  /**
+   * 文書を開いたことを伝える（Model が作られたとき）。
+   *
+   * 応答の `tracked` が false なら、その文書に対応する Language Server が
+   * 無い（`.md` / `.txt`、あるいは未インストール）。以降の通知は送らなくてよい。
+   */
+  readonly didOpen: (request: OpenLspDocumentRequest) => IpcInvokeResult<'lsp:did-open'>
+  /** 中身が変わったことを伝える（差分。全置換になる編集は範囲なしの1件で届く）。 */
+  readonly didChange: (request: ChangeLspDocumentRequest) => IpcInvokeResult<'lsp:did-change'>
+  /**
+   * ディスクへ書けたことを伝える。
+   *
+   * **版番号を渡さない。** 保存は中身を変えないため版が動かず、
+   * 未保存かどうかは LSP の版とは別の数で決まる（shared/ipc/contracts/lsp.ts）。
+   */
+  readonly didSave: (request: SaveLspDocumentRequest) => IpcInvokeResult<'lsp:did-save'>
+  /** 文書を閉じたことを伝える（Model を捨てたとき）。 */
+  readonly didClose: (request: CloseLspDocumentRequest) => IpcInvokeResult<'lsp:did-close'>
+  /**
+   * 開いている文書を送り直してほしい、という Main からの依頼。
+   *
+   * サーバが立ち上がった / 落ちて立ち直った直後は、そのサーバが文書を1つも
+   * 知らない状態になる。Main は一覧を持つが**中身を持たない**ため、
+   * 正本（Monaco の Model）を持つ側へ頼む形にしてある
+   * （shared/ipc/events/lsp.ts）。
+   */
+  readonly onSyncRequested: (
+    listener: IpcEventListener<'lsp:sync-requested'>
+  ) => IpcEventUnsubscribe
+}
+
+/**
  * `window.fluvix` として Renderer に公開される API 全体。
  *
  * Files / Terminal / GitHub など OS に触れるドメイン API は、
@@ -956,6 +1016,8 @@ export interface FluvixApi {
   readonly git: GitApi
   /** そのリポジトリを GitHub へ公開する（Session 3-8-10）。 */
   readonly github: GitHubApi
+  /** 開いている文書を Language Server と同期する（Session 5-2）。 */
+  readonly lsp: LspApi
   /** アプリの設定の永続化。 */
   readonly settings: SettingsApi
 }

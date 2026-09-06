@@ -3,6 +3,7 @@ import { envApi } from './env'
 import { filesApi } from './files'
 import { gitApi } from './git'
 import { githubApi } from './github'
+import { lspApi } from './lsp'
 import { settingsApi } from './settings'
 import { systemApi } from './system'
 import { terminalApi } from './terminal'
@@ -34,5 +35,6 @@ export const api: FluvixApi = {
   terminal: terminalApi,
   git: gitApi,
   github: githubApi,
+  lsp: lspApi,
   settings: settingsApi
 }

@@ -73,6 +73,10 @@ export const IPC_CHANNELS = {
   GIT_RESOLVE_CONFLICT: 'git:resolve-conflict',
   GITHUB_GET_STATUS: 'github:get-status',
   GITHUB_PUBLISH: 'github:publish',
+  LSP_DID_OPEN: 'lsp:did-open',
+  LSP_DID_CHANGE: 'lsp:did-change',
+  LSP_DID_SAVE: 'lsp:did-save',
+  LSP_DID_CLOSE: 'lsp:did-close',
   SETTINGS_LOAD: 'settings:load',
   SETTINGS_SAVE_SECTION: 'settings:save-section'
 } as const satisfies Record<string, IpcChannel>

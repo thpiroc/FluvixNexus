@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { startWorkspaceWatching, stopWorkspaceWatching } from '../files/workspaceWatcher'
 import { startGitWatching, stopGitWatching } from '../git/gitWatcher'
 import { registerIpcHandlers } from '../ipc'
+import { startLanguageServerDocumentSync } from '../lsp/documentSync'
 import { startLanguageServerHosting, stopLanguageServers } from '../lsp/languageServers'
 import { createLogger } from '../logger'
 import { isMacOS } from '../platform'
@@ -65,9 +66,16 @@ export function bootstrapApp(): void {
       シェルと逆なのは、見ている対象が Workspace そのもの（`rootUri` は起動時に
       決まり動かせない）で、残すと前のフォルダを見ているサーバが新しいフォルダの
       答えを返すため（main/lsp/languageServers.ts）。
-      立てる側は Session 5-2（開いた文書の言語から決める）で入る。
     */
     startLanguageServerHosting()
+
+    /*
+      開いている文書とサーバをつなぐ側（Session 5-2）。**サーバを立てるのはこちら**で、
+      きっかけは常に「この拡張子のファイルが開かれた」になる
+      ── Renderer からサーバを名指しできる口は無い（main/lsp/documentSync.ts）。
+      ここで張るのは、サーバの状態と Workspace の切り替えへの購読2つ。
+    */
+    startLanguageServerDocumentSync()
 
     /*
       シェルのセッションは Workspace の切り替えに追従しない（Session 3-7-3）。

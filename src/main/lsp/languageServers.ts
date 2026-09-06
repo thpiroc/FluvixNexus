@@ -1,11 +1,14 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process'
 import { existsSync } from 'fs'
+import { app } from 'electron'
 import { createLogger } from '../logger'
 import { currentPlatform } from '../platform'
 import {
   getCurrentWorkspaceFolder,
   onWorkspaceFolderChange
 } from '../workspaceFolder/currentWorkspaceFolder'
+import { toWorkspaceRootUri } from './documentUri'
+import { createInitializeParams } from './initializeParams'
 import { createJsonRpcConnection, type JsonRpcConnection } from './jsonRpcConnection'
 import {
   resolveLanguageServerCommand,
@@ -42,11 +45,25 @@ import { decideLanguageServerRestart } from './restartPolicy'
  *
  * ## Renderer は、この層に触れない
  *
- * Session 5-1 の時点で LSP の IPC チャンネルは1つも無く、preload にも口が無い。
- * 起動・停止・立て直しはすべて Main の中で完結する。Renderer から
- * 「このサーバを起動して」と頼める形は、Session 5-2 以降でも作らない予定にしてある
- * ── 起動のきっかけになるのは「開いた文書の言語」であって、
- * サーバそのものではないため（DESIGN.md の STEP 5 引き継ぎ）。
+ * Session 5-2 で LSP の IPC チャンネルが4つ増えたが、**サーバを名指しできる口は
+ * 依然として無い**。起動・停止・立て直しはすべて Main の中で完結し、
+ * 起動のきっかけになるのは「開いた文書の言語」であって、サーバそのものではない
+ * （main/lsp/documentSync.ts が startLanguageServer を呼ぶ。DESIGN.md の STEP 5 引き継ぎ）。
+ *
+ * ## 立ってから、話せるようになるまでに間がある（Session 5-2）
+ *
+ * LSP は最初の1往復（`initialize` → 応答 → `initialized`）が済むまで、
+ * 他の要求も通知も受け付けない。プロセスが在ることと、電文を送れることは別になる。
+ *
+ * ```
+ * spawn → （initialize を送る）→ 応答 → initialized → ready
+ *                ここまでの間に届いた didOpen は、送らずに保留される
+ * ```
+ *
+ * そのため `ready` を状態として持ち、外へは `isLanguageServerReady` /
+ * `onLanguageServerStateChange` で見せる。**保留した文書の中身をこの層が
+ * 抱えることはしない** ── 中身の正本は Monaco の Model 1つに保つ、という
+ * 判断がその外側（documentSync.ts）にある。
  *
  * ## Workspace が変わったら、全部終わらせる
  *
@@ -70,6 +87,16 @@ import { decideLanguageServerRestart } from './restartPolicy'
 
 const log = createLogger('lsp')
 
+/**
+ * `initialize` の応答を待つ上限（ミリ秒）。
+ *
+ * 待ち続ける形にしないのは、**返事が来ないサーバは立っていないのと同じ**であるため。
+ * 上限を置かないと、そのプロセスは電文を1つも受け付けないまま残り続け、
+ * 落ちてもいないので立て直しの判断（restartPolicy.ts）にも入らない。
+ * 過ぎたら終わらせ、異常終了と同じ道（立て直し）へ流す。
+ */
+export const LANGUAGE_SERVER_INITIALIZE_TIMEOUT_MS = 60_000
+
 interface LanguageServerRecord {
   readonly id: LanguageServerId
   readonly name: string
@@ -80,6 +107,41 @@ interface LanguageServerRecord {
   readonly connection: JsonRpcConnection
   /** こちらから終わらせたか（立て直しの対象から外す印）。 */
   stopping: boolean
+  /** `initialized` まで済んだか。ここが true になるまで電文は送れない。 */
+  ready: boolean
+}
+
+/** サーバの状態が変わったことの知らせ（documentSync.ts が受ける）。 */
+export type LanguageServerState = 'ready' | 'stopped'
+
+export type LanguageServerStateListener = (id: LanguageServerId, state: LanguageServerState) => void
+
+const stateListeners = new Set<LanguageServerStateListener>()
+
+/**
+ * サーバが話せるようになった / 話せなくなったときに呼ばれる。
+ *
+ * 戻り値は購読の解除（onWorkspaceFolderChange と同じ形）。
+ * **この層から個別の機能を呼ばない**のは、正本の側が受け手の都合を知る形にしないため
+ * （main/workspaceFolder/currentWorkspaceFolder.ts と同じ理由）。
+ */
+export function onLanguageServerStateChange(listener: LanguageServerStateListener): () => void {
+  stateListeners.add(listener)
+
+  return () => {
+    stateListeners.delete(listener)
+  }
+}
+
+function notifyState(id: LanguageServerId, state: LanguageServerState): void {
+  for (const listener of stateListeners) {
+    try {
+      listener(id, state)
+    } catch (cause) {
+      // 受け手の失敗で、プロセスの管理そのものを止めない。
+      log.error('a language server state listener failed.', cause)
+    }
+  }
 }
 
 /** 立っているサーバ。1つの言語につき1本。 */
@@ -228,7 +290,8 @@ function spawnServer(
     rootPath,
     child,
     connection,
-    stopping: false
+    stopping: false,
+    ready: false
   }
 
   servers.set(id, record)
@@ -264,7 +327,111 @@ function spawnServer(
 
   log.info(`${command.name} started: pid=${child.pid ?? -1} cwd=${rootPath}`)
 
+  void initializeServer(record)
+
   return { status: 'started' }
+}
+
+/* ----------------------------------------------------------------- 初期化 */
+
+/**
+ * `initialize` → `initialized` を済ませ、電文を送れる状態にする（Session 5-2）。
+ *
+ * `startLanguageServer` から待たずに呼ぶ（`void`）。待つ形にすると、
+ * ファイルを1つ開くだけの操作が**サーバの起動時間ぶん**止まることになる
+ * ── 保留した文書は準備ができた時点で開き直される（documentSync.ts）。
+ *
+ * 失敗（応答が失敗・途中で切れた・時間切れ）はどれも「このプロセスとは
+ * 話せない」という同じ結論になる。終わらせて、異常終了と同じ道
+ * （restartPolicy.ts の判断）へ流す ── ここで独自に立て直すと、
+ * 立て直しの上限を数える場所が2つになる。
+ */
+async function initializeServer(record: LanguageServerRecord): Promise<void> {
+  const timer = setTimeout(() => {
+    if (servers.get(record.id) !== record || record.ready) {
+      return
+    }
+
+    log.warn(`${record.name} did not answer "initialize" in time; restarting it.`)
+    killChild(record.child)
+  }, LANGUAGE_SERVER_INITIALIZE_TIMEOUT_MS)
+
+  // 起動待ちのタイマーでアプリの終了を引き延ばさない（立て直しのタイマーと同じ）。
+  timer.unref?.()
+
+  const outcome = await record.connection.request(
+    'initialize',
+    createInitializeParams({
+      processId: process.pid,
+      clientName: app.getName(),
+      clientVersion: app.getVersion(),
+      rootUri: toWorkspaceRootUri(record.rootPath),
+      rootName: record.rootPath
+    })
+  )
+
+  clearTimeout(timer)
+
+  /*
+    待っている間に差し替わった / 終わった。今さら `initialized` を送る相手は居ない
+    （handleExit / stopRecord が既に片付けている）。
+  */
+  if (servers.get(record.id) !== record) {
+    return
+  }
+
+  if (outcome.status !== 'result') {
+    const detail = outcome.status === 'error' ? outcome.error.message : outcome.reason
+
+    log.error(`${record.name} could not be initialized: ${detail}`)
+    killChild(record.child)
+
+    return
+  }
+
+  /*
+    応答の `capabilities` は Session 5-2 では読まない。
+    読む必要が出るのは、サーバが差分同期を断って全文だけを求める場合
+    （`textDocumentSync` が `Full`）と、診断の受け取り（Session 5-3）になる。
+    **読まないものを読んだふりをしない**ため、ここでは素通りさせる。
+  */
+  record.connection.notify('initialized', {})
+  record.ready = true
+
+  log.info(`${record.name} is ready.`)
+
+  notifyState(record.id, 'ready')
+}
+
+/* --------------------------------------------------------------- 電文を送る */
+
+/** そのサーバが電文を受け取れる状態か。 */
+export function isLanguageServerReady(id: LanguageServerId): boolean {
+  return servers.get(id)?.ready === true
+}
+
+/**
+ * 立っているサーバへ通知を送る。送れなければ false。
+ *
+ * **要求（応答を待つもの）の口はまだ開けていない。** Session 5-2 で送るのは
+ * 文書同期の4つの通知だけで、どれも応答を持たない
+ * （main/lsp/textDocumentNotifications.ts）。応答を要る操作
+ * ── 補完・定義へ移動・整形 ── は、受け取る器と一緒に後の Session で足す。
+ */
+export function notifyLanguageServer(
+  id: LanguageServerId,
+  method: string,
+  params: unknown
+): boolean {
+  const record = servers.get(id)
+
+  if (record === undefined || !record.ready) {
+    return false
+  }
+
+  record.connection.notify(method, params)
+
+  return true
 }
 
 /* ------------------------------------------------------------- サーバからの通知 */
@@ -357,20 +524,33 @@ function stopRecord(record: LanguageServerRecord, reason: string): void {
   record.stopping = true
 
   /*
-    待っている要求を先に片付ける（呼び出し側の Promise を宙に残さない）。
-    Session 5-1 の時点で待っているものは無いが、順番はここで決めておく。
+    作法どおりの順（`shutdown` → `exit`）で送る（Session 5-2）。ただし
+    **応答は待たない。**
 
-    LSP の作法どおりに `shutdown` を送って待つ形にはしていない ──
-    `initialize` を済ませていないサーバは `shutdown` に応じられず
-    （仕様上、初期化前の要求は `InvalidRequest` で断られる）、
-    待つだけ終了が遅くなる。作法どおりの終わらせ方は、`initialize` を
-    入れる Session 5-2 で対になる形で足す。
+    待てないのは、この関数が `will-quit` から呼ばれるため ── Electron の
+    終了は引き延ばせず、待つ形にすると「片付けが終わる前にプロセスが消える」
+    ことになる。送るだけ送って、確実な片付けは kill が担う。
+
+    初期化を済ませていないサーバへは送らない。仕様上、初期化前の要求は
+    `InvalidRequest` で断られるだけで、意味を持たない。
   */
+  if (record.ready) {
+    void record.connection.request('shutdown')
+    record.connection.notify('exit')
+  }
+
+  // 待っている要求を片付ける（呼び出し側の Promise を宙に残さない）。
   record.connection.dispose(reason)
   killChild(record.child)
   servers.delete(record.id)
 
   log.info(`${record.name} stopped: ${reason}`)
+
+  /*
+    知らせるのは片付けが済んでから。受け手（documentSync.ts）は
+    「このサーバは開いている文書を知らなくなった」として控えを戻す。
+  */
+  notifyState(record.id, 'stopped')
 }
 
 function killChild(child: ChildProcessWithoutNullStreams): void {
@@ -398,6 +578,13 @@ function handleExit(
 
   servers.delete(record.id)
   record.connection.dispose('the language server exited.')
+
+  /*
+    このプロセスはもう文書を1つも知らない。控えを戻す側（documentSync.ts）へ
+    伝えるのは、立て直しの判断より先 ── 立て直しが即座に走った場合でも、
+    「落ちた」→「立った」の順で届く必要がある。
+  */
+  notifyState(record.id, 'stopped')
 
   if (record.stopping) {
     // こちらから終わらせた。立て直さない。
@@ -485,9 +672,9 @@ function cancelRestart(id: LanguageServerId): void {
  * main/workspaceFolder/currentWorkspaceFolder.ts）。
  * 形は startGitWatching / startWorkspaceWatching と揃えてある。
  *
- * Session 5-1 の時点でサーバを立てる呼び出し元はまだ無いため、ここが実際に
- * するのは「立っていれば終わらせる」だけになる。立てる側（開いた文書の言語から
- * 必要なサーバを決める）は Session 5-2 で入る。
+ * ここがするのは「立っていれば終わらせる」だけで、**立てる側はここに無い**。
+ * 立てるのは文書が開かれたときで、その判断は documentSync.ts が持つ
+ * （Session 5-2。startLanguageServerDocumentSync が対になる入口になる）。
  */
 export function startLanguageServerHosting(): void {
   onWorkspaceFolderChange(() => {

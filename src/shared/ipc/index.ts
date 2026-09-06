@@ -73,6 +73,14 @@ export type {
   WriteWorkspaceFileStatus
 } from './contracts/files'
 export type {
+  ChangeLspDocumentRequest,
+  CloseLspDocumentRequest,
+  LspIpcContract,
+  OpenLspDocumentRequest,
+  OpenLspDocumentResponse,
+  SaveLspDocumentRequest
+} from './contracts/lsp'
+export type {
   LoadSettingsResponse,
   SaveSettingsSectionRequest,
   SettingsIpcContract
@@ -137,6 +145,7 @@ export type {
   WorkspaceFilesChangedEvent
 } from './events/files'
 export type { GitChangedEvent, GitIpcEventContract } from './events/git'
+export type { LspIpcEventContract, LspSyncRequestedEvent } from './events/lsp'
 export type {
   TerminalExitEvent,
   TerminalIpcEventContract,

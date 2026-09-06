@@ -12,6 +12,7 @@ import {
   type AutoSaveSettings
 } from './autoSave'
 import type { EditorFailure } from './editorError'
+import { useDocumentSync } from './lsp/useDocumentSync'
 import type { EditorRevealRequest } from './editorReveal'
 import { hasUnsavedChanges } from './editorTabState'
 import type { EditorTab } from './editorTabsModel'
@@ -239,6 +240,19 @@ export function useEditorSession(workspaceId: string | null): EditorController {
   }
 
   const documents = documentsRef.current
+
+  /*
+    開いている文書を Language Server と同期する（Session 5-2）。
+
+    ここで呼ぶのは、**Model の生き死にを持っているのがこのストアだから**に
+    ほかならない。画面の部品からは Model が作られた / 捨てられた瞬間が見えず、
+    そこから起こすと「開いていない文書を変更した」という通知が作れてしまう。
+
+    このフックが返す値は無い。Editor の振る舞いは何も変わらず、
+    変わるのは**Main へ届く出来事が増える**ことだけになる
+    （Language Server が1つも入っていない PC でも、ここは同じように動く）。
+  */
+  useDocumentSync(documents, workspaceId)
 
   const [saveStates, setSaveStates] = useState<Readonly<Record<string, EditorSaveState>>>({})
 

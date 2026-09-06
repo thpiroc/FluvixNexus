@@ -5,6 +5,7 @@ export type {
   FluvixApi,
   GitApi,
   GitHubApi,
+  LspApi,
   PlatformId,
   RuntimeVersions,
   SettingsApi,
@@ -44,6 +45,14 @@ export type {
 } from './files'
 
 export type { GitFailureReason, GitHead, GitRepositoryState } from './git'
+
+export {
+  LSP_DOCUMENT_MAX_CONTENT_CHANGES,
+  LSP_DOCUMENT_MAX_TEXT_LENGTH,
+  isTextDocumentContentChange,
+  isTextDocumentVersion
+} from './lsp'
+export type { TextDocumentContentChange, TextDocumentPosition, TextDocumentRange } from './lsp'
 
 export {
   SETTINGS_DOCUMENT_MAX_BYTES,
@@ -132,8 +141,13 @@ export type {
   IpcResponse,
   IpcResult,
   IpcSuccess,
+  ChangeLspDocumentRequest,
+  CloseLspDocumentRequest,
   LoadSettingsResponse,
   LoadWorkspaceLayoutResponse,
+  LspSyncRequestedEvent,
+  OpenLspDocumentRequest,
+  OpenLspDocumentResponse,
   OpenWorkspaceFolderResponse,
   PingRequest,
   PingResponse,
@@ -144,6 +158,7 @@ export type {
   RenameWorkspaceEntryRequest,
   RenameWorkspaceEntryResponse,
   RespondWindowCloseRequest,
+  SaveLspDocumentRequest,
   SaveSettingsSectionRequest,
   SaveWorkspaceLayoutRequest,
   WindowCloseDecision,

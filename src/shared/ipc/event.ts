@@ -1,5 +1,6 @@
 import type { FilesIpcEventContract } from './events/files'
 import type { GitIpcEventContract } from './events/git'
+import type { LspIpcEventContract } from './events/lsp'
 import type { TerminalIpcEventContract } from './events/terminal'
 import type { WindowIpcEventContract } from './events/window'
 
@@ -57,7 +58,8 @@ export interface IpcEventContract
     FilesIpcEventContract,
     WindowIpcEventContract,
     TerminalIpcEventContract,
-    GitIpcEventContract {}
+    GitIpcEventContract,
+    LspIpcEventContract {}
 
 /** 有効な IPC イベントチャンネル名。契約に定義されたものだけが存在しうる。 */
 export type IpcEventChannel = keyof IpcEventContract & string
