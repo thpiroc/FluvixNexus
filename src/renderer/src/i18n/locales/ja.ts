@@ -942,6 +942,11 @@ export const jaMessages = {
         title: 'エディター',
         description: '編集中のファイルをいつ保存するか。'
       },
+      lsp: {
+        title: '言語サーバー',
+        description:
+          '開いたコードの指摘を出す言語サーバーの設定。サーバー自体は別途インストールするもので、Fluvix Nexus には同梱されていません。'
+      },
       files: {
         title: 'ファイル',
         description: 'ファイル一覧の見え方。'
@@ -980,6 +985,18 @@ export const jaMessages = {
             '「入力が止まったら」を選んでいるときに、止まってから保存するまでの長さです。'
         }
       },
+      lsp: {
+        enabled: {
+          title: '言語サーバーを使う',
+          description:
+            '使わないことにすると、動いているサーバーを終了してエディター内蔵の検査に戻ります。編集・保存・検索には影響しません。'
+        },
+        servers: {
+          title: '対象の言語',
+          description:
+            '言語サーバーを使う言語を選びます。上を「使わない」にしている間は効きません。'
+        }
+      },
       files: {
         viewMode: {
           title: '表示方式',
@@ -1010,6 +1027,12 @@ export const jaMessages = {
         hintActive: '{min}〜{max}ms',
         hintInactive: '{min}〜{max}ms（今の方式では使われません）'
       },
+      lspEnabled: {
+        aria: '言語サーバーを使うか'
+      },
+      lspServers: {
+        aria: '言語サーバーを使う言語'
+      },
       filesViewMode: {
         aria: 'ファイルの表示方式'
       },
@@ -1031,6 +1054,10 @@ export const jaMessages = {
         afterDelay: '自動保存: 入力が止まったら',
         onFocusChange: '自動保存: フォーカスが外れたら',
         onWindowChange: '自動保存: ウィンドウが切り替わったら'
+      },
+      lsp: {
+        on: '使う',
+        off: '使わない'
       },
       filesView: {
         auto: 'パネルの形に任せる',
@@ -1070,6 +1097,30 @@ export const jaMessages = {
         user: 'ユーザー',
         workspace: 'Workspace'
       }
+    }
+  },
+  /* 英語側（locales/en.ts の `lsp`）に、名前と言い回しを分けてある理由がある。 */
+  lsp: {
+    servers: {
+      typescript: 'TypeScript / JavaScript',
+      python: 'Python',
+      csharp: 'C#'
+    },
+    status: {
+      disabled: '使わない',
+      unavailable: '未インストール',
+      starting: '起動中…',
+      ready: '利用可能',
+      failed: '起動失敗',
+      stopped: '停止中'
+    },
+    summary: {
+      disabled: 'LSP: 使わない',
+      unavailable: 'LSP: 未インストール',
+      starting: 'LSP: 起動中…',
+      ready: 'LSP: 利用可能',
+      failed: 'LSP: 起動失敗',
+      stopped: 'LSP: 停止中'
     }
   },
   workspace: {

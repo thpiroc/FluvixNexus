@@ -952,6 +952,11 @@ export const enMessages = {
         title: 'Editor',
         description: 'When edited files are saved.'
       },
+      lsp: {
+        title: 'Language Server',
+        description:
+          'Language servers provide diagnostics for code you open. They are installed separately and are not bundled with Fluvix Nexus.'
+      },
       files: {
         title: 'Files',
         description: 'How the file list is displayed.'
@@ -988,6 +993,18 @@ export const enMessages = {
           description: 'How long to wait after typing stops before saving.'
         }
       },
+      lsp: {
+        enabled: {
+          title: 'Use Language Servers',
+          description:
+            'Turning this off stops running servers and returns to the editor built-in checks. Editing, saving, and search are unaffected.'
+        },
+        servers: {
+          title: 'Languages',
+          description:
+            'Choose which languages use a language server. These have no effect while the setting above is off.'
+        }
+      },
       files: {
         viewMode: {
           title: 'View Mode',
@@ -1018,6 +1035,12 @@ export const enMessages = {
         hintActive: '{min}-{max}ms',
         hintInactive: '{min}-{max}ms (not used by the current mode)'
       },
+      lspEnabled: {
+        aria: 'Use language servers'
+      },
+      lspServers: {
+        aria: 'Languages that use a language server'
+      },
       filesViewMode: {
         aria: 'Files view mode'
       },
@@ -1039,6 +1062,10 @@ export const enMessages = {
         afterDelay: 'Auto Save: After Delay',
         onFocusChange: 'Auto Save: On Focus Change',
         onWindowChange: 'Auto Save: On Window Change'
+      },
+      lsp: {
+        on: 'On',
+        off: 'Off'
       },
       filesView: {
         auto: 'Auto',
@@ -1085,6 +1112,40 @@ export const enMessages = {
         user: 'User',
         workspace: 'Workspace'
       }
+    }
+  },
+  /*
+    Language Server（Session 5-4）。
+
+    `servers.*` は表の行の名前で、**製品名ではなく言語の名前**にしてある
+    ── ステータスバーと設定に出るのは「その言語の機能が使えるか」であって、
+    どの実装を使っているかは利用者の関心ではない（実装名は Main のログに出る）。
+
+    `status.*` は内訳（マウスを載せたとき）、`summary.*` はまとめた1語になる。
+    言い回しを分けてあるのは、前者が「TypeScript は Ready」と読めればよいのに対し、
+    後者は単独で「何の話か」まで伝える必要があるため。
+  */
+  lsp: {
+    servers: {
+      typescript: 'TypeScript / JavaScript',
+      python: 'Python',
+      csharp: 'C#'
+    },
+    status: {
+      disabled: 'Off',
+      unavailable: 'Not installed',
+      starting: 'Starting…',
+      ready: 'Ready',
+      failed: 'Failed',
+      stopped: 'Not running'
+    },
+    summary: {
+      disabled: 'LSP: Off',
+      unavailable: 'LSP: Not installed',
+      starting: 'LSP: Starting…',
+      ready: 'LSP: Ready',
+      failed: 'LSP: Failed',
+      stopped: 'LSP: Not running'
     }
   },
   workspace: {

@@ -37,7 +37,15 @@ import {
  * 同じ線で、**それは Renderer 側の不具合であって、静かに消えると気づけない。**
  */
 
-type FieldKind = 'string' | 'number'
+/**
+ * key 1つの型。
+ *
+ * Session 5-4 で `boolean` が増えた（`lsp` section）。ここに増えるのは
+ * **JSON がそのまま持てる素の型**だけに留める ── 配列や object を許すと、
+ * 「読める形か」を確かめる範囲が中身の深さに応じて広がり、
+ * Main が値の意味を解釈しないという分担が保てなくなる。
+ */
+type FieldKind = 'string' | 'number' | 'boolean'
 
 /** section の中で、この版が知っている key とその型。 */
 type SectionFieldSpec<Id extends SettingsSectionId> = {
@@ -64,6 +72,25 @@ const SECTION_FIELDS: { readonly [Id in SettingsSectionId]: SectionFieldSpec<Id>
   */
   appearance: { theme: 'string' },
   editor: { autoSaveMode: 'string', autoSaveDelayMs: 'number' },
+  /*
+    Session 5-4 で足した section。**この section だけは Main も値の意味を読む**
+    ── プロセスを立てる / 終わらせるのは Main の側で、有効かどうかは
+    Renderer の中では完結しないため（shared/lsp/serverSettings.ts）。
+
+    それでも**ここは形しか見ない**。「真偽値であること」を確かめるのがここで、
+    「無ければ有効」「読めなければ有効」と決めるのは shared の
+    `normalizeLanguageServerPreferences` になる ── 分担そのものは変えていない。
+
+    実行ファイルのパスや引数の欄は無い（shared/settings/sections.ts）。
+    ここへ `string` の欄を1つ足した時点で、設定ファイルは
+    「利用者と Renderer が指定した実行ファイルが起動する場所」になる。
+  */
+  lsp: {
+    enabled: 'boolean',
+    typescriptEnabled: 'boolean',
+    pythonEnabled: 'boolean',
+    csharpEnabled: 'boolean'
+  },
   files: { viewMode: 'string', columnWidth: 'number' },
   terminal: { fontSize: 'number', scrollback: 'number' }
 }
@@ -197,9 +224,21 @@ function isPreservable(value: unknown): boolean {
 }
 
 function isReadableValue(value: unknown, kind: FieldKind): boolean {
-  return kind === 'string'
-    ? typeof value === 'string' && value.length <= SETTINGS_TEXT_MAX_LENGTH
-    : typeof value === 'number' && Number.isFinite(value)
+  switch (kind) {
+    case 'string':
+      return typeof value === 'string' && value.length <= SETTINGS_TEXT_MAX_LENGTH
+
+    case 'number':
+      return typeof value === 'number' && Number.isFinite(value)
+
+    case 'boolean':
+      /*
+        `'true'` も `1` も通さない。**寛容に読み替えると、書いた側の誤りが
+        設定ファイルの中で正しい値に化ける** ── 読めない値は落として
+        既定（有効）へ戻す方が、後から原因を辿れる。
+      */
+      return typeof value === 'boolean'
+  }
 }
 
 export function isPlainObject(value: unknown): value is Record<string, unknown> {

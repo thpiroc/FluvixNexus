@@ -53,6 +53,7 @@ describe('settings.json の読み書き', () => {
       general: {},
       appearance: {},
       editor: {},
+      lsp: {},
       files: {},
       terminal: {}
     })
@@ -87,6 +88,7 @@ describe('settings.json の読み書き', () => {
         general: {},
         appearance: {},
         editor: { autoSaveMode: 'afterDelay' },
+        lsp: {},
         files: {},
         terminal: {}
       }
@@ -119,6 +121,7 @@ describe('settings.json の読み書き', () => {
       general: {},
       appearance: {},
       editor: {},
+      lsp: {},
       files: { viewMode: 'columns' },
       terminal: { fontSize: 20, scrollback: 1000 }
     })
@@ -135,6 +138,7 @@ describe('settings.json の読み書き', () => {
       general: {},
       appearance: {},
       editor: {},
+      lsp: {},
       files: {},
       terminal: {}
     })
@@ -165,6 +169,7 @@ describe('旧 3 ファイルからの移行', () => {
       general: {},
       appearance: {},
       editor: { autoSaveMode: 'afterDelay', autoSaveDelayMs: 3000 },
+      lsp: {},
       files: { viewMode: 'columns', columnWidth: 240 },
       terminal: { fontSize: 20, scrollback: 1000 }
     })
@@ -176,6 +181,7 @@ describe('旧 3 ファイルからの移行', () => {
         general: {},
         appearance: {},
         editor: { autoSaveMode: 'afterDelay', autoSaveDelayMs: 3000 },
+        lsp: {},
         files: { viewMode: 'columns', columnWidth: 240 },
         terminal: { fontSize: 20, scrollback: 1000 }
       }
@@ -212,6 +218,7 @@ describe('旧 3 ファイルからの移行', () => {
       general: {},
       appearance: {},
       editor: {},
+      lsp: {},
       files: {},
       terminal: { fontSize: 20, scrollback: 1000 }
     })
@@ -229,6 +236,7 @@ describe('旧 3 ファイルからの移行', () => {
       general: {},
       appearance: {},
       editor: {},
+      lsp: {},
       files: {},
       terminal: { fontSize: 11 }
     })
@@ -250,6 +258,7 @@ describe('旧 3 ファイルからの移行', () => {
       general: {},
       appearance: {},
       editor: {},
+      lsp: {},
       files: {},
       terminal: {}
     })

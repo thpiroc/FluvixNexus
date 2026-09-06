@@ -26,14 +26,22 @@ import type { TranslationKey } from '../i18n/messages'
  *
  * ## 中身の無いカテゴリを作らない
  *
- * `git`・`workspace`・`language`（LSP）・`debug`（DAP）はここに**無い**。
- * 並べるものがまだ1つも無いためで、空のカテゴリは「まだ何も無い場所」を画面に
- * 作るだけになる（保存側で「中身が決まっていない section を先に作らない」と
- * しているのと同じ線 ── shared/settings/sections.ts）。
+ * `git`・`workspace`・`debug`（DAP）はここに**無い**。並べるものがまだ1つも
+ * 無いためで、空のカテゴリは「まだ何も無い場所」を画面に作るだけになる
+ * （保存側で「中身が決まっていない section を先に作らない」としているのと
+ * 同じ線 ── shared/settings/sections.ts）。
  *
  * `appearance` は Session 4-4 で**中身ができたので足した**。この形で入った
  * 最初のカテゴリで、触ったのはこの表と `SettingsCategoryId` だけになる。
  * **項目を1つも持たないカテゴリは足せない**（テストが落ちる）。
+ *
+ * `lsp` は Session 5-4 で同じ形で入った2つめにあたる。並べるのは
+ * 「使うかどうか」だけで、**実行ファイルの場所も引数も並べない**
+ * ── 保存形式にその欄が無いためで、画面の都合で欄を増やすことはしない
+ * （shared/settings/sections.ts の `StoredLspSettings`）。
+ *
+ * 置き場所は Editor の次にしてある。Language Server が効くのは Editor の中
+ * （診断・この先の補完や定義へ移動）で、探す人が Editor の近くを見るため。
  *
  * ## カテゴリには2種類ある（Session 4-7C）
  *
@@ -117,9 +125,9 @@ export type SettingsCategoryDescriptor =
 /**
  * 並ぶものすべて。
  *
- * 順序は「よく変えるものから」ではなく**機能の並び**（Editor / Files / Terminal）に
- * 合わせてある ── 保存ファイルの section の並びとも、Workspace のパネルの並びとも
- * 同じで、探す人が別の順序を覚え直さずに済む。
+ * 順序は「よく変えるものから」ではなく**機能の並び**（Editor / LSP / Files / Terminal）に
+ * 合わせてある ── 保存ファイルの section の並びとも同じで、探す人が
+ * 別の順序を覚え直さずに済む。
  *
  * **Keyboard Shortcuts は末尾**（Session 4-7C）。値カテゴリの並びを
  * `SETTINGS_SECTION_IDS` と同じまま保つためで、値を変える場所と
@@ -171,6 +179,26 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategoryDescriptor[] = [
         titleKey: 'settings.items.editor.autoSaveDelayMs.title',
         descriptionKey: 'settings.items.editor.autoSaveDelayMs.description',
         section: 'editor'
+      }
+    ]
+  },
+  {
+    kind: 'items',
+    id: 'lsp',
+    titleKey: 'settings.categories.lsp.title',
+    descriptionKey: 'settings.categories.lsp.description',
+    items: [
+      {
+        id: 'lsp.enabled',
+        titleKey: 'settings.items.lsp.enabled.title',
+        descriptionKey: 'settings.items.lsp.enabled.description',
+        section: 'lsp'
+      },
+      {
+        id: 'lsp.servers',
+        titleKey: 'settings.items.lsp.servers.title',
+        descriptionKey: 'settings.items.lsp.servers.description',
+        section: 'lsp'
       }
     ]
   },

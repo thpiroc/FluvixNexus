@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process'
 import { existsSync } from 'fs'
 import { app } from 'electron'
+import type { LanguageServerRuntimeStatus } from '@shared/lsp'
 import { createLogger } from '../logger'
 import { currentPlatform } from '../platform'
 import {
@@ -175,6 +176,101 @@ function notifyState(id: LanguageServerId, state: LanguageServerState): void {
       log.error('a language server state listener failed.', cause)
     }
   }
+
+  // 画面に出す状態も同じ出来事で動く（下記）。
+  notifyRuntimeStatus(id)
+}
+
+/* ------------------------------------------------------- 画面に出す状態（5-4） */
+
+/**
+ * 状態が変わったことの知らせ（Session 5-4 ── ステータスバー用）。
+ *
+ * `onLanguageServerStateChange`（`ready` / `stopped`）とは**用途が違う**ので
+ * 別の口にしてある。
+ *
+ * ```
+ * onLanguageServerStateChange       … 文書同期と診断が使う。「話せる / 話せない」の2つ
+ * onLanguageServerRuntimeStatusChange … 画面に出すだけ。立ち上げ中も、諦めた後も動く
+ * ```
+ *
+ * 前者に `starting` を混ぜなかったのは、受け手（documentSync.ts）が
+ * 「stopped でなければ話せる」として読んでいるため ── そこへ第3の値を流すと、
+ * まだ初期化が済んでいないサーバへ開き直しを頼み始める。
+ *
+ * **新しい状態を持ってはいない。** 下の `getLanguageServerRuntimeStatus` は
+ * 既にある3つ（立っているサーバの表・立て直し待ち・起動の結末）から
+ * その場で導くだけで、控えを別に持つことはしない。
+ */
+export type LanguageServerRuntimeStatusListener = (id: LanguageServerId) => void
+
+const runtimeStatusListeners = new Set<LanguageServerRuntimeStatusListener>()
+
+export function onLanguageServerRuntimeStatusChange(
+  listener: LanguageServerRuntimeStatusListener
+): () => void {
+  runtimeStatusListeners.add(listener)
+
+  return () => {
+    runtimeStatusListeners.delete(listener)
+  }
+}
+
+function notifyRuntimeStatus(id: LanguageServerId): void {
+  for (const listener of runtimeStatusListeners) {
+    try {
+      listener(id)
+    } catch (cause) {
+      log.error('a language server status listener failed.', cause)
+    }
+  }
+}
+
+/**
+ * 起動できなかった理由（id ごと）。
+ *
+ * 立っていないサーバの「立っていない理由」を表すためだけに持つ。
+ * **立てようとして初めて入る** ── 入れていない PC でも、その言語の
+ * ファイルを1つも開かなければ `stopped` のままになる。開いてもいない言語について
+ * 「入っていません」と出しても、利用者に次の一手が無い。
+ *
+ * 立ち上がったとき・こちらから終わらせたときに消す（下記）。
+ */
+const startFailures = new Map<LanguageServerId, 'unavailable' | 'failed'>()
+
+function markStartFailure(id: LanguageServerId, reason: 'unavailable' | 'failed'): void {
+  startFailures.set(id, reason)
+  notifyRuntimeStatus(id)
+}
+
+/**
+ * そのサーバが今どうなっているか（Session 5-4）。
+ *
+ * **既にある事実から導くだけ**で、ここが状態を持つことはしない。
+ *
+ * ```
+ * servers に居る         … ready の印が立っていれば ready、でなければ starting
+ * 立て直し待ち           … starting（プロセスは無いが、諦めてはいない）
+ * 起動できなかった記録   … unavailable / failed
+ * それ以外               … stopped
+ * ```
+ *
+ * 設定で切られている場合（`disabled`）はここに現れない ── それは
+ * プロセスの状態ではないので、乗せるのは1つ上の層になる
+ * （main/lsp/serverStatus.ts。shared/lsp/serverStatus.ts の `resolveLanguageServerStatus`）。
+ */
+export function getLanguageServerRuntimeStatus(id: LanguageServerId): LanguageServerRuntimeStatus {
+  const record = servers.get(id)
+
+  if (record !== undefined) {
+    return record.ready ? 'ready' : 'starting'
+  }
+
+  if (pendingRestarts.has(id)) {
+    return 'starting'
+  }
+
+  return startFailures.get(id) ?? 'stopped'
 }
 
 /** 立っているサーバ。1つの言語につき1本。 */
@@ -251,6 +347,12 @@ export function startLanguageServer(id: LanguageServerId): StartLanguageServerOu
   const command = resolveLanguageServerCommand(id, currentPlatform, process.env, existsSync)
 
   if (command === null) {
+    /*
+      この PC に入っていない。**立てようとして初めて分かる**ので、
+      控えるのもここになる（startFailures の冒頭）。
+    */
+    markStartFailure(id, 'unavailable')
+
     return { status: 'server-unavailable' }
   }
 
@@ -287,6 +389,14 @@ function spawnServer(
   } catch (cause) {
     const detail = cause instanceof Error ? `${cause.name}: ${cause.message}` : String(cause)
     log.error(`failed to start ${command.name}: ${command.file}`, cause)
+
+    /*
+      実行ファイルはあったのに起動できなかった（権限・壊れた実行ファイル）。
+      `unavailable` と分けるのは、利用者の次の一手が違うため
+      （shared/lsp/serverStatus.ts）。**理由の中身は画面へ渡さない** ──
+      渡るのはこの1語だけで、`detail` はログに残る。
+    */
+    markStartFailure(id, 'failed')
 
     return { status: 'spawn-failed', detail }
   }
@@ -328,6 +438,13 @@ function spawnServer(
   }
 
   servers.set(id, record)
+
+  /*
+    立ったので、前回の「立たなかった理由」はもう当たらない。
+    知らせるのは控えを消してから（`starting` として読めるようにする）。
+  */
+  startFailures.delete(id)
+  notifyRuntimeStatus(id)
 
   child.stdout.on('data', (chunk: Buffer) => {
     connection.receive(chunk)
@@ -534,9 +651,19 @@ export function stopLanguageServer(id: LanguageServerId, reason: string): void {
   const record = servers.get(id)
 
   if (record === undefined) {
+    /*
+      立っていないものを終わらせた。**それでも「立たなかった理由」は消す**
+      ── 諦めた後（`failed`）に設定で切ってから戻す、という道でここを通るので、
+      残すと立て直せる状態になっても失敗のまま出続ける（Session 5-4）。
+    */
+    if (startFailures.delete(id)) {
+      notifyRuntimeStatus(id)
+    }
+
     return
   }
 
+  startFailures.delete(id)
   stopRecord(record, reason)
 }
 
@@ -558,6 +685,20 @@ export function stopLanguageServers(reason: string): void {
   }
 
   servers.clear()
+
+  /*
+    立たなかった理由も忘れる（Session 5-4）。ここを通るのは Workspace の
+    切り替え・設定での停止・アプリの終了で、どれも**次に立てるときは
+    やり直し**になる ── 前のフォルダで入っていなかったことは、
+    次のフォルダでは何の根拠にもならない。
+  */
+  const failed = [...startFailures.keys()]
+
+  startFailures.clear()
+
+  for (const id of failed) {
+    notifyRuntimeStatus(id)
+  }
 }
 
 function stopRecord(record: LanguageServerRecord, reason: string): void {
@@ -661,6 +802,13 @@ function scheduleRestart(record: LanguageServerRecord, now: number): void {
       `${record.name} keeps exiting (${decision.attempts} times); not restarting it any more.`
     )
 
+    /*
+      諦めたことを画面へ出せるようにする（Session 5-4）。ここまで来ると
+      `stopped` と区別が付かなくなるが、利用者から見た意味は正反対にあたる
+      ── 前者は「使っていない」で、後者は「使おうとして駄目だった」になる。
+    */
+    markStartFailure(record.id, 'failed')
+
     return
   }
 
@@ -678,6 +826,13 @@ function scheduleRestart(record: LanguageServerRecord, now: number): void {
   timer.unref?.()
 
   pendingRestarts.set(record.id, timer)
+
+  /*
+    待っている間は `starting` として出す（Session 5-4）。落ちた直後に
+    `stopped` を出したままにすると、勝手に立ち直る途中であることが
+    利用者に伝わらない。
+  */
+  notifyRuntimeStatus(record.id)
 }
 
 function restartNow(record: LanguageServerRecord): void {
@@ -689,6 +844,10 @@ function restartNow(record: LanguageServerRecord): void {
   */
   if (workspace === null || workspace.id !== record.workspaceId) {
     log.info(`${record.name} is not restarted: the workspace folder changed while waiting.`)
+
+    // 待つのをやめた（`starting` から `stopped` へ戻る）。
+    notifyRuntimeStatus(record.id)
+
     return
   }
 

@@ -26,6 +26,7 @@ import { FilesViewProvider } from '../files/FilesViewProvider'
 import { useFilesLayout } from '../files/useFilesLayout'
 import { toFilesViewChoice } from '../files/filesSettings'
 import { LanguageProvider } from '../i18n/LanguageProvider'
+import { LspSettingsProvider } from '../lsp/LspSettingsProvider'
 import { readDocumentLanguage } from '../i18n/documentLanguage'
 import { ThemeProvider } from '../theme/ThemeProvider'
 import { readDocumentTheme } from '../theme/documentTheme'
@@ -164,42 +165,52 @@ function SettingsDomHarness(): ReactElement {
               FilesViewProvider,
               null,
               createElement(
-                'div',
+                /*
+                  Language Server の設定（Session 5-4）。実物の Provider を使う
+                  ── 確かめたいのが「押すと保存され、その値が画面に出ること」で、
+                  差し替えるとその経路ごと試験の外に出てしまう
+                  （Theme と同じ理由。値は上の `settingsStore` から読む）。
+                */
+                LspSettingsProvider,
                 null,
-                createElement(WorkspaceTopBar, {
-                  visiblePanelIds,
-                  presetId: 'default',
-                  modified: false,
-                  onTogglePanel: vi.fn(),
-                  onApplyPreset: vi.fn(),
-                  onResetLayout: vi.fn(),
-                  settingsOpen,
-                  onOpenSettings: () => setSettingsOpen(true)
-                }),
-                createElement(FilesToolbarProbe),
-                createElement(TerminalSettingsMenu, {
-                  display: terminal,
-                  onFontSizeChange: (fontSize) =>
-                    setTerminal((previous) => ({ ...previous, fontSize }))
-                }),
-                createElement('span', { 'data-testid': 'editor-auto-save-mode' }, autoSave.mode),
                 createElement(
-                  'span',
-                  { 'data-testid': 'editor-auto-save-delay' },
-                  autoSave.delayMs
-                ),
-                createElement(
-                  'span',
-                  { 'data-testid': 'terminal-font-size-value' },
-                  terminal.fontSize
-                ),
-                createElement(
-                  'span',
-                  { 'data-testid': 'terminal-scrollback-value' },
-                  terminal.scrollback
-                ),
-                settingsOpen &&
-                  createElement(SettingsOverlay, { onClose: () => setSettingsOpen(false) })
+                  'div',
+                  null,
+                  createElement(WorkspaceTopBar, {
+                    visiblePanelIds,
+                    presetId: 'default',
+                    modified: false,
+                    onTogglePanel: vi.fn(),
+                    onApplyPreset: vi.fn(),
+                    onResetLayout: vi.fn(),
+                    settingsOpen,
+                    onOpenSettings: () => setSettingsOpen(true)
+                  }),
+                  createElement(FilesToolbarProbe),
+                  createElement(TerminalSettingsMenu, {
+                    display: terminal,
+                    onFontSizeChange: (fontSize) =>
+                      setTerminal((previous) => ({ ...previous, fontSize }))
+                  }),
+                  createElement('span', { 'data-testid': 'editor-auto-save-mode' }, autoSave.mode),
+                  createElement(
+                    'span',
+                    { 'data-testid': 'editor-auto-save-delay' },
+                    autoSave.delayMs
+                  ),
+                  createElement(
+                    'span',
+                    { 'data-testid': 'terminal-font-size-value' },
+                    terminal.fontSize
+                  ),
+                  createElement(
+                    'span',
+                    { 'data-testid': 'terminal-scrollback-value' },
+                    terminal.scrollback
+                  ),
+                  settingsOpen &&
+                    createElement(SettingsOverlay, { onClose: () => setSettingsOpen(false) })
+                )
               )
             )
           )
@@ -314,6 +325,11 @@ describe('SettingsOverlay DOM', () => {
     await click('settings-category-files')
     expect(container.querySelector('.fx-settings__content')?.getAttribute('data-category')).toBe(
       'files'
+    )
+
+    await click('settings-category-lsp')
+    expect(container.querySelector('.fx-settings__content')?.getAttribute('data-category')).toBe(
+      'lsp'
     )
 
     await click('settings-category-terminal')
@@ -502,5 +518,83 @@ describe('SettingsOverlay DOM', () => {
     await renderHarness()
 
     expect(readDocumentTheme()).toBe('dark')
+  })
+
+  /*
+    Language Server（Session 5-4）。
+
+    確かめたいのは3つで、どれも**この面が値を持たない**ことに掛かっている。
+
+      - 既定は「使う」（Session 5-3 までと同じ振る舞い）
+      - 押すと保存要求が出る（そこから先は Main が受け持つ）
+      - 全体を切っても、言語ごとの選択は残り、押せるまま
+
+    「切ったらサーバが止まる」は Main の側の話で、ここでは見ない
+    （main/lsp/languageServerSettings.ts）。
+  */
+  it('Language Server の既定は「使う」で、切ると保存される', async () => {
+    await renderHarness()
+    await click('topbar-settings')
+    await click('settings-category-lsp')
+
+    expect(byTestId('settings-lsp-enabled-on').dataset.active).toBe('true')
+    expect(byTestId('settings-lsp-enabled-off').dataset.active).toBe('false')
+
+    for (const id of ['typescript', 'python', 'csharp']) {
+      expect(byTestId(`settings-lsp-server-${id}`).dataset.active).toBe('true')
+    }
+
+    await click('settings-lsp-enabled-off')
+
+    expect(byTestId('settings-lsp-enabled-off').dataset.active).toBe('true')
+    expect(settingsStore.saveSection).toHaveBeenCalledWith({
+      section: 'lsp',
+      value: {
+        enabled: false,
+        typescriptEnabled: true,
+        pythonEnabled: true,
+        csharpEnabled: true
+      }
+    })
+  })
+
+  it('全体を切っても、言語ごとの選択は残り、押せるまま', async () => {
+    await renderHarness()
+    await click('topbar-settings')
+    await click('settings-category-lsp')
+
+    await click('settings-lsp-server-python')
+    expect(byTestId('settings-lsp-server-python').dataset.active).toBe('false')
+
+    await click('settings-lsp-enabled-off')
+
+    // 効いていないことは薄さで示すだけで、値も操作も残す（settings.css）。
+    expect(byTestId('settings-lsp-servers').dataset.inactive).toBe('true')
+    expect(byTestId('settings-lsp-server-typescript').dataset.active).toBe('true')
+    expect(byTestId('settings-lsp-server-python').dataset.active).toBe('false')
+
+    await click('settings-lsp-server-csharp')
+    expect(byTestId('settings-lsp-server-csharp').dataset.active).toBe('false')
+
+    await click('settings-lsp-enabled-on')
+
+    expect(byTestId('settings-lsp-servers').dataset.inactive).toBe('false')
+    expect(byTestId('settings-lsp-server-typescript').dataset.active).toBe('true')
+    expect(byTestId('settings-lsp-server-python').dataset.active).toBe('false')
+    expect(byTestId('settings-lsp-server-csharp').dataset.active).toBe('false')
+  })
+
+  it('保存されている値が読めなければ「使う」で出る', async () => {
+    settingsStore.sections = {
+      ...emptySettingsSections(),
+      lsp: { enabled: 'no' } as unknown as SettingsSections['lsp']
+    }
+    settingsStore.load.mockResolvedValue({ ok: true, data: { sections: settingsStore.sections } })
+
+    await renderHarness()
+    await click('topbar-settings')
+    await click('settings-category-lsp')
+
+    expect(byTestId('settings-lsp-enabled-on').dataset.active).toBe('true')
   })
 })

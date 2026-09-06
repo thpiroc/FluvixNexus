@@ -28,11 +28,12 @@ import {
  */
 
 describe('SETTINGS_CATEGORIES', () => {
-  it('General / Appearance / Editor / Files / Terminal / Keyboard がこの順に並ぶ', () => {
+  it('General / Appearance / Editor / LSP / Files / Terminal / Keyboard がこの順に並ぶ', () => {
     expect(listSettingsCategories().map((category) => category.id)).toEqual([
       'general',
       'appearance',
       'editor',
+      'lsp',
       'files',
       'terminal',
       'keyboard'
@@ -96,8 +97,13 @@ describe('SETTINGS_CATEGORIES', () => {
   it('まだ中身の無いカテゴリを先に置いていない', () => {
     const ids = SETTINGS_CATEGORIES.map((category) => category.id) as readonly string[]
 
-    // `general` は Session 4-5A で中身ができたので、ここからは外れている。
-    for (const absent of ['git', 'workspace', 'language', 'lsp', 'debug', 'dap']) {
+    /*
+      `general` は Session 4-5A、`lsp` は Session 5-4 で中身ができたので、
+      ここからは外れている。`language` が残っているのは、LSP のカテゴリに
+      その名前を使っていないことを言うため（`general.language`（表示言語）と
+      紛らわしい ── 別の設定にほかならない）。
+    */
+    for (const absent of ['git', 'workspace', 'language', 'debug', 'dap']) {
       expect(ids).not.toContain(absent)
     }
   })
@@ -116,16 +122,34 @@ describe('listSettingsItems', () => {
 
     Keyboard Shortcuts は項目を1つも足していない ── 一覧表であって設定ではない。
   */
-  it('7つの設定が、カテゴリの順に並ぶ', () => {
+  it('9つの設定が、カテゴリの順に並ぶ', () => {
     expect(listSettingsItems().map((item) => item.id)).toEqual([
       'general.language',
       'appearance.theme',
       'editor.autoSaveMode',
       'editor.autoSaveDelayMs',
+      'lsp.enabled',
+      'lsp.servers',
       'files.viewMode',
       'terminal.fontSize',
       'terminal.scrollback'
     ])
+  })
+
+  /*
+    保存形式には言語ごとの key が3つあるが（`typescriptEnabled` ほか）、
+    画面の項目は1つにまとめてある（settings/SettingsOverlay.tsx）。
+    **目録の項目と保存形式の key は1対1ではない**という例が、Files の
+    カラムの幅に続いて2つめになる。
+  */
+  it('言語ごとの切り替えは、項目としては1つにまとめる', () => {
+    const ids = listSettingsItems().map((item) => item.id)
+
+    expect(ids).toContain('lsp.servers')
+
+    for (const absent of ['lsp.typescript', 'lsp.python', 'lsp.csharp']) {
+      expect(ids).not.toContain(absent)
+    }
   })
 
   it('カラムの幅は並べない（掴んで動かして決めるもの）', () => {

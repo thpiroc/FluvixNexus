@@ -4,6 +4,7 @@ import { EditorProvider } from './editor/EditorProvider'
 import { FilesViewProvider } from './files/FilesViewProvider'
 import { LanguageProvider } from './i18n/LanguageProvider'
 import { KeybindingProvider } from './keybindings/KeybindingProvider'
+import { LspSettingsProvider } from './lsp/LspSettingsProvider'
 import { TerminalProvider } from './terminal/TerminalProvider'
 import { ThemeProvider } from './theme/ThemeProvider'
 import { UnsavedChangesProvider } from './unsaved/UnsavedChangesProvider'
@@ -17,7 +18,7 @@ import { WorkspaceFolderProvider } from './workspaceFolder/WorkspaceFolderProvid
  * アプリ全体に関わるもの（エラーバウンダリ、独立ウィンドウ化した際のルート分岐など）が
  * 必要になったときだけこの層に足す。
  *
- * Shell より外側に置いているものが8つある。どれも**レイアウトの都合でパネルが
+ * Shell より外側に置いているものが9つある。どれも**レイアウトの都合でパネルが
  * 作り直されても消えてはいけない状態**で、パネルは自由に配置を変えられて
  * 親子関係が固定されていないため prop では配れない。
  *
@@ -28,6 +29,7 @@ import { WorkspaceFolderProvider } from './workspaceFolder/WorkspaceFolderProvid
  *   EditorProvider          … 開いているファイルのタブ（Files が開き、Editor が出す）
  *   TerminalProvider        … 動いているシェルと、その画面（Session 3-7-1）
  *   FilesViewProvider       … Files の表示方式として**利用者が選んだ方**（Session 3-6-7）
+ *   LspSettingsProvider     … Language Server を使うか（Session 5-4。lsp/）
  *   KeybindingProvider      … 打鍵を command へ繋ぐ（Session 4-7A。keybindings/）
  *
  * Shell の中に置くと、レイアウトの都合でパネルが作り直されたときに
@@ -83,9 +85,19 @@ function App(): JSX.Element {
                 <TerminalProvider>
                   {/* 表示方式の選択は他の4つに依存しない。一番内側で足りる。 */}
                   <FilesViewProvider>
-                    <KeybindingProvider>
-                      <WorkspaceShell />
-                    </KeybindingProvider>
+                    {/*
+                      Language Server を使うかどうか（Session 5-4）。
+                      Files の表示方式と同じく他に依存しないので内側で足りる。
+
+                      **Editor より外に置く必要は無い。** この値が効くのは
+                      Settings 画面の表示だけで、実際にサーバを立てる / 終わらせるのは
+                      Main が自分で読んだ同じ設定になる（lsp/LspSettingsProvider.tsx）。
+                    */}
+                    <LspSettingsProvider>
+                      <KeybindingProvider>
+                        <WorkspaceShell />
+                      </KeybindingProvider>
+                    </LspSettingsProvider>
                   </FilesViewProvider>
                 </TerminalProvider>
               </EditorProvider>

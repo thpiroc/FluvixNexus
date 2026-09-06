@@ -197,4 +197,70 @@ describe('parseSettingsSectionUpdate（Renderer からの保存要求）', () =>
       })
     ).toEqual({ section: 'editor', value: { autoSaveMode: 'off' } })
   })
+
+  /*
+    Session 5-4 で足した section と、`boolean` という新しい key の型。
+
+    **この section は Main も値の意味を読む**（プロセスを立てる / 終わらせるのは
+    Main の側）が、ここで見るのは形だけで変わらない ── 「無ければ有効」と
+    決めるのは shared の `normalizeLanguageServerPreferences` になる。
+  */
+  it('lsp は真偽値として通る', () => {
+    expect(
+      parseSettingsSectionUpdate({
+        section: 'lsp',
+        value: {
+          enabled: false,
+          typescriptEnabled: true,
+          pythonEnabled: false,
+          csharpEnabled: true
+        }
+      })
+    ).toEqual({
+      section: 'lsp',
+      value: { enabled: false, typescriptEnabled: true, pythonEnabled: false, csharpEnabled: true }
+    })
+  })
+
+  /*
+    `'true'` も `1` も読み替えない。寛容に読むと、書いた側の誤りが
+    設定ファイルの中で正しい値に化ける（main/store/settingsSections.ts）。
+  */
+  it('lsp の key が真偽値でなければ、要求ごと拒む', () => {
+    for (const enabled of ['true', 'false', 0, 1, null, {}, []]) {
+      expect(parseSettingsSectionUpdate({ section: 'lsp', value: { enabled } })).toBeNull()
+    }
+  })
+
+  it('ファイルから読むときは、真偽値でない key だけを落とす', () => {
+    const parsed = parseStoredSection('lsp', {
+      enabled: 'yes',
+      typescriptEnabled: false,
+      pythonEnabled: true
+    })
+
+    expect(parsed.value).toEqual({ typescriptEnabled: false, pythonEnabled: true })
+    expect(parsed.droppedFields).toEqual(['enabled'])
+    expect(parsed.readable).toBe(true)
+  })
+
+  /*
+    **実行ファイルの場所は保存できない**（Session 5-4）。保存形式に欄が無いので、
+    どんな名前で送っても知らない key として落ちる ── 設定ファイルを
+    「利用者と Renderer が指定した実行ファイルが起動する場所」にしない、
+    という線がここでも効いていることを見ておく。
+  */
+  it('lsp に実行ファイルの欄は無い（送っても保存されない）', () => {
+    expect(
+      parseSettingsSectionUpdate({
+        section: 'lsp',
+        value: {
+          enabled: true,
+          serverPath: 'C:/evil.exe',
+          args: ['--stdio'],
+          cwd: 'C:/'
+        }
+      })
+    ).toEqual({ section: 'lsp', value: { enabled: true } })
+  })
 })

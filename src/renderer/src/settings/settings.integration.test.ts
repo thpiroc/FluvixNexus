@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { emptySettingsSections, type SettingsSections } from '@shared/settings'
+import {
+  DEFAULT_LANGUAGE_SERVER_PREFERENCES,
+  isLanguageServerEnabled,
+  isSameLanguageServerPreferences,
+  normalizeLanguageServerPreferences,
+  toStoredLspSettings,
+  type LanguageServerId,
+  type LanguageServerPreferences
+} from '@shared/lsp'
 import { fromThemeArguments, THEME_IDS, toThemeArgument, type ThemeId } from '@shared/theme'
 import {
   AUTO_SAVE_DELAY_MAX_MS,
@@ -108,6 +117,15 @@ class Store {
   files: FilesViewSettings = DEFAULT_FILES_VIEW_SETTINGS
   terminal: TerminalDisplaySettings = DEFAULT_TERMINAL_DISPLAY_SETTINGS
   appearance: AppearanceSettings = DEFAULT_APPEARANCE_SETTINGS
+  /*
+    Language Server を使うか（Session 5-4）。実物は `LspSettingsProvider` で、
+    他の5つと同じく「1つの値と、それを変える setter」でしかない。
+
+    **この値だけは Main も同じものを読む**（プロセスを立てる / 終わらせるのは
+    Main の側）。だから変換に使う関数は Renderer のものではなく shared のものになり、
+    ここでもそれをそのまま通している（shared/lsp/serverSettings.ts）。
+  */
+  lsp: LanguageServerPreferences = DEFAULT_LANGUAGE_SERVER_PREFERENCES
 
   /* -------- setter（実物と同じ正規化を通る） */
 
@@ -147,6 +165,19 @@ class Store {
     this.language = toLanguageSettings({ language })
   }
 
+  setLspEnabled(enabled: boolean): void {
+    const next = { ...this.lsp, enabled }
+
+    // 「同じなら据え置く」は値の意味を知っている側の判断（実物と同じ形）。
+    this.lsp = isSameLanguageServerPreferences(this.lsp, next) ? this.lsp : next
+  }
+
+  setLspServerEnabled(id: LanguageServerId, enabled: boolean): void {
+    const next = { ...this.lsp, servers: { ...this.lsp.servers, [id]: enabled } }
+
+    this.lsp = isSameLanguageServerPreferences(this.lsp, next) ? this.lsp : next
+  }
+
   /* -------- ディスクへ（useSettingsSection が値の変化ごとに書くもの） */
 
   toSections(): SettingsSections {
@@ -154,6 +185,7 @@ class Store {
       general: toGeneralSection(this.language),
       appearance: toAppearanceSection(this.appearance),
       editor: toEditorSettingsSection(this.autoSave),
+      lsp: toStoredLspSettings(this.lsp),
       files: toFilesSettingsSection(this.files),
       terminal: toTerminalSettingsSection(this.terminal)
     }
@@ -165,6 +197,7 @@ class Store {
     this.language = toLanguageSettings(sections.general)
     this.appearance = toAppearanceSettings(sections.appearance)
     this.autoSave = toAutoSaveSettings(sections.editor)
+    this.lsp = normalizeLanguageServerPreferences(sections.lsp)
     this.files = toFilesViewSettings(sections.files)
     this.terminal = toTerminalDisplaySettings(sections.terminal)
   }
@@ -203,6 +236,8 @@ function readSettingsScreen(store: Store): {
   terminalScrollback: number
   theme: ThemeId
   language: LanguageSettings['language']
+  lspEnabled: boolean
+  lspServers: Readonly<Record<LanguageServerId, boolean>>
 } {
   return {
     language: store.language.language,
@@ -211,14 +246,16 @@ function readSettingsScreen(store: Store): {
     filesViewChoice: toFilesViewChoice(store.files.preference),
     terminalFontSize: store.terminal.fontSize,
     terminalScrollback: store.terminal.scrollback,
-    theme: store.appearance.theme
+    theme: store.appearance.theme,
+    lspEnabled: store.lsp.enabled,
+    lspServers: store.lsp.servers
   }
 }
 
 /* -------------------------------------------------------------------------- */
 
 describe('Settings 画面の既定', () => {
-  it('保存が1つも無ければ、7項目すべてが既定で出る', () => {
+  it('保存が1つも無ければ、9項目すべてが既定で出る', () => {
     const store = new Store()
     store.loadSections(emptySettingsSections())
 
@@ -229,17 +266,26 @@ describe('Settings 画面の既定', () => {
       filesViewChoice: 'auto',
       terminalFontSize: 13,
       terminalScrollback: 5000,
-      theme: 'dark'
+      theme: 'dark',
+      /*
+        Language Server の既定は「使う」（Session 5-4）。設定を足したことで、
+        何も変えていない利用者の手元から診断が消えては困る
+        ── Session 5-3 までの振る舞いがそのまま既定になる。
+      */
+      lspEnabled: true,
+      lspServers: { typescript: true, python: true, csharp: true }
     })
   })
 
-  /* 画面に並ぶ7項目と、この統合テストが触る7項目が食い違わないようにする。 */
+  /* 画面に並ぶ9項目と、この統合テストが触る9項目が食い違わないようにする。 */
   it('画面に並ぶ項目と、ここで確かめる項目が一致する', () => {
     expect(listSettingsItems().map((item) => item.id)).toEqual([
       'general.language',
       'appearance.theme',
       'editor.autoSaveMode',
       'editor.autoSaveDelayMs',
+      'lsp.enabled',
+      'lsp.servers',
       'files.viewMode',
       'terminal.fontSize',
       'terminal.scrollback'
@@ -247,7 +293,7 @@ describe('Settings 画面の既定', () => {
   })
 })
 
-describe('Settings 画面から7項目を変える', () => {
+describe('Settings 画面から9項目を変える', () => {
   it('変えた値が、閉じて開き直しても、再起動しても残る', () => {
     const store = new Store()
     store.loadSections(emptySettingsSections())
@@ -260,6 +306,7 @@ describe('Settings 画面から7項目を変える', () => {
     store.setScrollback(12_000)
     store.setTheme('light')
     store.setLanguage('en')
+    store.setLspServerEnabled('python', false)
 
     const opened = readSettingsScreen(store)
 
@@ -270,7 +317,9 @@ describe('Settings 画面から7項目を変える', () => {
       filesViewChoice: 'columns',
       terminalFontSize: 16,
       terminalScrollback: 12_000,
-      theme: 'light'
+      theme: 'light',
+      lspEnabled: true,
+      lspServers: { typescript: true, python: false, csharp: true }
     })
 
     // 面を閉じて開き直す（画面は値を持たないので、読み直すだけで同じ）。
@@ -280,7 +329,7 @@ describe('Settings 画面から7項目を変える', () => {
     expect(readSettingsScreen(restart(store))).toEqual(opened)
   })
 
-  it('1項目だけ変えても、他の6項目を巻き込まない', () => {
+  it('1項目だけ変えても、他の8項目を巻き込まない', () => {
     const store = new Store()
     store.loadSections(emptySettingsSections())
 
@@ -291,12 +340,74 @@ describe('Settings 画面から7項目を変える', () => {
     store.setScrollback(800)
     store.setTheme('light')
     store.setLanguage('en')
+    store.setLspEnabled(false)
 
     const before = readSettingsScreen(store)
 
     store.setScrollback(9000)
 
     expect(readSettingsScreen(store)).toEqual({ ...before, terminalScrollback: 9000 })
+  })
+
+  /*
+    Language Server の切り替え（Session 5-4）。**画面の他の設定を1つも動かさない**
+    ことを見ておく ── この設定だけは Main の側でも効く（サーバが止まる）ので、
+    Renderer の中でも巻き込みが起きていないことを確かめる価値がある。
+  */
+  it('Language Server を往復させても、他の7項目は動かない', () => {
+    const store = new Store()
+    store.loadSections(emptySettingsSections())
+
+    store.setAutoSaveDelayMs(3000)
+    store.setFilesPreference(fromFilesViewChoice('columns'))
+    store.setFontSize(17)
+    store.setTheme('light')
+
+    const before = readSettingsScreen(store)
+
+    store.setLspEnabled(false)
+    store.setLspEnabled(true)
+
+    expect(readSettingsScreen(store)).toEqual(before)
+  })
+
+  it('全体を切っても、言語ごとの選択は残る（戻せば元どおり）', () => {
+    const store = new Store()
+    store.loadSections(emptySettingsSections())
+
+    store.setLspServerEnabled('csharp', false)
+    store.setLspEnabled(false)
+
+    /*
+      切っている間も、言語ごとの値そのものは動かない（画面でも押せるまま
+      ── settings/SettingsOverlay.tsx）。効いていないだけで、忘れてはいない。
+    */
+    expect(readSettingsScreen(store).lspServers).toEqual({
+      typescript: true,
+      python: true,
+      csharp: false
+    })
+
+    // 効いているかどうかは、2つを重ねた判断で決まる（shared/lsp/serverSettings.ts）。
+    expect(isLanguageServerEnabled(store.lsp, 'typescript')).toBe(false)
+
+    store.setLspEnabled(true)
+
+    expect(isLanguageServerEnabled(store.lsp, 'typescript')).toBe(true)
+    expect(isLanguageServerEnabled(store.lsp, 'csharp')).toBe(false)
+  })
+
+  it('切ったことは再起動しても残る', () => {
+    const store = new Store()
+    store.loadSections(emptySettingsSections())
+
+    store.setLspEnabled(false)
+    store.setLspServerEnabled('python', false)
+
+    const restarted = restart(store)
+
+    expect(restarted.lsp.enabled).toBe(false)
+    expect(restarted.lsp.servers).toEqual({ typescript: true, python: false, csharp: true })
   })
 
   /*
@@ -469,6 +580,18 @@ describe('Settings 画面から入る値の正規化', () => {
       general: { language: 'ja' },
       appearance: { theme: 'dark' },
       editor: { autoSaveMode: 'off', autoSaveDelayMs: AUTO_SAVE_DELAY_MIN_MS },
+      /*
+        LSP は**省略せずに全部書く**（shared/lsp/serverSettings.ts）。
+        「無い ＝ 有効」と読む側の約束はあるが、書く側でそれに頼らない
+        ── 有効に戻したことと、一度も触っていないことを、ファイルの上で
+        区別できるようにしておく。
+      */
+      lsp: {
+        enabled: true,
+        typescriptEnabled: true,
+        pythonEnabled: true,
+        csharpEnabled: true
+      },
       files: { viewMode: 'auto', columnWidth: FILES_COLUMN_WIDTH_MAX },
       terminal: { fontSize: TERMINAL_FONT_SIZE_MAX, scrollback: TERMINAL_SCROLLBACK_MIN }
     })
@@ -510,6 +633,13 @@ describe('Settings 画面から入る値の正規化', () => {
       general: { language: 'fr' },
       appearance: { theme: 'solarized' },
       editor: { autoSaveMode: 'onEveryKeystroke', autoSaveDelayMs: 1500 },
+      /*
+        真偽値のはずの key に別の型が入っている場合（手で書き換えた・
+        後の版が意味を変えた）。**読めない値は既定（使う）へ落ちる**
+        ── 言語機能が黙って止まるより、Session 5-3 までと同じ状態で
+        始まる方が説明が付く（shared/lsp/serverSettings.ts）。
+      */
+      lsp: { enabled: 'yes', pythonEnabled: false } as unknown as SettingsSections['lsp'],
       files: { viewMode: 'gallery', columnWidth: DEFAULT_FILES_COLUMN_WIDTH },
       terminal: { fontSize: 15, scrollback: 5000 }
     })
@@ -523,7 +653,10 @@ describe('Settings 画面から入る値の正規化', () => {
       terminalFontSize: 15,
       terminalScrollback: 5000,
       // 知らない Theme 名は Dark へ（無色の画面より、既定の見た目で始める）。
-      theme: 'dark'
+      theme: 'dark',
+      lspEnabled: true,
+      // 読めた key は落とさない（Main の検証と同じく key ごとに独立）。
+      lspServers: { typescript: true, python: false, csharp: true }
     })
   })
 })

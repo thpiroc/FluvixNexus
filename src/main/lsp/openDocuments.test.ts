@@ -186,3 +186,45 @@ describe('remove / clear', () => {
     expect(registry.list()).toHaveLength(0)
   })
 })
+
+/**
+ * そのサーバのぶんだけ外す（Session 5-4 ── 設定でその言語を切ったとき）。
+ *
+ * `markServerStopped` と**外す / 残すが逆**であることを見ておく。
+ * 落ちたのなら立ち直る見込みがあるので残すが、利用者が切ったのなら
+ * 立ち直る予定が無いので控えない ── 残すと「まだ伝えていない文書」が
+ * 溜まり、他のサーバが立ち上がるたびに開き直しの依頼が出る理由になる。
+ */
+describe('clearServer', () => {
+  it('そのサーバのぶんだけ外し、他の言語は残す', () => {
+    const registry = new OpenDocumentRegistry()
+
+    registry.register(documentOf('a.ts', 'typescript'))
+    registry.register(documentOf('b.py', 'python'))
+    registry.markSynced('a.ts')
+    registry.markSynced('b.py')
+
+    const removed = registry.clearServer('typescript')
+
+    expect(removed.map((document) => document.relativePath)).toEqual(['a.ts'])
+    expect(registry.get('a.ts')).toBeNull()
+    expect(registry.get('b.py')?.synced).toBe(true)
+  })
+
+  it('外した後は、そのサーバに「まだ伝えていない文書」が残らない', () => {
+    const registry = new OpenDocumentRegistry()
+
+    registry.register(documentOf('a.ts', 'typescript'))
+
+    expect(registry.hasUnsynced('typescript')).toBe(true)
+
+    registry.clearServer('typescript')
+
+    expect(registry.hasUnsynced('typescript')).toBe(false)
+    expect(registry.listPaths('typescript')).toEqual([])
+  })
+
+  it('1つも無くても失敗にしない', () => {
+    expect(new OpenDocumentRegistry().clearServer('csharp')).toEqual([])
+  })
+})

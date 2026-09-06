@@ -622,3 +622,27 @@
 .fx-statusbar__workspace[data-workspace-state='none'] {
   color: var(--fx-color-text-faint);
 }
+
+/*
+ * Language Server の状態（Session 5-4）。
+ *
+ * 色は3段だけにしてある ── 動いている（読める色）、使っていない（薄い）、
+ * 立たなかった（danger）。6つの状態それぞれに色を与えないのは、
+ * **ステータスバーは目で追う場所ではない**ため。区別が要るときは
+ * 言葉そのものを読む（内訳は title に出る）。
+ *
+ * 新しい色の変数は増やしていない（styles/theme.css の契約を動かさない）。
+ */
+.fx-statusbar__lsp[data-lsp-status='ready'] {
+  color: var(--fx-color-text);
+}
+
+.fx-statusbar__lsp[data-lsp-status='failed'] {
+  color: var(--fx-color-danger);
+}
+
+.fx-statusbar__lsp[data-lsp-status='disabled'],
+.fx-statusbar__lsp[data-lsp-status='stopped'],
+.fx-statusbar__lsp[data-lsp-status='unavailable'] {
+  color: var(--fx-color-text-faint);
+}

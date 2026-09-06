@@ -47,14 +47,29 @@ export type {
 export type { GitFailureReason, GitHead, GitRepositoryState } from './git'
 
 export {
+  DEFAULT_LANGUAGE_SERVER_PREFERENCES,
+  LANGUAGE_SERVER_IDS,
+  LANGUAGE_SERVER_STATUS_IDS,
   LSP_DIAGNOSTIC_MESSAGE_MAX_LENGTH,
   LSP_DIAGNOSTICS_MAX_PER_DOCUMENT,
   LSP_DOCUMENT_MAX_CONTENT_CHANGES,
   LSP_DOCUMENT_MAX_TEXT_LENGTH,
+  isLanguageServerEnabled,
+  isLanguageServerId,
+  isSameLanguageServerPreferences,
   isTextDocumentContentChange,
-  isTextDocumentVersion
+  isTextDocumentVersion,
+  normalizeLanguageServerPreferences,
+  resolveLanguageServerStatus,
+  summarizeLanguageServerStatuses,
+  toStoredLspSettings
 } from './lsp'
 export type {
+  LanguageServerId,
+  LanguageServerPreferences,
+  LanguageServerRuntimeStatus,
+  LanguageServerStatus,
+  LanguageServerStatusId,
   LspDiagnostic,
   LspDiagnosticSeverity,
   LspDiagnosticTag,
@@ -79,6 +94,7 @@ export type {
   StoredEditorSettings,
   StoredFilesSettings,
   StoredGeneralSettings,
+  StoredLspSettings,
   StoredTerminalSettings
 } from './settings'
 

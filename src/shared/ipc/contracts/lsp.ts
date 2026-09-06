@@ -1,7 +1,8 @@
 import type { TextDocumentContentChange } from '../../lsp/document'
+import type { LanguageServerStatus } from '../../lsp/serverStatus'
 
 /**
- * lsp ドメインの IPC 契約（Session 5-2 ── Document Synchronization）。
+ * lsp ドメインの IPC 契約（Session 5-2 ── Document Synchronization、5-4 で状態を1本）。
  *
  * ## この契約に無いもの
  *
@@ -9,8 +10,17 @@ import type { TextDocumentContentChange } from '../../lsp/document'
  * 実行ファイル・引数・作業ディレクトリ … 無い（表は main/lsp/languageServerCatalog.ts）
  * 絶対パス・URI                        … 無い（組み立てるのは main/lsp/documentUri.ts）
  * どのサーバへ送るか                   … 無い（決めるのは main/lsp/documentLanguage.ts）
- * 任意の LSP method / params           … 無い（口は4つだけ）
+ * 任意の LSP method / params           … 無い（口は5つだけ）
+ * サーバを起動 / 停止する口            … 無い（Session 5-4 でも増えていない）
  * ```
+ *
+ * ## 状態を「読む」口はあるが、「変える」口は無い（Session 5-4）
+ *
+ * `lsp:get-status` が返すのは名前と状態だけで、**そこから何かを起こすことはできない**。
+ * 使うかどうかを変えるのは settings ドメイン（`settings:save-section`）で、
+ * その結果としてサーバが止まる / 立つのを決めるのは Main になる
+ * （main/lsp/languageServerSettings.ts）── Renderer が
+ * 「このサーバを起動して」と言える口は、この Session でも作っていない。
  *
  * Terminal は「表のどの行か」（shellId）までは渡せる形にしたが、こちらはその欄すら無い
  * ── **起動のきっかけは「開いた文書の言語」であって、サーバそのものではない**
@@ -91,6 +101,20 @@ export interface CloseLspDocumentRequest {
   readonly relativePath: string
 }
 
+/**
+ * サーバの状態（Session 5-4）。
+ *
+ * 画面が開いた時点の状態を1度読むためのもので、以降は
+ * `lsp:status-changed` が届く（shared/ipc/events/lsp.ts）。
+ * **要求と応答の口も持つ**のは、イベントが「変わったときだけ」流れるため
+ * ── 何も変わらないまま画面が開いた場合、購読だけでは何も出せない
+ * （`workspace-folder:get-current` と同じ形）。
+ */
+export interface LspStatusResponse {
+  /** 3本ぶん（並びは `LANGUAGE_SERVER_IDS`）。 */
+  readonly servers: readonly LanguageServerStatus[]
+}
+
 export interface LspIpcContract {
   'lsp:did-open': {
     request: OpenLspDocumentRequest
@@ -107,5 +131,9 @@ export interface LspIpcContract {
   'lsp:did-close': {
     request: CloseLspDocumentRequest
     response: void
+  }
+  'lsp:get-status': {
+    request: void
+    response: LspStatusResponse
   }
 }

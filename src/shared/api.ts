@@ -1010,6 +1010,30 @@ export interface LspApi {
   readonly onDiagnosticsCleared: (
     listener: IpcEventListener<'lsp:diagnostics-cleared'>
   ) => IpcEventUnsubscribe
+  /**
+   * サーバが今どうなっているか（Session 5-4）。
+   *
+   * 画面を開いた時点で1度読む。以降は `onStatusChanged` が届くが、
+   * **変わったときにしか流れない**ので、最初の1回はこちらが要る
+   * （`workspaceFolder.getCurrent` と同じ形）。
+   *
+   * 返るのは表の行の名前と、6つの状態のどれか1つだけになる ──
+   * 実行ファイル・引数・作業ディレクトリ・pid・終了コードは載らない
+   * （shared/lsp/serverStatus.ts）。
+   */
+  readonly getStatus: () => IpcInvokeResult<'lsp:get-status'>
+  /**
+   * サーバの状態が変わった（Session 5-4）。
+   *
+   * 3本ぶんがまとめて届く。受け手は差分を当てず、届いた一覧で置き換える。
+   *
+   * **この購読から何かを起こすことはできない。** 状態は読むだけで、
+   * 使うかどうかを変えるのは `settings.saveSection`（`lsp` section）を通り、
+   * その結果としてサーバが止まる / 立つのを決めるのは Main になる。
+   */
+  readonly onStatusChanged: (
+    listener: IpcEventListener<'lsp:status-changed'>
+  ) => IpcEventUnsubscribe
 }
 
 /**

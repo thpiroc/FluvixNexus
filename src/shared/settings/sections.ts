@@ -46,6 +46,13 @@
  * 予告どおり増えたのはファイルでもチャンネルでもなく section 1つと key 1つで、
  * IPC も Preload の口も Main の検証の仕組みも1つも変わっていない。
  * `git`・`workspace` も同じ形で入る想定。
+ *
+ * Session 5-4 の `lsp` が2つめになる。増えたのは section 1つと key 4つ、
+ * それに真偽値という**新しい key の型**が1つだけで、IPC もチャンネルも
+ * 増えていない。ただしこの section には他と違うところが1つあり、
+ * **値の意味を Main も読む**（プロセスを立てる / 終わらせるのは Main の側で、
+ * 有効かどうかは Renderer の中では完結しない）。読み方を2通りに分けないため、
+ * 読む関数そのものを shared に置いてある（shared/lsp/serverSettings.ts）。
  */
 
 /**
@@ -63,6 +70,7 @@ export const SETTINGS_SECTION_IDS = [
   'general',
   'appearance',
   'editor',
+  'lsp',
   'files',
   'terminal'
 ] as const
@@ -82,6 +90,41 @@ export interface StoredEditorSettings {
   readonly autoSaveMode?: string
   /** `afterDelay` の待ち時間（ミリ秒）。上下限は読む側が掛ける。 */
   readonly autoSaveDelayMs?: number
+}
+
+/**
+ * Language Server を使うかどうか（Session 5-4）。
+ *
+ * 平らに並んだ4つの真偽値で、**どれも省略できる（無い ＝ 有効）**。
+ * 言語ごとを `servers: { typescript: true }` のような入れ子にしないのは、
+ * この section の冒頭に書いた理由そのもの ── 入れ子にすると
+ * 「`servers` が object でない」の一撃で3つとも失われる。
+ *
+ * ここに**無いもの**が、この section の性格を決めている。
+ *
+ * ```
+ * 実行ファイルのパス … 無い（表は main/lsp/languageServerCatalog.ts）
+ * 引数・作業ディレクトリ … 無い
+ * サーバごとの追加設定（initializationOptions）… 無い
+ * ```
+ *
+ * 設定から渡せるのは**使うか / 使わないか**だけで、何をどう起動するかは
+ * 1つも渡せない。ここに path の欄を1つ足した時点で、設定ファイルは
+ * 「Renderer と利用者が指定した実行ファイルが起動する場所」になり、
+ * Session 5-1 から引いてきた線が消える（DESIGN.md の STEP 5 引き継ぎ）。
+ *
+ * 値の読み方（無い ＝ 有効・読めない値の落とし先）は
+ * shared/lsp/serverSettings.ts が持ち、Main と Renderer の両方がそこを通る。
+ */
+export interface StoredLspSettings {
+  /** 全体として Language Server を使うか。 */
+  readonly enabled?: boolean
+  /** TypeScript / JavaScript（1本のサーバが両方を見る）。 */
+  readonly typescriptEnabled?: boolean
+  /** Python。 */
+  readonly pythonEnabled?: boolean
+  /** C#。 */
+  readonly csharpEnabled?: boolean
 }
 
 /** Files の見え方（表示方式・カラムの幅。§10.14）。 */
@@ -130,6 +173,7 @@ export interface SettingsSections {
   readonly general: StoredGeneralSettings
   readonly appearance: StoredAppearanceSettings
   readonly editor: StoredEditorSettings
+  readonly lsp: StoredLspSettings
   readonly files: StoredFilesSettings
   readonly terminal: StoredTerminalSettings
 }
@@ -154,7 +198,7 @@ export type SettingsSectionUpdate = {
 
 /** 何も保存されていない状態（section はすべて空）。 */
 export function emptySettingsSections(): SettingsSections {
-  return { general: {}, appearance: {}, editor: {}, files: {}, terminal: {} }
+  return { general: {}, appearance: {}, editor: {}, lsp: {}, files: {}, terminal: {} }
 }
 
 /** 素の文字列が既知の section 名か。 */

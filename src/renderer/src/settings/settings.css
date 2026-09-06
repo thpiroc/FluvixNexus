@@ -225,6 +225,17 @@
   color: var(--fx-color-text-strong);
 }
 
+/*
+ * 全体が OFF のときの、言語ごとの切り替え（Session 5-4）。
+ *
+ * **押せなくはしない**（SettingsOverlay.tsx の `LanguageServerChoicesControl`）。
+ * 効いていないことを薄さだけで伝え、操作そのものは残す ── 全体を戻したときに
+ * どれが有効だったかを、戻す前に確かめられる必要があるため。
+ */
+.fx-settings__choices[data-inactive='true'] {
+  opacity: 0.6;
+}
+
 /* 目録に足したのに操作 UI が無い項目（SettingsOverlay.tsx の既定の分岐）。 */
 .fx-settings__missing {
   color: var(--fx-color-danger);

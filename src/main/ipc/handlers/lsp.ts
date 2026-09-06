@@ -2,6 +2,7 @@ import {
   IPC_CHANNELS,
   type ChangeLspDocumentRequest,
   type CloseLspDocumentRequest,
+  type LspStatusResponse,
   type OpenLspDocumentRequest,
   type OpenLspDocumentResponse,
   type SaveLspDocumentRequest
@@ -20,6 +21,7 @@ import {
   openLspDocument,
   saveLspDocument
 } from '../../lsp/documentSync'
+import { getLanguageServerStatuses } from '../../lsp/serverStatus'
 import { IpcError, invalidRequest } from '../errors'
 import { handleIpc } from '../registry'
 
@@ -101,6 +103,19 @@ export function registerLspHandlers(): void {
       「どの口なら何を渡せるか」が場所ごとに変わる。
     */
     closeLspDocument(normalizeDocumentPath(request?.relativePath))
+  })
+
+  /*
+    サーバの状態（Session 5-4）。**要求に欄が1つも無い** ── どのサーバの
+    状態を返すかも Renderer は言わず、返るのは常に3本ぶんになる。
+
+    確かめるものが無いのは、境界の外から来る値が無いためにほかならない
+    （`system:app-info` と同じ形）。逆向き ── 返す側 ── で守っているものは
+    main/lsp/serverStatus.ts の冒頭にあり、載るのは表の行の名前と状態だけで、
+    実行ファイルも pid も終了コードも出て行かない。
+  */
+  handleIpc(IPC_CHANNELS.LSP_GET_STATUS, (): LspStatusResponse => {
+    return { servers: getLanguageServerStatuses() }
   })
 }
 

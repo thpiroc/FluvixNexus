@@ -1,4 +1,5 @@
 import type { PlatformId } from '@shared/api'
+import type { LanguageServerId } from '@shared/lsp'
 import {
   findExecutableOnPath,
   findInDirectory,
@@ -68,27 +69,21 @@ import {
  * platform 層に1つだけ置いてあり、両方がそれを使っている。
  */
 
-/**
- * 表の行。
+/*
+ * 行の名前そのものは shared にある（Session 5-4 で移した。shared/lsp/server.ts）。
  *
- * 増やすときは、ここと `LANGUAGE_SERVER_IDS` と `resolveLanguageServerCommand`
- * の3つを足す（型がどの漏れも拾う）。
- */
-export type LanguageServerId = 'typescript' | 'python' | 'csharp'
-
-/** 並べる順。ログと診断の見た目を安定させるためだけの順序で、優先度ではない。 */
-export const LANGUAGE_SERVER_IDS = ['typescript', 'python', 'csharp'] as const
-
-/**
- * 境界の外から届いた値が、表の行を指しているか。
+ * 移したのは**名前だけ**で、行の中身 ── 実行ファイル・引数・PATH の辿り方 ──
+ * はこのファイルに残っている。名前が契約に載ったのは、設定（言語ごとの
+ * 有効 / 無効）と状態（ステータスバー）がその語を必要とするためで、
+ * **何をどう起動するかは1つも渡っていない。**
  *
- * Session 5-1 の時点で外から値が届く経路は無いが、行を指す値を受け取る形は
- * Document Synchronization（Session 5-2）で必要になる。**確かめる側を
- * 表と同じファイルに置く**ことで、行を足したときに検証の漏れが起きないようにする。
+ * 行を増やすときに触るのは、shared の `LANGUAGE_SERVER_IDS` と、
+ * ここの `SERVER_NAMES` ・`resolveLanguageServerCommand` の3つになる
+ * （型がどの漏れも拾う）。
  */
-export function isLanguageServerId(value: unknown): value is LanguageServerId {
-  return typeof value === 'string' && (LANGUAGE_SERVER_IDS as readonly string[]).includes(value)
-}
+export { isLanguageServerId, LANGUAGE_SERVER_IDS } from '@shared/lsp'
+
+export type { LanguageServerId } from '@shared/lsp'
 
 /** 起動するもの1つ分。Main の中だけで使う（Renderer へは渡さない）。 */
 export interface LanguageServerCommand {

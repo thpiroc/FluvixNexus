@@ -1,7 +1,8 @@
 import type { LspDiagnostic } from '../../lsp/diagnostic'
+import type { LanguageServerStatus } from '../../lsp/serverStatus'
 
 /**
- * lsp ドメインの Main → Renderer イベント（Session 5-2 / 5-3）。
+ * lsp ドメインの Main → Renderer イベント（Session 5-2 / 5-3 / 5-4）。
  *
  * 要求と応答（contracts/lsp.ts）と対になる、Main の側から一方的に流れる通知。
  *
@@ -9,9 +10,10 @@ import type { LspDiagnostic } from '../../lsp/diagnostic'
  * lsp:sync-requested       開いている文書を送り直してほしい（5-2）
  * lsp:diagnostics          この文書の指摘は今これ（5-3）
  * lsp:diagnostics-cleared  この文書の指摘はもう有効でない（5-3）
+ * lsp:status-changed       サーバの状態が変わった（5-4）
  * ```
  *
- * 3つとも**要求と応答の形にならない**。誰も頼んでいないのに届き、
+ * 4つとも**要求と応答の形にならない**。誰も頼んでいないのに届き、
  * いつ来るとも決まっておらず、返事も要らない（shared/ipc/event.ts）。
  *
  * ## なぜ「開き直してくれ」を Main から頼むのか
@@ -106,8 +108,35 @@ export interface LspDiagnosticsClearedEvent {
   readonly relativePaths: readonly string[]
 }
 
+/**
+ * サーバの状態が変わった（Session 5-4）。
+ *
+ * ## 3本ぶんをまとめて送る
+ *
+ * 変わった1本だけを送る形にしない。受け手が持つのは「今の一覧」だけで足り、
+ * **差分を当てる処理を Renderer に作らない**ためにほかならない
+ * ── 診断が毎回その文書の全件を送るのと同じ考え方になる。
+ *
+ * ## `workspaceId` を載せない
+ *
+ * 他の3つと違い、この通知は Workspace に紐づかない。**サーバの状態は
+ * アプリ全体のもの**で、切り替えの前後で行き違っても捨てる理由が無い
+ * （切り替えで全部終わるので、届くのは常に「今の状態」になる）。
+ *
+ * ## 載らないもの
+ *
+ * 実行ファイル・引数・作業ディレクトリ・pid・終了コード・失敗の中身は
+ * 1つも載らない（shared/lsp/serverStatus.ts）。載るのは表の行の名前と、
+ * 6つの状態のどれか1つだけになる。
+ */
+export interface LspStatusChangedEvent {
+  /** 3本ぶん（並びは `LANGUAGE_SERVER_IDS`）。 */
+  readonly servers: readonly LanguageServerStatus[]
+}
+
 export interface LspIpcEventContract {
   'lsp:sync-requested': LspSyncRequestedEvent
   'lsp:diagnostics': LspDiagnosticsEvent
   'lsp:diagnostics-cleared': LspDiagnosticsClearedEvent
+  'lsp:status-changed': LspStatusChangedEvent
 }

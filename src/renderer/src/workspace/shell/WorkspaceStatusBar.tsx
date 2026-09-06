@@ -2,6 +2,7 @@ import { useEffect, useState, type JSX } from 'react'
 import type { AppInfoResponse } from '@shared/ipc'
 import { fluvix } from '../../api/fluvix'
 import { useI18n } from '../../i18n/context'
+import { LanguageServerStatusItem } from '../../lsp/LanguageServerStatusItem'
 import { useWorkspaceFolder } from '../../workspaceFolder/context'
 
 /**
@@ -17,10 +18,15 @@ import { useWorkspaceFolder } from '../../workspaceFolder/context'
  * フォルダ名だけで、同じ名前のフォルダが複数ある場合に「今どれを開いているか」を
  * 見分けられないため。長いパスで他の表示を押し出さないよう、幅は CSS 側で抑える。
  *
+ * Session 5-4 で Language Server の状態が載った（lsp/LanguageServerStatusItem.tsx）。
+ * **このファイルは状態を1つも持たない** ── 出す場所を決めるだけで、
+ * 何を出すかは持ち込んだ部品の側にある。ステータスバーに載るものが増えるたびに
+ * ここが太らないようにするためで、Git のブランチ名も同じ形で入る想定になる。
+ *
  * 後続セッションでここに載るもの:
  *   - Git のブランチ名 / 変更件数
  *   - カーソル位置・文字コード・改行コード
- *   - LSP / DAP の状態
+ *   - DAP の状態
  */
 export function WorkspaceStatusBar(): JSX.Element {
   const { platform, versions } = fluvix.env
@@ -57,6 +63,12 @@ export function WorkspaceStatusBar(): JSX.Element {
       <span className="fx-statusbar__item">
         {appInfo === null ? t('workspace.connecting') : `${appInfo.name} v${appInfo.version}`}
       </span>
+      {/*
+        Language Server の状態（Session 5-4）。Workspace とアプリ情報の隣に置く
+        ── どれも「今この画面が何を相手にしているか」で、実行環境の情報
+        （右端）とは性格が違う。
+      */}
+      <LanguageServerStatusItem />
       <span className="fx-statusbar__spacer" />
       <span className="fx-statusbar__item">
         {platform} / Electron {versions.electron} / Chromium {versions.chrome} / Node{' '}

@@ -16,6 +16,7 @@ export type {
   StoredEditorSettings,
   StoredFilesSettings,
   StoredGeneralSettings,
+  StoredLspSettings,
   StoredTerminalSettings
 } from './sections'
 

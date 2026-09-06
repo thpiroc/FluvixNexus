@@ -19,7 +19,8 @@ export const IPC_EVENT_CHANNELS = {
   GIT_CHANGED: 'git:changed',
   LSP_SYNC_REQUESTED: 'lsp:sync-requested',
   LSP_DIAGNOSTICS: 'lsp:diagnostics',
-  LSP_DIAGNOSTICS_CLEARED: 'lsp:diagnostics-cleared'
+  LSP_DIAGNOSTICS_CLEARED: 'lsp:diagnostics-cleared',
+  LSP_STATUS_CHANGED: 'lsp:status-changed'
 } as const satisfies Record<string, IpcEventChannel>
 
 /**

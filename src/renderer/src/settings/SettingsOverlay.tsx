@@ -17,6 +17,9 @@ import { useFilesViewPreference } from '../files/FilesViewProvider'
 import { useI18n } from '../i18n/context'
 import { LANGUAGE_CHOICES } from '../i18n/languageSettings'
 import type { TranslationKey } from '../i18n/messages'
+import { useLspSettings } from '../lsp/context'
+import { languageServerNameKey } from '../lsp/languageServerLabels'
+import { LANGUAGE_SERVER_IDS } from '@shared/lsp'
 import { useTerminal } from '../terminal/context'
 import { useTheme } from '../theme/context'
 import { APPEARANCE_THEME_CHOICES } from '../theme/appearanceSettings'
@@ -88,6 +91,7 @@ import './settings.css'
  * | Terminal の文字の大きさ   | `useTerminalSettings`                   | Terminal の ⚙（残す）        |
  * | Terminal のさかのぼれる行数 | `useTerminalSettings`                 | 無し（4-3B でここへ移した）   |
  * | Theme                     | `useAppearance`（theme/context.ts）     | 無し（4-4 でここが唯一の口）  |
+ * | Language Server の有効 / 無効 | `LspSettingsProvider`（lsp/context.ts） | 無し（5-4 でここが唯一の口） |
  *
  * **同じ値を指す state をここに作らない**のが要点で、作った瞬間に
  * 「Settings で変えたのに Files パネルが変わらない」「ツールバーで変えたのに
@@ -264,6 +268,12 @@ function SettingsControl({ item }: { readonly item: SettingsItemDescriptor }): J
     case 'editor.autoSaveDelayMs':
       return <AutoSaveDelayControl />
 
+    case 'lsp.enabled':
+      return <LanguageServerEnabledControl />
+
+    case 'lsp.servers':
+      return <LanguageServerChoicesControl />
+
     case 'files.viewMode':
       return <FilesViewModeControl />
 
@@ -388,6 +398,108 @@ function AutoSaveDelayControl(): JSX.Element {
       }
       testId="settings-editor-auto-save-delay"
     />
+  )
+}
+
+/* ----------------------------------------------------------------- LSP */
+
+/**
+ * Language Server を使うか（Session 5-4）。
+ *
+ * ## 並べる（select にしない）
+ *
+ * Theme と同じ形にしてある ── 選択肢が2つしかなく、今どちらかが
+ * 開いた瞬間に見える必要がある。
+ *
+ * ## 押した瞬間に効く
+ *
+ * 「適用」も「再起動してください」も無い。切れば動いているサーバがその場で
+ * 終わり、指摘は Monaco 内蔵のものへ戻る。戻せば開いている文書が
+ * もう一度サーバへ渡り、指摘が返ってくる ── **どちらも Main が
+ * 保存に気づいて行う**（main/lsp/languageServerSettings.ts）。
+ *
+ * ここから IPC でサーバを操作することはしない（lsp/LspSettingsProvider.tsx）。
+ */
+function LanguageServerEnabledControl(): JSX.Element {
+  const { preferences, setEnabled } = useLspSettings()
+  const { t } = useI18n()
+
+  return (
+    <div
+      className="fx-settings__choices"
+      role="radiogroup"
+      aria-label={t('settings.controls.lspEnabled.aria')}
+      data-testid="settings-lsp-enabled"
+    >
+      {LSP_ENABLED_CHOICES.map((choice) => (
+        <button
+          key={String(choice)}
+          type="button"
+          role="radio"
+          className="fx-settings__choice"
+          data-testid={`settings-lsp-enabled-${choice ? 'on' : 'off'}`}
+          data-active={choice === preferences.enabled}
+          aria-checked={choice === preferences.enabled}
+          onClick={() => setEnabled(choice)}
+        >
+          {t(choice ? 'settings.values.lsp.on' : 'settings.values.lsp.off')}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/** 並べる順（使う → 使わない）。Theme と同じく「既定の方」を先に置く。 */
+const LSP_ENABLED_CHOICES: readonly boolean[] = [true, false]
+
+/**
+ * 言語ごとに使うか（Session 5-4）。
+ *
+ * ## 3つを1行にまとめる
+ *
+ * 言語ごとに設定の行を分けない ── 分けると、Language Server を1つも
+ * 使っていない人にも3行が並ぶことになる。**同じ性格の切り替えが3つ**なので、
+ * 1つの行の中に並べた方が「どれとどれがあるか」が一度で見える。
+ *
+ * ## 全体が OFF でも押せる
+ *
+ * 効いていないときに隠したり押せなくしたりしない（Auto Save の待ち時間と
+ * 同じ扱い）── 全体を戻したときにどれが有効だったかを、戻す前に
+ * 確かめられなくなるため。効いていないことは説明文が言う。
+ *
+ * ## この PC に入っているかは出さない
+ *
+ * ここに出るのは「使う設定になっているか」だけで、入っているかどうかは出ない
+ * ── それはステータスバーの持ち物にあたる（lsp/LanguageServerStatusItem.tsx）。
+ * 設定は使う意思で、状態は実際に動いているかで、混ぜると
+ * 「入れていないのに ON になっている」が誤りに見えてしまう。
+ */
+function LanguageServerChoicesControl(): JSX.Element {
+  const { preferences, setServerEnabled } = useLspSettings()
+  const { t } = useI18n()
+
+  return (
+    <div
+      className="fx-settings__choices"
+      role="group"
+      aria-label={t('settings.controls.lspServers.aria')}
+      data-testid="settings-lsp-servers"
+      data-inactive={!preferences.enabled}
+    >
+      {LANGUAGE_SERVER_IDS.map((id) => (
+        <button
+          key={id}
+          type="button"
+          className="fx-settings__choice"
+          data-testid={`settings-lsp-server-${id}`}
+          data-active={preferences.servers[id]}
+          aria-pressed={preferences.servers[id]}
+          onClick={() => setServerEnabled(id, !preferences.servers[id])}
+        >
+          {t(languageServerNameKey(id))}
+        </button>
+      ))}
+    </div>
   )
 }
 

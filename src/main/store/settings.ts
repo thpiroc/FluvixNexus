@@ -43,9 +43,49 @@ export function readSettingsSections(): SettingsSections {
   return getStore().read()
 }
 
+/**
+ * 保存された section の知らせ（Session 5-4）。
+ *
+ * Session 4-3A の時点で、**保存された設定を Main が読み返す理由は無かった**
+ * ── どの設定も効くのは Renderer の中だけで、Main は保存先を持つだけの層に
+ * 留まっていた。`lsp` section がその前提から外れる最初のもので、
+ * 有効 / 無効はプロセスを立てる / 終わらせる Main の側で効く
+ * （shared/lsp/serverSettings.ts）。
+ *
+ * そこで「保存された」ことだけを知らせる。**この層は誰が聞いているかを知らない**
+ * ── ここから個別の機能を呼ぶ形にすると、保存先が LSP の都合を持つことになる
+ * （main/workspaceFolder/currentWorkspaceFolder.ts と同じ理由）。
+ */
+export type SettingsSectionSavedListener = (update: SettingsSectionUpdate) => void
+
+const savedListeners = new Set<SettingsSectionSavedListener>()
+
+/** 設定が保存されたときに呼ばれる。戻り値は購読の解除。 */
+export function onSettingsSectionSaved(listener: SettingsSectionSavedListener): () => void {
+  savedListeners.add(listener)
+
+  return () => {
+    savedListeners.delete(listener)
+  }
+}
+
 /** 1つの section の保存を予約する。 */
 export function saveSettingsSection(update: SettingsSectionUpdate): void {
   getStore().saveSection(update)
+
+  /*
+    知らせるのは保存を予約した後。受け手（main/lsp/languageServerSettings.ts）は
+    ディスクではなくこの値を読むので、間引きの待ち時間は関わらない
+    ── 押した瞬間にサーバが止まる / 立ち上がる必要がある。
+  */
+  for (const listener of savedListeners) {
+    try {
+      listener(update)
+    } catch (cause) {
+      // 受け手の失敗で、設定の保存そのものを失敗にしない。
+      log.error('a settings listener failed.', cause)
+    }
+  }
 }
 
 /**

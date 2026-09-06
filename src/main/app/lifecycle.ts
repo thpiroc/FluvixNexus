@@ -4,7 +4,9 @@ import { startGitWatching, stopGitWatching } from '../git/gitWatcher'
 import { registerIpcHandlers } from '../ipc'
 import { startLanguageServerDiagnostics } from '../lsp/diagnostics'
 import { startLanguageServerDocumentSync } from '../lsp/documentSync'
+import { startLanguageServerSettings } from '../lsp/languageServerSettings'
 import { startLanguageServerHosting, stopLanguageServers } from '../lsp/languageServers'
+import { startLanguageServerStatusReporting } from '../lsp/serverStatus'
 import { createLogger } from '../logger'
 import { isMacOS } from '../platform'
 import { applySessionSecurityPolicy, applyWebContentsSecurityPolicy } from '../security'
@@ -71,6 +73,17 @@ export function bootstrapApp(): void {
     startLanguageServerHosting()
 
     /*
+      Language Server を使うかどうか（Session 5-4）。**文書同期より先に読む** ──
+      Renderer が最初の文書を開くより前に、立ててよい言語が決まっている必要がある
+      （main/lsp/languageServerSettings.ts）。
+
+      設定を Main が読み返すのはこれが初めてで、`lsp` section だけが持つ性格に
+      なる ── 他の設定はどれも Renderer の中で効くが、これはプロセスを
+      立てる / 終わらせる Main の側で効く。
+    */
+    startLanguageServerSettings()
+
+    /*
       開いている文書とサーバをつなぐ側（Session 5-2）。**サーバを立てるのはこちら**で、
       きっかけは常に「この拡張子のファイルが開かれた」になる
       ── Renderer からサーバを名指しできる口は無い（main/lsp/documentSync.ts）。
@@ -85,6 +98,14 @@ export function bootstrapApp(): void {
       「その指摘はもう有効でない」と配る（diagnostics）のが後になる。
     */
     startLanguageServerDiagnostics()
+
+    /*
+      サーバの状態を画面へ配る側（Session 5-4）。**新しい状態は持たない** ──
+      プロセスの状態（languageServers.ts）と設定（languageServerSettings.ts）を
+      重ねて配るだけで、そのどちらの購読よりも後に張る必要は無いが、
+      **設定より後**である必要はある（重ねる相手が要る）。
+    */
+    startLanguageServerStatusReporting()
 
     /*
       シェルのセッションは Workspace の切り替えに追従しない（Session 3-7-3）。

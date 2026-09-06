@@ -76,6 +76,7 @@ export type {
   ChangeLspDocumentRequest,
   CloseLspDocumentRequest,
   LspIpcContract,
+  LspStatusResponse,
   OpenLspDocumentRequest,
   OpenLspDocumentResponse,
   SaveLspDocumentRequest
@@ -149,6 +150,7 @@ export type {
   LspDiagnosticsClearedEvent,
   LspDiagnosticsEvent,
   LspIpcEventContract,
+  LspStatusChangedEvent,
   LspSyncRequestedEvent
 } from './events/lsp'
 export type {

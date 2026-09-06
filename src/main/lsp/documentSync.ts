@@ -1,5 +1,5 @@
 import { IPC_EVENT_CHANNELS } from '@shared/ipc'
-import type { TextDocumentContentChange } from '@shared/lsp'
+import { LANGUAGE_SERVER_IDS, type TextDocumentContentChange } from '@shared/lsp'
 import { emitIpcEvent } from '../ipc/events'
 import { createLogger } from '../logger'
 import {
@@ -10,10 +10,15 @@ import { resolveLspDocumentLanguage } from './documentLanguage'
 import { resolveWorkspaceDocumentUri } from './documentUri'
 import type { LanguageServerId } from './languageServerCatalog'
 import {
+  isLanguageServerAllowed,
+  onLanguageServerPreferencesChange
+} from './languageServerSettings'
+import {
   isLanguageServerReady,
   notifyLanguageServer,
   onLanguageServerStateChange,
-  startLanguageServer
+  startLanguageServer,
+  stopLanguageServer
 } from './languageServers'
 import { OpenDocumentRegistry, type OpenLspDocument } from './openDocuments'
 import {
@@ -124,6 +129,18 @@ export function openLspDocument(
 
   // その拡張子に対応するサーバが表に無い（`.md` / `.txt` など）。
   if (language === null) {
+    return 'untracked'
+  }
+
+  /*
+    設定で切られている（Session 5-4）。**控えも作らない** ── 作ると、
+    サーバが立たないまま「まだ伝えていない文書」が溜まり続ける。
+
+    `untracked` を返すので、Renderer は以降の通知を送らなくなる
+    （shared/ipc/contracts/lsp.ts の `tracked`）。戻したときに埋まるのは
+    開き直しの依頼で、その依頼を出すのは設定を反映する側になる（下記）。
+  */
+  if (!isLanguageServerAllowed(language.serverId)) {
     return 'untracked'
   }
 
@@ -310,6 +327,57 @@ export function startLanguageServerDocumentSync(): void {
 
     if (cleared.length > 0) {
       log.debug(`dropped ${cleared.length} open document(s): the workspace folder changed.`)
+    }
+  })
+
+  /*
+    設定の反映（Session 5-4）。**何をするかはこの層の判断**なので、
+    設定を持つ側（languageServerSettings.ts）ではなくここで購読する
+    ── 上の2つとまったく同じ形にあたる。
+  */
+  onLanguageServerPreferencesChange((next, previous) => {
+    let restored = false
+
+    for (const id of LANGUAGE_SERVER_IDS) {
+      const wasAllowed = previous.enabled && previous.servers[id]
+      const isAllowed = next.enabled && next.servers[id]
+
+      if (wasAllowed === isAllowed) {
+        continue
+      }
+
+      if (isAllowed) {
+        restored = true
+        continue
+      }
+
+      /*
+        止まった言語。サーバを終わらせ、控えも落とす。
+
+        終わらせると `stopped` が配られ、診断の側がその担当ぶんの marker を
+        消す（main/lsp/diagnostics.ts）── Renderer はそこで **Monaco 内蔵の
+        検査へ戻る**（renderer/src/editor/lsp/useDiagnostics.ts）。
+        Session 5-3 の仕組みをそのまま使っており、切ったとき専用の道は無い。
+
+        **控えを落とすのは知らせた後**にする。先に落とすと、診断の側が
+        「どの文書の指摘が無効になったか」を数えられない。
+      */
+      stopLanguageServer(id, 'the language server was disabled in settings.')
+
+      const dropped = documents.clearServer(id)
+
+      if (dropped.length > 0) {
+        log.debug(`dropped ${dropped.length} open document(s): ${id} was disabled.`)
+      }
+    }
+
+    /*
+      戻った言語がある。**中身を持っているのは Renderer だけ**なので、
+      開き直しを頼む（このファイルの冒頭）── 届いた `didOpen` が
+      サーバを立て、そこから先は Session 5-2 の道に合流する。
+    */
+    if (restored) {
+      requestResync()
     }
   })
 }

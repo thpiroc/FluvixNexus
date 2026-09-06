@@ -184,6 +184,37 @@ export class OpenDocumentRegistry {
     return removed
   }
 
+  /**
+   * そのサーバのぶんだけ外す（Session 5-4 ── 設定でその言語を切ったとき）。
+   *
+   * `markServerStopped`（「まだ伝えていない」へ戻す）と分けてあるのは、
+   * **戻ってくる見込みがあるかどうかが違う**ため。
+   *
+   * ```
+   * markServerStopped … 落ちた / 終わった。立ち直ったら開き直す対象として残す
+   * clearServer       … 利用者が切った。立ち直る予定が無いので控えない
+   * ```
+   *
+   * 残したままにすると、切った言語のファイルを開いている間ずっと
+   * 「まだ伝えていない文書」が溜まり、他のサーバが立ち上がるたびに
+   * 開き直しの依頼が出る理由になる。
+   *
+   * 外したものを返すのは `clear` と同じ理由で、`didClose` を送るかどうかを
+   * 呼び出し側が決めるため（切ったときはサーバごと終わっているので送らない）。
+   */
+  clearServer(serverId: LanguageServerId): readonly OpenLspDocument[] {
+    const removed: OpenLspDocument[] = []
+
+    for (const [relativePath, document] of this.documents) {
+      if (document.serverId === serverId) {
+        removed.push(document)
+        this.documents.delete(relativePath)
+      }
+    }
+
+    return removed
+  }
+
   /** 控えている文書（順序は登録順）。 */
   list(): readonly OpenLspDocument[] {
     return [...this.documents.values()]
