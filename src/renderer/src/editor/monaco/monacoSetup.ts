@@ -10,7 +10,8 @@ import { monacoThemeBase, readThemeTokens, toMonacoThemeColors } from '../../the
 /**
  * Monaco Editor をこのアプリの前提に合わせる、唯一の場所。
  *
- * **Monaco を import してよいのはこのファイルと documentStore.ts / MonacoEditor.tsx だけ。**
+ * **Monaco の実体を import してよいのは、このファイルと MonacoEditor.tsx /
+ * MonacoDiffEditor.tsx / markers.ts だけ**（documentStore.ts は型としてしか見ない）。
  * 言語判定（language.ts）を Monaco から切り離してあるのと同じ理由で、
  * 「Monaco だから決まること」と「このアプリが決めること」を混ぜない。
  *
@@ -147,6 +148,74 @@ export function applyMonacoTheme(theme: ThemeId): void {
   monaco.editor.setTheme(FLUVIX_THEME_ID)
 }
 
+/* ------------------------------------------- 内蔵の検査（Session 5-3） */
+
+/**
+ * TypeScript / JavaScript の内蔵検査を止めているか。
+ *
+ * 止めるのは**本物の Language Server が指摘を出している間だけ**。
+ * 判断そのものは持たず、受け取った値を Monaco へ当てるだけになる
+ * （決めるのは renderer/src/editor/lsp/useDiagnostics.ts）。
+ */
+let builtInValidationSuppressed = false
+
+/**
+ * 今の設定を Monaco へ当てる。
+ *
+ * 意味解析（`noSemanticValidation`）は**常に切ったまま**にする ── tsconfig も
+ * node_modules も見えない状態で出る型エラーは、ほぼすべてが本当ではない指摘に
+ * なる（このファイルの冒頭 2）。切り替わるのは構文の検査だけ。
+ */
+function applyBuiltInValidation(): void {
+  const options: monaco.typescript.DiagnosticsOptions = {
+    noSemanticValidation: true,
+    noSyntaxValidation: builtInValidationSuppressed,
+    noSuggestionDiagnostics: true
+  }
+
+  monaco.typescript.typescriptDefaults.setDiagnosticsOptions(options)
+  monaco.typescript.javascriptDefaults.setDiagnosticsOptions(options)
+}
+
+/**
+ * TypeScript / JavaScript の内蔵検査を止める / 戻す。
+ *
+ * ## なぜ owner を分けるだけでは足りないか
+ *
+ * marker の owner は分けてある（monaco/markers.ts）ので、内蔵と LSP の指摘は
+ * 互いを消さない。**消さないからこそ、同じ構文誤りが2本の線として出る。**
+ * `,` を1つ忘れただけで、Monaco と tsserver が別々に赤を引く。
+ *
+ * そこで、本物のサーバが答えている間は内蔵の側を黙らせる。
+ *
+ * ## アプリ全体に効く（文書ごとではない）
+ *
+ * `typescriptDefaults` はアプリに1つで、Model ごとに設定を変える手段が
+ * Monaco の側に無い。したがって「TypeScript の文書を1つでもサーバが見ているか」
+ * で決まる ── 同じ Workspace の中で、あるファイルだけサーバが見ていない、
+ * という状態は起きないので実害にならない。
+ *
+ * ## 止めっぱなしにしない
+ *
+ * サーバが落ちた・終わった・Workspace が切り替わったときは戻す。
+ * 戻さないと、**Language Server が居ないのに内蔵の指摘も出ない**という、
+ * STEP 4 までより悪い状態が残る（DESIGN.md §4）。
+ *
+ * 何度呼んでも構わない（同じ値なら Monaco に触れない）。
+ */
+export function setBuiltInValidationSuppressed(suppressed: boolean): void {
+  if (builtInValidationSuppressed === suppressed) {
+    return
+  }
+
+  builtInValidationSuppressed = suppressed
+
+  // まだ setupMonaco が走っていなければ、初期化のときに今の値が当たる。
+  if (initialized) {
+    applyBuiltInValidation()
+  }
+}
+
 /* ------------------------------------------------------------------- 初期化 */
 
 let initialized = false
@@ -192,20 +261,11 @@ export function setupMonaco(): void {
     allowNonTsExtensions: true
   }
 
-  /*
-    意味解析を切る理由は冒頭の 2。tsconfig も node_modules も見えない状態で
-    出る型エラーは、ほぼすべてが「本当ではない指摘」になる。
-  */
-  const typeScriptDiagnosticsOptions: monaco.typescript.DiagnosticsOptions = {
-    noSemanticValidation: true,
-    noSyntaxValidation: false,
-    noSuggestionDiagnostics: true
-  }
-
   monaco.typescript.typescriptDefaults.setCompilerOptions(typeScriptCompilerOptions)
-  monaco.typescript.typescriptDefaults.setDiagnosticsOptions(typeScriptDiagnosticsOptions)
   monaco.typescript.javascriptDefaults.setCompilerOptions(typeScriptCompilerOptions)
-  monaco.typescript.javascriptDefaults.setDiagnosticsOptions(typeScriptDiagnosticsOptions)
+
+  // 内蔵の検査は既定（構文だけ）から始める。切り替えの理由は下記。
+  applyBuiltInValidation()
 
   // JSON。構文の検査は1ファイルで完結するので残し、外部スキーマの取得だけを止める。
   monaco.json.jsonDefaults.setDiagnosticsOptions({

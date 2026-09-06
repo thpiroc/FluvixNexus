@@ -990,6 +990,26 @@ export interface LspApi {
   readonly onSyncRequested: (
     listener: IpcEventListener<'lsp:sync-requested'>
   ) => IpcEventUnsubscribe
+  /**
+   * サーバが出した指摘（Session 5-3）。
+   *
+   * **URI は載らない。** 届くのは Main が「Workspace の中だ」と確かめた
+   * 相対位置だけで、外を指す URI・`file:` 以外の scheme・開いていない文書は
+   * そこで断たれる（main/lsp/diagnostics.ts）。
+   *
+   * その文書の**全件**が毎回届く（LSP がそういう仕様）。受け手は足すのではなく
+   * 入れ替える ── 指摘が無くなった文書には空の配列が来る。
+   */
+  readonly onDiagnostics: (listener: IpcEventListener<'lsp:diagnostics'>) => IpcEventUnsubscribe
+  /**
+   * その指摘がもう有効でなくなった（サーバが落ちた・終わった・切り替わった）。
+   *
+   * 空の指摘（「問題は無い」）とは意味が違う ── こちらでは Monaco 内蔵の
+   * 指摘へ戻す（shared/ipc/events/lsp.ts）。
+   */
+  readonly onDiagnosticsCleared: (
+    listener: IpcEventListener<'lsp:diagnostics-cleared'>
+  ) => IpcEventUnsubscribe
 }
 
 /**

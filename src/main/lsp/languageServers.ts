@@ -133,6 +133,39 @@ export function onLanguageServerStateChange(listener: LanguageServerStateListene
   }
 }
 
+/**
+ * サーバからの通知の受け手（Session 5-3）。
+ *
+ * 扱ったなら true を返す。false のまま誰も扱わなければ、この層が
+ * 「知らない通知」として1行残す ── 黙って捨てると、受け取り始めたときに
+ * 「前から届いていたのか」が分からなくなる（Session 5-1 からの扱い）。
+ */
+export type LanguageServerNotificationListener = (
+  id: LanguageServerId,
+  method: string,
+  params: unknown
+) => boolean
+
+const notificationListeners = new Set<LanguageServerNotificationListener>()
+
+/**
+ * サーバからの通知を受け取る。
+ *
+ * 状態の購読（`onLanguageServerStateChange`）と同じ形にしてある。
+ * **この層が `textDocument/publishDiagnostics` を知る必要は無い** ──
+ * 何を扱うかは受け手の判断で、ここが持つのは
+ * 「届いた電文を、聞いている相手へ回す」ことだけになる。
+ */
+export function onLanguageServerNotification(
+  listener: LanguageServerNotificationListener
+): () => void {
+  notificationListeners.add(listener)
+
+  return () => {
+    notificationListeners.delete(listener)
+  }
+}
+
 function notifyState(id: LanguageServerId, state: LanguageServerState): void {
   for (const listener of stateListeners) {
     try {
@@ -439,10 +472,13 @@ export function notifyLanguageServer(
 /**
  * サーバからの通知。
  *
- * Session 5-1 で扱えるのはログだけになる。診断（`textDocument/publishDiagnostics`）は
- * 受け取る器（Renderer 側の表示と、そこへ届ける IPC イベント）がまだ無いため、
- * ここでは**捨てずに、知らない通知として1行残す**に留める
- * ── 黙って捨てると、5-2 で受け取り始めたときに「前から届いていたのか」が分からない。
+ * この層が中身を読むのは**サーバのログだけ**にしてある。診断
+ * （`textDocument/publishDiagnostics`）のように意味を持つ通知は、
+ * 聞いている相手（main/lsp/diagnostics.ts）へ回す ── 何を扱うかを
+ * ここが知る形にすると、通知が増えるたびにこのファイルが太る
+ * （currentWorkspaceFolder.ts が個別の機能を呼ばないのと同じ理由）。
+ *
+ * 誰も扱わなかったものは**捨てずに1行残す**（Session 5-1 からの扱い）。
  */
 function handleServerNotification(
   id: LanguageServerId,
@@ -453,6 +489,18 @@ function handleServerNotification(
   if (method === 'window/logMessage' || method === 'window/showMessage') {
     log.debug(`${name}: ${trimForLog(describeMessageParams(params))}`)
     return
+  }
+
+  for (const listener of notificationListeners) {
+    try {
+      if (listener(id, method, params)) {
+        return
+      }
+    } catch (cause) {
+      // 受け手の失敗で、次の電文が読めなくなることのないようにする。
+      log.error(`a language server notification listener failed on "${method}".`, cause)
+      return
+    }
   }
 
   log.debug(`${name}: unhandled notification "${method}" (${id})`)

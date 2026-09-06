@@ -145,7 +145,12 @@ export type {
   WorkspaceFilesChangedEvent
 } from './events/files'
 export type { GitChangedEvent, GitIpcEventContract } from './events/git'
-export type { LspIpcEventContract, LspSyncRequestedEvent } from './events/lsp'
+export type {
+  LspDiagnosticsClearedEvent,
+  LspDiagnosticsEvent,
+  LspIpcEventContract,
+  LspSyncRequestedEvent
+} from './events/lsp'
 export type {
   TerminalExitEvent,
   TerminalIpcEventContract,

@@ -4,7 +4,7 @@ import { invokeIpc } from '../ipc/invoke'
 import { subscribeIpcEvent } from '../ipc/subscribe'
 
 /**
- * lsp ドメインの Preload API（Session 5-2）。
+ * lsp ドメインの Preload API（Session 5-2 / 5-3）。
  *
  * 他のドメインと同じく「IPC 呼び出しを型付きの関数に包んだだけ」に留める。
  * `child_process` はもちろん、LSP の電文の組み立てをここへ持ち込まないこと ──
@@ -16,13 +16,19 @@ import { subscribeIpcEvent } from '../ipc/subscribe'
  * どのサーバへ送るかも要求に含まれず、決めるのは開いたファイルの拡張子になる
  * （main/lsp/documentLanguage.ts）。Terminal の `shellId` にあたる欄すら無い。
  *
- * `onSyncRequested` は `files.onChanged` と同じ経路で、
- * Electron の event オブジェクトを剥がすのは subscribe.ts の責務。
+ * 購読の3つ（`onSyncRequested` / `onDiagnostics` / `onDiagnosticsCleared`）は
+ * `files.onChanged` と同じ経路で、Electron の event オブジェクトを剥がすのは
+ * subscribe.ts の責務。**診断に URI は載らない** ── 載るのは Main が
+ * Workspace の中だと確かめた相対位置だけで、外を指す URI はそこで断られる
+ * （main/lsp/documentUri.ts）。
  */
 export const lspApi: LspApi = {
   didOpen: (request) => invokeIpc(IPC_CHANNELS.LSP_DID_OPEN, request),
   didChange: (request) => invokeIpc(IPC_CHANNELS.LSP_DID_CHANGE, request),
   didSave: (request) => invokeIpc(IPC_CHANNELS.LSP_DID_SAVE, request),
   didClose: (request) => invokeIpc(IPC_CHANNELS.LSP_DID_CLOSE, request),
-  onSyncRequested: (listener) => subscribeIpcEvent(IPC_EVENT_CHANNELS.LSP_SYNC_REQUESTED, listener)
+  onSyncRequested: (listener) => subscribeIpcEvent(IPC_EVENT_CHANNELS.LSP_SYNC_REQUESTED, listener),
+  onDiagnostics: (listener) => subscribeIpcEvent(IPC_EVENT_CHANNELS.LSP_DIAGNOSTICS, listener),
+  onDiagnosticsCleared: (listener) =>
+    subscribeIpcEvent(IPC_EVENT_CHANNELS.LSP_DIAGNOSTICS_CLEARED, listener)
 }

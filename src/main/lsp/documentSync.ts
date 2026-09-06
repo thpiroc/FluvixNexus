@@ -8,6 +8,7 @@ import {
 } from '../workspaceFolder/currentWorkspaceFolder'
 import { resolveLspDocumentLanguage } from './documentLanguage'
 import { resolveWorkspaceDocumentUri } from './documentUri'
+import type { LanguageServerId } from './languageServerCatalog'
 import {
   isLanguageServerReady,
   notifyLanguageServer,
@@ -130,7 +131,8 @@ export function openLspDocument(
     relativePath,
     serverId: language.serverId,
     languageId: language.languageId,
-    uri
+    uri,
+    version
   })
 
   if (document.synced) {
@@ -178,7 +180,14 @@ export function changeLspDocument(
     return
   }
 
-  send(document, LSP_DID_CHANGE, createDidChangeParams(document.uri, version, changes))
+  if (send(document, LSP_DID_CHANGE, createDidChangeParams(document.uri, version, changes))) {
+    /*
+      送れたぶんだけ版を進める（Session 5-3）。これが診断の古さを判断する基準になる
+      ── サーバが見ている中身と、こちらが控えている版が一致している必要がある
+      （main/lsp/openDocuments.ts の setVersion）。
+    */
+    documents.setVersion(relativePath, version)
+  }
 }
 
 /* --------------------------------------------------------------- 保存 */
@@ -218,6 +227,30 @@ export function closeLspDocument(relativePath: string): void {
   notifyLanguageServer(document.serverId, LSP_DID_CLOSE, createDidCloseParams(document.uri))
 }
 
+/* ------------------------------------------------------------- 控えを見る */
+
+/**
+ * 控えている文書1件（Session 5-3）。
+ *
+ * 診断を受け取る側（main/lsp/diagnostics.ts）が使う。**書き換える口は無い**
+ * ── 控えを動かせるのは、この層に届く4つの出来事だけに保つ。
+ *
+ * 返るものに URI と版が入っているのは、届いた診断が
+ * 「この文書のもので、今の中身に対するものか」を確かめるのに要るため。
+ */
+export function getOpenLspDocument(relativePath: string): OpenLspDocument | null {
+  return documents.get(relativePath)
+}
+
+/**
+ * そのサーバが担当している文書の位置（Session 5-3）。
+ *
+ * サーバが終わったときに、どの文書の診断がもう有効でないかを数えるのに使う。
+ */
+export function listOpenLspDocumentPaths(serverId: LanguageServerId): readonly string[] {
+  return documents.listPaths(serverId)
+}
+
 /* ----------------------------------------------------------------- 送る */
 
 /**
@@ -227,17 +260,19 @@ export function closeLspDocument(relativePath: string): void {
  * サーバが知らない文書を「伝え終えた」ものとして扱い、以降の差分が
  * 宙に浮いたまま届かなくなる。立ち直りの時点で開き直しの対象に入る。
  */
-function send(document: OpenLspDocument, method: string, params: Record<string, unknown>): void {
+function send(document: OpenLspDocument, method: string, params: Record<string, unknown>): boolean {
   const sent = notifyLanguageServer(document.serverId, method, params)
 
   if (!sent) {
     log.debug(`"${method}" was not delivered for ${document.relativePath}.`)
-    return
+    return false
   }
 
   if (method === LSP_DID_OPEN) {
     documents.markSynced(document.relativePath)
   }
+
+  return true
 }
 
 /* --------------------------------------------------------------- 入口 */

@@ -61,12 +61,34 @@ describe('createInitializeParams', () => {
     expect(capabilities.workspace.configuration).toBe(false)
   })
 
-  it('診断も補完も名乗らない（受け取る器がまだ無い ── Session 5-3 以降）', () => {
+  /**
+   * 診断は「名乗らないと来ない」。
+   *
+   * typescript-language-server は、この申告が無いと診断を1通も送ってこない
+   * （実際に繋いで確かめた。initializeParams.ts）。仕様の上では省略できるが、
+   * **送るかどうかを申告で決めるサーバがある**ため、受け取る側は名乗る必要がある。
+   */
+  it('診断を受け取れると名乗る（Session 5-3）', () => {
+    const publishDiagnostics = (
+      capabilities.textDocument as Record<string, Record<string, unknown>>
+    ).publishDiagnostics
+
+    expect(publishDiagnostics).toBeDefined()
+    // 版を見て古い指摘を捨てる（main/lsp/diagnostics.ts）。
+    expect(publishDiagnostics.versionSupport).toBe(true)
+    // unnecessary / deprecated を Monaco の印へ写す。
+    expect(publishDiagnostics.tagSupport).toEqual({ valueSet: [1, 2] })
+    // 関連する別の位置は、まだ描いていない。
+    expect(publishDiagnostics.relatedInformation).toBe(false)
+  })
+
+  it('補完も定義も Rename も整形も名乗らない（受け取る器がまだ無い ── Session 5-4 以降）', () => {
     const textDocument = capabilities.textDocument
 
-    expect('publishDiagnostics' in textDocument).toBe(false)
     expect('completion' in textDocument).toBe(false)
     expect('definition' in textDocument).toBe(false)
+    expect('references' in textDocument).toBe(false)
+    expect('hover' in textDocument).toBe(false)
     expect('rename' in textDocument).toBe(false)
     expect('formatting' in textDocument).toBe(false)
   })

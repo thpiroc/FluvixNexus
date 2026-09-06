@@ -1,4 +1,10 @@
-import { normalizeWorkspaceRelativePath, resolveWorkspacePath } from '../files/workspacePath'
+import { isAbsolute, relative, resolve } from 'path'
+import { isWindows } from '../platform'
+import {
+  isInsideWorkspace,
+  normalizeWorkspaceRelativePath,
+  resolveWorkspacePath
+} from '../files/workspacePath'
 
 /**
  * 相対位置と、Language Server へ渡す URI の対応（fs / child_process 非依存・テスト対象）。
@@ -113,4 +119,144 @@ export function resolveWorkspaceDocumentUri(
   const absolutePath = resolveWorkspacePath(rootPath, relativePath)
 
   return absolutePath === null ? null : toFileUri(absolutePath)
+}
+
+/* ------------------------------------------------------------------ 逆向き */
+
+/**
+ * サーバが指した URI を、Workspace の中の相対位置へ落とす（Session 5-3）。
+ *
+ * ## こちらの向きは「境界の外から入ってくる」
+ *
+ * 送る側（`resolveWorkspaceDocumentUri`）が扱うのは**自分で組み立てた値**だが、
+ * こちらは**別のプロセスが言ってきた文字列**になる。診断（`publishDiagnostics`）は
+ * サーバが好きな URI に対して送れるため、次のどれもが実際に届きうる。
+ *
+ * ```
+ * Workspace の中のファイル … 通す（相対位置にする）
+ * Workspace の外の絶対パス … 断る（別ドライブ・ホーム・親フォルダ）
+ * file: 以外の scheme      … 断る（`untitled:` `git:` `deno:` など）
+ * 相対位置に落とせない形   … 断る（別ホストの UNC・壊れた符号化）
+ * ```
+ *
+ * **断ったものは Renderer に見えない。** Renderer が受け取るイベントには
+ * 相対位置しか載らず（shared/ipc/events/lsp.ts）、その相対位置は必ず
+ * この関数を通っている ── 「Renderer は Workspace の中しか指せない」という線が、
+ * 出ていく側だけでなく**入ってくる側でも**保たれる。
+ *
+ * ## 実体は見ない
+ *
+ * ここも文字列の判断だけで、realpath は取らない（送る側と同じ理由。上記）。
+ * 診断は**表示のための位置**であって、この経路からファイルが読み書きされることは
+ * 無い ── 実際に開くのは Files ドメインで、そちらは今までどおり実体を確かめる。
+ *
+ * ## 出口でもう一度、送る側の規則に通す
+ *
+ * 組み立てた相対位置を `normalizeWorkspaceRelativePath` に通してから返す。
+ * 二重に見えるが、**Renderer へ渡る文字列が満たすべき条件を1箇所で決める**
+ * ことになる ── 入口が増えても、外へ出る形は同じ関数が保証する。
+ */
+export function toWorkspaceRelativePath(rootPath: string, rawUri: unknown): string | null {
+  const absolutePath = fileUriToPath(rawUri)
+
+  if (absolutePath === null) {
+    return null
+  }
+
+  if (!isInsideWorkspace(rootPath, absolutePath)) {
+    return null
+  }
+
+  const relativePath = relative(resolve(rootPath), absolutePath)
+
+  // root 自身（空文字）は文書ではない。`..` で始まる形は境界の判定と食い違う。
+  if (relativePath === '' || relativePath.startsWith('..')) {
+    return null
+  }
+
+  // 送る側と同じ規則を通してから返す（上記）。
+  return normalizeWorkspaceRelativePath(relativePath.replace(/\\/g, '/'))
+}
+
+/**
+ * `file:` URI を絶対パスへ戻す。読めなければ null。
+ *
+ * `decodeURIComponent` は壊れた並び（`%zz`）で例外を投げるため、要素ごとに
+ * 受け止める ── **相手のプロセスが送ってきた文字列で Main を落とさない。**
+ */
+function fileUriToPath(rawUri: unknown): string | null {
+  if (typeof rawUri !== 'string' || rawUri.length === 0 || rawUri.includes('\0')) {
+    return null
+  }
+
+  /*
+    `?` と `#` を含むものは断る。ファイルの位置ではなく query / fragment を
+    持つ URI で、`untitled:` などと同じく「ディスク上の1ファイル」を指していない。
+    名前の中の `#` は `%23` として届くので、そちらは通る。
+  */
+  if (rawUri.includes('?') || rawUri.includes('#')) {
+    return null
+  }
+
+  const match = /^file:\/\/([^/]*)(\/.*)$/i.exec(rawUri)
+
+  if (match === null) {
+    return null
+  }
+
+  const authority = decodeSegment(match[1] ?? '')
+  const path = decodePath(match[2] ?? '')
+
+  if (authority === null || path === null) {
+    return null
+  }
+
+  if (authority !== '' && authority.toLowerCase() !== 'localhost') {
+    /*
+      UNC（`file://server/share/…`）。Windows でだけ実際の位置を持つ。
+      それ以外の環境では指しているものが分からないので断る。
+    */
+    return isWindows ? resolve(`\\\\${authority}${path.replace(/\//g, '\\')}`) : null
+  }
+
+  /*
+    `file:///D:/proj/a.ts` の path は `/D:/proj/a.ts`。先頭の `/` を落とすと
+    Windows の絶対パスになる ── POSIX ではそのままが絶対パスなので落とさない。
+  */
+  const candidate = /^\/[A-Za-z]:/.test(path) ? path.slice(1) : path
+
+  return isAbsolute(candidate) ? resolve(candidate) : null
+}
+
+function decodePath(path: string): string | null {
+  const segments: string[] = []
+
+  for (const segment of path.split('/')) {
+    const decoded = decodeSegment(segment)
+
+    if (decoded === null) {
+      return null
+    }
+
+    segments.push(decoded)
+  }
+
+  return segments.join('/')
+}
+
+function decodeSegment(segment: string): string | null {
+  try {
+    const decoded = decodeURIComponent(segment)
+
+    /*
+      符号化を解いた結果に区切りや NUL が現れる形は断る（`%2F` で階層をまたぐ・
+      `%00` で名前を切る）。解いた後の文字列は名前としてしか使わない。
+    */
+    return decoded.includes('/') || decoded.includes('\\') || decoded.includes('\0')
+      ? null
+      : decoded
+  } catch {
+    // `%zz` のような壊れた並び。
+    return null
+  }
 }

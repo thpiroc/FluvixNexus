@@ -11,17 +11,33 @@
  * サーバはそれを前提に動き（例えば差分だけを送ってくる・設定を尋ねてくる）、
  * こちらが応じられないまま黙って噛み合わなくなる。
  *
- * ## Session 5-2 で名乗るのは文書同期だけ
+ * ## 名乗るのは文書同期と診断（Session 5-2 / 5-3）
  *
  * ```
  * 名乗る       … textDocument.synchronization（didOpen / didChange / didSave / didClose）
- * 名乗らない   … publishDiagnostics（Session 5-3）・completion・definition・rename・formatting
+ * 名乗る       … textDocument.publishDiagnostics（Session 5-3）
+ * 名乗らない   … completion・definition・rename・formatting（Session 5-4 以降）
  * 名乗らない   … workspace.configuration（応じる口が無い。jsonRpcConnection.ts が断る）
  * ```
  *
  * `dynamicRegistration` をどれも false にしてあるのは、
  * `client/registerCapability` に応じる口がまだ無いため
  * ── 応じられないものを「受け付ける」と言わない、という同じ線になる。
+ *
+ * ## 診断は「名乗らないと来ない」
+ *
+ * Session 5-2 の時点では `publishDiagnostics` を名乗っていなかった。
+ * **typescript-language-server は、この申告が無いと診断を1通も送ってこない。**
+ * 実際に繋いで確かめた結果で、仕様の上では省略できることになっているが、
+ * 送るかどうかを申告で決めるサーバがある以上、受け取る側は名乗る必要がある。
+ *
+ * 名乗る中身も、実装に合わせて選んである。
+ *
+ * ```
+ * relatedInformation: false  … 関連する別の位置は、まだ描いていない（Session 5-4 以降）
+ * versionSupport: true       … 版を見て古い指摘を捨てる（main/lsp/diagnostics.ts）
+ * tagSupport                 … unnecessary / deprecated を Monaco の印に写す
+ * ```
  *
  * ## `rootUri` は動かせない
  *
@@ -73,6 +89,16 @@ export function createInitializeParams(
           willSave: false,
           willSaveWaitUntil: false,
           didSave: true
+        },
+        /*
+          診断を受け取れる、という申告（Session 5-3。上記）。
+          中身は実装に合わせてある ── 描いていないもの（relatedInformation）は
+          false のままにする。名乗れば、サーバはそれを前提に送ってくる。
+        */
+        publishDiagnostics: {
+          relatedInformation: false,
+          versionSupport: true,
+          tagSupport: { valueSet: [1, 2] }
         }
       },
       workspace: {

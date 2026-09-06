@@ -12,6 +12,7 @@ import {
   type AutoSaveSettings
 } from './autoSave'
 import type { EditorFailure } from './editorError'
+import { useDiagnostics } from './lsp/useDiagnostics'
 import { useDocumentSync } from './lsp/useDocumentSync'
 import type { EditorRevealRequest } from './editorReveal'
 import { hasUnsavedChanges } from './editorTabState'
@@ -253,6 +254,16 @@ export function useEditorSession(workspaceId: string | null): EditorController {
     （Language Server が1つも入っていない PC でも、ここは同じように動く）。
   */
   useDocumentSync(documents, workspaceId)
+
+  /*
+    サーバが出した指摘を Monaco の marker にする（Session 5-3）。
+
+    同期と対にしてここへ置く ── 指摘は**同期した文書についてしか届かない**ので、
+    どちらも Model を持つ層の隣に居るのが素直になる。
+    こちらも返す値は無く、Language Server が1つも入っていない PC では
+    何も起きない（内蔵の指摘がそのまま働く）。
+  */
+  useDiagnostics(documents, workspaceId)
 
   const [saveStates, setSaveStates] = useState<Readonly<Record<string, EditorSaveState>>>({})
 

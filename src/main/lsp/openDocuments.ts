@@ -43,6 +43,17 @@ export interface OpenLspDocument {
   readonly languageId: LspLanguageId
   /** 文書の URI（main/lsp/documentUri.ts が組み立てたもの）。 */
   readonly uri: string
+  /**
+   * そのサーバへ最後に伝えた版（Session 5-3）。
+   *
+   * **診断が古いかどうかは、この数と突き合わせて決まる**（main/lsp/diagnostics.ts）。
+   * 中身は持たないが、版だけは持つ ── 数1つで、届いた指摘が
+   * 「今の中身に対するものか」を判断できる。
+   *
+   * 未保存かどうかとは無関係の数であることに注意（Renderer 側の
+   * `getVersionId()`。shared/ipc/contracts/lsp.ts）。
+   */
+  readonly version: number
   /** その文書を担当するサーバへ `didOpen` を送り終えたか。 */
   readonly synced: boolean
 }
@@ -57,9 +68,13 @@ export class OpenDocumentRegistry {
   /**
    * 文書を開いたものとして控える。
    *
-   * 既に同じ位置が控えられていた場合は**上書きしない**。2度目の `didOpen` は
-   * 送り直しの依頼（`lsp:sync-requested`）に対する返事であることが多く、
-   * そこで `synced` を false へ戻すと、既に届いている文書をもう一度開いてしまう。
+   * 既に同じ位置が控えられていた場合、**`synced` は上書きしない**。2度目の
+   * `didOpen` は送り直しの依頼（`lsp:sync-requested`）に対する返事であることが多く、
+   * そこで false へ戻すと、既に届いている文書をもう一度開いてしまう。
+   *
+   * 版だけは新しいものへ進める（Session 5-3）── 送り直しに載ってくるのは
+   * **その時点の中身と版**で、控えが古いままだと、届いた診断がすべて
+   * 「古い版に対するもの」として捨てられる。
    *
    * 戻り値は控えた後の状態。
    */
@@ -67,21 +82,37 @@ export class OpenDocumentRegistry {
     const existing = this.documents.get(input.relativePath)
 
     /*
-      行き先が同じなら、そのまま。違う場合（拡張子の変わる改名）は控え直すが、
-      **改名は close → open で届く**ため通常ここへは来ない
+      行き先が同じなら、開いている事実はそのまま。違う場合（拡張子の変わる改名）は
+      控え直すが、**改名は close → open で届く**ため通常ここへは来ない
       （renderer/src/editor/monaco/documentStore.ts の rekey）。
       来た場合は新しい行き先で始め直す ── 古い行き先のサーバには
       既に didClose が届いている。
     */
-    if (existing !== undefined && existing.serverId === input.serverId) {
-      return existing
-    }
-
-    const document: OpenLspDocument = { ...input, synced: false }
+    const document: OpenLspDocument =
+      existing !== undefined && existing.serverId === input.serverId
+        ? { ...existing, version: input.version }
+        : { ...input, synced: false }
 
     this.documents.set(input.relativePath, document)
 
     return document
+  }
+
+  /**
+   * サーバへ伝えた版を進める（`didChange` を送れたとき）。
+   *
+   * 控えるのは**送れたぶんだけ**。送れなかった変更まで数えると、
+   * サーバが見ている中身より先の版を「伝えた」ことにしてしまい、
+   * 以降の診断が全部「古い」と判断されて出なくなる。
+   */
+  setVersion(relativePath: string, version: number): void {
+    const document = this.documents.get(relativePath)
+
+    if (document === undefined || document.version === version) {
+      return
+    }
+
+    this.documents.set(relativePath, { ...document, version })
   }
 
   get(relativePath: string): OpenLspDocument | null {
@@ -156,5 +187,24 @@ export class OpenDocumentRegistry {
   /** 控えている文書（順序は登録順）。 */
   list(): readonly OpenLspDocument[] {
     return [...this.documents.values()]
+  }
+
+  /**
+   * そのサーバが担当している文書の位置（Session 5-3）。
+   *
+   * サーバが終わったときに「どの文書の診断がもう有効でないか」を数えるのに使う
+   * （main/lsp/diagnostics.ts）。位置しか返さないのは、外へ出すのが
+   * **Renderer も知っている相対位置だけ**でよいため。
+   */
+  listPaths(serverId: LanguageServerId): readonly string[] {
+    const paths: string[] = []
+
+    for (const document of this.documents.values()) {
+      if (document.serverId === serverId) {
+        paths.push(document.relativePath)
+      }
+    }
+
+    return paths
   }
 }

@@ -47,12 +47,21 @@ export type {
 export type { GitFailureReason, GitHead, GitRepositoryState } from './git'
 
 export {
+  LSP_DIAGNOSTIC_MESSAGE_MAX_LENGTH,
+  LSP_DIAGNOSTICS_MAX_PER_DOCUMENT,
   LSP_DOCUMENT_MAX_CONTENT_CHANGES,
   LSP_DOCUMENT_MAX_TEXT_LENGTH,
   isTextDocumentContentChange,
   isTextDocumentVersion
 } from './lsp'
-export type { TextDocumentContentChange, TextDocumentPosition, TextDocumentRange } from './lsp'
+export type {
+  LspDiagnostic,
+  LspDiagnosticSeverity,
+  LspDiagnosticTag,
+  TextDocumentContentChange,
+  TextDocumentPosition,
+  TextDocumentRange
+} from './lsp'
 
 export {
   SETTINGS_DOCUMENT_MAX_BYTES,
@@ -145,6 +154,8 @@ export type {
   CloseLspDocumentRequest,
   LoadSettingsResponse,
   LoadWorkspaceLayoutResponse,
+  LspDiagnosticsClearedEvent,
+  LspDiagnosticsEvent,
   LspSyncRequestedEvent,
   OpenLspDocumentRequest,
   OpenLspDocumentResponse,

@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { startWorkspaceWatching, stopWorkspaceWatching } from '../files/workspaceWatcher'
 import { startGitWatching, stopGitWatching } from '../git/gitWatcher'
 import { registerIpcHandlers } from '../ipc'
+import { startLanguageServerDiagnostics } from '../lsp/diagnostics'
 import { startLanguageServerDocumentSync } from '../lsp/documentSync'
 import { startLanguageServerHosting, stopLanguageServers } from '../lsp/languageServers'
 import { createLogger } from '../logger'
@@ -76,6 +77,14 @@ export function bootstrapApp(): void {
       ここで張るのは、サーバの状態と Workspace の切り替えへの購読2つ。
     */
     startLanguageServerDocumentSync()
+
+    /*
+      サーバが出した指摘を Renderer へ届ける側（Session 5-3）。
+      **文書同期の後に張る** ── サーバが落ちたことは両方が受け取るが、
+      「もう伝えていない」へ控えを戻す（documentSync）のが先で、
+      「その指摘はもう有効でない」と配る（diagnostics）のが後になる。
+    */
+    startLanguageServerDiagnostics()
 
     /*
       シェルのセッションは Workspace の切り替えに追従しない（Session 3-7-3）。
