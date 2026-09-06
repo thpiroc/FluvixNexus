@@ -4,6 +4,8 @@ import {
   type CloseLspDocumentRequest,
   type LspCompletionRequest,
   type LspCompletionResponse,
+  type LspHoverRequest,
+  type LspHoverResponse,
   type LspStatusResponse,
   type OpenLspDocumentRequest,
   type OpenLspDocumentResponse,
@@ -26,6 +28,7 @@ import {
   saveLspDocument
 } from '../../lsp/documentSync'
 import { requestLspCompletion } from '../../lsp/completion'
+import { requestLspHover } from '../../lsp/hover'
 import { getLanguageServerStatuses } from '../../lsp/serverStatus'
 import { IpcError, invalidRequest } from '../errors'
 import { handleIpc } from '../registry'
@@ -128,6 +131,20 @@ export function registerLspHandlers(): void {
     }
   )
 
+  handleIpc(IPC_CHANNELS.LSP_HOVER, async (request: LspHoverRequest): Promise<LspHoverResponse> => {
+    const outcome = await requestLspHover({
+      relativePath: normalizeDocumentPath(request?.relativePath),
+      version: normalizeVersion(request?.version),
+      position: normalizePosition(request?.position)
+    })
+
+    if (outcome.status === 'outside-workspace') {
+      throw outsideWorkspace()
+    }
+
+    return outcome
+  })
+
   /*
     サーバの状態（Session 5-4）。**要求に欄が1つも無い** ── どのサーバの
     状態を返すかも Renderer は言わず、返るのは常に3本ぶんになる。
@@ -203,13 +220,13 @@ function normalizeChanges(value: unknown): readonly TextDocumentContentChange[] 
 
 function normalizePosition(value: unknown): TextDocumentPosition {
   if (typeof value !== 'object' || value === null) {
-    throw invalidRequest('the completion position has an unexpected shape.')
+    throw invalidRequest('the document position has an unexpected shape.')
   }
 
   const position = value as { readonly line: unknown; readonly character: unknown }
 
   if (!isTextDocumentVersion(position.line) || !isTextDocumentVersion(position.character)) {
-    throw invalidRequest('the completion position must use non-negative integers.')
+    throw invalidRequest('the document position must use non-negative integers.')
   }
 
   return { line: position.line, character: position.character }

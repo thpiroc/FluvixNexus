@@ -36,6 +36,16 @@ export type {
   LspCompletionTriggerKind
 } from './completion'
 
+export { LSP_HOVER_MAX_CONTENTS, LSP_HOVER_TEXT_MAX_LENGTH } from './hover'
+
+export type {
+  LspHover,
+  LspHoverContent,
+  LspHoverContentKind,
+  LspHoverRequest,
+  LspHoverResponse
+} from './hover'
+
 export { LSP_DIAGNOSTIC_MESSAGE_MAX_LENGTH, LSP_DIAGNOSTICS_MAX_PER_DOCUMENT } from './diagnostic'
 
 export type { LspDiagnostic, LspDiagnosticSeverity, LspDiagnosticTag } from './diagnostic'

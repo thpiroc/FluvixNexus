@@ -159,6 +159,7 @@ export function applyMonacoTheme(theme: ThemeId): void {
  */
 let builtInValidationSuppressed = false
 let builtInCompletionSuppressed = true
+let builtInHoverSuppressed = true
 
 /**
  * 今の設定を Monaco へ当てる。
@@ -220,7 +221,7 @@ export function setBuiltInValidationSuppressed(suppressed: boolean): void {
 function applyBuiltInModeConfiguration(): void {
   const configuration: monaco.typescript.ModeConfiguration = {
     completionItems: !builtInCompletionSuppressed,
-    hovers: true,
+    hovers: !builtInHoverSuppressed,
     documentSymbols: true,
     definitions: true,
     references: true,
@@ -244,6 +245,18 @@ export function setBuiltInCompletionSuppressed(suppressed: boolean): void {
   }
 
   builtInCompletionSuppressed = suppressed
+
+  if (initialized) {
+    applyBuiltInModeConfiguration()
+  }
+}
+
+export function setBuiltInHoverSuppressed(suppressed: boolean): void {
+  if (builtInHoverSuppressed === suppressed) {
+    return
+  }
+
+  builtInHoverSuppressed = suppressed
 
   if (initialized) {
     applyBuiltInModeConfiguration()

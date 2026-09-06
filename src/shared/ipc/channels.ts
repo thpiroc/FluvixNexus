@@ -78,6 +78,7 @@ export const IPC_CHANNELS = {
   LSP_DID_SAVE: 'lsp:did-save',
   LSP_DID_CLOSE: 'lsp:did-close',
   LSP_COMPLETION: 'lsp:completion',
+  LSP_HOVER: 'lsp:hover',
   LSP_GET_STATUS: 'lsp:get-status',
   SETTINGS_LOAD: 'settings:load',
   SETTINGS_SAVE_SECTION: 'settings:save-section'

@@ -77,6 +77,8 @@ export type {
   CloseLspDocumentRequest,
   LspCompletionRequest,
   LspCompletionResponse,
+  LspHoverRequest,
+  LspHoverResponse,
   LspIpcContract,
   LspStatusResponse,
   OpenLspDocumentRequest,

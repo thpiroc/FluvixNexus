@@ -50,6 +50,7 @@ import type {
   ChangeLspDocumentRequest,
   CloseLspDocumentRequest,
   LspCompletionRequest,
+  LspHoverRequest,
   OpenLspDocumentRequest,
   SaveLspDocumentRequest
 } from './ipc/contracts/lsp'
@@ -981,6 +982,7 @@ export interface LspApi {
   /** 文書を閉じたことを伝える（Model を捨てたとき）。 */
   readonly didClose: (request: CloseLspDocumentRequest) => IpcInvokeResult<'lsp:did-close'>
   readonly completion: (request: LspCompletionRequest) => IpcInvokeResult<'lsp:completion'>
+  readonly hover: (request: LspHoverRequest) => IpcInvokeResult<'lsp:hover'>
   /**
    * 開いている文書を送り直してほしい、という Main からの依頼。
    *

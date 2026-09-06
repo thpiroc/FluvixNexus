@@ -1,8 +1,10 @@
 import type { TextDocumentContentChange } from '../../lsp/document'
 import type { LspCompletionRequest, LspCompletionResponse } from '../../lsp/completion'
+import type { LspHoverRequest, LspHoverResponse } from '../../lsp/hover'
 import type { LanguageServerStatus } from '../../lsp/serverStatus'
 
 export type { LspCompletionRequest, LspCompletionResponse } from '../../lsp/completion'
+export type { LspHoverRequest, LspHoverResponse } from '../../lsp/hover'
 
 /**
  * lsp ドメインの IPC 契約（Session 5-2 ── Document Synchronization、5-4 で状態を1本）。
@@ -138,6 +140,10 @@ export interface LspIpcContract {
   'lsp:completion': {
     request: LspCompletionRequest
     response: LspCompletionResponse
+  }
+  'lsp:hover': {
+    request: LspHoverRequest
+    response: LspHoverResponse
   }
   'lsp:get-status': {
     request: void
