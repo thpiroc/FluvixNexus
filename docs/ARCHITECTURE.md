@@ -1,7 +1,7 @@
 # アーキテクチャ
 
-> 対象: Session 3-8-20（ブランチのマージの開始 / 中止）完了時点の実装
-> 最終更新: 2026-08-30
+> 対象: Session 4-8A（Localization / Keyboard Shortcuts の production app 統合確認）完了時点の実装
+> 最終更新: 2026-09-06
 
 製品としての方向性は [DESIGN.md](../DESIGN.md) を参照。このドキュメントは「現在のコードがどう組まれているか」と「機能を足すときにどこへ書くか」を扱う。
 
@@ -144,6 +144,7 @@ src/
 ├── preload/
 │   ├── index.ts              contextBridge での公開
 │   ├── theme.ts              保存済み Theme を最初の描画より前に `<html>` へ当てる（§16.5）
+│   ├── language.ts           保存済み Language を最初の描画より前に `<html>` へ当てる（§17.6）
 │   ├── ipc/invoke.ts         Main を呼ぶ唯一の経路
 │   ├── ipc/subscribe.ts      Main からのイベントを受ける唯一の経路（§3.3）
 │   └── api/                  ドメインごとの薄いラッパ（env / system / workspace / workspaceFolder / files / terminal / settings）
@@ -152,7 +153,7 @@ src/
 │   └── src/
 │       ├── main.tsx / App.tsx    エントリ。App は Provider と Workspace Shell を置くだけ
 │       ├── api/fluvix.ts        window.fluvix を参照する唯一の場所
-│       ├── api/result.ts        IpcResult の扱いと UI 文言の対応表
+│       ├── api/result.ts        IpcResult の扱いと、エラーコード → **翻訳キー**の対応表（§17.4）
 │       ├── styles/
 │       │   ├── theme.css        Dark / Light の色と間隔の変数（**色の実体はここだけ**・§16.2）
 │       │   └── global.css       最小リセット
@@ -251,10 +252,38 @@ src/
 │       │   ├── GitHubPublishForm.tsx    GitHub に公開する面（畳んである・§14.17）
 │       │   ├── GitIcons.tsx            Stage / Unstage / 差分 / 破棄 のアイコン（Files と同じ描き方・§14.11・§14.16）
 │       │   └── git.css
+│       ├── i18n/               画面の文言（Localization。§17）
+│       │   ├── locales/en.ts          英語の辞書（**キーの正本**。型はここから導く・§17.2）
+│       │   ├── locales/ja.ts          日本語の辞書（既定の言語・§17.2）
+│       │   ├── locales/types.ts       辞書 → 翻訳キーの union（§17.2）
+│       │   ├── messages.ts            辞書 → `t`（埋め込み値の差し替え・§17.3）
+│       │   ├── languageSettings.ts    Language ↔ 保存形式の変換（React / DOM 非依存・テスト対象・§17.5）
+│       │   ├── documentLanguage.ts    `<html>` への当て方と読み取り（§17.6）
+│       │   ├── context.ts             Context の定義（`language` / `setLanguage` / `t`）
+│       │   └── LanguageProvider.tsx   Renderer 全体へ配る器（App の一番外・§17.5）
+│       ├── commands/           実行できる操作の表（Command。§18.1〜§18.3）
+│       │   ├── commandIds.ts          command id の閉じた集合（§18.1）
+│       │   ├── types.ts               descriptor と category、画面に出す名前の決め方（§18.1・§18.2）
+│       │   ├── registry.ts            descriptor の表（`Record<CommandId, …>`・§18.1）
+│       │   ├── commandCategoryLabels.ts カテゴリ → 表示名（内部 id と表示名を分ける・§18.2）
+│       │   ├── context.ts             実行時の handler 表の型（§18.3）
+│       │   ├── CommandProvider.tsx    handler の表を持つ器（state ではなく ref・§18.3）
+│       │   └── useCommand.ts          所有者が自分の handler を載せる hook（§18.3）
+│       ├── keybindings/        打鍵を command へ繋ぐ（§18.4〜§18.6）
+│       │   ├── chord.ts               打鍵1つの表し方（`event.code` 基準・React / DOM 非依存・テスト対象・§18.4）
+│       │   ├── when.ts                効く条件（閉じた6つの AND・同上・§18.5）
+│       │   ├── resolve.ts             rule の並び → 効く割り当ての表（後勝ち・同上・§18.4）
+│       │   ├── defaults.ts            既定の割り当て7件（**v1 が rule を作る唯一の場所**・§18.4）
+│       │   ├── dispatch.ts            打鍵 → command（確認ダイアログの裏では走らせない・同上・§18.5）
+│       │   ├── shortcutRows.ts        registry ＋ 割り当て → 一覧の行（同上・§18.6）
+│       │   ├── context.ts             Context の定義（効いている割り当てと、条件の申告）
+│       │   ├── useWhenFlag.ts         条件を1つ申告する hook（§18.5）
+│       │   └── KeybindingProvider.tsx window の keydown を1本だけ張る器（§18.5）
 │       ├── settings/           設定を読み書きする段取り（§12.4）と Settings 画面（§15）
 │       │   ├── useSettingsSection.ts  section 1つを持ち、いつ読み・いつ書くかを決める
 │       │   ├── settingsCatalog.ts     何が、どのカテゴリに、どの順で並ぶか（React 非依存）
 │       │   ├── SettingsOverlay.tsx    それをどう描き、どの setter へ繋ぐか
+│       │   ├── KeyboardShortcutsView.tsx 打鍵の一覧（**読むだけ**。値を持たない・§18.6）
 │       │   └── settings.css
 │       ├── theme/              アプリ全体の見た目（Theme。§16）
 │       │   ├── appearanceSettings.ts  Theme と保存形式の行き来（React / DOM 非依存・テスト対象）
@@ -284,6 +313,7 @@ src/
     ├── git/                   リポジトリの状態・HEAD・失敗の分類・変更ファイルの一覧・操作の対象と結末・Commit メッセージの規則・ブランチの一覧と名前の規則・commit の履歴（§14）
     ├── github/                公開範囲・GitHub CLI の状態・repository 名の規則（§14.17）
     ├── settings/             アプリ設定の保存形式（section の閉じた集合と文書の形。§12.4）
+    ├── language/             Language の名前・既定・落とし先と、初期描画用の受け渡し（§17.1）
     └── theme/                Theme の名前・既定・落とし先と、初期描画用の1色（§16.1）
 ```
 
@@ -6460,11 +6490,15 @@ Session 3-7-5 では、下書きを持って Enter / blur で確定する欄は 
 | 項目                 | 現状                                                                                                                            |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | Theme / Appearance   | **Session 4-4 で入った**（§16）。予告どおり、増えたのは section 1つと目録の1行だけ                                              |
+| Language / General   | **Session 4-5A で入った**（§17）。同じく section 1つと目録の1行だけ                                                             |
+| Keyboard Shortcuts   | **Session 4-7C で入った**（§18.6）。**値を持たない最初のカテゴリ**で、section は増えていない                                    |
 | Workspace ごとの設定 | 入れていない。プロジェクトフォルダの中には何も書かない方針のまま                                                                |
 | LSP / DAP の設定     | 入れていない。**実行ファイルのパスを Renderer から保存して Main が実行する形は作らない** ── 安全設計ごと STEP 5 / STEP 8 で行う |
-| 設定の検索           | 5項目しか無いので要らない                                                                                                       |
+| 設定の検索           | 置いていない。**Keyboard Shortcuts の一覧だけは自前の絞り込みを持つ**（21件並ぶため。§18.6）                                    |
 | 既定へ戻す           | 置いていない。項目ごとに範囲と既定が説明文に出ている                                                                            |
 | `settings:changed`   | 要らない（単一 Renderer が Context で同期している。§12.4）                                                                      |
+
+**カテゴリは6つになった**（General / Appearance / Editor / Files / Terminal / Keyboard Shortcuts）。値の項目は7つで、並び順の正本は今も `SETTINGS_SECTION_IDS` にある（§18.6）。
 
 ---
 
@@ -6640,12 +6674,381 @@ Settings 画面では **Appearance を末尾に置く**。前の3つ（Editor / 
 
 ### 16.8 今回入れていないもの
 
-| 項目                      | 現状                                                                                                                      |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| System（OS 追従）         | 入れていない。**Theme の名前ではなく選び方**なので `THEME_IDS` には入らない ── 足すなら「何を選んでいるか」を持つ側に足す |
-| Theme 切り替えの打鍵      | 入れていない。アプリ全体のショートカット基盤（Session 4-7 の予定）と同時にする                                            |
-| Accent Color              | 入れていない。パネル識別色（DESIGN.md §3）は設計の一部で、選ばせるものにしていない                                        |
-| フォント / UI 密度 / Zoom | 入れていない。Terminal の文字の大きさだけが既にある（§13.4）                                                              |
-| 構文ハイライトの配色      | 入れていない。Monaco の標準テーマ（`vs` / `vs-dark`）を継承したまま（§11.1）                                              |
-| 高コントラストの Theme    | 入れていない。Light の27色は面に対して 3:1 以上（本文は 7:1 以上）を実機で確かめてある                                    |
-| `settings:changed`        | 要らない（単一 Renderer が Context で同期している。§12.4）                                                                |
+| 項目                      | 現状                                                                                                                                                                                 |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| System（OS 追従）         | 入れていない。**Theme の名前ではなく選び方**なので `THEME_IDS` には入らない ── 足すなら「何を選んでいるか」を持つ側に足す                                                            |
+| Theme 切り替えの打鍵      | 入れていない。**ショートカット基盤は Session 4-7 で入ったが（§18）、Theme の切り替えには割り当てていない** ── Dark / Light の2つしか無く、切り替えは Settings の Appearance から行う |
+| Accent Color              | 入れていない。パネル識別色（DESIGN.md §3）は設計の一部で、選ばせるものにしていない                                                                                                   |
+| フォント / UI 密度 / Zoom | 入れていない。Terminal の文字の大きさだけが既にある（§13.4）                                                                                                                         |
+| 構文ハイライトの配色      | 入れていない。Monaco の標準テーマ（`vs` / `vs-dark`）を継承したまま（§11.1）                                                                                                         |
+| 高コントラストの Theme    | 入れていない。Light の27色は面に対して 3:1 以上（本文は 7:1 以上）を実機で確かめてある                                                                                               |
+| `settings:changed`        | 要らない（単一 Renderer が Context で同期している。§12.4）                                                                                                                           |
+
+---
+
+## 17. Localization（画面の文言）
+
+Session 4-5A で入れた仕組みで、4-5B が Files / Editor / Terminal を、4-5C が Git を移し終えている。**日本語（既定）と英語の2つ**で、画面に出る文言はすべてここを通る。
+
+Theme（§16）と同じ形を意識して作ってある ── 「アプリ全体に1つだけある値」「押した瞬間に全所へ届く」「起動時にちらつかせない」「保存は既存の基盤にそのまま乗る」の4つが共通する。違うのは、Theme が色という**値**を配るのに対し、こちらは文言という**表**を配る点にある。
+
+### 17.1 Language は shared、文言は Renderer
+
+```
+shared/language/language.ts     名前（'ja' / 'en'）・既定・落とし先・起動引数の受け渡し
+renderer/src/i18n/locales/      文言そのもの（ja / en の2つ）
+```
+
+**名前だけを shared に置いてある。** Main は保存された値を読んで `additionalArguments` に載せる必要があり（§17.6）、Preload はそれを `<html>` へ当てる ── 3層とも「`'ja'` か `'en'` か」は知る必要がある。逆に**文言は1文字も shared に無い** ── 画面に出す言葉は Renderer だけの関心で、Main が文言を持てば「Main が UI の都合を持ち込む」ことになる（§1 の表）。
+
+Theme の `shared/theme/theme.ts` とまったく同じ切り分けにあたる（あちらも名前だけが shared で、色は `renderer/src/styles/theme.css`）。
+
+`normalizeLanguageId` は**知らない値を既定（`ja`）へ落とす**。ダウングレードすればこの版が知らない Language 名が保存されている状態は普通に起こりうるので、読む側が必ず通す。
+
+### 17.2 英語の辞書が、キーの正本
+
+型は `locales/en.ts` から導いてある。
+
+```ts
+export type TranslationMessages = WidenMessageLeaves<typeof enMessages>
+export type TranslationKey = DotPath<typeof enMessages> // 'settings.title' | 'git.panel.…' | …
+```
+
+`TranslationKey` が**実際に存在するキーだけの union**になるので、綴りを間違えた `t('setting.title')` は型エラーになる。翻訳キーを値として持つ場所（`api/result.ts` の対応表・`panelLabels.ts`・`presetLabels.ts`・`commandCategoryLabels.ts`・`settingsCatalog.ts`・`commands/registry.ts`）も同じ型を使うため、**キーを消すと、それを指していた場所が全部型エラーになる。**
+
+日本語辞書の側は「同じ形であること」を型では強制していない（`TranslationMessages` は葉を `string` に広げた形なので、キーが欠けても構造としては通りうる）。そこは実数で見張る ── `i18n/messages.test.ts` が両辞書を平らにして**キーの集合が完全に一致すること**を確かめており、片方だけに足すと落ちる。
+
+型で全部やらないのは、辞書を1つ書き足すたびに「型を通すためのダミーの日本語」を置く形にしたくないため。**落ちてから足す方が、空文字が残るより安全**にあたる。
+
+### 17.3 `t` は必ず引数で受け取る
+
+文言を組み立てる関数（`gitChanges.ts`・`filesError.ts`・`lossMessage.ts` など、React にも DOM にも依存しない層）は、**`t` を必須の引数として受け取る**。モジュールの内側で既定の言語の翻訳器を作ることはしない。
+
+```ts
+export function describeChange(change: GitChange, t: TFunction): string
+```
+
+内側に既定を持つと、`t` の渡し忘れが**「English の画面でも日本語が出る」という、画面にしか現れない不具合**になる。必須引数なら型が教えてくれる。
+
+`t` そのものは辞書を引いて `{name}` を差し替えるだけの関数で、複数形も日付の書式も持たない（`messages.ts`）。**引けなかったキーは日本語辞書へ、そこにも無ければキー文字列をそのまま返す** ── 画面が空白になるより、`git.panel.title` と出た方が原因に辿り着ける。
+
+### 17.4 エラーコードは文言ではなく翻訳キーへ対応させる
+
+`api/result.ts` は Main から来た `IpcErrorCode` を画面の文言に変えるが、持っているのは**文言ではなく翻訳キーの対応表**になる。
+
+```
+IpcErrorCode → TranslationKey →（呼び出し側が持っている t）→ 文言
+```
+
+Main が返す `message` は開発者向けなので UI には出さない、という Session 1-3 からの分担は変えていない。変わったのは「表示文言を決めるのは Renderer」の**決め方**だけで、対応表が文言を直接持つのをやめた。
+
+### 17.5 値は1つ、保存は既存の基盤にそのまま乗る
+
+`LanguageProvider` が正本で、`useSettingsSection` を通して `general` section の `language` key を読み書きする（§12.4）。**増えたのは section 1つと key 1つだけで、IPC も Preload の口も Main の検証の仕組みも1行も変わっていない** ── Session 4-4 の `appearance` とまったく同じ入り方にあたる。
+
+`general` は「アプリ全体の基本設定」で、`SETTINGS_SECTION_IDS` の**先頭**に置いてある。Appearance を末尾に置いたのと対になる判断で、機能ごとの設定（Editor / Files / Terminal）の前が「アプリ全体の話」の場所になる。
+
+配る値は `{ language, setLanguage, t }` の3つだけ。**文言を持つ component は1つも無い**（Theme の面が色を1つも持たないのと同じ）。
+
+### 17.6 起動時に日本語がちらつかない
+
+Theme と同じ考え方で塞いである（§16.5）。使っているのも同じ仕組みで、**新しいチャンネルは1本も要らなかった。**
+
+| 経路                       | 塞ぎ方                                                               |
+| -------------------------- | -------------------------------------------------------------------- |
+| CSS が最初に評価される時点 | Preload が `<html>` へ `data-fx-language` / `lang` を当てる          |
+| React の最初の描画         | 読み込みが返るまでの値を、その属性から読む（`readDocumentLanguage`） |
+
+Main は `settings.json` の `general.language` を読んで `toLanguageArgument()` で `--fx-initial-language=en` を作り、`additionalArguments` に **Theme のものと並べて**渡す（`windows/mainWindow.ts`）。Preload はそれを `process.argv` から拾って当てる（`preload/language.ts`）。
+
+**IPC を使わないのは、IPC が Renderer の動き出しを待つものだから**にほかならない ── 避けたいのがまさに「動き出すまで」の一瞬になる。`index.html` にインラインの `<script>` を書けば同じことができるが、それは `script-src 'self'` を捨てることを意味する（§17.8 / §6）。
+
+Theme と違い、**窓の初期色にあたるものは無い**（言語は色を持たない）ので、塞ぐ経路は Theme の3つに対して2つになる。この2つが効いていることは Session 4-8A で `dom-ready` の時点の `<html>` を読んで確かめてある（DEVELOPMENT.md §4）。
+
+### 17.7 言語名は、その言語自身で書く
+
+`language.ja` は**英語の辞書でも `日本語`** と書いてある。英語の画面で `Japanese` と出す形にはしていない ── 選ぶ人は「自分が読める方」を探しており、読めない言語で書かれた名前は選べない（VS Code や OS の言語設定と同じ作法）。
+
+英語の画面を走査すると、この1件だけは日本語として残る。**残っていて正しいもの**として、Session 4-8A の検証では明示的に除外してある（DEVELOPMENT.md §4）。
+
+### 17.8 Session 4-5 で入れていないもの
+
+| 項目                       | 現状                                                                                                         |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| 3つめ以降の言語            | 入れていない。足すのは `LANGUAGE_IDS` に名前を1つと `locales/` に辞書1つで、他は変わらない                   |
+| System（OS の言語に追従）  | 入れていない。Theme の System と同じで、**Language の名前ではなく選び方**にあたる（§16.8）                   |
+| 複数形・性・語順の切り替え | 持たない。`t` は辞書を引いて `{name}` を差し替えるだけ（§17.3）                                              |
+| 日付 / 数値の地域化        | 持たない。Git の履歴の日時は `gitHistory.ts` が今までどおり組み立てる（§14.19）                              |
+| 辞書の遅延読み込み         | していない。2言語ぶんを最初から持つ（分ける利得より、起動時のちらつきを避ける方が重い）                      |
+| Monaco / xterm の UI 言語  | 変えていない。どちらも自前の文言を持つが、**利用者の文書と端末の出力**を出す器であって、アプリの文言ではない |
+| ネイティブダイアログの言語 | 変えていない。OS が決める（保存 / フォルダ選択のダイアログ）                                                 |
+| CSP                        | **1文字も変えていない。** 起動時の適用が Preload 経由なのはこのため（§17.6）                                 |
+| IPC / Preload の口         | **1つも増えていない。** `preload/language.ts` は Main → Preload の一方向で、Renderer から呼べる API ではない |
+
+---
+
+## 18. Command と Keyboard Shortcut
+
+Session 4-7A が基盤（Command Registry・Keybinding・`when`・一覧の行）を、4-7B が Git / Files の寄与を、4-7C が Settings の一覧を入れている。
+
+**v1 は「既定の割り当てが効く」ところまで。** 打鍵の編集・User / Workspace の割り当て・`keybindings.json` の永続化・Command Palette は入っていない（§18.8）。基盤の側はそれらを**型を変えずに受けられる形**にしてあり、そのための余地がどこに残してあるかもこの章に書く。
+
+### 18.1 Command Registry（そういう操作がある、という表）
+
+```
+commands/commandIds.ts   id の閉じた集合（21件）
+commands/registry.ts     Record<CommandId, CommandDescriptor>
+```
+
+Panel Registry（§7.3）と同じ形にしてある。
+
+- `Record<CommandId, …>` なので**登録漏れは型エラー**になる
+- object の key として**同じ id を2度書けない**
+- 引くのは常にこの表を通す（`getCommandDescriptor` / `listCommands`）
+
+**`execute(id: string)` のような汎用の入口を作らない。** 作った瞬間「アプリが持つ操作」という限定が消える ── `shared/settings/sections.ts` の section、`workspace/panels/registry.ts` の `isPanelId` と同じ作法で、外から来た文字列は必ず `isCommandId` を通す。将来 `keybindings.json` を読むようになったとき、そこに書かれた command 名の関門はこれ1つになる。
+
+**一度決めた id は変えない。** 利用者の割り当てがディスクに残るようになったとき、id を変えると設定した打鍵が静かに効かなくなる。`git.stashPush` が「退避の面を開く」に繋がっているのにこの名前なのはそのためで、後から「確認を出してから退避する」形に育てても id はこのままにできる。
+
+並びの正本は `COMMAND_IDS` の配列で、`listCommands()` はその順に返す。表の見た目の順序には依存しない ── 依存させると、行を足す場所で一覧の見え方が変わる。
+
+21件の内訳は次のとおり。
+
+| カテゴリ    | 件数 | 入った Session |
+| ----------- | ---: | -------------- |
+| `workspace` |    2 | 4-7A           |
+| `editor`    |    2 | 4-7A           |
+| `view`      |    5 | 4-7A           |
+| `settings`  |    2 | 4-7A           |
+| `git`       |    7 | 4-7B           |
+| `files`     |    3 | 4-7B           |
+
+### 18.2 内部 id と、画面に出す名前を分ける
+
+descriptor は3つを持つ。
+
+| 欄         | 何か                                     | 画面に出るか |
+| ---------- | ---------------------------------------- | ------------ |
+| `id`       | `'git.commit'`。契約であり、変えない     | ✕            |
+| `title`    | `'Commit'`。開発上の識別名（英語・固定） | ✕            |
+| `titleKey` | `'command.git.commit'`。翻訳キー         | ○            |
+
+`titleKey` は **`command.<CommandId>` に1対1**で対応させてある。機械的に決まる形にしておくと、足し忘れも綴り違いも実数で拾える（`commands/commandLocalization.test.ts` が21件すべてを確かめる）。**Session 4-7C で全件を一度に入れた** ── 一部だけ埋めると `commandTitle()` が「翻訳されるものとされないものが混ざった一覧」を返し、その半端さを画面を作る側が引き継ぐ。
+
+`title` を消していないのは、ログとテストが読むもので、画面に出るのは `commandTitle()` を通った `titleKey` の側だから。型の上で `titleKey` を任意のままにしてあるのも意図的で、必須にすると `commandTitle()` の「無ければ `title`」という分岐が死に、翻訳を持たない descriptor をテストで組み立てられなくなる。
+
+カテゴリ（`CommandCategory`）も同じ切り分けで、`'git'` は識別子のまま、表示名は `commandCategoryLabels.ts` が翻訳キーで持つ（`workspace/panels/panelLabels.ts` と同じ形）。カテゴリ名を command 名に埋め込まない（`'Git: Commit'` にしない）のは、カテゴリを**見出しに畳む**ためで、行に埋め込むと Git だけで同じ語が7回並ぶ。
+
+### 18.3 descriptor と handler を分ける
+
+```
+registry.ts        そういう操作がある（静的な表・React 非依存）
+CommandProvider    今それを実行できるか（Map<CommandId, CommandHandler>）
+```
+
+**handler を静的な表に書くことがそもそもできない。** Git の操作は `useGitRepository()` が持ち、それが生きているのは Git パネルが開いている間だけになる。分けておくと、
+
+- 一覧（Settings / 将来の Command Palette）は**所有者の生死に関係なく**作れる
+- 所有者が居ない command は「今は実行できない」として自然に落ちる
+- descriptor は React にも DOM にも依存しない（テストが素で書ける）
+
+VS Code の `contributes.commands` と `CommandRegistry` の分担と同じにあたる。
+
+**handler の表は `useRef` の `Map` で、React の state ではない。** state にすると command を1つ登録するたびに Renderer 全体が描き直され、登録は所有者が mount / unmount するたび（パネルを1枚動かすだけでも）走る。読むのは打鍵が届いた瞬間だけで、描画には1つも使わない。
+
+**同じ id に2つ登録すると例外を投げる。** 後勝ちにすると「どちらが効いているか分からないまま片方が黙って死ぬ」ことになり、それは所有者が2つある（＝設計の間違い）ことを意味する。今の Shell ではその形は作れない（パネルは1 id につき1枚で、タブ群では前面のものしか mount されない）が、**守られていることと確かめないことは別**なので外していない。React の StrictMode の二重 effect は間に解除が挟まるため当たらない。
+
+`execute` は**実行できたときだけ true** を返す。打鍵の側はこの返り値で `preventDefault()` するかを決める ── 所有者が居ない command のためにブラウザの既定を止めると、割り当てが効かないうえに何も起きない、という一番分かりにくい状態になる。
+
+#### Git / Files の寄与（Session 4-7B）
+
+`git/GitCommands.tsx` は**画面に何も出さない**（`null` を返す）。在るのは登録の宣言だけで、何が起きるかは `GitView` から渡ってくる関数が決める。
+
+GitView 本体に書けないのは、GitView が関数の途中で3回 return する（取得中・案内・型の保険）ためで、**押せるかどうかの判断が計算されるのはその後**になる。hook は条件付き return より後に置けないので、本体に書くと「readiness を知らないまま登録する」か「hook の順序を壊す」かのどちらかになる。**子にすれば、置いた場所そのものが条件になる。**
+
+これは §18.5 の `when` に `gitRepositoryAvailable` を入れなかった理由でもある ── 条件を1つ増やす代わりに、**使えないときは登録しない**で同じ効果が出る。効き方は2段ある。
+
+1. リポジトリが使えないとき … この component ごと mount されない（GitView）
+2. パネルが背面タブのとき … GitView ごと mount されない（`workspace/shell/PanelGroup.tsx`）
+
+どちらも「今はその操作ができない」であって失敗ではない（`execute` が false を返し、打鍵は素通りする）。
+
+**押せる条件をここで書き直さない。** 渡ってくる `*Enabled` は画面のボタンを押せなくしているのと同じ値で、ここには判断が1つも無い ── 組み立て直すと `withGitInProgressBlock` の禁止を迂回する経路ができ、「押しても必ず失敗する操作」が command として実行できることになる。
+
+### 18.4 打鍵の表し方と、割り当ての畳み方
+
+#### `event.code` を基準にする
+
+| 見るもの     | 何が返るか                          | 配列を変えると |
+| ------------ | ----------------------------------- | -------------- |
+| `event.key`  | **入力される文字**（`'s'` / `'+'`） | 変わる         |
+| `event.code` | **物理キーの位置**（`'KeyS'`）      | 変わらない     |
+
+`Ctrl+Shift+E` を `key` で判定すると Shift が付いた時点で `'E'` になるだけでなく、配列によっては別の文字になる。**位置で見れば、US 配列でも日本語配列でも同じ物理キーを指す。** 記号の名前はその物理キーが US 配列で刻印している文字にしてあり（`Comma` → `','`）、`ctrl+,` はどちらの配列でも同じキーで効く。`key` へ落ちるのは `code` から名前を決められなかったとき（テンキー・IME 経由・未知のキー）だけ。
+
+**既存の Terminal の打鍵はここを通らない。** `Ctrl + '+' / '-' / '0'` は `terminal/terminalDisplay.ts` が `event.key` で判定し続ける（Session 3-7-3 のまま、`=` と `_` の読み替えを持っている）。Session 4-7 では1行も触っていない（§18.8）。
+
+#### Default / User / Workspace を、型を変えずに受ける
+
+v1 が作る rule は `defaults.ts` の `source: 'default'` だけ。それでも `KeybindingSource` を最初から3つ持たせ、`resolveKeybindings` が**順序付きの配列を1本受け取って後勝ちで畳む**形にしてある。
+
+```ts
+resolveKeybindings(DEFAULT_KEYBINDINGS) // v1（今）
+resolveKeybindings([...DEFAULT_KEYBINDINGS, ...userRules, ...workspaceRules]) // 将来
+```
+
+型も関数も呼ばれる側も1行も変わらない。逆に v1 で `source` を持たせずに作ると、後から入れるときに**保存形式と解決順の両方**が変わる。
+
+後勝ちにする単位は「同じ打鍵 × 同じ条件」で、条件が違えば別の rule として両方残る ── `ctrl+j` が「Terminal に focus が無いとき」と「あるとき」で違う command を指すのは競合ではなく使い分けにあたる。読めなかった rule は捨てずに `invalid` として返す（**今は誰も読んでいない**。`keybindings.json` を読むようになったとき「書いたのに効かない」を見せるため）。
+
+#### 既定の7件
+
+| 打鍵           | command                     | 条件                                      |
+| -------------- | --------------------------- | ----------------------------------------- |
+| `Ctrl+S`       | `editor.save`               | **無し**（移設前と同じにするため）        |
+| `Ctrl+Shift+S` | `editor.saveAs`             | `editorHasActiveTab` / `!terminalFocused` |
+| `Ctrl+O`       | `workspace.openFolder`      | `!terminalFocused`                        |
+| `Ctrl+,`       | `settings.open`             | `!terminalFocused`                        |
+| `Ctrl+Shift+E` | `view.togglePanel.files`    | `!terminalFocused` / `!settingsOpen`      |
+| `Ctrl+Shift+G` | `view.togglePanel.git`      | `!terminalFocused` / `!settingsOpen`      |
+| `Ctrl+J`       | `view.togglePanel.terminal` | `!terminalFocused` / `!settingsOpen`      |
+
+選び方は4つの規則による。
+
+1. **既にある打鍵を1つも変えない。** `Ctrl+S` は Session 3-5 から `useEditorSession.ts` の window listener が持っていたもので、ここへ移しただけ ── 条件を付けていないのはそのため
+2. **Monaco が使っている打鍵を取らない。** `Ctrl+F` / `Ctrl+H` / `Ctrl+G` / `Ctrl+/` / `Ctrl+Shift+K` などは Monaco の既定で、取ると Editor の中でそれらが死ぬ
+3. **端末を触っている最中にアプリ側の操作を走らせない。** `Ctrl+J` は端末では改行（0x0A）、`Ctrl+O` は 0x0F にあたる
+4. **日本語配列で同じ物理キーになるものだけ。** バッククォートの `Ctrl` 併用は入れていない ── あの位置は日本語配列では半角/全角キーで、IME の切り替えとぶつかる（Terminal の開閉は `Ctrl+J` に置いた）
+
+`Ctrl+P` / `Ctrl+Shift+P` は**空けてある**（Command Palette の席。§18.8）。
+
+**`editor.save` に条件が無いのは「端末の中でも保存される」という意味ではない。** 端末に focus があるとき `Ctrl+S` は `window` まで上がってこない（xterm が `stopPropagation` する）── 移設前も同じ形の listener だったので、端末の中で `Ctrl+S` が効かないのは以前からそうだったことになる。この前提は Session 4-8A で実機に測って確かめてある（DEVELOPMENT.md §4）。
+
+### 18.5 条件（`when`）と、打鍵を受ける場所
+
+#### 式は書けない。閉じた集合の AND だけ
+
+VS Code の `when` は論理演算子から正規表現まで持つ式言語だが、**あれは基盤より大きいサブシステム**にほかならない。v1 では、
+
+- 条件は `WHEN_KEYS` に載っている6つだけ
+- 並べたものは AND（`['a', '!b']` は「a かつ b でない」）
+- 否定は先頭の `!` 1文字だけ
+
+`WhenClause` は「条件名、または頭に `!` を付けたもの」という**型で閉じた union** なので、綴りの間違いは型エラーになり、文字列を解析する必要が無い。足りなくなったら式パーサへ移せる（`['a', '!b']` は `'a && !b'` と1対1に対応するので、保存形式を変えずに読み替えられる）。
+
+**読めない条件が1つでもあれば通さない（fail-closed）。** 逆にすると、綴りを間違えた条件やこの版が知らない条件を持つ rule が「条件が無いのと同じ」＝**どこでも効く**ようになり、条件を書いた意図と正反対に壊れる。
+
+#### 6つに絞った理由と、その供給元
+
+**条件は「誰かがその値を供給する」ことで初めて意味を持つ。** 供給元が無い条件を先に作ると、常に false（＝そのショートカットは永久に効かない）になる。
+
+| 条件                 | 供給元                                                      |
+| -------------------- | ----------------------------------------------------------- |
+| `workspaceOpen`      | `useWorkspaceFolder().workspace !== null`                   |
+| `editorHasActiveTab` | `useEditorContext().activeTab !== null`                     |
+| `editorFocused`      | DOM（`[data-panel-body="editor"]` の中に focus があるか）   |
+| `terminalFocused`    | DOM（`[data-panel-body="terminal"]` の中に focus があるか） |
+| `settingsOpen`       | `WorkspaceShell` が `useWhenFlag` で申告する                |
+| `modalOpen`          | DOM（`[aria-modal="true"]` が出ているか）                   |
+
+DOM を読む3つは**React が持っていない状態**にあたる ── focus の持ち主はブラウザで、modal を出す側は6箇所に散っている（Editor / Files / Git / Terminal / Unsaved）。後者を申告制にすると6箇所を触ることになるが、`aria-modal="true"` はそれらが**既に**付けている属性で、「操作を遮る面が出ている」ことの観測できる印にほかならない ── 新しく約束を作らずに済む。
+
+`gitRepositoryAvailable` は入れていない（§18.3 の「使えないときは登録しない」で同じ効果が出る）。`data-panel-body` をタブ側の `data-panel` と名前で分けてあるのは、`closest()` がタブを拾わないようにするため（タブは本体の器の外にある）。
+
+#### 確認ダイアログの裏では、原則として何も走らない
+
+`modalOpen` は他の条件と扱いが違い、**rule ごとではなく全体に掛かる**（`dispatch.ts`）。失われるものがある操作の確認が出ている間にその裏でショートカットが走ると、「何を訊かれているのか」と「今アプリが何をしたか」が食い違う。条件を書き忘れた rule が裏で走る形にしないため、既定を「走らない」にしてある。裏でも走ってよい command は `when` に `'modalOpen'` を**明示的に**書く（v1 では1つも無い）。
+
+これは移設前の `Ctrl+S` からの**唯一の振る舞いの変化**にあたる ── 以前は確認ダイアログの裏でも保存が走っていた。
+
+#### listener は window に1本だけ
+
+`KeybindingProvider` が `window` の `keydown` を**1度だけ**張る。変わりうる値（効いている割り当て・Workspace / タブの状態・`execute`）はすべて ref を経由させ、listener を張り直さない。条件の申告（`setFlag`）も ref の `Map` で、state にすると Settings を開閉するたびに配下が描き直される（`CommandProvider` と同じ判断）。
+
+置き場所は **`App.tsx` の一番内側**。Workspace と Editor の状態を読むためで、`CommandProvider`（何にも依存しない）を外側に置くのと対になる。
+
+### 18.6 Settings の Keyboard Shortcuts 一覧（Session 4-7C）
+
+#### v1 は読むだけ
+
+打鍵の変更・User / Workspace の割り当て・`keybindings.json` の永続化はどれも入っていない。**行を押しても command は実行されない** ── 実行の入口は打鍵と各パネルの UI のままで、ここは一覧にほかならない（`onClick` を持つのは検索欄と、それを消す `×` だけ）。
+
+#### 一覧はその場で組み立てる
+
+```
+listCommands()             アプリが持つ操作の全体（commands/registry.ts）
+useKeybindings().entries   効いている割り当て（keybindings/KeybindingProvider.tsx）
+        ↓ buildShortcutRows（純関数）
+ShortcutRow[]
+```
+
+どちらも**この画面のために新しく作った口ではない** ── `entries` は Session 4-7A から `KeybindingContext` にあり、読む相手がここで初めてできた。新しい IPC も、Main / preload / shared への変更も1つも無い。目録に書き写さないのは、command を足すたびに2箇所を直すことになるため。
+
+`useCommands().isRegistered` は**使わない。** handler の表は `useRef` の `Map` で React の state ではないので（§18.3）、描画中に読んでも変化で再描画されず必ず古い値が出る。一覧が出すのは「アプリが持つ操作の全体」であって、その瞬間に実行できるものではない ── **Git パネルを閉じていても Git の7件は並ぶ**（Session 4-8A で実機に確認）。
+
+#### カテゴリには2種類ある
+
+Session 4-7C まで、Settings のカテゴリは `SettingsSectionId` と ID も並びも1対1だった（どれも「保存される値の項目」を並べるものだったため）。Keyboard Shortcuts はそこから外れる**最初のカテゴリ**にあたる ── 並べるのは値の項目ではなく一覧表で、**保存するものが1つも無い**（対応する section が存在しない）。
+
+そこでカテゴリを `kind` で分けた判別可能なユニオンにしてある。
+
+| `kind`        | 中身                   | section      |
+| ------------- | ---------------------- | ------------ |
+| `'items'`     | 値の項目が並ぶ（従来） | 1対1で持つ   |
+| `'shortcuts'` | 一覧表                 | **持たない** |
+
+**1対1の約束は消えていない。** 移ったのは掛かる相手だけで、「**値カテゴリ**の並びが section の並びと一致する」は今も成り立つ（`settingsCatalog.test.ts`）。`keyboard` を末尾に置いてあるのは、値カテゴリが配列の前方にそのまま残るようにするためでもあり、値を変える場所と一覧を見る場所を混ぜないためでもある。
+
+**`shared/settings/sections.ts` は Session 4-7C で1行も変えていない** ── 保存するものが無いので、空の `keyboard` section を切らない（§12.4 の「中身が決まっていない section を先に作らない」）。
+
+#### 行の型は、画面が出すものより広い
+
+`ShortcutRow` は `when` / `source` / `conflictsWith` / `isModified` も持つが、**v1 の画面はそれらを出さない。**
+
+| 欄         | v1 で出すか | 理由                                                                  |
+| ---------- | ----------- | --------------------------------------------------------------------- |
+| Command    | ○           | `titleKey` 経由の翻訳                                                 |
+| Category   | ○           | 見出しに畳む                                                          |
+| Keybinding | ○           | 未割り当ては専用の見せ方（21件中14件が未割り当て）                    |
+| When       | ✕           | `'!terminalFocused'` のような**内部の名前**をそのまま見せることになる |
+| Source     | ✕           | 既定しか無い今、**全行に同じ語を並べるだけ**になる                    |
+| 競合表示   | ✕           | 既定同士は競合しない                                                  |
+| Reset      | ✕           | `source !== 'default'` が常に false                                   |
+
+型から**外していない**のは、User / Workspace の割り当てが入ったとき変わるのが画面だけで済むようにするため。翻訳キー（`settings.keyboard.sources.*`）も先に置いてあるが、**まだ画面に出ていない。**
+
+未割り当ての14件は、`defaults.ts` が「割り当ての無い command」として挙げる中核の4件（`workspace.closeFolder` / `view.togglePanel.editor` / `view.resetLayout` / `settings.close`）と、Git / Files の10件からなる。`settings.close` に打鍵を割り当てないのは **Esc が既に持っている**ためで、既存の Esc 17箇所には触らないという Session 4-7A の前提による（同じ操作の入口を二重に持たない）。
+
+#### 持つ state は検索の文字列だけ
+
+それも保存しない（`SettingsOverlay` が開いているカテゴリを保存しないのと同じ）── 次に開いたときに前の絞り込みが残っていると、一覧が欠けているように見える。カテゴリを列ではなく見出しにしてあるのは、21件のうち Git だけで7件あり、列にすると同じ語が7回並ぶため。機械が読む側には各行の `data-category` が残してある。
+
+### 18.7 Session 4-7 が触っていない境界
+
+| 境界                       | 変化                                                                    |
+| -------------------------- | ----------------------------------------------------------------------- |
+| IPC チャンネル             | **1本も増えていない**（Command も Keybinding も Renderer 内で完結する） |
+| Preload の口               | **1つも増えていない**                                                   |
+| `shared/`                  | **1行も変えていない**                                                   |
+| Main の検証                | **1行も変えていない**                                                   |
+| CSP                        | **1文字も変えていない**                                                 |
+| ディスクへの書き込み       | 無し。`keybindings.json` は**存在しない**（作る経路も無い）             |
+| 既存の Esc（17箇所）       | 触っていない（§18.6）                                                   |
+| Terminal の `Ctrl + ± / 0` | 触っていない（§18.4）                                                   |
+
+Session 4-8A の production app 統合確認でこれらを実測している（DEVELOPMENT.md §4）。
+
+### 18.8 Session 4-7 で入れていないもの
+
+| 項目                           | 現状                                                                                                                                                      |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 打鍵の編集                     | 入れていない。一覧は**読むだけ**（§18.6）                                                                                                                 |
+| User / Workspace の割り当て    | 入れていない。`resolveKeybindings` は連結順で受けられる形にしてある（§18.4）                                                                              |
+| `keybindings.json` の永続化    | 入れていない。`KeybindingRule` が保存形式そのものになっているが、**読み書きする場所がまだ無い**                                                           |
+| Command Palette                | 入れていない。`Ctrl+P` / `Ctrl+Shift+P` を空けてある。descriptor と `commandCategoryLabels` は Palette も同じものを使う                                   |
+| Source 列 / When 列 / 競合表示 | 出していない。型には在る（§18.6）                                                                                                                         |
+| `terminal` カテゴリの command  | 入れていない。端末の打鍵は `terminalDisplay.ts` が `event.key` で受けており、registry へ移すには日本語配列の `=` / `_` の読み替えごと設計し直すことになる |
+| 和音（chord sequence）         | 持たない。`KeyChord` は打鍵1つで、`Ctrl+K Ctrl+S` のような2打の連なりは表せない                                                                           |
+| Mac の `cmd`                   | 解析だけは受ける（`'cmd'` は `'meta'` の別名）。Mac 対応そのものは未着手                                                                                  |
+| メニューバーへの打鍵の表示     | していない（アプリケーションメニューは §2 のまま）                                                                                                        |
+| Theme 切り替えの打鍵           | 置いていない。Theme は Settings の Appearance から変える（§16）                                                                                           |

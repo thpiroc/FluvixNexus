@@ -1,7 +1,7 @@
 # 開発ガイド
 
-> 対象: Session 3-8-20（ブランチのマージの開始 / 中止）完了時点
-> 最終更新: 2026-08-27
+> 対象: Session 4-8A（Localization / Keyboard Shortcuts の production app 統合確認）完了時点
+> 最終更新: 2026-09-06
 
 ---
 
@@ -1595,6 +1595,143 @@ window.webContents.reload()
 - **`webContents.getLastWebPreferences().additionalArguments` は空で返る。** 渡っているかを確かめるのにこれは使えない（上の `dom-ready` の形にした）
 - **Vitest は CSS の import を空文字へ差し替える。** `theme.css` を `?raw` で読むテスト（`styles/themeCss.test.ts`）のために、`vitest.config.ts` で `theme.css` だけを例外にしてある
 - 前回までと同じく、**確認の前後で `settings.json` と `workspace-folder.json` を退避 / 復元する**。Workspace はこのプロジェクト自身を仕込んでから起動する（ネイティブのフォルダ選択を通さずに Files / Editor / Monaco を触るため）
+
+### Session 4-5（Localization）/ 4-7（Command・Keyboard Shortcuts）
+
+この2つは**実装した Session では production app を通していない**。まとめて Session 4-8A で確かめている（下記）。
+
+自動テストの側は先に揃えてあり、Session 4-7C 完了時点で 140 files / 2856 passed / 1 skipped。内訳のうちこの2つに関わるのは次のもの。
+
+| テスト                                   | 見張っているもの                                              |
+| ---------------------------------------- | ------------------------------------------------------------- |
+| `i18n/messages.test.ts`                  | 日本語辞書と英語辞書の**キーの集合が完全に一致する**こと      |
+| `i18n/languageSettings.test.ts`          | Language ↔ 保存形式の変換と、読めない値の落とし先             |
+| `commands/registry.test.ts`              | id の集合・カテゴリとの対応・並びが `COMMAND_IDS` に従うこと  |
+| `commands/commandLocalization.test.ts`   | 21件**すべて**が `command.<CommandId>` の翻訳を持つこと       |
+| `commands/contribution.dom.test.ts`      | Git / Files が mount 中だけ handler を載せること              |
+| `keybindings/chord.test.ts`              | `event.code` 基準の正規化（日本語配列の記号を含む）           |
+| `keybindings/when.test.ts`               | 条件の解析と AND、**読めない条件は通さない**こと              |
+| `keybindings/dispatch.test.ts`           | 打鍵 → command と、確認ダイアログの裏で走らせない全体規則     |
+| `keybindings/resolve.test.ts`            | rule の畳み方（後勝ち・条件違いは両立・読めない rule の扱い） |
+| `keybindings/keybindings.dom.test.ts`    | window の listener と focus 条件（jsdom の範囲で）            |
+| `keybindings/shortcutRows.test.ts`       | 一覧の行の組み立てと絞り込み                                  |
+| `settings/KeyboardShortcuts.dom.test.ts` | 一覧の描画・見出し・未割り当て・検索                          |
+
+**jsdom では確かめられないことが残る。** Monaco も xterm も載っていないので、「xterm が `Ctrl+S` を止めるか」「Monaco の既定を奪っていないか」はこの層では書けない ── そこが Session 4-8A の主目的にあたる。
+
+### Session 4-8A（Localization / Keyboard Shortcuts の production app 統合確認）
+
+**production build 版 205項目、全項目 PASS**（Localization 94 / Keyboard Shortcuts 111）。2本のスクリプトに分けてある ── 1本にすると、落ちたときにどちらの話か切り分けられない。
+
+検証用の依存はプロジェクトに追加せず、作業用ディレクトリ側に `playwright-core` を入れて実行する（§4 の冒頭の方針どおり）。
+
+#### スクリプト1 — Localization（94項目・3回起動）
+
+確かめたいのが「切り替えが全所へ同時に届くこと」「再起動で復元されること」「**起動時に日本語が一瞬も出ないこと**」なので、Session 4-4（Theme）と同じく**3回起動する**流れを1本で通している。
+
+| 回    | 通したこと                                                                     |
+| ----- | ------------------------------------------------------------------------------ |
+| 1回目 | 既定 ja で始まる → en へ切り替え → 全所へ即時反映 → 保存 → IPC の検証          |
+| 2回目 | 再起動で en が復元される → **ちらつきが無いこと** → ja へ戻す                  |
+| 3回目 | 読めない `language` 値（`klingon`）から起動 → ja へ落ちる → 日本語側の tooltip |
+
+- 面: Settings のカテゴリが **General / Appearance / Editor / Files / Terminal / Keyboard Shortcuts の6つ**で、General が先頭・Keyboard Shortcuts が末尾であること。Language の選択肢が **ja / en の2つだけ**であること
+- 即時反映: `<html>` の `lang` と `data-fx-language`、上部バー、Files / Editor / Terminal / Git の4パネル、Settings 自身。**押した瞬間**に変わる（「適用」も「OK」も無い）
+- 網羅: Settings の6カテゴリすべてと、**Git の5面（History / Stash / Remote / Branch / Diff）を実際に開いて**日本語が残っていないこと
+- 走査: 画面全体の text ノードと `title` / `aria-label` / `placeholder` を舐めて、ひらがな・カタカナ・漢字・全角約物を探す
+- Monaco / xterm: 載っていること、そして**言語で変わらない**こと（利用者の文書と端末の出力なので対象外）
+- 保存: `settings.json` に `general.language` が入り、**他の4 section を巻き込んでいない**こと、`.tmp` を残さないこと
+- 再起動: en が復元されること、**`dom-ready` の時点で既に `en`** であること
+- fallback: `language` を `klingon` にして起動すると、`<html>` も Settings の現在値も**ja** になること
+- IPC の検証: 知らない section（`language`）・文字列でない `language`・object でない要求・`section: null` がすべて `INVALID_REQUEST`、`settings:load` が既知の**5 section** を返すこと、**知らない key（`languageServerPath`）は要求ごと通っても保存されず、ディスクにも残らない**こと
+
+#### スクリプト2 — Keyboard Shortcuts（111項目・1回起動）
+
+**永続化するものが1つも無いので、起動し直す必要が無い。** ネイティブのダイアログは Session 4-2 と同じく `app.evaluate` で差し替える（差し替えるのは**利用者の指の代わり**だけ）。
+
+- 既定7件: すべて実際に効くこと。`Ctrl+S` は**ディスク上のファイルが実際に書き変わる**ところまで確認（設定が効くのではなく、操作が起きること）
+- `when`: 端末に focus があるとき `Ctrl+,` / `Ctrl+J` / `Ctrl+O` / `Ctrl+Shift+E` / `Ctrl+Shift+G` が**1つも走らない**こと
+- **xterm が `Ctrl+S` を通さないこと**（下記）
+- Monaco との共存: `Ctrl+F` で検索、`Ctrl+H` で置換が開くこと、`Ctrl+/` が行コメントとして働くこと。そのあいだ Settings が開かず、パネルも動かないこと
+- `Ctrl+P` / `Ctrl+Shift+P`: Settings も開かず、パネルも動かず、**どの面も出ない**こと（席が空いたまま）
+- `settingsOpen`: Settings を開いている裏でパネル開閉の3つが走らないこと
+- `modalOpen`: 閉じる前の確認が出ている裏で `Ctrl+,` / `Ctrl+Shift+E` / `Ctrl+Shift+S` が**1つも走らない**こと
+- `editorHasActiveTab`: タブが1枚も無いとき `Ctrl+Shift+S` が何もしないこと
+- 一覧: **21件**、カテゴリ内訳（workspace 2 / editor 2 / view 5 / git 7 / files 3 / settings 2）、**未割り当て14件**、`terminal` カテゴリの行が無いこと、Source 列が無いこと、21件すべてに名前が入っていること
+- 一覧の性質: 行を押しても command が実行されないこと、**Git パネルを閉じても Git の7件が並ぶ**こと、検索が効くこと、**閉じて開き直すと検索が消える**こと、言語に連動すること
+- 寄与: Git / Files パネルを**3往復開閉しても登録の衝突（例外）が起きない**こと
+- 保存先: userData に `keybindings.json` が**作られていない**こと、Workspace フォルダに何も書かれていないこと
+
+#### xterm が `Ctrl+S` を止めることを、どう測ったか
+
+Session 4-7A が `editor.save` に `'!terminalFocused'` を付けなかった根拠にあたるので、実測しておく必要がある。Renderer 側に probe を1つ足して、**届いたかどうか**を直接見る。
+
+```js
+await win.evaluate(() => {
+  globalThis.__fxSeen = []
+  globalThis.__fxProbe = (e) => {
+    if (e.ctrlKey && e.key.toLowerCase() === 's') globalThis.__fxSeen.push('ctrl+s')
+  }
+  window.addEventListener('keydown', globalThis.__fxProbe)
+})
+```
+
+端末に focus を当てて `Ctrl+S` を押すと `__fxSeen` は**空のまま**、Editor に focus を当てて押すと `'ctrl+s'` が入る。**対照を取るのが要点**で、片方だけを見ると「そもそも打鍵が届いていない」と区別が付かない。
+
+#### 見つかった不具合（1件）
+
+**Editor のタブの `title` で、状態の一言を囲む括弧が全角で直書きされていた**（`EditorTabs.tsx`）。`note` の側は訳されていたので、English の画面に `alpha.txt（Unsaved）` と出ていた。翻訳キー `editor.tabs.titleWithNote` を1つ足して、Terminal のタブ（`terminal.tabs.titleWithNotes`）と同じ作法に揃えた。**直したのはこの1件だけ。**
+
+この形の漏れは**辞書のキー突き合わせでは絶対に見つからない** ── 辞書は両言語とも正しく、間違っていたのは辞書を使う側にあたる。画面を英語にして走査する以外に見つける道が無い。
+
+#### 走査から意図的に外したもの
+
+| 外したもの                           | 理由                                                                                                 |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| `.monaco-editor` / `.xterm` の中     | 利用者の文書と端末の出力であって、アプリの文言ではない                                               |
+| 言語の選択肢（`日本語` / `English`） | **言語名はその言語自身で書く**（ARCHITECTURE.md §17.7）── 英語の画面に「日本語」と出るのが正しい     |
+| パスらしき文字列                     | Windows のユーザー名が日本語だと必ず引っかかる（`C:\Users\…`）。アプリの文言ではない                 |
+| Terminal の新規ボタンの `＋`         | 文言ではなく**字面の記号**（閉じる `×` と同じ扱い）。`aria-label` / `title` は両言語とも訳されている |
+
+最後の1つは、外したこと自体を項目として残してある（`aria-label` / `title` が英語であることを確かめたうえで、字面が `＋` のままであることを記録する）── **黙って除外すると、次に走査する人が同じ判断をやり直すことになる。**
+
+#### 注意点（この Session で踏んだもの）
+
+- **未保存のタブを抱えたまま `app.close()` を呼ぶと返らない。** 閉じる前の確認がモーダルで出て、Playwright 側は待ち続ける（10分待っても返らなかった）。編集を片付けてから閉じること。ダイアログが出た後は背面のクリックも全部そこで詰まるので、**それ以降のあらゆる操作がタイムアウトする**
+- **IPC の検証は「知らない key を含む要求は通る」ことを踏まえて値を選ぶ。** `{ language: 'ja', languageServerPath: … }` を送ると `languageServerPath` だけが落ちて **`language` は保存される**（Session 4-3A の設計どおり）── これを検証の途中でやると、後続の「再起動で en が復元される」を自分で壊す
+- **`Ctrl+/` を試すならコメント構文のある言語のファイルで。** `.txt` は plaintext なので、正しく**何も起きない**（アプリの不具合ではない）
+- **本文を元へ戻しても未保存の印は消えない。** この app の `dirty` は**版番号が保存済みと違うか**で決まり（`editor/editorTabState.ts`）、中身の一致では判定していない。コメントを2回トグルすると本文は戻るが印は残る（VS Code の `alternativeVersionId` と同じ振る舞い）
+- **日本語の走査は Windows のユーザー名を拾う。** 除外しないと、Workspace のパスが出ている場所すべてが偽の検出になる
+- **`node` の stdout はパイプすると溜まる。** 長いスクリプトの途中経過を見たいときはファイルへリダイレクトして別で読む
+- Git の各面のセレクタは `.fx-git__{history,stash,remote,diff}-overlay` と `.fx-git__branch-panel`
+- Workspace は毎回 `mkdtemp` で作り、**ASCII だけのファイルを置く**（開発リポジトリを対象にすると、日本語のコメントが走査に全部引っかかる）
+
+#### 品質ゲート（4-8A 時点）
+
+| 確認                              | 結果                                                   |
+| --------------------------------- | ------------------------------------------------------ |
+| production app 統合確認           | **205項目、全項目 PASS**（Localization 94 / 打鍵 111） |
+| `npm run format:check`            | PASS                                                   |
+| `npm run typecheck`（node / web） | PASS                                                   |
+| `npm test`（vitest）              | **140 files / 2856 passed / 1 skipped、全項目 PASS**   |
+| `npm run build`（production）     | PASS（26.46s）                                         |
+
+#### セキュリティ境界（4-8A で実測）
+
+Session 4-5 / 4-7 は**境界を1つも動かしていない**ことを、両スクリプトで確かめている。
+
+| 確認                                                                       | 結果                                                                             |
+| -------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `window.require` / `process` / `electron` / `Buffer` / `module` / `global` | 6つとも `undefined`                                                              |
+| `window.fluvix` の名前空間                                                 | **10個のまま**（`language` も `theme` も `keybindings` も増えていない）          |
+| `window.fluvix.settings` の口                                              | `load` / `saveSection` の**2つのまま**                                           |
+| `contextIsolation` / `nodeIntegration` / `webSecurity`                     | `true` / `false` / 有効                                                          |
+| CSP                                                                        | `script-src 'self'` のまま。script への `unsafe-inline` / `unsafe-eval` 許可なし |
+| CSP 違反 / console.error / pageerror                                       | 4回の起動すべてで 0件                                                            |
+| `keybindings.json`                                                         | userData に**作られていない**（作る経路が無い）                                  |
+| Workspace フォルダへの書き込み                                             | **なし**（検証前後でファイル一覧が一致）                                         |
+
+**言語の起動時適用が `additionalArguments` 経由であること**も測ってある ── `dom-ready`（`settings:load` の応答より前）の時点で既に `en` が当たっており、IPC を使わず CSP も緩めない経路が効いている（ARCHITECTURE.md §17.6）。
 
 ---
 
