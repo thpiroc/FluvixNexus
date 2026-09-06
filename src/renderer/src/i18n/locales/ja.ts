@@ -779,7 +779,8 @@ export const jaMessages = {
       closeLabel: '{name} を閉じる',
       dirty: '未保存',
       conflict: '未保存（ディスク側も変更されています）',
-      deleted: '未保存（ディスク上から削除されました）'
+      deleted: '未保存（ディスク上から削除されました）',
+      titleWithNote: '{path}（{note}）'
     },
     saveAs: {
       button: '別名で保存',

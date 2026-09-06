@@ -64,8 +64,20 @@ export function EditorTabs({
             data-dirty={hasUnsavedChanges(tab.state)}
             data-tab-id={tab.id}
             data-relative-path={tab.relativePath}
-            // 全体はここで読めるようにする（タブの幅に合わせて名前は省略される）。
-            title={note === null ? tab.relativePath : `${tab.relativePath}（${note}）`}
+            /*
+              全体はここで読めるようにする（タブの幅に合わせて名前は省略される）。
+
+              状態の一言を添える形も**翻訳の側に置く** ── 括弧は言語ごとに
+              違う（日本語は全角、英語は半角）ので、ここで組み立てると
+              English の画面に `alpha.txt（Unsaved）` が出る。
+              Terminal のタブが `terminal.tabs.titleWithNotes` で
+              同じことをしているのに合わせてある。
+            */
+            title={
+              note === null
+                ? tab.relativePath
+                : t('editor.tabs.titleWithNote', { path: tab.relativePath, note })
+            }
           >
             <button
               type="button"

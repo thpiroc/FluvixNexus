@@ -791,7 +791,8 @@ export const enMessages = {
       closeLabel: 'Close {name}',
       dirty: 'Unsaved',
       conflict: 'Unsaved (also changed on disk)',
-      deleted: 'Unsaved (deleted from disk)'
+      deleted: 'Unsaved (deleted from disk)',
+      titleWithNote: '{path} ({note})'
     },
     saveAs: {
       button: 'Save As',
