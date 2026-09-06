@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { startWorkspaceWatching, stopWorkspaceWatching } from '../files/workspaceWatcher'
 import { startGitWatching, stopGitWatching } from '../git/gitWatcher'
 import { registerIpcHandlers } from '../ipc'
+import { startLanguageServerHosting, stopLanguageServers } from '../lsp/languageServers'
 import { createLogger } from '../logger'
 import { isMacOS } from '../platform'
 import { applySessionSecurityPolicy, applyWebContentsSecurityPolicy } from '../security'
@@ -60,6 +61,15 @@ export function bootstrapApp(): void {
     startGitWatching()
 
     /*
+      Language Server は Workspace の切り替えで**終わらせる**（Session 5-1）。
+      シェルと逆なのは、見ている対象が Workspace そのもの（`rootUri` は起動時に
+      決まり動かせない）で、残すと前のフォルダを見ているサーバが新しいフォルダの
+      答えを返すため（main/lsp/languageServers.ts）。
+      立てる側は Session 5-2（開いた文書の言語から決める）で入る。
+    */
+    startLanguageServerHosting()
+
+    /*
       シェルのセッションは Workspace の切り替えに追従しない（Session 3-7-3）。
       作業ディレクトリは起動時に決まり、動いているプロセスを切り替えで
       終わらせることはしないため、起動時に用意するものが無い
@@ -89,6 +99,13 @@ export function bootstrapApp(): void {
       dev server がアプリの終了後もポートを掴み続ける。
     */
     stopTerminalSessions()
+
+    /*
+      Language Server も同じ理由で片付ける。残すと解析中のサーバが CPU を
+      使い続けるうえ、次にアプリを開いたときに**同じ Workspace を見ているサーバが
+      2本**になる（main/lsp/languageServers.ts）。
+    */
+    stopLanguageServers('the application is quitting.')
 
     flushWorkspaceLayoutDocument()
     flushWorkspaceFolderDocument()
