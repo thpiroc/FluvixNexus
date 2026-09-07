@@ -33,6 +33,7 @@ export const lspApi: LspApi = {
   didSave: (request) => invokeIpc(IPC_CHANNELS.LSP_DID_SAVE, request),
   didClose: (request) => invokeIpc(IPC_CHANNELS.LSP_DID_CLOSE, request),
   completion: (request) => invokeIpc(IPC_CHANNELS.LSP_COMPLETION, request),
+  formatting: (request) => invokeIpc(IPC_CHANNELS.LSP_FORMATTING, request),
   hover: (request) => invokeIpc(IPC_CHANNELS.LSP_HOVER, request),
   definition: (request) => invokeIpc(IPC_CHANNELS.LSP_DEFINITION, request),
   references: (request) => invokeIpc(IPC_CHANNELS.LSP_REFERENCES, request),

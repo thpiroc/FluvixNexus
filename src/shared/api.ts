@@ -51,6 +51,7 @@ import type {
   CloseLspDocumentRequest,
   LspCompletionRequest,
   LspDefinitionRequest,
+  LspFormattingRequest,
   LspHoverRequest,
   LspReferencesRequest,
   OpenLspDocumentRequest,
@@ -984,6 +985,8 @@ export interface LspApi {
   /** 文書を閉じたことを伝える（Model を捨てたとき）。 */
   readonly didClose: (request: CloseLspDocumentRequest) => IpcInvokeResult<'lsp:did-close'>
   readonly completion: (request: LspCompletionRequest) => IpcInvokeResult<'lsp:completion'>
+  /** 開いている現在文書を整形する。返るのは同じ文書へ適用する range + text だけ。 */
+  readonly formatting: (request: LspFormattingRequest) => IpcInvokeResult<'lsp:formatting'>
   readonly hover: (request: LspHoverRequest) => IpcInvokeResult<'lsp:hover'>
   readonly definition: (request: LspDefinitionRequest) => IpcInvokeResult<'lsp:definition'>
   readonly references: (request: LspReferencesRequest) => IpcInvokeResult<'lsp:references'>

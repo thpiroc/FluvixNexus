@@ -79,6 +79,8 @@ export type {
   LspCompletionResponse,
   LspDefinitionRequest,
   LspDefinitionResponse,
+  LspFormattingRequest,
+  LspFormattingResponse,
   LspHoverRequest,
   LspHoverResponse,
   LspIpcContract,

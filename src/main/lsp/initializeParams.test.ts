@@ -82,7 +82,7 @@ describe('createInitializeParams', () => {
     expect(publishDiagnostics.relatedInformation).toBe(false)
   })
 
-  it('補完は名乗り、定義も Rename も整形も名乗らない（Session 5-5）', () => {
+  it('補完と整形は名乗り、定義 / 参照 / Hover / Rename は名乗らない', () => {
     const textDocument = capabilities.textDocument
 
     expect(textDocument.completion).toMatchObject({
@@ -95,10 +95,10 @@ describe('createInitializeParams', () => {
         preselectSupport: true
       }
     })
+    expect(textDocument.formatting).toEqual({ dynamicRegistration: false })
     expect('definition' in textDocument).toBe(false)
     expect('references' in textDocument).toBe(false)
     expect('hover' in textDocument).toBe(false)
     expect('rename' in textDocument).toBe(false)
-    expect('formatting' in textDocument).toBe(false)
   })
 })

@@ -16,7 +16,8 @@
  * ```
  * 名乗る       … textDocument.synchronization（didOpen / didChange / didSave / didClose）
  * 名乗る       … textDocument.publishDiagnostics（Session 5-3）
- * 名乗らない   … completion・definition・rename・formatting（Session 5-4 以降）
+ * 名乗る       … completion・formatting（Session 5-5 / 5-8）
+ * 名乗らない   … definition・references・rename（Session 5-7 以降）
  * 名乗らない   … workspace.configuration（応じる口が無い。jsonRpcConnection.ts が断る）
  * ```
  *
@@ -110,6 +111,9 @@ export function createInitializeParams(
             deprecatedSupport: false,
             preselectSupport: true
           }
+        },
+        formatting: {
+          dynamicRegistration: false
         }
       },
       workspace: {

@@ -162,6 +162,7 @@ let builtInCompletionSuppressed = true
 let builtInHoverSuppressed = true
 let builtInDefinitionSuppressed = true
 let builtInReferencesSuppressed = true
+let builtInFormattingSuppressed = true
 
 /**
  * 今の設定を Monaco へ当てる。
@@ -230,7 +231,7 @@ function applyBuiltInModeConfiguration(): void {
     documentHighlights: true,
     rename: true,
     diagnostics: true,
-    documentRangeFormattingEdits: true,
+    documentRangeFormattingEdits: !builtInFormattingSuppressed,
     signatureHelp: true,
     onTypeFormattingEdits: true,
     codeActions: true,
@@ -283,6 +284,18 @@ export function setBuiltInReferencesSuppressed(suppressed: boolean): void {
   }
 
   builtInReferencesSuppressed = suppressed
+
+  if (initialized) {
+    applyBuiltInModeConfiguration()
+  }
+}
+
+export function setBuiltInFormattingSuppressed(suppressed: boolean): void {
+  if (builtInFormattingSuppressed === suppressed) {
+    return
+  }
+
+  builtInFormattingSuppressed = suppressed
 
   if (initialized) {
     applyBuiltInModeConfiguration()

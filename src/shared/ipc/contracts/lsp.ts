@@ -1,5 +1,6 @@
 import type { TextDocumentContentChange } from '../../lsp/document'
 import type { LspCompletionRequest, LspCompletionResponse } from '../../lsp/completion'
+import type { LspFormattingRequest, LspFormattingResponse } from '../../lsp/formatting'
 import type { LspHoverRequest, LspHoverResponse } from '../../lsp/hover'
 import type {
   LspDefinitionRequest,
@@ -10,6 +11,7 @@ import type {
 import type { LanguageServerStatus } from '../../lsp/serverStatus'
 
 export type { LspCompletionRequest, LspCompletionResponse } from '../../lsp/completion'
+export type { LspFormattingRequest, LspFormattingResponse } from '../../lsp/formatting'
 export type { LspHoverRequest, LspHoverResponse } from '../../lsp/hover'
 export type {
   LspDefinitionRequest,
@@ -27,7 +29,7 @@ export type {
  * 実行ファイル・引数・作業ディレクトリ … 無い（表は main/lsp/languageServerCatalog.ts）
  * 絶対パス・URI                        … 無い（組み立てるのは main/lsp/documentUri.ts）
  * どのサーバへ送るか                   … 無い（決めるのは main/lsp/documentLanguage.ts）
- * 任意の LSP method / params           … 無い（口は5つだけ）
+ * 任意の LSP method / params           … 無い（機能ごとの固定された口だけ）
  * サーバを起動 / 停止する口            … 無い（Session 5-4 でも増えていない）
  * ```
  *
@@ -44,7 +46,7 @@ export type {
  * （DESIGN.md の STEP 5 引き継ぎ）。Renderer が言えるのは
  * 「この相対位置のファイルを開いた / 変えた / 保存した / 閉じた」までに留まる。
  *
- * したがって、この4つの口が増えても
+ * したがって、このドメインの口が増えても
  * 「Renderer からの要求で任意の実行ファイルが動く」形は作られない。
  *
  * ## 相対位置は Workspace の中だけ
@@ -64,7 +66,7 @@ export type {
  *
  * ## 送りっぱなしにしない
  *
- * 4つとも応答を待つ形（invoke）にしてある。`lsp:did-open` だけは
+ * 同期通知の4つとも応答を待つ形（invoke）にしてある。`lsp:did-open` だけは
  * 応答に意味があり（この文書をサーバが見るかどうか）、残り3つは void を返す。
  * それでも invoke にしているのは、**到着の順序が保たれる**ため ──
  * Main 側のハンドラは同期で電文を書き出すので、
@@ -152,6 +154,10 @@ export interface LspIpcContract {
   'lsp:completion': {
     request: LspCompletionRequest
     response: LspCompletionResponse
+  }
+  'lsp:formatting': {
+    request: LspFormattingRequest
+    response: LspFormattingResponse
   }
   'lsp:hover': {
     request: LspHoverRequest

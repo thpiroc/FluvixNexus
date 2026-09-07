@@ -15,6 +15,7 @@ import type { EditorFailure } from './editorError'
 import { useCompletion } from './lsp/useCompletion'
 import { useDiagnostics } from './lsp/useDiagnostics'
 import { useDocumentSync } from './lsp/useDocumentSync'
+import { useFormatting } from './lsp/useFormatting'
 import { useHover } from './lsp/useHover'
 import { useNavigation } from './lsp/useNavigation'
 import type { EditorRevealRequest } from './editorReveal'
@@ -258,6 +259,7 @@ export function useEditorSession(workspaceId: string | null): EditorController {
   */
   useDocumentSync(documents, workspaceId)
   useCompletion(documents, workspaceId)
+  useFormatting(documents, workspaceId)
   useHover(documents, workspaceId)
   useNavigation(documents, workspaceId, tabs.openFileAt)
 

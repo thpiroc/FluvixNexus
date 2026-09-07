@@ -6,6 +6,8 @@ import {
   type LspCompletionResponse,
   type LspDefinitionRequest,
   type LspDefinitionResponse,
+  type LspFormattingRequest,
+  type LspFormattingResponse,
   type LspHoverRequest,
   type LspHoverResponse,
   type LspReferencesRequest,
@@ -18,6 +20,7 @@ import {
 import {
   isTextDocumentContentChange,
   isTextDocumentVersion,
+  isLspFormattingOptions,
   LSP_DOCUMENT_MAX_CONTENT_CHANGES,
   LSP_DOCUMENT_MAX_TEXT_LENGTH,
   type LspCompletionTriggerKind,
@@ -32,6 +35,7 @@ import {
   saveLspDocument
 } from '../../lsp/documentSync'
 import { requestLspCompletion } from '../../lsp/completion'
+import { requestLspFormatting } from '../../lsp/formatting'
 import { requestLspHover } from '../../lsp/hover'
 import { requestLspDefinition, requestLspReferences } from '../../lsp/navigation'
 import { getLanguageServerStatuses } from '../../lsp/serverStatus'
@@ -126,6 +130,23 @@ export function registerLspHandlers(): void {
         version: normalizeVersion(request?.version),
         position: normalizePosition(request?.position),
         ...normalizeCompletionContext(request?.triggerKind, request?.triggerCharacter)
+      })
+
+      if (outcome.status === 'outside-workspace') {
+        throw outsideWorkspace()
+      }
+
+      return outcome
+    }
+  )
+
+  handleIpc(
+    IPC_CHANNELS.LSP_FORMATTING,
+    async (request: LspFormattingRequest): Promise<LspFormattingResponse> => {
+      const outcome = await requestLspFormatting({
+        relativePath: normalizeDocumentPath(request?.relativePath),
+        version: normalizeVersion(request?.version),
+        options: normalizeFormattingOptions(request?.options)
       })
 
       if (outcome.status === 'outside-workspace') {
@@ -300,6 +321,14 @@ function normalizeCompletionContext(
   }
 
   return { triggerKind: rawTriggerKind, triggerCharacter: rawTriggerCharacter }
+}
+
+function normalizeFormattingOptions(value: unknown): LspFormattingRequest['options'] {
+  if (!isLspFormattingOptions(value)) {
+    throw invalidRequest('the formatting options have an unexpected shape.')
+  }
+
+  return value
 }
 
 function normalizeBoolean(value: unknown, label: string): boolean {

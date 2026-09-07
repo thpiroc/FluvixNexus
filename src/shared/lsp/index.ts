@@ -36,6 +36,20 @@ export type {
   LspCompletionTriggerKind
 } from './completion'
 
+export {
+  LSP_FORMATTING_MAX_EDITS,
+  LSP_FORMATTING_MAX_TAB_SIZE,
+  LSP_FORMATTING_MAX_TEXT_LENGTH,
+  isLspFormattingOptions
+} from './formatting'
+
+export type {
+  LspFormattingEdit,
+  LspFormattingOptions,
+  LspFormattingRequest,
+  LspFormattingResponse
+} from './formatting'
+
 export { LSP_HOVER_MAX_CONTENTS, LSP_HOVER_TEXT_MAX_LENGTH } from './hover'
 
 export type {
