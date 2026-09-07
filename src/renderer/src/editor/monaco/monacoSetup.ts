@@ -160,6 +160,8 @@ export function applyMonacoTheme(theme: ThemeId): void {
 let builtInValidationSuppressed = false
 let builtInCompletionSuppressed = true
 let builtInHoverSuppressed = true
+let builtInDefinitionSuppressed = true
+let builtInReferencesSuppressed = true
 
 /**
  * 今の設定を Monaco へ当てる。
@@ -223,8 +225,8 @@ function applyBuiltInModeConfiguration(): void {
     completionItems: !builtInCompletionSuppressed,
     hovers: !builtInHoverSuppressed,
     documentSymbols: true,
-    definitions: true,
-    references: true,
+    definitions: !builtInDefinitionSuppressed,
+    references: !builtInReferencesSuppressed,
     documentHighlights: true,
     rename: true,
     diagnostics: true,
@@ -257,6 +259,30 @@ export function setBuiltInHoverSuppressed(suppressed: boolean): void {
   }
 
   builtInHoverSuppressed = suppressed
+
+  if (initialized) {
+    applyBuiltInModeConfiguration()
+  }
+}
+
+export function setBuiltInDefinitionSuppressed(suppressed: boolean): void {
+  if (builtInDefinitionSuppressed === suppressed) {
+    return
+  }
+
+  builtInDefinitionSuppressed = suppressed
+
+  if (initialized) {
+    applyBuiltInModeConfiguration()
+  }
+}
+
+export function setBuiltInReferencesSuppressed(suppressed: boolean): void {
+  if (builtInReferencesSuppressed === suppressed) {
+    return
+  }
+
+  builtInReferencesSuppressed = suppressed
 
   if (initialized) {
     applyBuiltInModeConfiguration()

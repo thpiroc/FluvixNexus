@@ -46,6 +46,16 @@ export type {
   LspHoverResponse
 } from './hover'
 
+export { LSP_NAVIGATION_MAX_LOCATIONS } from './navigation'
+
+export type {
+  LspDefinitionRequest,
+  LspDefinitionResponse,
+  LspReferencesRequest,
+  LspReferencesResponse,
+  LspWorkspaceLocation
+} from './navigation'
+
 export { LSP_DIAGNOSTIC_MESSAGE_MAX_LENGTH, LSP_DIAGNOSTICS_MAX_PER_DOCUMENT } from './diagnostic'
 
 export type { LspDiagnostic, LspDiagnosticSeverity, LspDiagnosticTag } from './diagnostic'

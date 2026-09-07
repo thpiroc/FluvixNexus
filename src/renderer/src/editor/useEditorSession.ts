@@ -16,6 +16,7 @@ import { useCompletion } from './lsp/useCompletion'
 import { useDiagnostics } from './lsp/useDiagnostics'
 import { useDocumentSync } from './lsp/useDocumentSync'
 import { useHover } from './lsp/useHover'
+import { useNavigation } from './lsp/useNavigation'
 import type { EditorRevealRequest } from './editorReveal'
 import { hasUnsavedChanges } from './editorTabState'
 import type { EditorTab } from './editorTabsModel'
@@ -258,6 +259,7 @@ export function useEditorSession(workspaceId: string | null): EditorController {
   useDocumentSync(documents, workspaceId)
   useCompletion(documents, workspaceId)
   useHover(documents, workspaceId)
+  useNavigation(documents, workspaceId, tabs.openFileAt)
 
   /*
     サーバが出した指摘を Monaco の marker にする（Session 5-3）。

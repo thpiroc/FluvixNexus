@@ -50,7 +50,9 @@ import type {
   ChangeLspDocumentRequest,
   CloseLspDocumentRequest,
   LspCompletionRequest,
+  LspDefinitionRequest,
   LspHoverRequest,
+  LspReferencesRequest,
   OpenLspDocumentRequest,
   SaveLspDocumentRequest
 } from './ipc/contracts/lsp'
@@ -983,6 +985,8 @@ export interface LspApi {
   readonly didClose: (request: CloseLspDocumentRequest) => IpcInvokeResult<'lsp:did-close'>
   readonly completion: (request: LspCompletionRequest) => IpcInvokeResult<'lsp:completion'>
   readonly hover: (request: LspHoverRequest) => IpcInvokeResult<'lsp:hover'>
+  readonly definition: (request: LspDefinitionRequest) => IpcInvokeResult<'lsp:definition'>
+  readonly references: (request: LspReferencesRequest) => IpcInvokeResult<'lsp:references'>
   /**
    * 開いている文書を送り直してほしい、という Main からの依頼。
    *

@@ -4,8 +4,12 @@ import {
   type CloseLspDocumentRequest,
   type LspCompletionRequest,
   type LspCompletionResponse,
+  type LspDefinitionRequest,
+  type LspDefinitionResponse,
   type LspHoverRequest,
   type LspHoverResponse,
+  type LspReferencesRequest,
+  type LspReferencesResponse,
   type LspStatusResponse,
   type OpenLspDocumentRequest,
   type OpenLspDocumentResponse,
@@ -29,6 +33,7 @@ import {
 } from '../../lsp/documentSync'
 import { requestLspCompletion } from '../../lsp/completion'
 import { requestLspHover } from '../../lsp/hover'
+import { requestLspDefinition, requestLspReferences } from '../../lsp/navigation'
 import { getLanguageServerStatuses } from '../../lsp/serverStatus'
 import { IpcError, invalidRequest } from '../errors'
 import { handleIpc } from '../registry'
@@ -145,6 +150,41 @@ export function registerLspHandlers(): void {
     return outcome
   })
 
+  handleIpc(
+    IPC_CHANNELS.LSP_DEFINITION,
+    async (request: LspDefinitionRequest): Promise<LspDefinitionResponse> => {
+      const outcome = await requestLspDefinition({
+        relativePath: normalizeDocumentPath(request?.relativePath),
+        version: normalizeVersion(request?.version),
+        position: normalizePosition(request?.position)
+      })
+
+      if (outcome.status === 'outside-workspace') {
+        throw outsideWorkspace()
+      }
+
+      return outcome
+    }
+  )
+
+  handleIpc(
+    IPC_CHANNELS.LSP_REFERENCES,
+    async (request: LspReferencesRequest): Promise<LspReferencesResponse> => {
+      const outcome = await requestLspReferences({
+        relativePath: normalizeDocumentPath(request?.relativePath),
+        version: normalizeVersion(request?.version),
+        position: normalizePosition(request?.position),
+        includeDeclaration: normalizeBoolean(request?.includeDeclaration, 'includeDeclaration')
+      })
+
+      if (outcome.status === 'outside-workspace') {
+        throw outsideWorkspace()
+      }
+
+      return outcome
+    }
+  )
+
   /*
     サーバの状態（Session 5-4）。**要求に欄が1つも無い** ── どのサーバの
     状態を返すかも Renderer は言わず、返るのは常に3本ぶんになる。
@@ -260,6 +300,14 @@ function normalizeCompletionContext(
   }
 
   return { triggerKind: rawTriggerKind, triggerCharacter: rawTriggerCharacter }
+}
+
+function normalizeBoolean(value: unknown, label: string): boolean {
+  if (typeof value !== 'boolean') {
+    throw invalidRequest(`${label} must be a boolean.`)
+  }
+
+  return value
 }
 
 /**
