@@ -1121,6 +1121,17 @@ export const jaMessages = {
       ready: 'LSP: 利用可能',
       failed: 'LSP: 起動失敗',
       stopped: 'LSP: 停止中'
+    },
+    rename: {
+      notRenameable: 'この位置の名前は変更できません。',
+      invalidName: 'その名前は使えません。',
+      unsupportedEdit: 'この名前変更にはファイル操作が必要なため、適用できません。',
+      outsideWorkspace: 'この名前変更は Workspace の外のファイルに及ぶため、適用できません。',
+      tooManyEdits: '変更箇所が多すぎるため、安全に適用できません。',
+      malformed: 'Language Server の応答を適用できませんでした。',
+      serverError: 'Language Server が名前を変更できませんでした。',
+      stale: '名前の変更中にファイルが変わりました。もう一度実行してください。',
+      writeFailed: '更新できなかったファイルがあります: {files}'
     }
   },
   workspace: {

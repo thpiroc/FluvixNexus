@@ -53,7 +53,9 @@ import type {
   LspDefinitionRequest,
   LspFormattingRequest,
   LspHoverRequest,
+  LspPrepareRenameRequest,
   LspReferencesRequest,
+  LspRenameRequest,
   OpenLspDocumentRequest,
   SaveLspDocumentRequest
 } from './ipc/contracts/lsp'
@@ -990,6 +992,22 @@ export interface LspApi {
   readonly hover: (request: LspHoverRequest) => IpcInvokeResult<'lsp:hover'>
   readonly definition: (request: LspDefinitionRequest) => IpcInvokeResult<'lsp:definition'>
   readonly references: (request: LspReferencesRequest) => IpcInvokeResult<'lsp:references'>
+  /**
+   * その位置で名前を変えられるか（Session 5-9）。
+   *
+   * **新しい名前は渡さない。** 入力欄を出す前の問い合わせなので、
+   * まだ決まっていない（shared/ipc/contracts/lsp.ts）。
+   */
+  readonly prepareRename: (
+    request: LspPrepareRenameRequest
+  ) => IpcInvokeResult<'lsp:prepare-rename'>
+  /**
+   * 名前を変える（Session 5-9）。
+   *
+   * 返るのは**Workspace の中に実在するファイル**への相対位置と TextEdit だけで、
+   * ファイルの作成 / 改名 / 削除は表す欄が無い（shared/lsp/rename.ts）。
+   */
+  readonly rename: (request: LspRenameRequest) => IpcInvokeResult<'lsp:rename'>
   /**
    * 開いている文書を送り直してほしい、という Main からの依頼。
    *

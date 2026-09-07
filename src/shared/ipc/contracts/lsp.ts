@@ -8,6 +8,12 @@ import type {
   LspReferencesRequest,
   LspReferencesResponse
 } from '../../lsp/navigation'
+import type {
+  LspPrepareRenameRequest,
+  LspPrepareRenameResponse,
+  LspRenameRequest,
+  LspRenameResponse
+} from '../../lsp/rename'
 import type { LanguageServerStatus } from '../../lsp/serverStatus'
 
 export type { LspCompletionRequest, LspCompletionResponse } from '../../lsp/completion'
@@ -19,6 +25,12 @@ export type {
   LspReferencesRequest,
   LspReferencesResponse
 } from '../../lsp/navigation'
+export type {
+  LspPrepareRenameRequest,
+  LspPrepareRenameResponse,
+  LspRenameRequest,
+  LspRenameResponse
+} from '../../lsp/rename'
 
 /**
  * lsp ドメインの IPC 契約（Session 5-2 ── Document Synchronization、5-4 で状態を1本）。
@@ -170,6 +182,27 @@ export interface LspIpcContract {
   'lsp:references': {
     request: LspReferencesRequest
     response: LspReferencesResponse
+  }
+  /*
+    Rename（Session 5-9）。口は2つに分かれている。
+
+    `lsp:prepare-rename` … その位置で名前を変えられるか（変えられるなら、どの範囲か）
+    `lsp:rename`         … 新しい名前で、どのファイルの何処を置き換えるか
+
+    分けるのは LSP がそう分けているためだけでなく、**前者には新しい名前が無い**
+    ためにほかならない。入力欄を出す前の問い合わせに名前を載せる形にすると、
+    「まだ決まっていない値」を境界の外から受け取ることになる。
+
+    後者の応答に載るのは workspace-relative path + TextEdit だけで、
+    ファイルの作成 / 改名 / 削除は**表す欄が無い**（shared/lsp/rename.ts）。
+  */
+  'lsp:prepare-rename': {
+    request: LspPrepareRenameRequest
+    response: LspPrepareRenameResponse
+  }
+  'lsp:rename': {
+    request: LspRenameRequest
+    response: LspRenameResponse
   }
   'lsp:get-status': {
     request: void

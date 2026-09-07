@@ -163,6 +163,7 @@ let builtInHoverSuppressed = true
 let builtInDefinitionSuppressed = true
 let builtInReferencesSuppressed = true
 let builtInFormattingSuppressed = true
+let builtInRenameSuppressed = true
 
 /**
  * 今の設定を Monaco へ当てる。
@@ -229,7 +230,7 @@ function applyBuiltInModeConfiguration(): void {
     definitions: !builtInDefinitionSuppressed,
     references: !builtInReferencesSuppressed,
     documentHighlights: true,
-    rename: true,
+    rename: !builtInRenameSuppressed,
     diagnostics: true,
     documentRangeFormattingEdits: !builtInFormattingSuppressed,
     signatureHelp: true,
@@ -296,6 +297,36 @@ export function setBuiltInFormattingSuppressed(suppressed: boolean): void {
   }
 
   builtInFormattingSuppressed = suppressed
+
+  if (initialized) {
+    applyBuiltInModeConfiguration()
+  }
+}
+
+/**
+ * TypeScript / JavaScript の内蔵 Rename を止める / 戻す（Session 5-9）。
+ *
+ * ## ここだけは「LSP が ready かどうか」で出し入れしない
+ *
+ * 定義 / 参照（Session 5-7）はサーバの状態に合わせて内蔵を出し入れするが、
+ * Rename は整形（Session 5-8）と同じく、**provider を登録している間ずっと
+ * 内蔵を止めたまま**にして、内蔵は自前の provider の中から呼ぶ。
+ *
+ * Monaco の Rename は provider を1本ずつ順に試し、
+ * **断られたら次の provider へ回す**（editor/contrib/rename/browser/rename.js の
+ * `RenameSkeleton`）。2本並べたままにすると、本物のサーバが
+ * 「その位置は変えられない」と断ったものを、tsconfig も node_modules も
+ * 見ていない内蔵の側が実行することになる。
+ *
+ * Monaco から見える Rename provider を常に1本に保つことで、
+ * 二重適用も、断ったはずの Rename が通ることも起こらない。
+ */
+export function setBuiltInRenameSuppressed(suppressed: boolean): void {
+  if (builtInRenameSuppressed === suppressed) {
+    return
+  }
+
+  builtInRenameSuppressed = suppressed
 
   if (initialized) {
     applyBuiltInModeConfiguration()

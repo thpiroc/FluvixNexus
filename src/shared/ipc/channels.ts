@@ -82,6 +82,8 @@ export const IPC_CHANNELS = {
   LSP_HOVER: 'lsp:hover',
   LSP_DEFINITION: 'lsp:definition',
   LSP_REFERENCES: 'lsp:references',
+  LSP_PREPARE_RENAME: 'lsp:prepare-rename',
+  LSP_RENAME: 'lsp:rename',
   LSP_GET_STATUS: 'lsp:get-status',
   SETTINGS_LOAD: 'settings:load',
   SETTINGS_SAVE_SECTION: 'settings:save-section'

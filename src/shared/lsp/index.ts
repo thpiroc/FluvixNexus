@@ -60,6 +60,25 @@ export type {
   LspHoverResponse
 } from './hover'
 
+export {
+  LSP_RENAME_MAX_DOCUMENTS,
+  LSP_RENAME_MAX_EDITS_PER_DOCUMENT,
+  LSP_RENAME_MAX_TOTAL_EDITS,
+  LSP_RENAME_NEW_NAME_MAX_LENGTH,
+  LSP_RENAME_TEXT_MAX_LENGTH,
+  isValidLspRenameName
+} from './rename'
+
+export type {
+  LspPrepareRenameRequest,
+  LspPrepareRenameResponse,
+  LspRenameDocumentEdit,
+  LspRenameRejection,
+  LspRenameRequest,
+  LspRenameResponse,
+  LspRenameTextEdit
+} from './rename'
+
 export { LSP_NAVIGATION_MAX_LOCATIONS } from './navigation'
 
 export type {

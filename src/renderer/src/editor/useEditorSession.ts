@@ -18,6 +18,7 @@ import { useDocumentSync } from './lsp/useDocumentSync'
 import { useFormatting } from './lsp/useFormatting'
 import { useHover } from './lsp/useHover'
 import { useNavigation } from './lsp/useNavigation'
+import { useRename } from './lsp/useRename'
 import type { EditorRevealRequest } from './editorReveal'
 import { hasUnsavedChanges } from './editorTabState'
 import type { EditorTab } from './editorTabsModel'
@@ -262,6 +263,7 @@ export function useEditorSession(workspaceId: string | null): EditorController {
   useFormatting(documents, workspaceId)
   useHover(documents, workspaceId)
   useNavigation(documents, workspaceId, tabs.openFileAt)
+  useRename(documents, workspaceId)
 
   /*
     サーバが出した指摘を Monaco の marker にする（Session 5-3）。

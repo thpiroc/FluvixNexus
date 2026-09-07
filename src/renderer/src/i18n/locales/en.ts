@@ -1146,6 +1146,24 @@ export const enMessages = {
       ready: 'LSP: Ready',
       failed: 'LSP: Failed',
       stopped: 'LSP: Not running'
+    },
+    /*
+      Rename が断られたときの1行（Session 5-9）。
+
+      出るのは Monaco の通知で、**利用者が次に何をすればよいか**が読めるように
+      言い分ける ── 「その位置では変えられない」と「サーバが答えられなかった」は、
+      同じ「できなかった」でも取るべき行動が違う。
+    */
+    rename: {
+      notRenameable: 'This symbol cannot be renamed here.',
+      invalidName: 'That name cannot be used.',
+      unsupportedEdit: 'This rename needs file operations that Fluvix Nexus does not apply.',
+      outsideWorkspace: 'This rename would change files outside the workspace folder.',
+      tooManyEdits: 'This rename affects too many places to apply safely.',
+      malformed: 'The language server returned a rename that could not be applied.',
+      serverError: 'The language server could not rename this symbol.',
+      stale: 'The file changed while renaming. Try again.',
+      writeFailed: 'Some files could not be updated: {files}'
     }
   },
   workspace: {

@@ -17,7 +17,9 @@
  * 名乗る       … textDocument.synchronization（didOpen / didChange / didSave / didClose）
  * 名乗る       … textDocument.publishDiagnostics（Session 5-3）
  * 名乗る       … completion・formatting（Session 5-5 / 5-8）
- * 名乗らない   … definition・references・rename（Session 5-7 以降）
+ * 名乗る       … rename（Session 5-9。`prepareSupport` が答えの形を決めるため）
+ * 名乗る       … workspace.workspaceEdit（Session 5-9。資源操作を扱えないと明示する）
+ * 名乗らない   … definition・references・hover（名乗らなくても同じ答えが返る）
  * 名乗らない   … workspace.configuration（応じる口が無い。jsonRpcConnection.ts が断る）
  * ```
  *
@@ -114,9 +116,46 @@ export function createInitializeParams(
         },
         formatting: {
           dynamicRegistration: false
+        },
+        /*
+          Rename（Session 5-9）。
+
+          `prepareSupport` を名乗るのは、**これが `textDocument/prepareRename` を
+          出すかどうかの申告そのもの**だからにほかならない ── サーバは
+          `renameProvider.prepareProvider` をこの値で決める（名乗らないサーバへ
+          送った場合は method が無いという失敗が返り、Renderer は内蔵の Rename へ
+          落ちる。main/lsp/rename.ts）。
+
+          定義 / 参照 / Hover を名乗っていないのと扱いが違うのは、
+          あちらが**名乗らなくても同じ答えが返る**のに対し、こちらは
+          名乗りで返る形が変わるため。
+        */
+        rename: {
+          dynamicRegistration: false,
+          prepareSupport: true
         }
       },
       workspace: {
+        /*
+          書き換えの答えとして受け取れる形（Session 5-9）。
+
+          **`resourceOperations` を空で名乗る**のが要点にあたる。省略すると
+          「資源操作は扱えない」と読まれるのが仕様だが、空の配列で明示すると
+          意図して空だと伝わる ── どちらにせよ、ファイルの作成 / 改名 / 削除を
+          含む `WorkspaceEdit` は Main が断つ（main/lsp/renameResult.ts）。
+          申告はサーバに無駄な答えを作らせないためのもので、こちらの守りを
+          申告に賭けているわけではない。
+
+          `documentChanges: false` は「uri → TextEdit[] の形でよい」という申告。
+          版を添えた形（TextDocumentEdit）を受け取っても、Main は
+          要求した1文書の版しか持っていないため突き合わせられない。
+        */
+        workspaceEdit: {
+          documentChanges: false,
+          resourceOperations: [],
+          failureHandling: 'abort',
+          normalizesLineEndings: false
+        },
         /*
           Workspace は常に1つ。それでも申告するのは、`workspaceFolders` を
           載せた `initialize` を送るため（載せておいて「扱えない」と言うと、

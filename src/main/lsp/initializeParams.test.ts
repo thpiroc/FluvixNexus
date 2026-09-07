@@ -82,7 +82,7 @@ describe('createInitializeParams', () => {
     expect(publishDiagnostics.relatedInformation).toBe(false)
   })
 
-  it('補完と整形は名乗り、定義 / 参照 / Hover / Rename は名乗らない', () => {
+  it('補完と整形は名乗り、定義 / 参照 / Hover は名乗らない', () => {
     const textDocument = capabilities.textDocument
 
     expect(textDocument.completion).toMatchObject({
@@ -99,6 +99,34 @@ describe('createInitializeParams', () => {
     expect('definition' in textDocument).toBe(false)
     expect('references' in textDocument).toBe(false)
     expect('hover' in textDocument).toBe(false)
-    expect('rename' in textDocument).toBe(false)
+  })
+
+  /**
+   * Rename だけは名乗る（Session 5-9）。
+   *
+   * 定義 / 参照 / Hover は名乗らなくても同じ答えが返るのに対し、こちらは
+   * **申告で返る形が変わる** ── `prepareSupport` を名乗らないサーバは
+   * `textDocument/prepareRename` を出さない（initializeParams.ts）。
+   */
+  it('Rename は名乗る（prepareRename を出してもらうため）', () => {
+    expect(capabilities.textDocument.rename).toEqual({
+      dynamicRegistration: false,
+      prepareSupport: true
+    })
+  })
+
+  /**
+   * 書き換えの答えとして受け取れる形。
+   *
+   * **空の `resourceOperations`** が一番確かめたいところで、ここが空である限り
+   * 仕様に従うサーバはファイルの作成 / 改名 / 削除を答えに載せない
+   * （載せてきた場合は Main が断つ。main/lsp/renameResult.ts）。
+   */
+  it('資源操作（作成 / 改名 / 削除）は扱えないと名乗る（Session 5-9）', () => {
+    const workspaceEdit = capabilities.workspace.workspaceEdit as Record<string, unknown>
+
+    expect(workspaceEdit.resourceOperations).toEqual([])
+    expect(workspaceEdit.documentChanges).toBe(false)
+    expect(workspaceEdit.failureHandling).toBe('abort')
   })
 })

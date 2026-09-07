@@ -10,8 +10,12 @@ import {
   type LspFormattingResponse,
   type LspHoverRequest,
   type LspHoverResponse,
+  type LspPrepareRenameRequest,
+  type LspPrepareRenameResponse,
   type LspReferencesRequest,
   type LspReferencesResponse,
+  type LspRenameRequest,
+  type LspRenameResponse,
   type LspStatusResponse,
   type OpenLspDocumentRequest,
   type OpenLspDocumentResponse,
@@ -21,6 +25,7 @@ import {
   isTextDocumentContentChange,
   isTextDocumentVersion,
   isLspFormattingOptions,
+  isValidLspRenameName,
   LSP_DOCUMENT_MAX_CONTENT_CHANGES,
   LSP_DOCUMENT_MAX_TEXT_LENGTH,
   type LspCompletionTriggerKind,
@@ -38,6 +43,7 @@ import { requestLspCompletion } from '../../lsp/completion'
 import { requestLspFormatting } from '../../lsp/formatting'
 import { requestLspHover } from '../../lsp/hover'
 import { requestLspDefinition, requestLspReferences } from '../../lsp/navigation'
+import { requestLspPrepareRename, requestLspRename } from '../../lsp/rename'
 import { getLanguageServerStatuses } from '../../lsp/serverStatus'
 import { IpcError, invalidRequest } from '../errors'
 import { handleIpc } from '../registry'
@@ -207,6 +213,52 @@ export function registerLspHandlers(): void {
   )
 
   /*
+    Rename（Session 5-9）。
+
+    問い合わせの口（prepare）には**新しい名前の欄が無い**。入力欄を出す前の
+    問い合わせなので、まだ決まっていない（shared/ipc/contracts/lsp.ts）。
+
+    書き換えの口（rename）だけが名前を受け取り、その名前は
+    **越えるところで確かめる** ── 空・空白だけ・制御文字を含む・長すぎる、は
+    ここで落ちる。中身が識別子として正しいかは見ない（言語ごとの規則を
+    この層に持ち込まないため。shared/lsp/rename.ts）。
+  */
+  handleIpc(
+    IPC_CHANNELS.LSP_PREPARE_RENAME,
+    async (request: LspPrepareRenameRequest): Promise<LspPrepareRenameResponse> => {
+      const outcome = await requestLspPrepareRename({
+        relativePath: normalizeDocumentPath(request?.relativePath),
+        version: normalizeVersion(request?.version),
+        position: normalizePosition(request?.position)
+      })
+
+      if (outcome.status === 'outside-workspace') {
+        throw outsideWorkspace()
+      }
+
+      return outcome
+    }
+  )
+
+  handleIpc(
+    IPC_CHANNELS.LSP_RENAME,
+    async (request: LspRenameRequest): Promise<LspRenameResponse> => {
+      const outcome = await requestLspRename({
+        relativePath: normalizeDocumentPath(request?.relativePath),
+        version: normalizeVersion(request?.version),
+        position: normalizePosition(request?.position),
+        newName: normalizeRenameName(request?.newName)
+      })
+
+      if (outcome.status === 'outside-workspace') {
+        throw outsideWorkspace()
+      }
+
+      return outcome
+    }
+  )
+
+  /*
     サーバの状態（Session 5-4）。**要求に欄が1つも無い** ── どのサーバの
     状態を返すかも Renderer は言わず、返るのは常に3本ぶんになる。
 
@@ -326,6 +378,20 @@ function normalizeCompletionContext(
 function normalizeFormattingOptions(value: unknown): LspFormattingRequest['options'] {
   if (!isLspFormattingOptions(value)) {
     throw invalidRequest('the formatting options have an unexpected shape.')
+  }
+
+  return value
+}
+
+/**
+ * 新しい名前として受け取れる形か（Session 5-9）。
+ *
+ * 判断そのものは shared（`isValidLspRenameName`）が持つ ── Renderer 側でも
+ * 同じ規則で先に弾けるようにするため、**この層に独自の規則を書き起こさない。**
+ */
+function normalizeRenameName(value: unknown): string {
+  if (!isValidLspRenameName(value)) {
+    throw invalidRequest('the new name is missing, too long, or contains control characters.')
   }
 
   return value
