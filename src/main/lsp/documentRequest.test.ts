@@ -101,6 +101,42 @@ describe('prepareLspDocumentRequest', () => {
     }
   })
 
+  /* ---------------------------------------------------------- C#（5-11） */
+
+  it('.cs / .csx は csharp サーバへ向く（Session 5-11）', () => {
+    for (const path of ['src/Program.cs', 'scripts/build.csx']) {
+      mocks.document = openDocument({
+        relativePath: path,
+        serverId: 'csharp',
+        languageId: 'csharp',
+        uri: `file:///D%3A/proj/${path}`
+      })
+
+      expect(prepare(path)).toMatchObject({ status: 'ready', serverId: 'csharp' })
+    }
+  })
+
+  it('C# は7つとも通る（csharp-ls は整形も出す）', () => {
+    mocks.document = openDocument({
+      relativePath: 'src/Program.cs',
+      serverId: 'csharp',
+      languageId: 'csharp',
+      uri: 'file:///D%3A/proj/src/Program.cs'
+    })
+
+    for (const feature of [
+      'completion',
+      'hover',
+      'definition',
+      'references',
+      'formatting',
+      'rename',
+      'prepare-rename'
+    ] as const) {
+      expect(prepare('src/Program.cs', feature).status).toBe('ready')
+    }
+  })
+
   it('.ts は typescript サーバへ向く（Session 5-9 までと同じ）', () => {
     mocks.document = openDocument({
       relativePath: 'src/app.ts',

@@ -28,7 +28,7 @@ interface RegisterLspCompletionProviderOptions {
 }
 
 /**
- * 打っただけで補完が開く文字。**言語ごとに分けてある**（Session 5-10）。
+ * 打っただけで補完が開く文字。**言語ごとに分けてある**（Session 5-10 / 5-11）。
  *
  * Monaco の trigger character は provider の登録単位で決まるので、
  * 1つにまとめると片方の言語に要らない文字が混ざる。
@@ -38,17 +38,28 @@ interface RegisterLspCompletionProviderOptions {
  *                           （import のパス・JSX・private field が要る）
  * Python                  … `.` `[` `"` `'`
  *                           （Pyright が名乗った4つ。辞書の key に `[` が要る）
+ * C#                      … `.` `'`
+ *                           （csharp-ls が名乗った2つ）
  * ```
  *
  * Python 側を TypeScript と同じにしないのは、`<` や `/` が Python では
  * ただの演算子で、打つたびに候補が開くと**入力の邪魔にしかならない**ため。
  * 逆に `[` を TypeScript へ足さないのは、Session 5-9 までの挙動を変えないため
  * になる。
+ *
+ * C# の `<` も同じ扱いにしてある。ジェネリクスがあるので候補を出したくなるが、
+ * **csharp-ls はそれを名乗っていない** ── 名乗っていない文字で要求を出しても、
+ * サーバはその位置を trigger として扱わない（`triggerKind: 2` に添えた文字を
+ * 見て候補を絞るのはサーバの側）。ここに書いてよいのは
+ * 名乗りに載っていた文字だけで、こちらの期待で足す欄ではない。
  */
 const TYPESCRIPT_TRIGGER_CHARACTERS = ['.', '"', "'", '`', '/', '@', '<', '#'] as const
 
 /** Pyright が `completionProvider.triggerCharacters` として名乗る4つ。 */
 const PYTHON_TRIGGER_CHARACTERS = ['.', '[', '"', "'"] as const
+
+/** csharp-ls が `completionProvider.triggerCharacters` として名乗る2つ。 */
+const CSHARP_TRIGGER_CHARACTERS = ['.', "'"] as const
 
 export function setTypeScriptBuiltInCompletionSuppressed(suppressed: boolean): void {
   /*
@@ -97,9 +108,9 @@ export function registerLspCompletionProvider(
 
       /*
         LSP が答えられなかった。落とし先があるのは TypeScript / JavaScript だけで、
-        Python には内蔵の補完が無い（Session 5-10。lsp/serverAvailability.ts）。
-        **Python の文書を TypeScript worker へ渡さない** ── 渡せば
-        `.py` を TypeScript として解析した候補が並ぶ。
+        Python にも C# にも内蔵の補完が無い（Session 5-10 / 5-11。
+        lsp/serverAvailability.ts）。**その文書を TypeScript worker へ渡さない**
+        ── 渡せば `.py` / `.cs` を TypeScript として解析した候補が並ぶ。
       */
       if (!isTypeScriptWorkerLanguage(model.getLanguageId())) {
         return { suggestions: [] }
@@ -111,11 +122,13 @@ export function registerLspCompletionProvider(
 
   const typeScriptProvider = createProvider(TYPESCRIPT_TRIGGER_CHARACTERS)
   const pythonProvider = createProvider(PYTHON_TRIGGER_CHARACTERS)
+  const csharpProvider = createProvider(CSHARP_TRIGGER_CHARACTERS)
 
   const registrations = [
     monaco.languages.registerCompletionItemProvider('typescript', typeScriptProvider),
     monaco.languages.registerCompletionItemProvider('javascript', typeScriptProvider),
-    monaco.languages.registerCompletionItemProvider('python', pythonProvider)
+    monaco.languages.registerCompletionItemProvider('python', pythonProvider),
+    monaco.languages.registerCompletionItemProvider('csharp', csharpProvider)
   ]
 
   return {

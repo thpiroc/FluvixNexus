@@ -2,7 +2,7 @@ import type { LanguageServerId, LanguageServerStatus } from '@shared/lsp'
 import type { EditorLanguageId } from '../monaco/language'
 
 /**
- * その文書で LSP を使えるか（Session 5-10）。
+ * その文書で LSP を使えるか（Session 5-10 / 5-11）。
  *
  * ## Session 5-9 までは「TypeScript か」で足りていた
  *
@@ -16,6 +16,7 @@ import type { EditorLanguageId } from '../monaco/language'
  * ```
  * typescript / javascript … typescript サーバ（1本で両方を見る）
  * python                  … python サーバ（Pyright）
+ * csharp                  … csharp サーバ（csharp-ls。Session 5-11）
  * ```
  *
  * 対応をここ1つに置いてあるので、言語を増やすときに触るのはこの表だけになる
@@ -28,34 +29,52 @@ import type { EditorLanguageId } from '../monaco/language'
  * 決める。ここが見るのは Monaco が付けた言語 id で、`.tsx` も `.ts` も同じ
  * `typescript` になる（renderer/src/editor/monaco/language.ts）。
  * **同じファイルについて行き先のサーバが食い違わない**ことだけが要点で、
- * そこは両方の表が `typescript` / `python` を返すことで揃っている。
+ * そこは両方の表が `typescript` / `python` / `csharp` を返すことで揃っている。
  *
- * ## C# はまだ載せない
+ * ## C# が載った（Session 5-11）
  *
- * `LANGUAGE_SERVER_IDS` には `csharp` があるが、この表には無い。
- * 載せると `.cs` を開いた時点で Monaco の provider が LSP を呼び始めるためで、
- * それは Session 5-11 の範囲になる。**表に無い言語は今までどおり
- * 内蔵の振る舞いへ落ちる。**
+ * `.cs` / `.csx` は Main の表では前から `csharp` サーバへ向いていた
+ * （main/lsp/documentLanguage.ts）が、この表に無い間は Renderer 側の
+ * provider がそもそも LSP を呼ばなかった。ここへ1行足したことで、
+ * `.cs` を開くと他の2言語とまったく同じ経路を通る
+ * ── **C# のためだけの分岐は、この下にも provider にも1つも無い。**
  */
 
 /** Monaco の言語 id から、担当する Language Server へ。 */
 const SERVER_BY_EDITOR_LANGUAGE: Readonly<Record<string, LanguageServerId>> = {
   typescript: 'typescript',
   javascript: 'typescript',
-  python: 'python'
+  python: 'python',
+  csharp: 'csharp'
 }
+
+/**
+ * Monaco の provider を登録する言語の一覧（上の表の見出しそのもの）。
+ *
+ * Session 5-10 までは、5つの provider が
+ * `'typescript'` / `'javascript'` / `'python'` を**それぞれ書き並べていた**。
+ * 上の表に「言語を増やすときに触るのはこの表だけ」と書いてありながら、
+ * 実際には登録の並びが5箇所に散っていて、C# を足すには5箇所を直す必要があった。
+ *
+ * 一覧をここから配ることで、その言い分が実際にそうなる
+ * ── 表に行を足せば、5つの provider が同時にその言語へ付く。
+ *
+ * 整形だけはこの一覧を使わない。担当サーバが整形を出さない言語があるためで、
+ * 判断は formattingAvailability.ts が別に持つ。
+ */
+export const LSP_EDITOR_LANGUAGE_IDS: readonly string[] = Object.keys(SERVER_BY_EDITOR_LANGUAGE)
 
 /**
  * Monaco が内蔵の TypeScript サービス（worker）で答えられる言語か。
  *
- * LSP が使えないときの落とし先を決めるのに要る。**Python にこれは無い**
- * ── Monaco は Python の色を付けるだけで、補完も定義も持たない
+ * LSP が使えないときの落とし先を決めるのに要る。**Python にも C# にもこれは無い**
+ * ── Monaco は `.py` / `.cs` の色を付けるだけで、補完も定義も持たない
  * （renderer/src/editor/monaco/monacoSetup.ts の worker の表）。
  *
- * したがって Python で LSP が使えないときの答えは「何も無い」になる。
- * 無い fallback を作らないのが Session 5-10 の決めごとで、
- * 内蔵の TypeScript worker へ Python の文書を渡すことは決してしない
- * ── 渡せば .py を TypeScript として解析した答えが返る。
+ * したがって Python / C# で LSP が使えないときの答えは「何も無い」になる。
+ * 無い fallback を作らないのが Session 5-10 の決めごとで、Session 5-11 でも
+ * 変えていない ── 内蔵の TypeScript worker へ `.py` / `.cs` を渡すことは
+ * 決してしない。渡せば C# の綴りを TypeScript として解析した答えが返る。
  */
 export function isTypeScriptWorkerLanguage(
   languageId: EditorLanguageId | string

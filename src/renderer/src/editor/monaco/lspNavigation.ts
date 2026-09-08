@@ -5,7 +5,7 @@ import {
   toEditorWorkspaceLocations,
   type EditorWorkspaceLocation
 } from '../lsp/navigationLocations'
-import { isTypeScriptWorkerLanguage } from '../lsp/serverAvailability'
+import { isTypeScriptWorkerLanguage, LSP_EDITOR_LANGUAGE_IDS } from '../lsp/serverAvailability'
 import type { EditorDocumentStore } from './documentStore'
 import { monaco } from './monacoSetup'
 
@@ -36,8 +36,9 @@ export function registerLspNavigationProvider(
 ): monaco.IDisposable {
   /*
     LSP が答えられなかったときの落とし先があるのは TypeScript / JavaScript だけで、
-    Python には内蔵の定義 / 参照が無い（Session 5-10。lsp/serverAvailability.ts）。
-    `.py` を TypeScript worker へ渡すと、TypeScript として解析した位置が返る。
+    Python にも C# にも内蔵の定義 / 参照が無い（Session 5-10 / 5-11。
+    lsp/serverAvailability.ts）。`.py` / `.cs` を TypeScript worker へ渡すと、
+    TypeScript として解析した位置が返る。
   */
   const definitionProvider: monaco.languages.DefinitionProvider = {
     provideDefinition: async (model, position, token) => {
@@ -113,12 +114,12 @@ export function registerLspNavigationProvider(
 
   const registrations = [
     opener,
-    monaco.languages.registerDefinitionProvider('typescript', definitionProvider),
-    monaco.languages.registerDefinitionProvider('javascript', definitionProvider),
-    monaco.languages.registerDefinitionProvider('python', definitionProvider),
-    monaco.languages.registerReferenceProvider('typescript', referencesProvider),
-    monaco.languages.registerReferenceProvider('javascript', referencesProvider),
-    monaco.languages.registerReferenceProvider('python', referencesProvider)
+    ...LSP_EDITOR_LANGUAGE_IDS.map((languageId) =>
+      monaco.languages.registerDefinitionProvider(languageId, definitionProvider)
+    ),
+    ...LSP_EDITOR_LANGUAGE_IDS.map((languageId) =>
+      monaco.languages.registerReferenceProvider(languageId, referencesProvider)
+    )
   ]
 
   return {

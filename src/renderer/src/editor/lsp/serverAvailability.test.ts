@@ -3,6 +3,7 @@ import type { LanguageServerStatus } from '@shared/lsp'
 import {
   isLanguageServerReadyFor,
   isTypeScriptWorkerLanguage,
+  LSP_EDITOR_LANGUAGE_IDS,
   resolveLanguageServerIdFor
 } from './serverAvailability'
 
@@ -26,13 +27,35 @@ describe('resolveLanguageServerIdFor', () => {
     expect(resolveLanguageServerIdFor('python')).toBe('python')
   })
 
-  it('C# はまだ載せていない（Session 5-11）', () => {
-    expect(resolveLanguageServerIdFor('csharp')).toBeNull()
+  it('C# は csharp サーバ（Session 5-11）', () => {
+    expect(resolveLanguageServerIdFor('csharp')).toBe('csharp')
   })
 
   it('内蔵の言語サービスがあるものは LSP へ向けない', () => {
     for (const languageId of ['json', 'css', 'html', 'markdown', 'plaintext']) {
       expect(resolveLanguageServerIdFor(languageId)).toBeNull()
+    }
+  })
+})
+
+describe('LSP_EDITOR_LANGUAGE_IDS', () => {
+  /*
+    provider の登録の並びと、言語 → サーバの表が食い違わないこと（Session 5-11）。
+    ずれると「表には載っているのに provider が付いていない言語」ができる
+    ── Session 5-10 までの C# がまさにそれだった。
+  */
+  it('表の見出しと同じ（登録の並びが表から外れない）', () => {
+    expect([...LSP_EDITOR_LANGUAGE_IDS].sort()).toEqual([
+      'csharp',
+      'javascript',
+      'python',
+      'typescript'
+    ])
+  })
+
+  it('一覧のどれもが担当サーバを持つ', () => {
+    for (const languageId of LSP_EDITOR_LANGUAGE_IDS) {
+      expect(resolveLanguageServerIdFor(languageId)).not.toBeNull()
     }
   })
 })
@@ -66,10 +89,18 @@ describe('isLanguageServerReadyFor', () => {
     expect(isLanguageServerReadyFor('python', [])).toBe(false)
   })
 
+  it('C# も担当サーバが ready のときだけ true（Session 5-11）', () => {
+    expect(isLanguageServerReadyFor('csharp', statuses({ csharp: 'ready' }))).toBe(true)
+
+    for (const status of ['disabled', 'unavailable', 'failed', 'stopped', 'starting'] as const) {
+      expect(isLanguageServerReadyFor('csharp', statuses({ csharp: status }))).toBe(false)
+    }
+  })
+
   it('担当サーバの無い言語は、どのサーバが ready でも false', () => {
     const allReady = statuses({ typescript: 'ready', python: 'ready', csharp: 'ready' })
 
-    for (const languageId of ['json', 'css', 'html', 'markdown', 'csharp']) {
+    for (const languageId of ['json', 'css', 'html', 'markdown', 'plaintext']) {
       expect(isLanguageServerReadyFor(languageId, allReady)).toBe(false)
     }
   })
@@ -81,8 +112,9 @@ describe('isTypeScriptWorkerLanguage', () => {
     expect(isTypeScriptWorkerLanguage('javascript')).toBe(true)
   })
 
-  it('Python は内蔵の落とし先を持たない（.py を TypeScript として解析させない）', () => {
+  it('Python / C# は内蔵の落とし先を持たない（.py / .cs を TypeScript として解析させない）', () => {
     expect(isTypeScriptWorkerLanguage('python')).toBe(false)
+    expect(isTypeScriptWorkerLanguage('csharp')).toBe(false)
   })
 
   it('その他の言語も worker へは渡さない', () => {

@@ -63,4 +63,28 @@ describe('completionAvailability', () => {
       ).toBe(false)
     }
   })
+
+  /* ------------------------------------------------------ C#（Session 5-11） */
+
+  it('C# server が ready なら .cs の LSP completion を使う', () => {
+    expect(
+      shouldUseLspCompletion('csharp', [
+        { serverId: 'typescript', status: 'stopped' },
+        { serverId: 'python', status: 'stopped' },
+        { serverId: 'csharp', status: 'ready' }
+      ])
+    ).toBe(true)
+  })
+
+  it('C# が disabled / unavailable / failed / stopped / starting なら使わない', () => {
+    for (const status of ['disabled', 'unavailable', 'failed', 'stopped', 'starting'] as const) {
+      expect(
+        shouldUseLspCompletion('csharp', [
+          { serverId: 'typescript', status: 'ready' },
+          { serverId: 'python', status: 'ready' },
+          { serverId: 'csharp', status }
+        ])
+      ).toBe(false)
+    }
+  })
 })

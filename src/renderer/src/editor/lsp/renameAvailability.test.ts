@@ -72,4 +72,27 @@ describe('shouldUseLspRename', () => {
       ).toBe(false)
     }
   )
+
+  /* ------------------------------------------------------ C#（Session 5-11） */
+
+  it('C# server が ready なら .cs の Rename を LSP に向ける', () => {
+    expect(
+      shouldUseLspRename('csharp', [
+        { serverId: 'typescript', status: 'stopped' },
+        { serverId: 'csharp', status: 'ready' }
+      ])
+    ).toBe(true)
+  })
+
+  it.each(['disabled', 'unavailable', 'starting', 'failed', 'stopped'] as const)(
+    'C# が ready でない（%s）なら Rename を出さない（内蔵へは落とさない）',
+    (status) => {
+      expect(
+        shouldUseLspRename('csharp', [
+          { serverId: 'typescript', status: 'ready' },
+          { serverId: 'csharp', status }
+        ])
+      ).toBe(false)
+    }
+  )
 })

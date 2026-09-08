@@ -1,7 +1,8 @@
 import type { LanguageServerStatus } from '@shared/lsp'
 import { fluvix } from '../../api/fluvix'
-import { shouldUseLspFormatting } from '../lsp/formattingAvailability'
+import { LSP_FORMATTING_LANGUAGE_IDS, shouldUseLspFormatting } from '../lsp/formattingAvailability'
 import { toEditorFormattingEdits, type EditorFormattingEdit } from '../lsp/formattingEdits'
+import { isTypeScriptWorkerLanguage } from '../lsp/serverAvailability'
 import type { EditorDocumentStore } from './documentStore'
 import { monaco, setBuiltInFormattingSuppressed } from './monacoSetup'
 
@@ -46,14 +47,28 @@ export function registerLspFormattingProvider(
         }
       }
 
+      /*
+        LSP が答えられなかった。落とし先があるのは TypeScript / JavaScript だけで、
+        C# に内蔵の整形器は無い（Session 5-11。lsp/serverAvailability.ts）。
+        **`.cs` を TypeScript worker へ渡さない** ── 渡せば C# の綴りを
+        TypeScript として整形した編集が返り、コードが壊れる。
+
+        ここで何も返さないと Format Document は黙って何もしないが、
+        壊れた整形を当てるよりは何もしないほうが安全にほかならない
+        ── サーバが OFF / 未インストール / 起動中のときの C# は
+        「整形されない」に留まる。
+      */
+      if (!isTypeScriptWorkerLanguage(model.getLanguageId())) {
+        return []
+      }
+
       return provideTypeScriptWorkerFormatting(model, formattingOptions, token)
     }
   }
 
-  const registrations = [
-    monaco.languages.registerDocumentFormattingEditProvider('typescript', provider),
-    monaco.languages.registerDocumentFormattingEditProvider('javascript', provider)
-  ]
+  const registrations = LSP_FORMATTING_LANGUAGE_IDS.map((languageId) =>
+    monaco.languages.registerDocumentFormattingEditProvider(languageId, provider)
+  )
 
   return {
     dispose: () => {

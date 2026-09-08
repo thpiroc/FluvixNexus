@@ -2,7 +2,7 @@ import type { LanguageServerStatus } from '@shared/lsp'
 import { fluvix } from '../../api/fluvix'
 import { shouldUseLspHover } from '../lsp/hoverAvailability'
 import { toEditorHover, type EditorHover } from '../lsp/hoverContent'
-import { isTypeScriptWorkerLanguage } from '../lsp/serverAvailability'
+import { isTypeScriptWorkerLanguage, LSP_EDITOR_LANGUAGE_IDS } from '../lsp/serverAvailability'
 import type { EditorDocumentStore } from './documentStore'
 import { monaco, setBuiltInHoverSuppressed } from './monacoSetup'
 
@@ -49,9 +49,9 @@ export function registerLspHoverProvider(
       }
 
       /*
-        落とし先があるのは TypeScript / JavaScript だけ。Python には内蔵の
-        Hover が無いので、**何も出さない**（Session 5-10。
-        lsp/serverAvailability.ts）。TypeScript worker へ `.py` を渡さない。
+        落とし先があるのは TypeScript / JavaScript だけ。Python にも C# にも
+        内蔵の Hover が無いので、**何も出さない**（Session 5-10 / 5-11。
+        lsp/serverAvailability.ts）。TypeScript worker へ `.py` / `.cs` を渡さない。
       */
       if (!isTypeScriptWorkerLanguage(model.getLanguageId())) {
         return { contents: [] }
@@ -61,11 +61,9 @@ export function registerLspHoverProvider(
     }
   }
 
-  const registrations = [
-    monaco.languages.registerHoverProvider('typescript', provider),
-    monaco.languages.registerHoverProvider('javascript', provider),
-    monaco.languages.registerHoverProvider('python', provider)
-  ]
+  const registrations = LSP_EDITOR_LANGUAGE_IDS.map((languageId) =>
+    monaco.languages.registerHoverProvider(languageId, provider)
+  )
 
   return {
     dispose: () => {

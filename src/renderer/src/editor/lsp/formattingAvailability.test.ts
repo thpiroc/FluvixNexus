@@ -52,4 +52,35 @@ describe('formattingAvailability', () => {
     expect(isLspFormattingLanguage('typescript')).toBe(true)
     expect(isLspFormattingLanguage('javascript')).toBe(true)
   })
+
+  /* ------------------------------------------------------ C#（Session 5-11） */
+
+  /*
+    csharp-ls は Roslyn を抱えているので整形器がサーバの中にある
+    （`documentFormattingProvider: true` を名乗り、乱した書式へ実際に
+    編集を返すことを確かめた）。Python と違い、別の整形器を足す必要が無い。
+  */
+  it('C# は整形の対象（csharp-ls が formatting を出す）', () => {
+    expect(isLspFormattingLanguage('csharp')).toBe(true)
+
+    expect(
+      shouldUseLspFormatting('csharp', [
+        { serverId: 'typescript', status: 'stopped' },
+        { serverId: 'python', status: 'stopped' },
+        { serverId: 'csharp', status: 'ready' }
+      ])
+    ).toBe(true)
+  })
+
+  it('C# サーバが ready でなければ整形しない（内蔵の整形器は無い）', () => {
+    for (const status of ['disabled', 'unavailable', 'failed', 'stopped', 'starting'] as const) {
+      expect(
+        shouldUseLspFormatting('csharp', [
+          { serverId: 'typescript', status: 'ready' },
+          { serverId: 'python', status: 'stopped' },
+          { serverId: 'csharp', status }
+        ])
+      ).toBe(false)
+    }
+  })
 })

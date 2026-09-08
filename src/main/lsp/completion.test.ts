@@ -227,6 +227,47 @@ describe('requestLspCompletion', () => {
     )
   })
 
+  /* ------------------------------------------------------- C#（Session 5-11） */
+
+  it('.cs は csharp server へ送る（Renderer はサーバを名指ししない）', async () => {
+    mocks.document = {
+      relativePath: 'src/Program.cs',
+      serverId: 'csharp',
+      languageId: 'csharp',
+      uri: 'file:///D%3A/proj/src/Program.cs',
+      version: 4,
+      synced: true
+    }
+    /*
+      csharp-ls は候補を出し切ったとは言わない（`isIncomplete: true`）。
+      中身も label / kind / sortText だけで、説明は resolve で取る形になる
+      ── このアプリは resolve を送らないので、届いた分だけを写す。
+    */
+    mocks.requestLanguageServer.mockReturnValue(
+      result({
+        isIncomplete: true,
+        items: [{ label: 'Greet', kind: 2, sortText: 'Greet', insertText: 'Greet' }]
+      })
+    )
+
+    await expect(
+      requestLspCompletion(completionRequest({ relativePath: 'src/Program.cs' }))
+    ).resolves.toEqual({
+      status: 'ok',
+      version: 4,
+      completion: {
+        isIncomplete: true,
+        items: [expect.objectContaining({ label: 'Greet', kind: 'method' })]
+      }
+    })
+
+    expect(mocks.requestLanguageServer).toHaveBeenCalledWith(
+      'csharp',
+      'textDocument/completion',
+      expect.objectContaining({ textDocument: { uri: 'file:///D%3A/proj/src/Program.cs' } })
+    )
+  })
+
   it('completion を出さないサーバへは送らない', async () => {
     mocks.supported = false
 

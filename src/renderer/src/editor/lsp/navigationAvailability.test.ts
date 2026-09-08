@@ -52,4 +52,28 @@ describe('navigationAvailability', () => {
       ).toBe(false)
     }
   })
+
+  /* ------------------------------------------------------ C#（Session 5-11） */
+
+  it('C# server が ready なら定義 / 参照を LSP に向ける', () => {
+    expect(
+      shouldUseLspNavigation('csharp', [
+        { serverId: 'typescript', status: 'stopped' },
+        { serverId: 'python', status: 'stopped' },
+        { serverId: 'csharp', status: 'ready' }
+      ])
+    ).toBe(true)
+  })
+
+  it('C# server が ready でなければ使わない（内蔵の定義 / 参照は無い）', () => {
+    for (const status of ['disabled', 'unavailable', 'failed', 'stopped', 'starting'] as const) {
+      expect(
+        shouldUseLspNavigation('csharp', [
+          { serverId: 'typescript', status: 'ready' },
+          { serverId: 'python', status: 'ready' },
+          { serverId: 'csharp', status }
+        ])
+      ).toBe(false)
+    }
+  })
 })
