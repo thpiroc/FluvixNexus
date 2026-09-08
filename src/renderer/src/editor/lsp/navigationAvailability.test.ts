@@ -28,4 +28,28 @@ describe('navigationAvailability', () => {
     expect(shouldUseLspNavigation('css', statuses('ready'))).toBe(false)
     expect(shouldUseLspNavigation('html', statuses('ready'))).toBe(false)
   })
+
+  /* --------------------------------------------------- Python（Session 5-10） */
+
+  it('Python server が ready なら .py の定義 / 参照を LSP に向ける', () => {
+    expect(
+      shouldUseLspNavigation('python', [
+        { serverId: 'typescript', status: 'stopped' },
+        { serverId: 'python', status: 'ready' },
+        { serverId: 'csharp', status: 'stopped' }
+      ])
+    ).toBe(true)
+  })
+
+  it('Python server が ready でなければ使わない（内蔵の定義 / 参照は無い）', () => {
+    for (const status of ['disabled', 'unavailable', 'failed', 'stopped', 'starting'] as const) {
+      expect(
+        shouldUseLspNavigation('python', [
+          { serverId: 'typescript', status: 'ready' },
+          { serverId: 'python', status },
+          { serverId: 'csharp', status: 'stopped' }
+        ])
+      ).toBe(false)
+    }
+  })
 })

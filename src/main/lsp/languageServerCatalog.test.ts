@@ -159,6 +159,46 @@ describe('resolveLanguageServerCommand', () => {
     expect(command?.args).toEqual(['--stdio'])
   })
 
+  /* --------------------------------------------- Python / Windows（Session 5-10） */
+
+  /*
+    npm が置く pyright は `.cmd` だけで、`.exe` は無い（実際の
+    `%APPDATA%\npm` の中身を確かめた）。したがって Windows では
+    必ず cmd.exe で包む経路を通ることになる。
+  */
+  it('Windows の pyright-langserver.cmd も %SystemRoot% の cmd.exe で包む', () => {
+    const command = resolveLanguageServerCommand(
+      'python',
+      'win32',
+      WINDOWS_ENV,
+      existsIn(`${NPM_DIRECTORY}\\pyright-langserver.cmd`, CMD)
+    )
+
+    expect(command).toEqual({
+      name: 'Pyright',
+      file: CMD,
+      args: ['/c', `${NPM_DIRECTORY}\\pyright-langserver.cmd`, '--stdio']
+    })
+  })
+
+  it('python も、Workspace の中の同名の実行ファイルは起動しない', () => {
+    const command = resolveLanguageServerCommand(
+      'python',
+      'win32',
+      WINDOWS_ENV,
+      existsIn(`${WORKSPACE}\\pyright-langserver.cmd`, `${WORKSPACE}\\pyright-langserver.exe`, CMD)
+    )
+
+    expect(command).toBeNull()
+  })
+
+  it('python が入っていなければ null（その言語だけが使えない）', () => {
+    expect(resolveLanguageServerCommand('python', 'win32', WINDOWS_ENV, existsIn(CMD))).toBeNull()
+    expect(
+      resolveLanguageServerCommand('python', 'linux', { PATH: '/usr/local/bin' }, existsIn())
+    ).toBeNull()
+  })
+
   /*
     落として名前だけで起動すると、その cmd.exe は PATH と cwd から解決される
     ── 表が守っている性質そのものが崩れるので、使えないままにする。

@@ -28,4 +28,28 @@ describe('hoverAvailability', () => {
     expect(shouldUseLspHover('css', statuses('ready'))).toBe(false)
     expect(shouldUseLspHover('html', statuses('ready'))).toBe(false)
   })
+
+  /* --------------------------------------------------- Python（Session 5-10） */
+
+  it('Python server が ready なら .py の LSP hover を使う', () => {
+    expect(
+      shouldUseLspHover('python', [
+        { serverId: 'typescript', status: 'stopped' },
+        { serverId: 'python', status: 'ready' },
+        { serverId: 'csharp', status: 'stopped' }
+      ])
+    ).toBe(true)
+  })
+
+  it('Python server が ready でなければ使わない（内蔵の hover は無いので何も出ない）', () => {
+    for (const status of ['disabled', 'unavailable', 'failed', 'stopped', 'starting'] as const) {
+      expect(
+        shouldUseLspHover('python', [
+          { serverId: 'typescript', status: 'ready' },
+          { serverId: 'python', status },
+          { serverId: 'csharp', status: 'stopped' }
+        ])
+      ).toBe(false)
+    }
+  })
 })

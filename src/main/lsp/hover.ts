@@ -1,11 +1,8 @@
 import type { LspHoverRequest, LspHoverResponse, TextDocumentPosition } from '@shared/lsp'
 import { createLogger } from '../logger'
 import { getCurrentWorkspaceFolder } from '../workspaceFolder/currentWorkspaceFolder'
-import { resolveLspDocumentLanguage } from './documentLanguage'
-import { getOpenLspDocument } from './documentSync'
-import { resolveWorkspaceDocumentUri } from './documentUri'
+import { checkLspDocumentFreshness, prepareLspDocumentRequest } from './documentRequest'
 import { parseHoverResult } from './hoverResult'
-import { isLanguageServerAllowed } from './languageServerSettings'
 import { requestLanguageServer } from './languageServers'
 
 const log = createLogger('lsp-hover')
@@ -15,40 +12,14 @@ export type LspHoverOutcome = LspHoverResponse | { readonly status: 'outside-wor
 const LSP_HOVER = 'textDocument/hover'
 
 export async function requestLspHover(request: LspHoverRequest): Promise<LspHoverOutcome> {
-  const workspace = getCurrentWorkspaceFolder()
+  const prepared = prepareLspDocumentRequest(request, 'hover', getCurrentWorkspaceFolder)
 
-  if (workspace === null) {
-    return { status: 'unavailable' }
+  if (prepared.status !== 'ready') {
+    return prepared
   }
 
-  const uri = resolveWorkspaceDocumentUri(workspace.rootPath, request.relativePath)
-
-  if (uri === null) {
-    return { status: 'outside-workspace' }
-  }
-
-  const language = resolveLspDocumentLanguage(request.relativePath)
-
-  if (language === null || language.serverId !== 'typescript') {
-    return { status: 'unavailable' }
-  }
-
-  if (!isLanguageServerAllowed(language.serverId)) {
-    return { status: 'unavailable' }
-  }
-
-  const document = getOpenLspDocument(request.relativePath)
-
-  if (document === null || !document.synced || document.serverId !== language.serverId) {
-    return { status: 'unavailable' }
-  }
-
-  if (document.version !== request.version) {
-    return { status: 'stale' }
-  }
-
-  const pending = requestLanguageServer(document.serverId, LSP_HOVER, {
-    textDocument: { uri },
+  const pending = requestLanguageServer(prepared.serverId, LSP_HOVER, {
+    textDocument: { uri: prepared.uri },
     position: request.position
   })
 
@@ -57,11 +28,10 @@ export async function requestLspHover(request: LspHoverRequest): Promise<LspHove
   }
 
   const outcome = await pending
+  const freshness = checkLspDocumentFreshness(request)
 
-  const current = getOpenLspDocument(request.relativePath)
-
-  if (current === null || current.version !== request.version) {
-    return { status: 'stale' }
+  if (freshness !== null) {
+    return freshness
   }
 
   if (outcome.status !== 'result') {

@@ -1,23 +1,16 @@
 import type { LanguageServerStatus } from '@shared/lsp'
 import type { EditorLanguageId } from '../monaco/language'
+import { isLanguageServerReadyFor } from './serverAvailability'
 
-const LSP_COMPLETION_LANGUAGE_IDS = ['typescript', 'javascript'] as const
-
-export function isLspCompletionLanguage(
-  languageId: string
-): languageId is 'typescript' | 'javascript' {
-  return (LSP_COMPLETION_LANGUAGE_IDS as readonly string[]).includes(languageId)
-}
-
-export function isTypeScriptLanguageServerReady(
-  statuses: readonly LanguageServerStatus[]
-): boolean {
-  return statuses.some((entry) => entry.serverId === 'typescript' && entry.status === 'ready')
-}
-
+/**
+ * その文書で LSP の補完を使うか。
+ *
+ * 言語とサーバの対応・`ready` の見方はどちらも serverAvailability.ts が持つ
+ * （Session 5-10 で Python を足したときに、5つの機能が同じ表を引く形にした）。
+ */
 export function shouldUseLspCompletion(
   languageId: EditorLanguageId | string,
   statuses: readonly LanguageServerStatus[]
 ): boolean {
-  return isLspCompletionLanguage(languageId) && isTypeScriptLanguageServerReady(statuses)
+  return isLanguageServerReadyFor(languageId, statuses)
 }

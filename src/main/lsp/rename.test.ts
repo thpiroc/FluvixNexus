@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
     version: 4,
     synced: true
   } as unknown,
+  supported: true,
   requestLanguageServer: vi.fn(),
   realpath: vi.fn(),
   stat: vi.fn()
@@ -44,7 +45,8 @@ vi.mock('./documentSync', () => ({
 }))
 
 vi.mock('./languageServers', () => ({
-  requestLanguageServer: mocks.requestLanguageServer
+  requestLanguageServer: mocks.requestLanguageServer,
+  supportsLanguageServerFeature: () => mocks.supported
 }))
 
 import { requestLspPrepareRename, requestLspRename } from './rename'
@@ -100,6 +102,7 @@ function prepareRequest(overrides: Record<string, unknown> = {}) {
 function resetMocks(): void {
   mocks.workspace = { id: 'workspace-1', rootPath: 'D:\\proj' }
   mocks.allowed = true
+  mocks.supported = true
   mocks.document = {
     relativePath: 'src/app.ts',
     serverId: 'typescript',
@@ -371,5 +374,158 @@ describe('requestLspPrepareRename', () => {
     expect(await requestLspPrepareRename(prepareRequest({ relativePath: '../x.ts' }))).toEqual({
       status: 'outside-workspace'
     })
+  })
+
+  it('prepareProvider を出さないサーバは unavailable（built-in へ落とす）', async () => {
+    mocks.supported = false
+
+    expect((await requestLspPrepareRename(prepareRequest())).status).toBe('unavailable')
+    expect(mocks.requestLanguageServer).not.toHaveBeenCalled()
+  })
+})
+
+/* ------------------------------------------------------ Python（Session 5-10） */
+
+describe('requestLspRename（Python）', () => {
+  beforeEach(() => {
+    resetMocks()
+    mocks.document = {
+      relativePath: 'src/app.py',
+      serverId: 'python',
+      languageId: 'python',
+      uri: uri('src/app.py'),
+      version: 4,
+      synced: true
+    }
+  })
+
+  /*
+    Pyright は `documentChanges`（TextDocumentEdit[]）で返す。
+    `workspaceEdit.documentChanges: false` と名乗っているにもかかわらずそうなる
+    ── 名乗りに従わないサーバでも安全側に倒れるよう、Session 5-9 の
+    renameResult.ts が両方の形を読むようにしてあったのがここで効く。
+  */
+  it('Pyright の documentChanges 形式を、workspace-relative path へ読み替える', async () => {
+    mocks.requestLanguageServer.mockReturnValue(
+      result({
+        documentChanges: [
+          {
+            textDocument: { uri: uri('src/lib.py'), version: null },
+            edits: [
+              {
+                range: { start: { line: 0, character: 4 }, end: { line: 0, character: 9 } },
+                newText: 'hi'
+              }
+            ]
+          },
+          {
+            textDocument: { uri: uri('src/app.py'), version: null },
+            edits: [
+              {
+                range: { start: { line: 0, character: 16 }, end: { line: 0, character: 21 } },
+                newText: 'hi'
+              },
+              {
+                range: { start: { line: 3, character: 14 }, end: { line: 3, character: 19 } },
+                newText: 'hi'
+              }
+            ]
+          }
+        ]
+      })
+    )
+
+    const outcome = await requestLspRename(
+      renameRequest({ relativePath: 'src/app.py', newName: 'hi' })
+    )
+
+    expect(outcome).toEqual({
+      status: 'ok',
+      version: 4,
+      documents: [
+        {
+          relativePath: 'src/lib.py',
+          edits: [
+            {
+              range: { start: { line: 0, character: 4 }, end: { line: 0, character: 9 } },
+              text: 'hi'
+            }
+          ]
+        },
+        {
+          relativePath: 'src/app.py',
+          edits: [
+            {
+              range: { start: { line: 0, character: 16 }, end: { line: 0, character: 21 } },
+              text: 'hi'
+            },
+            {
+              range: { start: { line: 3, character: 14 }, end: { line: 3, character: 19 } },
+              text: 'hi'
+            }
+          ]
+        }
+      ]
+    })
+
+    expect(mocks.requestLanguageServer).toHaveBeenCalledWith('python', 'textDocument/rename', {
+      textDocument: { uri: uri('src/app.py') },
+      position: { line: 1, character: 2 },
+      newName: 'hi'
+    })
+  })
+
+  it('Workspace の外を指す documentChanges は Rename ごと断る', async () => {
+    mocks.requestLanguageServer.mockReturnValue(
+      result({
+        documentChanges: [
+          {
+            textDocument: { uri: 'file:///D%3A/other/lib.py', version: null },
+            edits: [{ range: range(), newText: 'hi' }]
+          }
+        ]
+      })
+    )
+
+    expect(
+      await requestLspRename(renameRequest({ relativePath: 'src/app.py', newName: 'hi' }))
+    ).toEqual({ status: 'rejected', reason: 'outside-workspace' })
+  })
+
+  it('資源操作（ファイルの作成 / 改名 / 削除）が混ざれば断る', async () => {
+    mocks.requestLanguageServer.mockReturnValue(
+      result({
+        documentChanges: [
+          {
+            textDocument: { uri: uri('src/app.py'), version: null },
+            edits: [{ range: range(), newText: 'hi' }]
+          },
+          { kind: 'rename', oldUri: uri('src/app.py'), newUri: uri('src/renamed.py') }
+        ]
+      })
+    )
+
+    expect(
+      await requestLspRename(renameRequest({ relativePath: 'src/app.py', newName: 'hi' }))
+    ).toEqual({ status: 'rejected', reason: 'unsupported-edit' })
+  })
+
+  it('prepareRename も python server へ送る', async () => {
+    mocks.requestLanguageServer.mockReturnValue(
+      result({ start: { line: 2, character: 4 }, end: { line: 2, character: 7 } })
+    )
+
+    expect(await requestLspPrepareRename(prepareRequest({ relativePath: 'src/app.py' }))).toEqual({
+      status: 'ok',
+      version: 4,
+      range: { start: { line: 2, character: 4 }, end: { line: 2, character: 7 } },
+      placeholder: null
+    })
+
+    expect(mocks.requestLanguageServer).toHaveBeenCalledWith(
+      'python',
+      'textDocument/prepareRename',
+      { textDocument: { uri: uri('src/app.py') }, position: { line: 1, character: 2 } }
+    )
   })
 })

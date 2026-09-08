@@ -5,6 +5,7 @@ import {
   toEditorWorkspaceLocations,
   type EditorWorkspaceLocation
 } from '../lsp/navigationLocations'
+import { isTypeScriptWorkerLanguage } from '../lsp/serverAvailability'
 import type { EditorDocumentStore } from './documentStore'
 import { monaco } from './monacoSetup'
 
@@ -33,15 +34,19 @@ interface RegisterLspNavigationProviderOptions {
 export function registerLspNavigationProvider(
   options: RegisterLspNavigationProviderOptions
 ): monaco.IDisposable {
+  /*
+    LSP が答えられなかったときの落とし先があるのは TypeScript / JavaScript だけで、
+    Python には内蔵の定義 / 参照が無い（Session 5-10。lsp/serverAvailability.ts）。
+    `.py` を TypeScript worker へ渡すと、TypeScript として解析した位置が返る。
+  */
   const definitionProvider: monaco.languages.DefinitionProvider = {
     provideDefinition: async (model, position, token) => {
       const relativePath = options.documents.getPathForModel(model)
 
-      if (relativePath === null) {
-        return provideTypeScriptWorkerDefinition(model, position, token)
-      }
-
-      if (shouldUseLspNavigation(model.getLanguageId(), options.getStatuses())) {
+      if (
+        relativePath !== null &&
+        shouldUseLspNavigation(model.getLanguageId(), options.getStatuses())
+      ) {
         const definition = await provideLspDefinition(model, position, token, {
           ...options,
           relativePath
@@ -52,6 +57,10 @@ export function registerLspNavigationProvider(
         }
       }
 
+      if (!isTypeScriptWorkerLanguage(model.getLanguageId())) {
+        return []
+      }
+
       return provideTypeScriptWorkerDefinition(model, position, token)
     }
   }
@@ -60,11 +69,10 @@ export function registerLspNavigationProvider(
     provideReferences: async (model, position, context, token) => {
       const relativePath = options.documents.getPathForModel(model)
 
-      if (relativePath === null) {
-        return provideTypeScriptWorkerReferences(model, position, context, token)
-      }
-
-      if (shouldUseLspNavigation(model.getLanguageId(), options.getStatuses())) {
+      if (
+        relativePath !== null &&
+        shouldUseLspNavigation(model.getLanguageId(), options.getStatuses())
+      ) {
         const references = await provideLspReferences(model, position, context, token, {
           ...options,
           relativePath
@@ -73,6 +81,10 @@ export function registerLspNavigationProvider(
         if (references !== undefined) {
           return references
         }
+      }
+
+      if (!isTypeScriptWorkerLanguage(model.getLanguageId())) {
+        return []
       }
 
       return provideTypeScriptWorkerReferences(model, position, context, token)
@@ -103,8 +115,10 @@ export function registerLspNavigationProvider(
     opener,
     monaco.languages.registerDefinitionProvider('typescript', definitionProvider),
     monaco.languages.registerDefinitionProvider('javascript', definitionProvider),
+    monaco.languages.registerDefinitionProvider('python', definitionProvider),
     monaco.languages.registerReferenceProvider('typescript', referencesProvider),
-    monaco.languages.registerReferenceProvider('javascript', referencesProvider)
+    monaco.languages.registerReferenceProvider('javascript', referencesProvider),
+    monaco.languages.registerReferenceProvider('python', referencesProvider)
   ]
 
   return {

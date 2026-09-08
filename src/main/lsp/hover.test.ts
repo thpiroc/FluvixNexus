@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
     version: 4,
     synced: true
   } as unknown,
+  supported: true,
   requestLanguageServer: vi.fn()
 }))
 
@@ -37,7 +38,8 @@ vi.mock('./documentSync', () => ({
 }))
 
 vi.mock('./languageServers', () => ({
-  requestLanguageServer: mocks.requestLanguageServer
+  requestLanguageServer: mocks.requestLanguageServer,
+  supportsLanguageServerFeature: () => mocks.supported
 }))
 
 import { requestLspHover } from './hover'
@@ -59,6 +61,7 @@ describe('requestLspHover', () => {
   beforeEach(() => {
     mocks.workspace = { id: 'workspace-1', rootPath: 'D:\\proj' }
     mocks.allowed = true
+    mocks.supported = true
     mocks.document = {
       relativePath: 'src/app.ts',
       serverId: 'typescript',
@@ -182,5 +185,49 @@ describe('requestLspHover', () => {
       version: 4,
       hover: null
     })
+  })
+
+  /* --------------------------------------------------- Python（Session 5-10） */
+
+  it('.py は python server へ送り、Pyright の plaintext hover を読む', async () => {
+    mocks.document = {
+      relativePath: 'src/app.py',
+      serverId: 'python',
+      languageId: 'python',
+      uri: 'file:///D%3A/proj/src/app.py',
+      version: 4,
+      synced: true
+    }
+    /*
+      Pyright は MarkupContent（kind: 'plaintext'）で返す。実際に繋いで
+      受け取った形をそのまま置いてある。
+    */
+    mocks.requestLanguageServer.mockReturnValue(
+      result({
+        contents: { kind: 'plaintext', value: '(function) def greet(name: str) -> str' },
+        range: { start: { line: 3, character: 14 }, end: { line: 3, character: 19 } }
+      })
+    )
+
+    await expect(requestLspHover(hoverRequest({ relativePath: 'src/app.py' }))).resolves.toEqual({
+      status: 'ok',
+      version: 4,
+      hover: {
+        contents: [{ kind: 'plaintext', value: '(function) def greet(name: str) -> str' }],
+        range: { start: { line: 3, character: 14 }, end: { line: 3, character: 19 } }
+      }
+    })
+
+    expect(mocks.requestLanguageServer).toHaveBeenCalledWith('python', 'textDocument/hover', {
+      textDocument: { uri: 'file:///D%3A/proj/src/app.py' },
+      position: { line: 1, character: 2 }
+    })
+  })
+
+  it('hover を出さないサーバへは送らない', async () => {
+    mocks.supported = false
+
+    await expect(requestLspHover(hoverRequest())).resolves.toEqual({ status: 'unavailable' })
+    expect(mocks.requestLanguageServer).not.toHaveBeenCalled()
   })
 })

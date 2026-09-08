@@ -49,4 +49,27 @@ describe('shouldUseLspRename', () => {
       ])
     ).toBe(false)
   })
+
+  /* --------------------------------------------------- Python（Session 5-10） */
+
+  it('Python server が ready なら .py の Rename を LSP に向ける', () => {
+    expect(
+      shouldUseLspRename('python', [
+        { serverId: 'typescript', status: 'stopped' },
+        { serverId: 'python', status: 'ready' }
+      ])
+    ).toBe(true)
+  })
+
+  it.each(['disabled', 'unavailable', 'starting', 'failed', 'stopped'] as const)(
+    'Python が ready でない（%s）なら Rename を出さない（内蔵へは落とさない）',
+    (status) => {
+      expect(
+        shouldUseLspRename('python', [
+          { serverId: 'typescript', status: 'ready' },
+          { serverId: 'python', status }
+        ])
+      ).toBe(false)
+    }
+  )
 })

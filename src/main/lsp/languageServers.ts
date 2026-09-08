@@ -22,6 +22,12 @@ import {
 } from './languageServerCatalog'
 import { createLanguageServerEnvironment } from './languageServerEnvironment'
 import { decideLanguageServerRestart } from './restartPolicy'
+import {
+  parseLanguageServerCapabilities,
+  PERMISSIVE_LANGUAGE_SERVER_CAPABILITIES,
+  type LanguageServerCapabilities,
+  type LanguageServerFeature
+} from './serverCapabilities'
 
 /**
  * 動いている Language Server を持つ層（Session 5-1）。
@@ -114,6 +120,13 @@ interface LanguageServerRecord {
   stopping: boolean
   /** `initialized` まで済んだか。ここが true になるまで電文は送れない。 */
   ready: boolean
+  /**
+   * `initialize` の応答に載っていた「そのサーバができること」（Session 5-10）。
+   *
+   * 応答を受け取るまでは何も分からないので、それまでは既定（すべて可）を持つ
+   * ── どのみち `ready` が false の間は電文を送れない。
+   */
+  capabilities: LanguageServerCapabilities
 }
 
 /** サーバの状態が変わったことの知らせ（documentSync.ts が受ける）。 */
@@ -438,7 +451,8 @@ function spawnServer(
     child,
     connection,
     stopping: false,
-    ready: false
+    ready: false,
+    capabilities: PERMISSIVE_LANGUAGE_SERVER_CAPABILITIES
   }
 
   servers.set(id, record)
@@ -544,15 +558,24 @@ async function initializeServer(record: LanguageServerRecord): Promise<void> {
   }
 
   /*
-    応答の `capabilities` は Session 5-2 では読まない。
-    読む必要が出るのは、サーバが差分同期を断って全文だけを求める場合
-    （`textDocumentSync` が `Full`）と、診断の受け取り（Session 5-3）になる。
-    **読まないものを読んだふりをしない**ため、ここでは素通りさせる。
+    応答の `capabilities` を読む（Session 5-10。main/lsp/serverCapabilities.ts）。
+
+    Session 5-9 まではここを素通りさせていた。対象が
+    typescript-language-server 1本だけで、その1本が要求する6つすべてを出す
+    ためで、読んでも判断が変わらなかった。Python（Pyright）は
+    **`documentFormattingProvider` を出さない**ので、そこで初めて差が付く。
+
+    読むのはこのアプリが送る機能ぶんだけで、`textDocumentSync` は今も読まない
+    ── 差分同期を断るサーバ（`Full` を求めるサーバ）は v1 の対象に無く、
+    読んでも全文へ切り替える経路がこちらに無い。**読まないものを
+    読んだふりをしない**という Session 5-2 からの扱いはそのまま。
   */
+  record.capabilities = parseLanguageServerCapabilities(outcome.result)
+
   record.connection.notify('initialized', {})
   record.ready = true
 
-  log.info(`${record.name} is ready.`)
+  log.info(`${record.name} is ready. ${describeCapabilities(record.capabilities)}`)
 
   notifyState(record.id, 'ready')
 }
@@ -562,6 +585,25 @@ async function initializeServer(record: LanguageServerRecord): Promise<void> {
 /** そのサーバが電文を受け取れる状態か。 */
 export function isLanguageServerReady(id: LanguageServerId): boolean {
   return servers.get(id)?.ready === true
+}
+
+/**
+ * そのサーバがその機能を出すと申告したか（Session 5-10）。
+ *
+ * 立っていなければ false。**「立っていない」と「出さない」を呼び出し側で
+ * 分けない**のは、どちらの場合も答えが `unavailable` になるため
+ * ── 分けたところで Renderer へ渡る語は1つしかない
+ * （shared/lsp/serverStatus.ts）。
+ *
+ * `ready` を見ないのは、申告そのものが `initialize` の応答から来るため。
+ * 応答が届いていない間は既定（すべて可）が入っており、そのときは
+ * `requestLanguageServer` の側が `ready` を見て null を返す。
+ */
+export function supportsLanguageServerFeature(
+  id: LanguageServerId,
+  feature: LanguageServerFeature
+): boolean {
+  return servers.get(id)?.capabilities[feature] === true
 }
 
 /**
@@ -911,6 +953,21 @@ export function startLanguageServerHosting(): void {
   onWorkspaceFolderChange(() => {
     stopLanguageServers('the workspace folder changed.')
   })
+}
+
+/**
+ * ログ1行ぶんの言い回し（`features: completion, hover, …`）。
+ *
+ * 出さない機能まで並べないのは、**気付きたいのは「無い」方**であるため
+ * ── Python の整形が効かないという問い合わせに対して、この1行が
+ * 「Pyright は formatting を出していない」を示す。
+ */
+function describeCapabilities(capabilities: LanguageServerCapabilities): string {
+  const provided = Object.entries(capabilities)
+    .filter(([, supported]) => supported)
+    .map(([feature]) => feature)
+
+  return provided.length === 0 ? 'features: none' : `features: ${provided.join(', ')}`
 }
 
 /** ログ1行に載せる長さの上限。サーバの stderr は際限なく長い行を出すことがある。 */

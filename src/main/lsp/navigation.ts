@@ -2,15 +2,14 @@ import type {
   LspDefinitionRequest,
   LspDefinitionResponse,
   LspReferencesRequest,
-  LspReferencesResponse,
-  TextDocumentPosition
+  LspReferencesResponse
 } from '@shared/lsp'
 import { createLogger } from '../logger'
 import { getCurrentWorkspaceFolder } from '../workspaceFolder/currentWorkspaceFolder'
-import { resolveLspDocumentLanguage } from './documentLanguage'
-import { getOpenLspDocument } from './documentSync'
-import { resolveWorkspaceDocumentUri } from './documentUri'
-import { isLanguageServerAllowed } from './languageServerSettings'
+import {
+  checkLspDocumentFreshness as checkFreshness,
+  prepareLspDocumentRequest
+} from './documentRequest'
 import { requestLanguageServer } from './languageServers'
 import { parseDefinitionResult, parseReferencesResult } from './navigationResult'
 
@@ -26,7 +25,7 @@ const LSP_REFERENCES = 'textDocument/references'
 export async function requestLspDefinition(
   request: LspDefinitionRequest
 ): Promise<LspDefinitionOutcome> {
-  const prepared = prepareNavigationRequest(request)
+  const prepared = prepareLspDocumentRequest(request, 'definition', getCurrentWorkspaceFolder)
 
   if (prepared.status !== 'ready') {
     return prepared
@@ -65,7 +64,7 @@ export async function requestLspDefinition(
 export async function requestLspReferences(
   request: LspReferencesRequest
 ): Promise<LspReferencesOutcome> {
-  const prepared = prepareNavigationRequest(request)
+  const prepared = prepareLspDocumentRequest(request, 'references', getCurrentWorkspaceFolder)
 
   if (prepared.status !== 'ready') {
     return prepared
@@ -102,62 +101,9 @@ export async function requestLspReferences(
   return { status: 'ok', version: request.version, references }
 }
 
-type PreparedNavigationRequest =
-  | {
-      readonly status: 'ready'
-      readonly rootPath: string
-      readonly uri: string
-      readonly serverId: 'typescript'
-    }
-  | { readonly status: 'outside-workspace' }
-  | { readonly status: 'unavailable' }
-  | { readonly status: 'stale' }
-
-function prepareNavigationRequest(request: {
-  readonly relativePath: string
-  readonly version: number
-  readonly position: TextDocumentPosition
-}): PreparedNavigationRequest {
-  const workspace = getCurrentWorkspaceFolder()
-
-  if (workspace === null) {
-    return { status: 'unavailable' }
-  }
-
-  const uri = resolveWorkspaceDocumentUri(workspace.rootPath, request.relativePath)
-
-  if (uri === null) {
-    return { status: 'outside-workspace' }
-  }
-
-  const language = resolveLspDocumentLanguage(request.relativePath)
-
-  if (language === null || language.serverId !== 'typescript') {
-    return { status: 'unavailable' }
-  }
-
-  if (!isLanguageServerAllowed(language.serverId)) {
-    return { status: 'unavailable' }
-  }
-
-  const document = getOpenLspDocument(request.relativePath)
-
-  if (document === null || !document.synced || document.serverId !== language.serverId) {
-    return { status: 'unavailable' }
-  }
-
-  if (document.version !== request.version) {
-    return { status: 'stale' }
-  }
-
-  return { status: 'ready', rootPath: workspace.rootPath, uri, serverId: language.serverId }
-}
-
-function checkFreshness(request: {
-  readonly relativePath: string
-  readonly version: number
-}): { readonly status: 'stale' } | null {
-  const current = getOpenLspDocument(request.relativePath)
-
-  return current === null || current.version !== request.version ? { status: 'stale' } : null
-}
+/*
+  要求を出す前の確認（Workspace・言語・設定・同期・版）と、応答が返った後の
+  版の見直しは main/lsp/documentRequest.ts に移した（Session 5-10）。
+  同じ6段を5つの機能が別々に持っていたためで、Python を足すのに
+  5箇所を同じように直す形にしないための移動になる。
+*/

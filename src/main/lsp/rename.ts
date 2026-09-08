@@ -11,10 +11,10 @@ import {
 import { isInsideWorkspace, resolveWorkspacePath } from '../files/workspacePath'
 import { createLogger } from '../logger'
 import { getCurrentWorkspaceFolder } from '../workspaceFolder/currentWorkspaceFolder'
-import { resolveLspDocumentLanguage } from './documentLanguage'
-import { getOpenLspDocument } from './documentSync'
-import { resolveWorkspaceDocumentUri } from './documentUri'
-import { isLanguageServerAllowed } from './languageServerSettings'
+import {
+  checkLspDocumentFreshness as checkFreshness,
+  prepareLspDocumentRequest
+} from './documentRequest'
 import { requestLanguageServer } from './languageServers'
 import { parsePrepareRenameResult, parseRenameResult } from './renameResult'
 
@@ -66,7 +66,13 @@ const JSON_RPC_METHOD_NOT_FOUND = -32601
 export async function requestLspPrepareRename(
   request: LspPrepareRenameRequest
 ): Promise<LspPrepareRenameOutcome> {
-  const prepared = prepareRenameRequest(request)
+  /*
+    `renameProvider.prepareProvider` を出さないサーバではここで `unavailable`
+    になり、Renderer は内蔵の Rename へ落ちる（Session 5-10）。
+    Pyright も typescript-language-server も出すので、実際に効くのは
+    素の `renameProvider: true` を返すサーバに対してになる。
+  */
+  const prepared = prepareLspDocumentRequest(request, 'prepare-rename', getCurrentWorkspaceFolder)
 
   if (prepared.status !== 'ready') {
     return prepared
@@ -127,7 +133,7 @@ export async function requestLspRename(request: LspRenameRequest): Promise<LspRe
     return { status: 'rejected', reason: 'invalid-name' }
   }
 
-  const prepared = prepareRenameRequest(request)
+  const prepared = prepareLspDocumentRequest(request, 'rename', getCurrentWorkspaceFolder)
 
   if (prepared.status !== 'ready') {
     return prepared
@@ -191,68 +197,6 @@ export async function requestLspRename(request: LspRenameRequest): Promise<LspRe
   }
 
   return { status: 'ok', version: request.version, documents }
-}
-
-/* --------------------------------------------------------------- 事前の確認 */
-
-type PreparedRenameRequest =
-  | {
-      readonly status: 'ready'
-      readonly rootPath: string
-      readonly uri: string
-      readonly serverId: 'typescript'
-    }
-  | { readonly status: 'outside-workspace' }
-  | { readonly status: 'unavailable' }
-  | { readonly status: 'stale' }
-
-function prepareRenameRequest(request: {
-  readonly relativePath: string
-  readonly version: number
-  readonly position: TextDocumentPosition
-}): PreparedRenameRequest {
-  const workspace = getCurrentWorkspaceFolder()
-
-  if (workspace === null) {
-    return { status: 'unavailable' }
-  }
-
-  const uri = resolveWorkspaceDocumentUri(workspace.rootPath, request.relativePath)
-
-  if (uri === null) {
-    return { status: 'outside-workspace' }
-  }
-
-  const language = resolveLspDocumentLanguage(request.relativePath)
-
-  if (language === null || language.serverId !== 'typescript') {
-    return { status: 'unavailable' }
-  }
-
-  if (!isLanguageServerAllowed(language.serverId)) {
-    return { status: 'unavailable' }
-  }
-
-  const document = getOpenLspDocument(request.relativePath)
-
-  if (document === null || !document.synced || document.serverId !== language.serverId) {
-    return { status: 'unavailable' }
-  }
-
-  if (document.version !== request.version) {
-    return { status: 'stale' }
-  }
-
-  return { status: 'ready', rootPath: workspace.rootPath, uri, serverId: language.serverId }
-}
-
-function checkFreshness(request: {
-  readonly relativePath: string
-  readonly version: number
-}): { readonly status: 'stale' } | null {
-  const current = getOpenLspDocument(request.relativePath)
-
-  return current === null || current.version !== request.version ? { status: 'stale' } : null
 }
 
 /* ------------------------------------------------ 書き換え先が実在するか */

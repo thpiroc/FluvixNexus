@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
     version: 4,
     synced: true
   } as unknown,
+  supported: true,
   requestLanguageServer: vi.fn()
 }))
 
@@ -37,7 +38,8 @@ vi.mock('./documentSync', () => ({
 }))
 
 vi.mock('./languageServers', () => ({
-  requestLanguageServer: mocks.requestLanguageServer
+  requestLanguageServer: mocks.requestLanguageServer,
+  supportsLanguageServerFeature: () => mocks.supported
 }))
 
 import { requestLspFormatting } from './formatting'
@@ -153,11 +155,58 @@ describe('requestLspFormatting', () => {
       edits: []
     })
   })
+
+  /* --------------------------------------------------- Python（Session 5-10） */
+
+  /*
+    Pyright は `documentFormattingProvider` を出さない。送れば
+    `-32601 Unhandled method` が返るだけなので、**要求そのものを出さない**
+    （main/lsp/serverCapabilities.ts）。
+  */
+  it('formatting を出さないサーバ（Pyright）へは要求を送らない', async () => {
+    mocks.supported = false
+    mocks.document = {
+      relativePath: 'src/app.py',
+      serverId: 'python',
+      languageId: 'python',
+      uri: 'file:///D%3A/proj/src/app.py',
+      version: 4,
+      synced: true
+    }
+
+    await expect(
+      requestLspFormatting(formattingRequest({ relativePath: 'src/app.py' }))
+    ).resolves.toEqual({ status: 'unavailable' })
+
+    expect(mocks.requestLanguageServer).not.toHaveBeenCalled()
+  })
+
+  it('formatting を出すサーバなら .py でも送る（別の formatter が入った場合）', async () => {
+    mocks.document = {
+      relativePath: 'src/app.py',
+      serverId: 'python',
+      languageId: 'python',
+      uri: 'file:///D%3A/proj/src/app.py',
+      version: 4,
+      synced: true
+    }
+
+    await expect(
+      requestLspFormatting(formattingRequest({ relativePath: 'src/app.py' }))
+    ).resolves.toMatchObject({ status: 'ok', version: 4 })
+
+    expect(mocks.requestLanguageServer).toHaveBeenCalledWith(
+      'python',
+      'textDocument/formatting',
+      expect.objectContaining({ textDocument: { uri: 'file:///D%3A/proj/src/app.py' } })
+    )
+  })
 })
 
 function resetMocks(): void {
   mocks.workspace = { id: 'workspace-1', rootPath: 'D:\\proj' }
   mocks.allowed = true
+  mocks.supported = true
   mocks.document = {
     relativePath: 'src/app.ts',
     serverId: 'typescript',

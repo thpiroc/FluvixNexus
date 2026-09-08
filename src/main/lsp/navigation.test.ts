@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
     version: 4,
     synced: true
   } as unknown,
+  supported: true,
   requestLanguageServer: vi.fn()
 }))
 
@@ -37,7 +38,8 @@ vi.mock('./documentSync', () => ({
 }))
 
 vi.mock('./languageServers', () => ({
-  requestLanguageServer: mocks.requestLanguageServer
+  requestLanguageServer: mocks.requestLanguageServer,
+  supportsLanguageServerFeature: () => mocks.supported
 }))
 
 import { requestLspDefinition, requestLspReferences } from './navigation'
@@ -217,11 +219,88 @@ describe('requestLspReferences', () => {
       references: []
     })
   })
+
+  /* --------------------------------------------------- Python（Session 5-10） */
+
+  it('.py の定義は python server へ送り、workspace 内の別ファイルへ解決する', async () => {
+    mocks.document = {
+      relativePath: 'src/app.py',
+      serverId: 'python',
+      languageId: 'python',
+      uri: 'file:///D%3A/proj/src/app.py',
+      version: 4,
+      synced: true
+    }
+    mocks.requestLanguageServer.mockReturnValue(
+      result([
+        {
+          uri: 'file:///D%3A/proj/src/lib.py',
+          range: { start: { line: 0, character: 4 }, end: { line: 0, character: 9 } }
+        }
+      ])
+    )
+
+    await expect(
+      requestLspDefinition(definitionRequest({ relativePath: 'src/app.py' }))
+    ).resolves.toEqual({
+      status: 'ok',
+      version: 4,
+      definitions: [
+        {
+          relativePath: 'src/lib.py',
+          range: { start: { line: 0, character: 4 }, end: { line: 0, character: 9 } }
+        }
+      ]
+    })
+
+    expect(mocks.requestLanguageServer).toHaveBeenCalledWith(
+      'python',
+      'textDocument/definition',
+      expect.objectContaining({ textDocument: { uri: 'file:///D%3A/proj/src/app.py' } })
+    )
+  })
+
+  it('.py の参照も python server へ送る', async () => {
+    mocks.document = {
+      relativePath: 'src/app.py',
+      serverId: 'python',
+      languageId: 'python',
+      uri: 'file:///D%3A/proj/src/app.py',
+      version: 4,
+      synced: true
+    }
+    mocks.requestLanguageServer.mockReturnValue(
+      result([{ uri: 'file:///D%3A/proj/src/app.py', range: range(2, 4) }])
+    )
+
+    await expect(
+      requestLspReferences(referencesRequest({ relativePath: 'src/app.py' }))
+    ).resolves.toMatchObject({ status: 'ok', version: 4 })
+
+    expect(mocks.requestLanguageServer).toHaveBeenCalledWith(
+      'python',
+      'textDocument/references',
+      expect.objectContaining({ textDocument: { uri: 'file:///D%3A/proj/src/app.py' } })
+    )
+  })
+
+  it('definition / references を出さないサーバへは送らない', async () => {
+    mocks.supported = false
+
+    await expect(requestLspDefinition(definitionRequest())).resolves.toEqual({
+      status: 'unavailable'
+    })
+    await expect(requestLspReferences(referencesRequest())).resolves.toEqual({
+      status: 'unavailable'
+    })
+    expect(mocks.requestLanguageServer).not.toHaveBeenCalled()
+  })
 })
 
 function resetMocks(): void {
   mocks.workspace = { id: 'workspace-1', rootPath: 'D:\\proj' }
   mocks.allowed = true
+  mocks.supported = true
   mocks.document = {
     relativePath: 'src/app.ts',
     serverId: 'typescript',

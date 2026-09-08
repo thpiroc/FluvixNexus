@@ -2,6 +2,7 @@ import type { LanguageServerStatus, LspCompletionTriggerKind } from '@shared/lsp
 import { fluvix } from '../../api/fluvix'
 import { shouldUseLspCompletion } from '../lsp/completionAvailability'
 import { toEditorCompletionList, type EditorCompletionItem } from '../lsp/completionItems'
+import { isTypeScriptWorkerLanguage } from '../lsp/serverAvailability'
 import type { EditorDocumentStore } from './documentStore'
 import { monaco, setBuiltInCompletionSuppressed } from './monacoSetup'
 
@@ -26,7 +27,28 @@ interface RegisterLspCompletionProviderOptions {
   readonly isLatestSequence: (sequence: number) => boolean
 }
 
-const TRIGGER_CHARACTERS = ['.', '"', "'", '`', '/', '@', '<', '#'] as const
+/**
+ * 打っただけで補完が開く文字。**言語ごとに分けてある**（Session 5-10）。
+ *
+ * Monaco の trigger character は provider の登録単位で決まるので、
+ * 1つにまとめると片方の言語に要らない文字が混ざる。
+ *
+ * ```
+ * TypeScript / JavaScript … `.` `"` `'` `` ` `` `/` `@` `<` `#`
+ *                           （import のパス・JSX・private field が要る）
+ * Python                  … `.` `[` `"` `'`
+ *                           （Pyright が名乗った4つ。辞書の key に `[` が要る）
+ * ```
+ *
+ * Python 側を TypeScript と同じにしないのは、`<` や `/` が Python では
+ * ただの演算子で、打つたびに候補が開くと**入力の邪魔にしかならない**ため。
+ * 逆に `[` を TypeScript へ足さないのは、Session 5-9 までの挙動を変えないため
+ * になる。
+ */
+const TYPESCRIPT_TRIGGER_CHARACTERS = ['.', '"', "'", '`', '/', '@', '<', '#'] as const
+
+/** Pyright が `completionProvider.triggerCharacters` として名乗る4つ。 */
+const PYTHON_TRIGGER_CHARACTERS = ['.', '[', '"', "'"] as const
 
 export function setTypeScriptBuiltInCompletionSuppressed(suppressed: boolean): void {
   /*
@@ -41,13 +63,23 @@ export function setTypeScriptBuiltInCompletionSuppressed(suppressed: boolean): v
 export function registerLspCompletionProvider(
   options: RegisterLspCompletionProviderOptions
 ): monaco.IDisposable {
-  const provider: monaco.languages.CompletionItemProvider = {
-    triggerCharacters: [...TRIGGER_CHARACTERS],
+  const createProvider = (
+    triggerCharacters: readonly string[]
+  ): monaco.languages.CompletionItemProvider => ({
+    triggerCharacters: [...triggerCharacters],
 
     provideCompletionItems: async (model, position, context, token) => {
       const relativePath = options.documents.getPathForModel(model)
 
-      setBuiltInCompletionSuppressed(true)
+      /*
+        内蔵の TypeScript 補完を抑えるのは、TypeScript / JavaScript の文書の
+        ときだけにする。Python の文書を開いただけで TypeScript mode の設定を
+        触る理由が無い（触っても壊れはしないが、**関係の無い言語の都合で
+        別の言語の設定が動く**形にしない）。
+      */
+      if (isTypeScriptWorkerLanguage(model.getLanguageId())) {
+        setBuiltInCompletionSuppressed(true)
+      }
 
       if (
         relativePath !== null &&
@@ -63,13 +95,27 @@ export function registerLspCompletionProvider(
         }
       }
 
+      /*
+        LSP が答えられなかった。落とし先があるのは TypeScript / JavaScript だけで、
+        Python には内蔵の補完が無い（Session 5-10。lsp/serverAvailability.ts）。
+        **Python の文書を TypeScript worker へ渡さない** ── 渡せば
+        `.py` を TypeScript として解析した候補が並ぶ。
+      */
+      if (!isTypeScriptWorkerLanguage(model.getLanguageId())) {
+        return { suggestions: [] }
+      }
+
       return provideTypeScriptWorkerCompletion(model, position, token)
     }
-  }
+  })
+
+  const typeScriptProvider = createProvider(TYPESCRIPT_TRIGGER_CHARACTERS)
+  const pythonProvider = createProvider(PYTHON_TRIGGER_CHARACTERS)
 
   const registrations = [
-    monaco.languages.registerCompletionItemProvider('typescript', provider),
-    monaco.languages.registerCompletionItemProvider('javascript', provider)
+    monaco.languages.registerCompletionItemProvider('typescript', typeScriptProvider),
+    monaco.languages.registerCompletionItemProvider('javascript', typeScriptProvider),
+    monaco.languages.registerCompletionItemProvider('python', pythonProvider)
   ]
 
   return {

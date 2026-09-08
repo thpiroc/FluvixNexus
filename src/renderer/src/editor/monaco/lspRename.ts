@@ -7,6 +7,7 @@ import {
   toEditorRenameEdits,
   type EditorRenameEdit
 } from '../lsp/renameEdits'
+import { isTypeScriptWorkerLanguage } from '../lsp/serverAvailability'
 import type { EditorDocumentStore } from './documentStore'
 import { monaco, setBuiltInRenameSuppressed } from './monacoSetup'
 
@@ -116,6 +117,17 @@ export function registerLspRenameProvider(
         }
       }
 
+      /*
+        LSP が答えられなかった。内蔵の Rename があるのは
+        TypeScript / JavaScript だけで、Python にそれは無い（Session 5-10）。
+        **`.py` を TypeScript worker へ渡さない** ── 渡すと、TypeScript として
+        解析した位置でコードが書き換わる。`undefined` を返すと Monaco は
+        「この位置は名前を変えられない」と出す。
+      */
+      if (!isTypeScriptWorkerLanguage(model.getLanguageId())) {
+        return undefined
+      }
+
       return provideTypeScriptWorkerRenameLocation(model, position, token)
     },
 
@@ -136,13 +148,19 @@ export function registerLspRenameProvider(
         }
       }
 
+      // 上と同じ（Python に内蔵の Rename は無い）。
+      if (!isTypeScriptWorkerLanguage(model.getLanguageId())) {
+        return { edits: [], rejectReason: options.describeFailure('server-error') }
+      }
+
       return provideTypeScriptWorkerRenameEdits(model, position, newName, token)
     }
   }
 
   const registrations = [
     monaco.languages.registerRenameProvider('typescript', provider),
-    monaco.languages.registerRenameProvider('javascript', provider)
+    monaco.languages.registerRenameProvider('javascript', provider),
+    monaco.languages.registerRenameProvider('python', provider)
   ]
 
   return {

@@ -1,11 +1,8 @@
 import type { LspFormattingRequest, LspFormattingResponse } from '@shared/lsp'
 import { createLogger } from '../logger'
 import { getCurrentWorkspaceFolder } from '../workspaceFolder/currentWorkspaceFolder'
-import { resolveLspDocumentLanguage } from './documentLanguage'
-import { getOpenLspDocument } from './documentSync'
-import { resolveWorkspaceDocumentUri } from './documentUri'
+import { checkLspDocumentFreshness, prepareLspDocumentRequest } from './documentRequest'
 import { parseFormattingResult } from './formattingResult'
-import { isLanguageServerAllowed } from './languageServerSettings'
 import { requestLanguageServer } from './languageServers'
 
 const log = createLogger('lsp-formatting')
@@ -17,40 +14,19 @@ const LSP_FORMATTING = 'textDocument/formatting'
 export async function requestLspFormatting(
   request: LspFormattingRequest
 ): Promise<LspFormattingOutcome> {
-  const workspace = getCurrentWorkspaceFolder()
+  /*
+    `formatting` を出さないサーバではここで `unavailable` になる。
+    Pyright がまさにそれで、Python の整形は要求そのものが送られない
+    （main/lsp/serverCapabilities.ts）。
+  */
+  const prepared = prepareLspDocumentRequest(request, 'formatting', getCurrentWorkspaceFolder)
 
-  if (workspace === null) {
-    return { status: 'unavailable' }
+  if (prepared.status !== 'ready') {
+    return prepared
   }
 
-  const uri = resolveWorkspaceDocumentUri(workspace.rootPath, request.relativePath)
-
-  if (uri === null) {
-    return { status: 'outside-workspace' }
-  }
-
-  const language = resolveLspDocumentLanguage(request.relativePath)
-
-  if (language === null || language.serverId !== 'typescript') {
-    return { status: 'unavailable' }
-  }
-
-  if (!isLanguageServerAllowed(language.serverId)) {
-    return { status: 'unavailable' }
-  }
-
-  const document = getOpenLspDocument(request.relativePath)
-
-  if (document === null || !document.synced || document.serverId !== language.serverId) {
-    return { status: 'unavailable' }
-  }
-
-  if (document.version !== request.version) {
-    return { status: 'stale' }
-  }
-
-  const pending = requestLanguageServer(document.serverId, LSP_FORMATTING, {
-    textDocument: { uri },
+  const pending = requestLanguageServer(prepared.serverId, LSP_FORMATTING, {
+    textDocument: { uri: prepared.uri },
     options: request.options
   })
 
@@ -59,10 +35,10 @@ export async function requestLspFormatting(
   }
 
   const outcome = await pending
-  const current = getOpenLspDocument(request.relativePath)
+  const freshness = checkLspDocumentFreshness(request)
 
-  if (current === null || current.version !== request.version) {
-    return { status: 'stale' }
+  if (freshness !== null) {
+    return freshness
   }
 
   if (outcome.status !== 'result') {

@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
     version: 4,
     synced: true
   } as unknown,
+  supported: true,
   requestLanguageServer: vi.fn()
 }))
 
@@ -37,7 +38,8 @@ vi.mock('./documentSync', () => ({
 }))
 
 vi.mock('./languageServers', () => ({
-  requestLanguageServer: mocks.requestLanguageServer
+  requestLanguageServer: mocks.requestLanguageServer,
+  supportsLanguageServerFeature: () => mocks.supported
 }))
 
 import { requestLspCompletion } from './completion'
@@ -59,6 +61,7 @@ describe('requestLspCompletion', () => {
   beforeEach(() => {
     mocks.workspace = { id: 'workspace-1', rootPath: 'D:\\proj' }
     mocks.allowed = true
+    mocks.supported = true
     mocks.document = {
       relativePath: 'src/app.ts',
       serverId: 'typescript',
@@ -189,5 +192,47 @@ describe('requestLspCompletion', () => {
     await expect(requestLspCompletion(completionRequest())).resolves.toEqual({
       status: 'unavailable'
     })
+  })
+
+  /* --------------------------------------------------- Python（Session 5-10） */
+
+  it('.py は python server へ送る（Renderer はサーバを名指ししない）', async () => {
+    mocks.document = {
+      relativePath: 'src/app.py',
+      serverId: 'python',
+      languageId: 'python',
+      uri: 'file:///D%3A/proj/src/app.py',
+      version: 4,
+      synced: true
+    }
+    mocks.requestLanguageServer.mockReturnValue(
+      result({ items: [{ label: 'upper', kind: 2, sortText: '09.9999.upper' }] })
+    )
+
+    await expect(
+      requestLspCompletion(completionRequest({ relativePath: 'src/app.py' }))
+    ).resolves.toEqual({
+      status: 'ok',
+      version: 4,
+      completion: {
+        isIncomplete: false,
+        items: [expect.objectContaining({ label: 'upper', kind: 'method' })]
+      }
+    })
+
+    expect(mocks.requestLanguageServer).toHaveBeenCalledWith(
+      'python',
+      'textDocument/completion',
+      expect.objectContaining({ textDocument: { uri: 'file:///D%3A/proj/src/app.py' } })
+    )
+  })
+
+  it('completion を出さないサーバへは送らない', async () => {
+    mocks.supported = false
+
+    await expect(requestLspCompletion(completionRequest())).resolves.toEqual({
+      status: 'unavailable'
+    })
+    expect(mocks.requestLanguageServer).not.toHaveBeenCalled()
   })
 })
