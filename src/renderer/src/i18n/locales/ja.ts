@@ -32,7 +32,13 @@ export const jaMessages = {
     },
     editor: {
       save: '保存',
-      saveAs: '名前を付けて保存'
+      saveAs: '名前を付けて保存',
+      goToDefinition: '定義へ移動',
+      findReferences: '参照をすべて検索',
+      renameSymbol: 'シンボル名を変更',
+      formatDocument: 'ドキュメントを整形',
+      triggerSuggest: '入力候補を表示',
+      showHover: 'ホバーを表示'
     },
     view: {
       togglePanel: {

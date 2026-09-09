@@ -1,6 +1,7 @@
-import { useEffect, useRef, type JSX } from 'react'
+import { useCallback, useEffect, useRef, type JSX } from 'react'
 import type { FileEncoding, FileLineEnding, FileRevision } from '@shared/files'
 import type { EditorRevealRequest } from '../editorReveal'
+import { useEditorActionCommands } from '../lsp/useEditorActionCommands'
 import type { EditorDocumentSource, EditorDocumentStore } from './documentStore'
 import { resolveEditorLanguageId } from './language'
 import { useTheme } from '../../theme/context'
@@ -130,6 +131,19 @@ export function MonacoEditor({
   /** 今エディタに載っている位置。離れるときに viewState を控える相手。 */
   const mountedPathRef = useRef<string | null>(null)
   const { settings: appearance } = useTheme()
+
+  /*
+    Language Server の6操作を command として名乗る（Session 5-12）。
+
+    **叩く相手を持っているのはここだけ**なので、名乗るのもここになる
+    （lsp/useEditorActionCommands.ts）。渡すのは参照そのものではなく
+    「今の参照を返す関数」で、生成と破棄の effect（下）と登録の順序に
+    依存しないようにしてある ── 読まれるのは打鍵が届いた瞬間だけ。
+
+    この器が消えれば6つとも表から外れる。**Editor パネルを閉じている間や、
+    バイナリを開いている間に F12 を押しても何も起きない**（打鍵も殺さない）。
+  */
+  useEditorActionCommands(useCallback(() => editorRef.current, []))
 
   /*
     Theme を当てる（Session 4-4）。

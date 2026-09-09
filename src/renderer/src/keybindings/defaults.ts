@@ -13,7 +13,9 @@ import type { KeybindingRule } from './resolve'
  *    ここへ移しただけ ── 条件を付けていないのはそのため（下記）
  * 2. **Monaco が使っている打鍵を取らない。** `ctrl+f` / `ctrl+h` / `ctrl+g` /
  *    `ctrl+/` / `ctrl+shift+k` などは Monaco の既定。取ると Editor の中で
- *    それらが死ぬ
+ *    それらが死ぬ ── ただし禁じているのは「**別の操作**を割り当てること」で、
+ *    Session 5-12 の5つ（F12 ほか）は打鍵も行き先も Monaco と同じものになる
+ *    （下記）
  * 3. **端末を触っている最中にアプリ側の操作を走らせない。** `ctrl+j` は端末では
  *    改行（0x0A）、`ctrl+o` は 0x0F にあたる ── どれも
  *    `'!terminalFocused'` を付けてある。**この条件は実際に効いている** ──
@@ -49,7 +51,9 @@ import type { KeybindingRule } from './resolve'
  *
  * `workspace.closeFolder` / `view.togglePanel.editor` / `view.resetLayout` /
  * `settings.close` はここに出てこない。**handler はあるが打鍵が無い**状態で、
- * これは将来の Settings の一覧で「未割り当て」として出る行にあたる
+ * Session 5-12 の `editor.showHover` も同じ扱いになる（Monaco の既定が
+ * 2打鍵で、この基盤は1打鍵しか扱わない）。
+ * どれも Settings の一覧に「未割り当て」として出る行にあたる
  * （`settings.close` は Esc が既に持っているので、二重に割り当てない ──
  * 既存の Esc 17箇所には触らないという Session 4-7A の前提）。
  */
@@ -81,6 +85,81 @@ export const DEFAULT_KEYBINDINGS: readonly KeybindingRule[] = [
     commandId: 'settings.open',
     key: 'ctrl+,',
     when: ['!terminalFocused'],
+    source: 'default'
+  },
+  /*
+    Language Server の操作（Session 5-12）。
+
+    ## 「Monaco の既定を取らない」に反していないこと
+
+    上の 2 が禁じているのは、**Monaco が持っている打鍵に別の操作を割り当てる**
+    ことにあたる ── `ctrl+f` を取れば Editor の中で検索が死ぬ。
+
+    ここの5つは打鍵も行き先も Monaco と同じものになる。command の handler が
+    叩くのは `editor.action.revealDefinition` などの Monaco の Action そのもの
+    （editor/lsp/editorActions.ts）で、**エディタの中と外で結果が変わらない。**
+    死ぬものが1つも無いので、この規則には当たらない。
+
+    実際、焦点がエディタにある間はここまで届かない ── Monaco が処理した
+    打鍵は伝播ごと止まる（KeybindingProvider.tsx）。届くのは、
+
+      - 焦点が Editor パネルの中でエディタの外（工具列・タブ）にあるとき
+      - **Provider が無くて Monaco 側の割り当てが成立しないとき**
+        （`.py` の Shift+Alt+F。その場合 `isSupported()` が false で何も起きない）
+
+    の2つになる。
+
+    ## `editorFocused` を必ず付ける
+
+    **F2 は Files パネルが既に持っている**（files/FileTree.tsx・
+    files/FileColumns.tsx の「名前の変更」）。あちらの `onKeyDown` は
+    `preventDefault()` を呼ぶが `stopPropagation()` は呼ばず、
+    KeybindingProvider は `defaultPrevented` を見ない（意図的。あちらの冒頭）
+    ── 条件が無ければ、**ツリーで F2 を押すたびにファイル名の変更と
+    シンボル名の変更が同時に始まる。**
+
+    `editorFocused` はそれを条件1つで防ぐ。既存の F2 の側は1行も変えていない
+    ── 「勝手に上書きしない」を、あちらを触らずに満たす形にあたる。
+
+    ほかの4つにも同じ条件を付けてある。エディタに対する操作を、
+    Files のツリーや Git の面を見ている最中に走らせない
+    （VS Code の `editorTextFocus` と同じ考え方）。
+
+    `'!terminalFocused'` は `editorFocused` があれば要らない（焦点は1箇所）が、
+    **端末を避ける規則を rule の見た目から読めるようにする**ために書いてある
+    ── Ctrl 系については defaults.test.ts が実数で要求してもいる。
+
+    Hover（`editor.showHover`）はここに無い。Monaco の既定が Ctrl+K Ctrl+I の
+    2打鍵で、この基盤は1打鍵しか扱わないため（commands/registry.ts）。
+  */
+  {
+    commandId: 'editor.goToDefinition',
+    key: 'f12',
+    when: ['editorFocused', '!terminalFocused'],
+    source: 'default'
+  },
+  {
+    commandId: 'editor.findReferences',
+    key: 'shift+f12',
+    when: ['editorFocused', '!terminalFocused'],
+    source: 'default'
+  },
+  {
+    commandId: 'editor.renameSymbol',
+    key: 'f2',
+    when: ['editorFocused', '!terminalFocused'],
+    source: 'default'
+  },
+  {
+    commandId: 'editor.formatDocument',
+    key: 'shift+alt+f',
+    when: ['editorFocused', '!terminalFocused'],
+    source: 'default'
+  },
+  {
+    commandId: 'editor.triggerSuggest',
+    key: 'ctrl+space',
+    when: ['editorFocused', '!terminalFocused'],
     source: 'default'
   },
   {

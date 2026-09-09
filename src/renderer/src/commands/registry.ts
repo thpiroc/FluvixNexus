@@ -37,7 +37,7 @@ import type { CommandDescriptor } from './types'
  *
  * ## `titleKey`（Session 4-7C）
  *
- * 21件すべてが `titleKey` を持つ。**読む相手ができたので、全件を一度に入れた**
+ * 全件が `titleKey` を持つ。**読む相手ができたので、全件を一度に入れた**
  * ── Session 4-7A / 4-7B が見送っていた理由（`commandTitle()` を呼ぶ画面が
  * 無かった）は、Settings の Keyboard Shortcuts 一覧
  * （`settings/KeyboardShortcutsView.tsx`）ができたことで消えている。
@@ -74,6 +74,56 @@ const COMMAND_REGISTRY: Readonly<Record<CommandId, CommandDescriptor>> = {
     category: 'editor',
     title: 'Save As',
     titleKey: 'command.editor.saveAs'
+  },
+  /*
+    Language Server の6操作（Session 5-12）。
+
+    名前は VS Code の同じ操作に揃えてある ── 利用者が探すときに打つのは
+    「Go to Definition」であって、このアプリの内部の言い方ではない。
+    **id は `editor.` で始める**（category が id の先頭語と対応するため。
+    types.ts の `CommandCategory`）。
+
+    `editor.showHover` だけ打鍵を持たない。Monaco の既定は Ctrl+K Ctrl+I の
+    2打鍵で、この基盤は連続した打鍵（chord sequence）をまだ持たない
+    （keybindings/chord.ts が扱うのは1打鍵）── 1打鍵で代わりを当てると、
+    Monaco の中と外で別の打鍵になる。マウスを載せれば出るものでもあり、
+    「未割り当て」のまま一覧に並べる（keybindings/defaults.ts）。
+  */
+  'editor.goToDefinition': {
+    id: 'editor.goToDefinition',
+    category: 'editor',
+    title: 'Go to Definition',
+    titleKey: 'command.editor.goToDefinition'
+  },
+  'editor.findReferences': {
+    id: 'editor.findReferences',
+    category: 'editor',
+    title: 'Find All References',
+    titleKey: 'command.editor.findReferences'
+  },
+  'editor.renameSymbol': {
+    id: 'editor.renameSymbol',
+    category: 'editor',
+    title: 'Rename Symbol',
+    titleKey: 'command.editor.renameSymbol'
+  },
+  'editor.formatDocument': {
+    id: 'editor.formatDocument',
+    category: 'editor',
+    title: 'Format Document',
+    titleKey: 'command.editor.formatDocument'
+  },
+  'editor.triggerSuggest': {
+    id: 'editor.triggerSuggest',
+    category: 'editor',
+    title: 'Trigger Suggest',
+    titleKey: 'command.editor.triggerSuggest'
+  },
+  'editor.showHover': {
+    id: 'editor.showHover',
+    category: 'editor',
+    title: 'Show Hover',
+    titleKey: 'command.editor.showHover'
   },
   'view.togglePanel.files': {
     id: 'view.togglePanel.files',

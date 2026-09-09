@@ -117,7 +117,7 @@ describe('Session 4-7B で足した contribution（git / files）', () => {
 
 describe('commandTitle', () => {
   /*
-    Session 4-7C で 21件すべてが titleKey を持つようになった。
+    Session 4-7C で全件が titleKey を持つようになった。
 
     4-7A / 4-7B が見送っていたのは**読む相手が居なかった**ためで、
     Settings の Keyboard Shortcuts 一覧ができたことでその理由は消えている。
@@ -127,7 +127,7 @@ describe('commandTitle', () => {
     key の形と en / ja の対応は commandLocalization.test.ts が受け持つ。
     ここでは `commandTitle()` の分岐だけを見る。
   */
-  it('21件すべてが titleKey を持つ', () => {
+  it('全件が titleKey を持つ', () => {
     for (const command of listCommands()) {
       expect(command.titleKey, command.id).toBeDefined()
     }
@@ -135,7 +135,7 @@ describe('commandTitle', () => {
 
   /*
     分岐そのものは残してある（`titleKey` は型の上では任意のまま）。
-    表の21件はすべて titleKey を持つので、ここは組み立てた descriptor で見る
+    表の全件はすべて titleKey を持つので、ここは組み立てた descriptor で見る
     ── 必須にしてこの道を消さない理由は commands/types.ts にある。
   */
   it('titleKey が無ければ title を返す（翻訳を呼ばない）', () => {

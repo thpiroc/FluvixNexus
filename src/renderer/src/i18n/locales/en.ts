@@ -44,7 +44,13 @@ export const enMessages = {
     },
     editor: {
       save: 'Save',
-      saveAs: 'Save As'
+      saveAs: 'Save As',
+      goToDefinition: 'Go to Definition',
+      findReferences: 'Find All References',
+      renameSymbol: 'Rename Symbol',
+      formatDocument: 'Format Document',
+      triggerSuggest: 'Trigger Suggest',
+      showHover: 'Show Hover'
     },
     view: {
       togglePanel: {

@@ -47,7 +47,7 @@ export interface CommandDescriptor {
   /**
    * 画面に出す名前。
    *
-   * **Session 4-7C で 21件すべてが持つようになった**（`commands/registry.ts`）。
+   * **Session 4-7C で全件が持つようになった**（`commands/registry.ts`）。
    * 4-7A / 4-7B が見送っていたのは「読む相手がまだ居ない」ためで、
    * Settings の Keyboard Shortcuts 一覧ができたことでその理由は消えている。
    *

@@ -154,9 +154,14 @@ describe('filterShortcutRows', () => {
   it('打鍵の一致は素の部分一致（Ctrl+S は Ctrl+Shift+… にも当たる）', () => {
     const found = filterShortcutRows(all, 'ctrl+s')
 
+    /*
+      `editor.triggerSuggest` が居るのは Ctrl+Space が当たるため（Session 5-12）。
+      上の判断のとおり、出しすぎは目で捨てられる。
+    */
     expect(found.map((row) => row.commandId)).toEqual([
       'editor.save',
       'editor.saveAs',
+      'editor.triggerSuggest',
       'view.togglePanel.files',
       'view.togglePanel.git'
     ])

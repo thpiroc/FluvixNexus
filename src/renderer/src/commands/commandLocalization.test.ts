@@ -16,7 +16,7 @@ import { commandTitle, type CommandCategory } from './types'
  *
  * したがってここで見るのは、その2段では拾えないものになる。
  *
- *   - **21件すべてが `titleKey` を持つ**（型の上では任意なので、実数で見る）
+ *   - **全件が `titleKey` を持つ**（型の上では任意なので、実数で見る）
  *   - key が `command.<CommandId>` に1対1で対応すること
  *   - **両言語で実際に解決でき、キーがそのまま出ていないこと**
  *
@@ -35,11 +35,16 @@ const CATEGORY_PREFIXES: Readonly<Record<CommandCategory, string>> = {
 }
 
 describe('command の titleKey', () => {
-  it('21件すべてが titleKey を持つ', () => {
+  it('全件が titleKey を持つ', () => {
     const withKey = listCommands().filter((command) => command.titleKey !== undefined)
 
     expect(withKey).toHaveLength(COMMAND_IDS.length)
-    expect(COMMAND_IDS).toHaveLength(21)
+    /*
+      実数も押さえる（表に足したのに翻訳を忘れた、を `COMMAND_IDS.length` との
+      比較だけに任せない）。Session 4-7C の 21件に、Session 5-12 の
+      Language Server の6操作が加わって 27件。
+    */
+    expect(COMMAND_IDS).toHaveLength(27)
   })
 
   /*
@@ -64,7 +69,7 @@ describe('command の表示名（en / ja parity）', () => {
     describe(language, () => {
       const t = createTranslator(language)
 
-      it('21件すべてが翻訳を持ち、キーがそのまま出ない', () => {
+      it('全件が翻訳を持ち、キーがそのまま出ない', () => {
         for (const command of listCommands()) {
           const title = commandTitle(command, t)
 

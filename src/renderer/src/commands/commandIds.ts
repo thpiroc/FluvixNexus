@@ -94,6 +94,24 @@ export const COMMAND_IDS = [
   'workspace.closeFolder',
   'editor.save',
   'editor.saveAs',
+  /*
+    Language Server の6操作（Session 5-12）。所有者は Monaco の器
+    （editor/monaco/MonacoEditor.tsx）で、**エディタが出ている間だけ**登録される
+    （editor/lsp/useEditorActionCommands.ts）。
+
+    handler はどれも Monaco の Action を1つ叩くだけで、LSP を呼ぶ経路を
+    足していない ── 定義も参照も整形も、Session 5-5 〜 5-11 で登録した
+    Provider が Action の先で答える（editor/lsp/editorActions.ts）。
+
+    Diagnostics と Document Sync はここに無い。**常に動いているもの**で、
+    「実行する」という形を持たないため（打鍵で走らせる対象ではない）。
+  */
+  'editor.goToDefinition',
+  'editor.findReferences',
+  'editor.renameSymbol',
+  'editor.formatDocument',
+  'editor.triggerSuggest',
+  'editor.showHover',
   'view.togglePanel.files',
   'view.togglePanel.editor',
   'view.togglePanel.terminal',

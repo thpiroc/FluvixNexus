@@ -112,6 +112,57 @@ describe('端末を触っている最中にアプリ側の操作を走らせな�
   })
 })
 
+describe('Language Server の操作（Session 5-12）', () => {
+  const lspRules = DEFAULT_KEYBINDINGS.filter((rule) =>
+    rule.commandId.startsWith('editor.')
+  ).filter((rule) => rule.commandId !== 'editor.save' && rule.commandId !== 'editor.saveAs')
+
+  it('一般的な IDE と同じ打鍵を持つ', () => {
+    const assigned = new Map(
+      lspRules.map((rule) => [rule.commandId, chordToken(parseKeybinding(rule.key)!)])
+    )
+
+    expect(Object.fromEntries(assigned)).toEqual({
+      'editor.goToDefinition': 'f12',
+      'editor.findReferences': 'shift+f12',
+      'editor.renameSymbol': 'f2',
+      'editor.formatDocument': 'shift+alt+f',
+      'editor.triggerSuggest': 'ctrl+space'
+    })
+  })
+
+  /*
+    **Files のツリーが持つ F2（ファイル名の変更）を奪わない。**
+
+    files/FileTree.tsx・files/FileColumns.tsx の `onKeyDown` は
+    `preventDefault()` を呼ぶが `stopPropagation()` は呼ばないため、F2 は
+    window まで上がってくる。条件が無ければ、ツリーで F2 を押すたびに
+    ファイル名の変更とシンボル名の変更が同時に始まることになる
+    （既存側は1行も変えずに、条件1つで避けている）。
+
+    ほかの4つにも同じ条件を付けてある ── エディタに対する操作を、
+    Files や Git の面を見ている最中に走らせない。
+  */
+  it('すべて `editorFocused` を持つ（Files の F2 と衝突させない）', () => {
+    expect(lspRules).toHaveLength(5)
+
+    for (const rule of lspRules) {
+      expect(rule.when ?? [], rule.commandId).toContain('editorFocused')
+      expect(rule.when ?? [], rule.commandId).toContain('!terminalFocused')
+    }
+  })
+
+  /*
+    Hover はここに無い。Monaco の既定が Ctrl+K Ctrl+I の2打鍵で、
+    この基盤は1打鍵しか扱わない（commands/registry.ts）。
+  */
+  it('Hover には打鍵を当てていない', () => {
+    const bound = DEFAULT_KEYBINDINGS.map((rule) => rule.commandId)
+
+    expect(bound).not.toContain('editor.showHover')
+  })
+})
+
 describe('移設前の Ctrl+S と同じであること', () => {
   /*
     Session 3-5 〜 4-5B の `editor/useEditorSession.ts` は、`window` へ直接
