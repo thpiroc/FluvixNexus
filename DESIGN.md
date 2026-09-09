@@ -1,6 +1,6 @@
 # Fluvix Nexus 設計ドキュメント
 
-> ステータス: STEP 1（基盤構築）完了 / STEP 2（Dockable Workspace 基盤）完了 / STEP 3（各パネルの本機能）完了 / **STEP 4（日常使用の土台）完了** / STEP 5（LSP）着手前
+> ステータス: STEP 1（基盤構築）完了 / STEP 2（Dockable Workspace 基盤）完了 / STEP 3（各パネルの本機能）完了 / STEP 4（日常使用の土台）完了 / **STEP 5（LSP）完了**
 > 最終更新: 2026-09-06
 
 このドキュメントは**製品としての設計方針**を扱う。実装の構造と開発手順は以下を参照。
@@ -368,7 +368,7 @@ Session 3-3 では、その Files を**閲覧できるツリーから、開発�
 
 Editor 側は**タブの状態を独立したモデルとして**用意した（§10.3）。同じファイルを2枚開かないこと、リネームされてもタブが同じタブであり続けること、フォルダごと消えたら閉じることまでを、この層が決める。Monaco Editor 本体は後続で、差し替わるのは中身を描く1ファイルだけになる。
 
-Session 3-4 では、その1ファイルを実際に **Monaco Editor** へ差し替えた（[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §11）。ここで §4「コードエディタ」のうち、シンタックスハイライト・行番号・オートインデント・複数タブ・検索と置換・コメント切替・基本ショートカット・そして**編集と保存**が動くようになっている。残るコード補完・エラー表示・Go to Definition・Rename・フォーマットは LSP と一緒に入る。
+Session 3-4 では、その1ファイルを実際に **Monaco Editor** へ差し替えた（[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §11）。ここで §4「コードエディタ」のうち、シンタックスハイライト・行番号・オートインデント・複数タブ・検索と置換・コメント切替・基本ショートカット・そして**編集と保存**が動くようになっている。残るコード補完・エラー表示・Go to Definition・Rename・フォーマットは、STEP 5 で LSP と一緒に入った（§12）。
 
 **Monaco のために Files や Workspace を作り直していない。** Files でファイルを選ぶ → 中身を読む → タブが持つ → Editor が出す、という Session 3-3 の経路はそのままで、最後の「出す」だけが変わった。保存はその経路に同じ作法で1本足したもので、Renderer が言えるのは相変わらず「Workspace の中の、この相対位置」までに留まる。
 
@@ -1282,15 +1282,15 @@ Session 4-3A で設定の**保存**は揃っていた。残っていたのは並
 
 ### Session 4-3B の後へ残していること
 
-| 項目                 | 現状                                                                                    |
-| -------------------- | --------------------------------------------------------------------------------------- |
-| Theme / Appearance   | **Session 4-4 で入った**（下記）。増えたのは `appearance` section 1つと key 1つだけ     |
-| Workspace ごとの設定 | 未着手。プロジェクトフォルダの中には何も書かない方針のまま                              |
-| LSP / DAP の設定     | 未着手。**実行ファイルのパスを保存して実行する形**は安全設計ごと STEP 5 / STEP 8 で行う |
-| 設定の検索           | 置いていない。5項目しか無い                                                             |
-| 「既定へ戻す」       | 置いていない。範囲と既定は項目ごとの説明文に出ている                                    |
-| Files のカラムの幅   | Settings には載せない。`FileColumns.tsx` の直接操作のまま（値は保存され続ける）         |
-| 設定のショートカット | **Session 4-7A で `Ctrl+,` が入った**（予告どおり、基盤と同時にした）                   |
+| 項目                 | 現状                                                                                                                               |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Theme / Appearance   | **Session 4-4 で入った**（下記）。増えたのは `appearance` section 1つと key 1つだけ                                                |
+| Workspace ごとの設定 | 未着手。プロジェクトフォルダの中には何も書かない方針のまま                                                                         |
+| LSP / DAP の設定     | LSP は STEP 5 で入った。保存するのは**使うか / 使わないか**の4つだけで、実行ファイルのパスの欄は作っていない（§12）。DAP は STEP 8 |
+| 設定の検索           | 置いていない。5項目しか無い                                                                                                        |
+| 「既定へ戻す」       | 置いていない。範囲と既定は項目ごとの説明文に出ている                                                                               |
+| Files のカラムの幅   | Settings には載せない。`FileColumns.tsx` の直接操作のまま（値は保存され続ける）                                                    |
+| 設定のショートカット | **Session 4-7A で `Ctrl+,` が入った**（予告どおり、基盤と同時にした）                                                              |
 
 ### Session 4-4（完了）— Theme（Dark / Light）
 
@@ -1536,3 +1536,127 @@ STEP 5（LSP）への引き継ぎ:
 | Monaco との境界           | Monaco の基本編集打鍵は引き続き Monaco が持つ。FluvixNexus command はアプリ横断または LSP 連携として明示した操作だけを扱う                               |
 
 以上により、STEP 4 は「日常使用の土台」として正式に完了し、STEP 5 は LSP の process / IPC / settings / command 設計から開始する。
+
+---
+
+## 12. STEP 5（完了）— Language Server（LSP）
+
+STEP 4 が「LSP の前に日常使用の土台を揃える」段だったのに対し、STEP 5 は **Monaco が持っていた「編集する器」に、その言語を本当に理解しているプログラムを繋ぐ**段になる。§4「コードエディタ」の一覧のうち、Session 3-4 の時点で残っていた**コード補完・エラー表示・Go to Definition・Rename・フォーマット**がここで揃った。
+
+構造は [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §19 に、確認の手順は [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) §1・§4 に書いてある。
+
+### Session 5-1 〜 5-12（完了）— 実装
+
+| Session | 入れたもの                                                           |
+| ------- | -------------------------------------------------------------------- |
+| 5-1     | プロセスの起動 / 停止、stdio 上の JSON-RPC、restart policy           |
+| 5-2     | Document Synchronization（didOpen / didChange / didSave / didClose） |
+| 5-3     | Diagnostics（push）と Monaco marker                                  |
+| 5-4     | Settings（使う / 使わない）と Status Bar                             |
+| 5-5     | Completion                                                           |
+| 5-6     | Hover                                                                |
+| 5-7     | Go to Definition / Find References                                   |
+| 5-8     | Formatting                                                           |
+| 5-9     | Rename / prepareRename                                               |
+| 5-10    | Python（Pyright）と、サーバの capability を読む仕組み                |
+| 5-11    | C#（csharp-ls）                                                      |
+| 5-12    | Command / Keybinding からの呼び出し                                  |
+
+対応言語と繋ぐ相手:
+
+| 言語                    | Language Server            | 入手経路                  |
+| ----------------------- | -------------------------- | ------------------------- |
+| TypeScript / JavaScript | typescript-language-server | npm（グローバル）         |
+| Python                  | pyright-langserver         | npm（グローバル）         |
+| C#                      | csharp-ls                  | dotnet tool（グローバル） |
+
+**どれもアプリに同梱しない**（§5 の方針どおり）。入っていなければその言語だけが使えない状態に留まり、アプリが起動しない理由にはしない。
+
+### Session 5-13（完了）— STEP 5 Closing
+
+この Session は Closing であり、**新しい LSP 機能は1つも入れていない**。production build の実アプリで STEP 5 全体を横断確認し、ドキュメントを追従させ、既知の制約を記録した。
+
+Production Verification: **66項目、全項目 PASS**（5本のスクリプト。docs/DEVELOPMENT.md §4）。
+
+| 範囲                                           | 項目 |
+| ---------------------------------------------- | ---: |
+| TypeScript / JavaScript / Python の全機能      |   24 |
+| C#（csharp-ls）                                |   11 |
+| Settings / Status / lifecycle / orphan process |   14 |
+| Security boundary                              |   11 |
+| 既知の制約の確認                               |    6 |
+
+STEP 5 で閉じたこと:
+
+| 範囲                     | STEP 5 で閉じたこと                                                                                     |
+| ------------------------ | ------------------------------------------------------------------------------------------------------- |
+| プロセスと JSON-RPC      | Main が起動 / 停止 / stdio を持つ。実行ファイルは PATH から解決した絶対パスで、Workspace の中は探さない |
+| Document Synchronization | Monaco の Model が正本。版を添えて要求し、食い違えば `stale` を返す                                     |
+| Diagnostics              | push 型の `publishDiagnostics` を Monaco の marker へ。内蔵の検査とは owner を分ける                    |
+| 7つの言語機能            | Completion / Hover / Definition / References / Formatting / Rename / prepareRename                      |
+| capability negotiation   | `initialize` の応答を読み、名乗っていない機能は要求そのものを出さない                                   |
+| 3言語                    | TypeScript / JavaScript・Python・C# が同じ Workspace で同時に動く                                       |
+| fallback                 | TS / JS だけが Monaco 内蔵へ落ちる。`.py` / `.cs` は落とさない                                          |
+| Settings / Status        | 全体と言語ごとの ON / OFF、6状態の表示、OFF でプロセスが止まり ON で戻る                                |
+| lifecycle                | 立て直しは窓の中で3回まで。Workspace 切り替え・終了で orphan process が残らない                         |
+| Command / Keybinding     | 6操作を Command Registry へ。F12 / Shift+F12 / F2 / Shift+Alt+F / Ctrl+Space                            |
+| Security boundary        | 絶対パス・file URI・実行ファイル・引数・cwd・任意の method・任意のサーバ選択のいずれも渡さない          |
+
+STEP 5 で意図的に入れていないもの:
+
+| 項目                             | Closing の判断                                                                                                     |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Problems panel                   | 診断は marker として出るだけ。一覧の面は「どこまで出すか」「押したらどう飛ぶか」を別に設計する                     |
+| Format on Save                   | 保存の経路（§10.3 の Auto Save）と整形を同時に触る話になる。保存が勝手に中身を変える形は、確認の設計と一緒に入れる |
+| Code Action / Quick Fix          | `codeActionProvider` を名乗っていない。編集を当てる経路（`workspace/applyEdit`）の一般対応と対になる               |
+| Signature Help                   | 入れていない。Completion の次に来る候補だが、STEP 5 の範囲ではない                                                 |
+| Semantic Tokens                  | 入れていない。色は Monaco の文法定義のまま                                                                         |
+| Inlay Hints                      | 入れていない                                                                                                       |
+| Workspace Symbol                 | 入れていない。探すのは Files の検索                                                                                |
+| `workspace/applyEdit` の一般対応 | Rename の応答だけが編集を持ち、その形も `TextEdit` に限ってある。ファイルの作成 / 改名 / 削除を表す欄が無い        |
+| executable path の設定           | 設定に欄を作らない。作った時点で「利用者が指定した実行ファイルが起動する場所」になる                               |
+| workspace-local server 起動      | Workspace の中は探さない。clone したリポジトリの中の実行ファイルが動く形にしない                                   |
+| Workspace 外のファイルを開く     | 定義の行き先が Workspace の外なら開かない                                                                          |
+| file watching                    | 入れていない（下記の既知制約）。監視対象・間引き・Workspace の外へ出ない保証を同時に設計する話になる               |
+| Python の整形器（Black / Ruff）  | 入れていない。言語サーバを1本足す作業に、別系統の外部ツールを増やす判断を混ぜない                                  |
+| DAP                              | STEP 8。LSP とは別のプロセス系統として設計する                                                                     |
+
+STEP 5 Closing 時点の既知事項:
+
+| 項目                        | 扱い                                                                                                                                                                                                                                                                                                        |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pyright-no-file-watching`  | **Pyright は、エディタで開いていないファイルのディスク上の変更に気づかない。** このクライアントが `client/registerCapability` を拒否しており、`workspace/didChangeWatchedFiles` を登録できないため。サーバを立て直すと反映される。tsserver は自前の watcher を持つため出ない（docs/ARCHITECTURE.md §19.10） |
+| Python の Formatting        | Pyright が `documentFormattingProvider` を出さないため「利用不可」が正しい挙動。Shift+Alt+F は何も起こさず、内蔵の TypeScript 整形へも落ちない                                                                                                                                                              |
+| C# の確認環境               | この PC には .NET SDK も csharp-ls も入っていない。一時ディレクトリへ置き、起動する Electron の `env` にだけ PATH を足して測っている。システム側は変更していない                                                                                                                                            |
+| このリポジトリ自身と TS LSP | `typescript` を 7.x で pin しているため `tsserver.js` が無く、自分自身を Workspace にすると TS サーバは立たない。アプリの不具合ではない（docs/DEVELOPMENT.md §1）                                                                                                                                           |
+| 内蔵の意味解析              | Monaco 内蔵 TypeScript の semantic validation は STEP 3 から切ったまま。tsconfig も node_modules も見えない状態の型エラーはほぼ本当ではないため                                                                                                                                                             |
+
+STEP 5 を Close するための必須条件:
+
+| 条件                                     | 状態                                                                |
+| ---------------------------------------- | ------------------------------------------------------------------- |
+| STEP 5 の全実装 Session が main にある   | Session 5-1 から 5-12 まで Commit / Push 済み                       |
+| TS / JS の主要 LSP 機能が動く            | Production Verification スクリプト1（24項目）で確認                 |
+| Python の主要 LSP 機能が動く             | 同上                                                                |
+| C# の主要 LSP 機能が動く                 | スクリプト2（11項目）で確認                                         |
+| Python Formatting 非対応が正しく扱われる | 何も起きず、TypeScript として整形もされないことを確認               |
+| no-server fallback が維持されている      | LSP OFF で TS は内蔵へ落ち、`.py` は落ちないことを確認              |
+| lifecycle と orphan process              | スクリプト3（14項目）で確認                                         |
+| Security boundary と CSP                 | スクリプト4（11項目）で確認。CSP は STEP 1 から1文字も変えていない  |
+| Settings / Status が実際の状態と一致する | スクリプト3 で、表示とプロセスの有無を突き合わせて確認              |
+| Command / Keybinding が動く              | 3言語で F12 / Shift+F12 / F2 / Shift+Alt+F / Ctrl+Space を確認      |
+| `npm test` / `npm run build`             | 189 files・3447 passed・1 skipped / build 成功                      |
+| ドキュメント更新                         | DESIGN.md §12、docs/ARCHITECTURE.md §19、docs/DEVELOPMENT.md §1・§4 |
+| 既知の制約の記録                         | 上表と docs/ARCHITECTURE.md §19.10                                  |
+
+STEP 6 以降への引き継ぎ:
+
+| 項目                       | 次の段で守ること                                                                                                                  |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| 長命プロセスの持ち主       | Terminal（STEP 3）と LSP（STEP 5）で同じ形になった。DAP（STEP 8）も Main が持つ ── Renderer に executable / args / cwd を渡さない |
+| 編集を当てる経路           | `workspace/applyEdit` の一般対応を入れるなら、ファイルの作成 / 改名 / 削除まで表せる形と、それを断る境界を先に決める              |
+| 診断の面（Problems panel） | 出す元は既にある（`diagnosticStore`）。面を作るときは「どこまで出すか」と「押したらどう飛ぶか」を Files の検索結果と揃える        |
+| file watching              | 入れるなら Files の監視（§10.5）と1本にする。LSP のためだけにもう1系統の監視を作らない                                            |
+| Command Palette            | `Ctrl+P` / `Ctrl+Shift+P` は依然として空いている。LSP の6操作は descriptor を持つので、Palette 側は表を読むだけで済む             |
+
+以上により、STEP 5 は「Language Server 統合」として正式に完了する。

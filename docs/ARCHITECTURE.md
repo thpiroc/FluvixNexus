@@ -6494,7 +6494,7 @@ Session 3-7-5 では、下書きを持って Enter / blur で確定する欄は 
 | Keyboard Shortcuts   | **Session 4-7C で入った**（§18.6）。**値を持たない最初のカテゴリ**で、section は増えていない                                    |
 | Workspace ごとの設定 | 入れていない。プロジェクトフォルダの中には何も書かない方針のまま                                                                |
 | LSP / DAP の設定     | 入れていない。**実行ファイルのパスを Renderer から保存して Main が実行する形は作らない** ── 安全設計ごと STEP 5 / STEP 8 で行う |
-| 設定の検索           | 置いていない。**Keyboard Shortcuts の一覧だけは自前の絞り込みを持つ**（21件並ぶため。§18.6）                                    |
+| 設定の検索           | 置いていない。**Keyboard Shortcuts の一覧だけは自前の絞り込みを持つ**（27件並ぶため。§18.6）                                    |
 | 既定へ戻す           | 置いていない。項目ごとに範囲と既定が説明文に出ている                                                                            |
 | `settings:changed`   | 要らない（単一 Renderer が Context で同期している。§12.4）                                                                      |
 
@@ -6796,7 +6796,7 @@ Session 4-7A が基盤（Command Registry・Keybinding・`when`・一覧の行�
 ### 18.1 Command Registry（そういう操作がある、という表）
 
 ```
-commands/commandIds.ts   id の閉じた集合（21件）
+commands/commandIds.ts   id の閉じた集合（27件）
 commands/registry.ts     Record<CommandId, CommandDescriptor>
 ```
 
@@ -6812,16 +6812,18 @@ Panel Registry（§7.3）と同じ形にしてある。
 
 並びの正本は `COMMAND_IDS` の配列で、`listCommands()` はその順に返す。表の見た目の順序には依存しない ── 依存させると、行を足す場所で一覧の見え方が変わる。
 
-21件の内訳は次のとおり。
+27件の内訳は次のとおり。
 
-| カテゴリ    | 件数 | 入った Session |
-| ----------- | ---: | -------------- |
-| `workspace` |    2 | 4-7A           |
-| `editor`    |    2 | 4-7A           |
-| `view`      |    5 | 4-7A           |
-| `settings`  |    2 | 4-7A           |
-| `git`       |    7 | 4-7B           |
-| `files`     |    3 | 4-7B           |
+| カテゴリ    | 件数 | 入った Session      |
+| ----------- | ---: | ------------------- |
+| `workspace` |    2 | 4-7A                |
+| `editor`    |    8 | 4-7A（2）/ 5-12（6) |
+| `view`      |    5 | 4-7A                |
+| `settings`  |    2 | 4-7A                |
+| `git`       |    7 | 4-7B                |
+| `files`     |    3 | 4-7B                |
+
+`editor` が8件あるのは、Session 5-12 で Language Server の6操作が加わったため（§19.9）。**カテゴリは1つも増えていない** ── 増えたのは既存の `editor` の行数だけで、`CommandCategory` も `COMMAND_CATEGORY_ORDER` も 4-7C のままになる。
 
 ### 18.2 内部 id と、画面に出す名前を分ける
 
@@ -6833,7 +6835,7 @@ descriptor は3つを持つ。
 | `title`    | `'Commit'`。開発上の識別名（英語・固定） | ✕            |
 | `titleKey` | `'command.git.commit'`。翻訳キー         | ○            |
 
-`titleKey` は **`command.<CommandId>` に1対1**で対応させてある。機械的に決まる形にしておくと、足し忘れも綴り違いも実数で拾える（`commands/commandLocalization.test.ts` が21件すべてを確かめる）。**Session 4-7C で全件を一度に入れた** ── 一部だけ埋めると `commandTitle()` が「翻訳されるものとされないものが混ざった一覧」を返し、その半端さを画面を作る側が引き継ぐ。
+`titleKey` は **`command.<CommandId>` に1対1**で対応させてある。機械的に決まる形にしておくと、足し忘れも綴り違いも実数で拾える（`commands/commandLocalization.test.ts` が27件すべてを確かめる）。**Session 4-7C で全件を一度に入れた** ── 一部だけ埋めると `commandTitle()` が「翻訳されるものとされないものが混ざった一覧」を返し、その半端さを画面を作る側が引き継ぐ。
 
 `title` を消していないのは、ログとテストが読むもので、画面に出るのは `commandTitle()` を通った `titleKey` の側だから。型の上で `titleKey` を任意のままにしてあるのも意図的で、必須にすると `commandTitle()` の「無ければ `title`」という分岐が死に、翻訳を持たない descriptor をテストで組み立てられなくなる。
 
@@ -7009,7 +7011,7 @@ Session 4-7C まで、Settings のカテゴリは `SettingsSectionId` と ID も
 | ---------- | ----------- | --------------------------------------------------------------------- |
 | Command    | ○           | `titleKey` 経由の翻訳                                                 |
 | Category   | ○           | 見出しに畳む                                                          |
-| Keybinding | ○           | 未割り当ては専用の見せ方（21件中14件が未割り当て）                    |
+| Keybinding | ○           | 未割り当ては専用の見せ方（27件中15件が未割り当て）                    |
 | When       | ✕           | `'!terminalFocused'` のような**内部の名前**をそのまま見せることになる |
 | Source     | ✕           | 既定しか無い今、**全行に同じ語を並べるだけ**になる                    |
 | 競合表示   | ✕           | 既定同士は競合しない                                                  |
@@ -7021,7 +7023,7 @@ Session 4-7C まで、Settings のカテゴリは `SettingsSectionId` と ID も
 
 #### 持つ state は検索の文字列だけ
 
-それも保存しない（`SettingsOverlay` が開いているカテゴリを保存しないのと同じ）── 次に開いたときに前の絞り込みが残っていると、一覧が欠けているように見える。カテゴリを列ではなく見出しにしてあるのは、21件のうち Git だけで7件あり、列にすると同じ語が7回並ぶため。機械が読む側には各行の `data-category` が残してある。
+それも保存しない（`SettingsOverlay` が開いているカテゴリを保存しないのと同じ）── 次に開いたときに前の絞り込みが残っていると、一覧が欠けているように見える。カテゴリを列ではなく見出しにしてあるのは、27件のうち Git だけで7件あり、列にすると同じ語が7回並ぶため。機械が読む側には各行の `data-category` が残してある。
 
 ### 18.7 Session 4-7 が触っていない境界
 
@@ -7052,3 +7054,259 @@ Session 4-8A の production app 統合確認でこれらを実測している（
 | Mac の `cmd`                   | 解析だけは受ける（`'cmd'` は `'meta'` の別名）。Mac 対応そのものは未着手                                                                                  |
 | メニューバーへの打鍵の表示     | していない（アプリケーションメニューは §2 のまま）                                                                                                        |
 | Theme 切り替えの打鍵           | 置いていない。Theme は Settings の Appearance から変える（§16）                                                                                           |
+
+## 19. Language Server（LSP）
+
+STEP 5（Session 5-1 〜 5-12）で入れた層。**Monaco が既に持っていた「編集する器」に、その言語を本当に理解しているプログラムを繋ぐ**のが目的で、繋ぎ方そのものは Terminal（§13）が先に固めた「Main が長命な子プロセスを持つ」形をそのまま踏襲している。
+
+| Session | 入れたもの                                                  |
+| ------- | ----------------------------------------------------------- |
+| 5-1     | プロセスの起動 / 停止、JSON-RPC、restart policy             |
+| 5-2     | Document Synchronization（didOpen / Change / Save / Close） |
+| 5-3     | Diagnostics（push）と Monaco marker                         |
+| 5-4     | Settings（使う / 使わない）と Status Bar                    |
+| 5-5     | Completion                                                  |
+| 5-6     | Hover                                                       |
+| 5-7     | Definition / References                                     |
+| 5-8     | Formatting                                                  |
+| 5-9     | Rename / prepareRename                                      |
+| 5-10    | Python（Pyright）と server capability の読み取り            |
+| 5-11    | C#（csharp-ls）                                             |
+| 5-12    | Command / Keybinding からの呼び出し                         |
+
+### 19.1 対応言語と、繋ぐ相手
+
+| 言語                    | 拡張子                                  | Language Server            | 入手経路                  |
+| ----------------------- | --------------------------------------- | -------------------------- | ------------------------- |
+| TypeScript / JavaScript | `.ts` `.tsx` `.js` `.jsx` `.mjs` `.cjs` | typescript-language-server | npm（グローバル）         |
+| Python                  | `.py` `.pyi` `.pyw`                     | pyright-langserver         | npm（グローバル）         |
+| C#                      | `.cs` `.csx`                            | csharp-ls                  | dotnet tool（グローバル） |
+
+**どれもアプリに同梱しない**（DESIGN.md §5）。入っていない PC はふつうにあり、見つからなければその言語だけが使えない状態に留める ── アプリが起動しない理由にはしない。
+
+TypeScript と JavaScript は**1本のサーバが両方を見る**ため、`LanguageServerId` は `typescript` / `python` / `csharp` の3つになる。
+
+表は2つに分かれていて、見ているものが違う。
+
+| 表                                              | 何から引くか     | 何を決めるか                        |
+| ----------------------------------------------- | ---------------- | ----------------------------------- |
+| `main/lsp/documentLanguage.ts`                  | 拡張子           | LSP の `languageId` と担当サーバ    |
+| `renderer/src/editor/lsp/serverAvailability.ts` | Monaco の言語 id | provider を登録する言語と担当サーバ |
+
+分かれているのは**答えの集合が違う**ため（`.tsx` は Main では `typescriptreact`、Monaco では `typescript`）。同じファイルについて行き先のサーバが食い違わないことだけが要件で、そこは両方が `typescript` / `python` / `csharp` を返すことで揃っている。
+
+### 19.2 プロセスと JSON-RPC（Main が持つ）
+
+```
+main/lsp/languageServerCatalog.ts   どの実行ファイルを、どの引数で起動するか（表）
+main/lsp/languageServers.ts         起動 / 停止 / 状態の保持
+main/lsp/jsonRpcConnection.ts       stdio 上の JSON-RPC（Content-Length フレーミング）
+main/lsp/jsonRpcMessage.ts          1本のメッセージの読み書き
+main/lsp/restartPolicy.ts           落ちたときに立て直すか
+```
+
+**起動のきっかけは「その言語の文書が開かれたこと」だけ。** Renderer に「起動して」「止めて」と言う口は無く、`window.fluvix.lsp` にプロセスを操作する関数は1つも無い（§19.8）。
+
+catalog が守っていること:
+
+- 実行ファイルは **PATH から解決した絶対パス**で起動する。名前だけで起動しない（cwd や PATH の順序で別のものが動く経路を作らない）
+- Workspace の中は**探さない**。clone してきたリポジトリに `csharp-ls.exe` が置かれていることは十分ありうる ── 「フォルダを開いてコードを表示した」が「そのフォルダの中の実行ファイルが動く」になっては困る
+- Windows で npm が置くのは `.cmd`（バッチ）で、`CreateProcess` は直接実行できない。`cmd.exe /c <絶対パス>` で包むが、**その `cmd.exe` も `%SystemRoot%` から組み立てる**（PATH に任せない）
+- `--stdio` のような引数は**表の側が持つ**。呼び出し側が忘れる余地を作らない
+
+`restartPolicy.ts` は「窓の中で数える」形。3分の窓の中で3回まで、間を 1s → 4s → 10s と伸ばして立て直し、超えたら諦める（その言語だけが使えない状態で止まる）。窓を持つのは、朝と夕方に1回ずつ落ちたサーバを「繰り返し落ちている」と数えないため。
+
+### 19.3 Document Synchronization
+
+Renderer の Monaco Model が正本で、Main はその写しを持たない。
+
+```
+renderer: documentStore が Model の変化を集める
+        → editor/lsp/useDocumentSync.ts
+        → window.fluvix.lsp.didOpen / didChange / didSave / didClose
+main:     openDocuments.ts が「今どの文書が開いていて、版はいくつか」を持つ
+        → textDocumentNotifications.ts がサーバへ通知する
+```
+
+**版（version）が要になる。** Renderer は Monaco の `getVersionId()` を添えて要求を出し、Main は自分が知っている版と違えば `stale` を返す ── 打っている最中に返ってきた古い答えを当てないための仕組みで、Completion / Hover / Definition / References / Formatting / Rename の6つがすべてこの1つの入口（`main/lsp/documentRequest.ts`）を通る。
+
+Workspace が変わったときは、Main が `lsp:sync-requested` を投げて Renderer に開き直させる。Renderer が「今開いているもの」を知っている唯一の側なので、**Main が推測して復元しない**。
+
+改名は LSP に通知が無いため、`documentStore` の鍵が動く1箇所で `didClose` → `didOpen` を起こす（Model は作り直さないので、利用者から見た Undo の連続性は切れない）。
+
+### 19.4 capability negotiation（Session 5-10）
+
+Session 5-9 までは相手が1本しか無く、「サーバは何ができるか」を確かめる必要がそもそも無かった。Python を足した時点でそれが崩れる。
+
+```
+typescript-language-server … documentFormattingProvider: true
+csharp-ls                  … documentFormattingProvider: true
+pyright-langserver         … documentFormattingProvider を出さない
+```
+
+Pyright は型検査器であって整形器ではなく、`textDocument/formatting` へ `-32601 Unhandled method` を返す。そこで `main/lsp/serverCapabilities.ts` が `initialize` の応答を読み、`documentRequest.ts` の事前確認に **「そのサーバがその機能を名乗ったか」** を1段として足した。名乗っていない機能は要求そのものを出さず `unavailable` を返す。
+
+Renderer 側にも同じ判断の写しが1つだけある（`editor/lsp/formattingAvailability.ts` の `LSP_FORMATTING_LANGUAGE_IDS`）が、これは**無駄な往復を1つ省くためだけ**のもので、本当の判断は Main が持つ。かりにこれを通り抜けても Main が `unavailable` を返して同じ結末になる。
+
+**Python の整形のために Black / Ruff を入れる判断はしなかった。** 言語サーバを1本足す作業に、別系統の外部ツールを1つ増やす判断を混ぜない（DESIGN.md §5）。整形 provider を Monaco に登録しないことで、Format Document は「この言語の整形器は入っていない」と言う ── 登録して何も返さない形にすると、黙って何も起きないことになる。
+
+### 19.5 機能ごとの経路と fallback
+
+7つの機能はすべて同じ形をしている。
+
+```
+Monaco の Action / 打鍵
+  → 登録した provider（renderer/src/editor/monaco/lsp*.ts）
+    → shouldUse*(languageId, statuses) で「LSP を使うか」を決める
+      → window.fluvix.lsp.<機能>()  ← 型付きの口
+        → Main の documentRequest.ts（6段の事前確認 + capability）
+          → JSON-RPC
+```
+
+LSP が答えられなかったときの落とし先は、**言語によって違う**。
+
+| 機能        | TypeScript / JavaScript          | Python | C#   |
+| ----------- | -------------------------------- | ------ | ---- |
+| Diagnostics | Monaco 内蔵の構文検査            | 無し   | 無し |
+| Completion  | Monaco 内蔵（TypeScript worker） | 無し   | 無し |
+| Hover       | 同上                             | 無し   | 無し |
+| Definition  | 同上                             | 無し   | 無し |
+| References  | 同上                             | 無し   | 無し |
+| Formatting  | 同上                             | 無し   | 無し |
+| Rename      | 同上                             | 無し   | 無し |
+
+**`.py` / `.cs` を内蔵の TypeScript worker へ渡すことは決してしない。** 渡せば Python や C# の綴りを TypeScript として解析した答えが返り、Rename と Formatting では**コードが壊れる**。5つの provider すべてが `isTypeScriptWorkerLanguage()` で守ってあり、代わりが無いなら無理に代わりを作らない（Session 5-10 / 5-11 の判断）。
+
+TypeScript 側では、LSP が答えている間は Monaco 内蔵の同じ機能を黙らせる（`monacoSetup.ts` の `setBuiltIn*Suppressed`）。同じ指摘が2本の線として出たり、同じ候補が2度並んだりしないため。**止めっぱなしにはしない** ── サーバが落ちた・終わった・Workspace が変わったときは戻す。戻さないと「Language Server が居ないのに内蔵の指摘も出ない」という、STEP 4 までより悪い状態が残る。
+
+### 19.6 Settings と Status Bar（Session 5-4）
+
+`settings.json` の `lsp` section が持つのは**使うか / 使わないか**だけ。
+
+```
+enabled            全体
+typescriptEnabled  TypeScript / JavaScript
+pythonEnabled      Python
+csharpEnabled      C#
+```
+
+ここに**無いもの**が、この section の性格を決めている ── 実行ファイルのパス、引数、作業ディレクトリ、`initializationOptions` はいずれも欄が無い。path の欄を1つ足した時点で、設定ファイルは「Renderer と利用者が指定した実行ファイルが起動する場所」になる。
+
+この section だけは**値の意味を Main も読む**（プロセスを立てる / 終わらせるのは Main の側）。同じ値を2通りに読まないため、読み方そのものを `shared/lsp/serverSettings.ts` に置いて Main と Renderer の両方が通る。無い ＝ 有効（Session 5-3 までの振る舞いを変えないため）。
+
+Status Bar は6つの状態を出す。
+
+| 状態           | 意味                                      |
+| -------------- | ----------------------------------------- |
+| 利用可能       | `initialize` が終わって答えられる         |
+| 起動中…        | 起動して `initialize` の応答を待っている  |
+| 未インストール | この PC に実行ファイルが見つからない      |
+| 起動失敗       | 起動できた / できないに関わらず駄目だった |
+| 停止中         | まだその言語の文書を開いていない          |
+| 使わない       | 設定で切ってある                          |
+
+**「有効にしてある」と「立っている」は別のこと。** 前者は設定（Renderer が持つ）、後者は `lsp:status-changed` で届く実際の状態で、2つを混ぜない。
+
+### 19.7 Renderer 側の provider 登録
+
+```
+editor/lsp/useDocumentSync.ts   同期（常時）
+editor/lsp/useDiagnostics.ts    診断（常時）
+editor/lsp/useCompletion.ts     補完
+editor/lsp/useHover.ts          Hover
+editor/lsp/useNavigation.ts     定義 / 参照
+editor/lsp/useFormatting.ts     整形
+editor/lsp/useRename.ts         Rename
+```
+
+どれも `useEditorSession.ts` から呼ばれ、Workspace が開いている間だけ登録される。Monaco 本体は**遅延読み込みのまま**で、これらの hook も `import('../monaco/lsp*')` で必要になってから読む ── Panel Registry を辿るだけで Monaco が読み込まれない、という Session 3-4 以来の性質を崩さないため。
+
+provider を登録する言語の一覧は `serverAvailability.ts` の `LSP_EDITOR_LANGUAGE_IDS` 1箇所から配る（Session 5-11）。整形だけは別の一覧を持つ ── 担当サーバがその機能を持っていない言語があるのは整形だけであるため（§19.4）。
+
+### 19.8 Security boundary
+
+STEP 4 から STEP 5 へ渡した境界（DESIGN.md §11 の引き継ぎ表）は、すべて維持されている。
+
+| 渡さないもの              | どう閉じているか                                                           |
+| ------------------------- | -------------------------------------------------------------------------- |
+| 絶対パス                  | 要求も応答も **workspace-relative path** だけ（`main/lsp/documentUri.ts`） |
+| file URI                  | URI を組み立てるのも解くのも Main の中だけ                                 |
+| 実行ファイル / 引数 / cwd | catalog が持つ。設定にも IPC にも欄が無い                                  |
+| 任意の JSON-RPC method    | 口は機能ごとに分かれた12個。method 名を渡す口が無い                        |
+| 任意のサーバ選択          | 行き先は開いた文書の拡張子だけで決まる。`serverId` を渡す口が無い          |
+
+`window.fluvix.lsp` の口は**16個ちょうど**（要求12 + 購読4）で、STEP 5 の間に増えていない。
+
+```
+要求: didOpen didChange didSave didClose completion hover definition references
+      prepareRename rename formatting getStatus
+購読: onSyncRequested onDiagnostics onDiagnosticsCleared onStatusChanged
+```
+
+Workspace の外を指す `relativePath`（`../`・`C:\...`・`/etc/passwd`・`src/../../`）は Main が `INVALID_REQUEST` で断る。`rename` の応答に載るのは workspace-relative path と `TextEdit` だけで、**ファイルの作成 / 改名 / 削除を表す欄が無い**（`shared/lsp/rename.ts`）── `workspace/applyEdit` の一般対応を入れていないのはこのためになる。
+
+**CSP は STEP 1 から1文字も変えていない。** Renderer から `require` / `process` / `Buffer` / `module` / `electron` はいずれも `undefined` で、`contextIsolation: true` / `nodeIntegration: false` / `sandbox: true` も STEP 1 のまま。`client/registerCapability` は**拒否する**（サーバが後から能力を足す経路を開かない）── §19.10 の制約はその選択の裏返しにあたる。
+
+### 19.9 Command / Keybinding（Session 5-12）
+
+6操作を Command Registry（§18）へ載せてある。
+
+| command                 | Monaco の Action                 | 既定の打鍵  |
+| ----------------------- | -------------------------------- | ----------- |
+| `editor.goToDefinition` | `editor.action.revealDefinition` | F12         |
+| `editor.findReferences` | `editor.action.goToReferences`   | Shift+F12   |
+| `editor.renameSymbol`   | `editor.action.rename`           | F2          |
+| `editor.formatDocument` | `editor.action.formatDocument`   | Shift+Alt+F |
+| `editor.triggerSuggest` | `editor.action.triggerSuggest`   | Ctrl+Space  |
+| `editor.showHover`      | `editor.action.showHover`        | 未割り当て  |
+
+**LSP を呼ぶ経路は1本も増えていない。** 6つの provider は Monaco の Action から既に呼ばれており、足したのは `Command → Monaco Action` の1本だけになる（`editor/lsp/editorActions.ts`）。Main は1行も変わっていない。
+
+所有者は `ICodeEditor` を持つ `MonacoEditor.tsx`。器が mount している間だけ登録されるので、Editor パネルを閉じている・バイナリを開いている状態では表に載らず、打鍵も殺さない。
+
+実行は `editor.focus()` → `editor.trigger()` に一本化してある。**Monaco の Action には登録の仕組みが2通りあり、`getAction()` が引けるのは片方だけ**であるため ── `revealDefinition` と `goToReferences` は `registerAction2` の側で `getAction()` が null を返す。`trigger()` は出れば `InternalEditorAction.run()`、出なければ `commandService.executeCommand()` へ落ちるので、両方を1つの呼び方で受けられる。どちらの道でも precondition（`hasDefinitionProvider` など、登録済み provider から立つ context key）は Monaco 側が見るため、**capability の判断の写しを Renderer に持たない**。
+
+打鍵はすべて `editorFocused` を条件に持つ。Files パネルが F2 を「ファイル名の変更」に使っており、あちらは `preventDefault()` は呼ぶが `stopPropagation()` は呼ばないため window まで届く ── 条件が無いと、ツリーで F2 を押すたびにファイル名の変更とシンボル名の変更が同時に始まる。**既存側は1行も変えていない。**
+
+Hover に打鍵を当てていないのは、Monaco の既定が `Ctrl+K Ctrl+I` の2打鍵で、この基盤が1打鍵しか扱わないため（§18.8 の「和音」）。
+
+Diagnostics と Document Sync は Command 化していない ── 常時動いているもので、「実行する」という形を持たない。
+
+### 19.10 既知の制約: pyright-no-file-watching
+
+**Pyright は、エディタで開いていないファイルのディスク上の変更に気づかない。**
+
+原因は §19.8 の選択にある。このクライアントは `client/registerCapability` を拒否しており、Pyright は `workspace/didChangeWatchedFiles` を登録できない。tsserver は自前の file watcher を持つためこの問題が出ず、Session 5-9 までは表面化しなかった。
+
+Session 5-13 で実際に測った範囲は次のとおり。
+
+| 状況                                         | 結果                                          |
+| -------------------------------------------- | --------------------------------------------- |
+| 開いていないファイルをディスク上で書き換える | 20秒以上待っても気づかない                    |
+| 書き換えたファイルをエディタで開く           | 既に開いている側は更新されない                |
+| 依存している側のタブを閉じて開き直す         | それでも更新されない                          |
+| サーバを立て直す（Settings で OFF → ON）     | **反映される**                                |
+| 同じ操作を TypeScript で行う                 | 開かなくても気づく（tsserver 固有の watcher） |
+
+利用者から見た現れ方は、Session 5-10 が記録したとおり「Python で複数ファイルにまたがる Rename をした後、閉じていたファイルに対する古い指摘が残る」になる。
+
+**STEP 5 では直さない。** file watching を入れるのは、監視対象の決め方・通知の間引き・Workspace の外へ出ないことの保証を同時に設計する話で、LSP を1本足す作業に混ぜる範囲ではない（DESIGN.md §12 の「STEP 5 で意図的に入れていないもの」）。回復手段（サーバの立て直し）が利用者の手元にあることは確かめてある。
+
+### 19.11 STEP 5 で入れていないもの
+
+| 項目                         | 現状                                                                                    |
+| ---------------------------- | --------------------------------------------------------------------------------------- |
+| Problems panel               | 入れていない。診断は Monaco の marker として出るだけ（一覧の面は持たない）              |
+| Format on Save               | 入れていない。整形は明示した操作のときだけ走る                                          |
+| Code Action / Quick Fix      | 入れていない。`codeActionProvider` を名乗っていない                                     |
+| Signature Help               | 入れていない                                                                            |
+| Semantic Tokens              | 入れていない。色は Monaco の文法定義のまま                                              |
+| Inlay Hints                  | 入れていない                                                                            |
+| Workspace Symbol             | 入れていない。探すのは Files の検索（§10）                                              |
+| `workspace/applyEdit`        | 一般対応を入れていない。Rename の応答だけが編集を持ち、その形も `TextEdit` に限ってある |
+| executable path の設定       | 入れていない（§19.8）                                                                   |
+| workspace-local server 起動  | しない。Workspace の中は探さない（§19.2）                                               |
+| Workspace 外のファイルを開く | しない。定義の行き先が Workspace の外なら開かない                                       |
+| file watching                | 入れていない（§19.10）                                                                  |
+| Python の整形器              | 入れていない（§19.4）                                                                   |
+| DAP                          | STEP 8。LSP とは別のプロセス系統として設計する                                          |

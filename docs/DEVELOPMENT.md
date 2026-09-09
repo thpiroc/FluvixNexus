@@ -10,7 +10,21 @@
 - Node.js（`npm` 同梱）
 - Windows 11（v1 の開発対象）
 
-依存はすべて `npm install` で入る。Node.js / Python / .NET SDK 本体はアプリに同梱しない方針のため、LSP / Terminal を実装する STEP 以降は PC 側にインストールされたものを検出して使う。
+依存はすべて `npm install` で入る。Node.js / Python / .NET SDK 本体はアプリに同梱しない方針のため、LSP / Terminal は PC 側にインストールされたものを検出して使う。
+
+### Language Server（STEP 5。任意）
+
+**アプリの開発・テスト・ビルドには要らない。** 入っていない言語は Status Bar に「未インストール」と出るだけで、エディタは普通に使える（docs/ARCHITECTURE.md §19.1）。実際に動かして確かめたいときだけ入れる。
+
+| 言語                    | 入れ方                                              | 実行ファイル                 |
+| ----------------------- | --------------------------------------------------- | ---------------------------- |
+| TypeScript / JavaScript | `npm i -g typescript-language-server typescript`    | `typescript-language-server` |
+| Python                  | `npm i -g pyright`                                  | `pyright-langserver`         |
+| C#                      | `dotnet tool install -g csharp-ls`（.NET SDK 必須） | `csharp-ls`                  |
+
+いずれも **PATH から解決できること**が条件（csharp-ls だけは `~/.dotnet/tools` も見る）。Workspace の中は探さない。
+
+**このリポジトリ自身を Workspace として開いても TypeScript のサーバは立たない。** `typescript` を 7.x（native preview）で pin しており、`node_modules/typescript/lib` に `tsserver.js` が無いため `initialize` が断られる。TS の LSP を実機で確かめるときは、`typescript@5` を入れた別の検証用フォルダを Workspace にすること（下記 §4）。
 
 ---
 
@@ -1732,6 +1746,54 @@ Session 4-5 / 4-7 は**境界を1つも動かしていない**ことを、両ス
 | Workspace フォルダへの書き込み                                             | **なし**（検証前後でファイル一覧が一致）                                         |
 
 **言語の起動時適用が `additionalArguments` 経由であること**も測ってある ── `dom-ready`（`settings:load` の応答より前）の時点で既に `en` が当たっており、IPC を使わず CSP も緩めない経路が効いている（ARCHITECTURE.md §17.6）。
+
+### Session 5-13（STEP 5 LSP の production app 統合確認）
+
+**production build 版 66項目、全項目 PASS。** 5本のスクリプトに分けてある ── 落ちたときに「どの言語の、どの層の話か」を切り分けられるようにするため。
+
+| スクリプト | 範囲                                           | 項目 |
+| ---------- | ---------------------------------------------- | ---: |
+| 1          | TypeScript / JavaScript / Python の全機能      |   24 |
+| 2          | C#（csharp-ls）                                |   11 |
+| 3          | Settings / Status / lifecycle / orphan process |   14 |
+| 4          | Security boundary                              |   11 |
+| 5          | 既知の制約（pyright-no-file-watching）の確認   |    6 |
+
+#### 検証用の Workspace
+
+**このリポジトリ自身は使えない**（§1 の TypeScript 7.x の話）。`%TEMP%\fnxls\ws` に、
+
+- `typescript@5` を入れた `package.json` / `node_modules`（これが無いと TS サーバが「起動失敗」になる）
+- `.ts` / `.js` / `.py` / `.cs` の題材と、わざと書式を崩した `messy.*`
+- cross-file を測るための `src/Helper.cs`、`mod_a.py` / `mod_b.py`、`dep_a.ts` / `dep_b.ts`
+- C# の project（`Probe.csproj`）
+
+を置いてある。Workspace 切り替えの確認用に `%TEMP%\fnxls\ws2` も要る。
+
+#### C# を測るための一時環境
+
+この PC には .NET SDK も csharp-ls も入っていない。`%TEMP%\fnxls` 配下へ SDK と `csharp-ls`（`--tool-path`）を置き、**起動する Electron の `env` にだけ** `PATH` と `DOTNET_ROOT` を足して測っている。システムの PATH・レジストリ・ユーザープロファイル・プロジェクトの依存はいずれも変更しない。
+
+#### 測ったこと
+
+- **7機能 × 3言語**: Document Sync（didOpen / didChange / didSave / didClose）・Diagnostics・Completion・Hover・Definition・References・Formatting・Rename / prepareRename
+- **Command / Keybinding**: F12 / Shift+F12 / F2 / Shift+Alt+F / Ctrl+Space が3言語で効くこと
+- **capability**: Python の Shift+Alt+F が**何も起こさない**こと、かつ `.py` が TypeScript として整形されていないこと（`def   add( a,b ):` が崩れないことで見る）
+- **cross-file**: C# の Rename が、開いていない `src/Helper.cs` をディスク上でも書き換えること
+- **fallback**: LSP を OFF にしても TS は Monaco 内蔵の整形が効き、`.py` は依然として整形されないこと
+- **Status**: 停止中 → 利用可能 → 使わない → 未インストール が実際のプロセスの有無と一致すること
+- **lifecycle**: 言語ごとの ON / OFF、全体の ON / OFF、外からサーバを落としたときの立て直し（PID が変わること）、Workspace 切り替え、アプリ終了後に**プロセスが1つも残らない**こと
+- **security**: `window.fluvix.lsp` が16個のまま、`require` / `process` / `Buffer` / `module` / `electron` がすべて `undefined`、CSP が STEP 1 のまま、応答に絶対パス / file URI / 実行ファイル名が1つも載らないこと、Workspace の外を指す5通りの `relativePath` がすべて `INVALID_REQUEST` で断られること
+
+#### 確認スクリプトを書くときに踏んだこと
+
+どれもアプリの不具合ではなく**測り方の側の問題**だったが、同じ形で何度も引っかかるので残しておく。
+
+- **`Home` を押してから右へ数えない。** Monaco の `Home` は字下げのある行では「最初の非空白文字」へ行く。そこから `ArrowRight` で桁を数えると、indent の幅ぶんずれる ── C# の F12 が `;` の上、F2 が `(` の上を指していて、**アプリが壊れているように見えた**。`Control+Home` の後は桁1が保たれるので、そこから右へ数えるだけでよい
+- **Rename の入力欄は、出てから focus を受けるまでに間がある。** `renameVisible()` になった直後に `Ctrl+A` を送ると、エディタ側の「すべて選択」になって本文が置き換わる。`document.activeElement` が `rename-input` になるまで待つ
+- **プロセスを数える PowerShell が自分自身を数える。** `CommandLine -like '*pyright-langserver*'` は、そのフィルタを書いた powershell 自身のコマンドラインにも当たる。プロセス名（`node.exe` / `cmd.exe` / `csharp-ls.exe`）で先に絞る。なお1本のサーバは `cmd.exe`（`.cmd` を包む窓口）と `node.exe`（本体）の**2プロセス**として見える
+- **`onSyncRequested` は「要求を出す口」ではない。** 公開面を正規表現で検査すると `request` に当たって誤検出する。`on*` を除いてから見るか、期待する16個と厳密に突き合わせる
+- **Go to References が peek を出すとは限らない。** 結果が1件だと Monaco はその場所へ移動する（`multipleReferences` の既定が `peek` でも、複数無ければ移動になる）。件数が読める題材を用意する
 
 ---
 
