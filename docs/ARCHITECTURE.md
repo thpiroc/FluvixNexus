@@ -1,6 +1,6 @@
 # アーキテクチャ
 
-> 対象: Session 5-13（STEP 5 LSP Closing）完了時点の実装 ＋ Session 6-0（STEP 6 DAP 設計確定。§20 は**まだコードが無い**設計）
+> 対象: Session 5-13（STEP 5 LSP Closing）完了時点の実装 ＋ Session 6-2（STEP 6 DAP lifecycle foundation）
 > 最終更新: 2026-09-10
 
 製品としての方向性は [DESIGN.md](../DESIGN.md) を参照。このドキュメントは「現在のコードがどう組まれているか」と「機能を足すときにどこへ書くか」を扱う。
@@ -7315,7 +7315,7 @@ Session 5-13 で実際に測った範囲は次のとおり。
 
 ## 20. Debug（DAP。STEP 6）
 
-Session 6-0 で設計を確定し、Session 6-1 で Main 内の最下層（DAP message / connection、adapter process、adapter catalog）だけを実装した。ここに書いていない口・欄・経路を実装側で足すときは、足す前にこの節へ戻ること。
+Session 6-0 で設計を確定し、Session 6-1 で Main 内の最下層（DAP message / connection、adapter process、adapter catalog）を実装し、Session 6-2 で Main-owned Debug Session lifecycle / state machine を追加した。ここに書いていない口・欄・経路を実装側で足すときは、足す前にこの節へ戻ること。
 
 DESIGN.md §5 の11機能（Breakpoint / Continue / Pause / Step Over / Step Into / Step Out / Stop / Variables / Call Stack / Debug Console / エラー位置へのジャンプ）を、Terminal（§13）と LSP（§19）が固めた「**Main が長命な子プロセスを持ち、Renderer は app-domain の言葉だけで話す**」形の上に載せる。
 
@@ -7475,6 +7475,8 @@ main/debug/dapMessage.ts      1本のメッセージの読み書き（純粋・�
 main/debug/dapConnection.ts   duplex stream の上の DAP（stdio か socket かを知らない）
 main/debug/adapterProcess.ts  起動 / 停止 / どの stream を繋ぐか
 main/debug/adapterCatalog.ts  Main 内部の固定 adapter catalog
+main/debug/debugSessionState.ts    idle / starting / running / stopped / terminating の許可遷移
+main/debug/debugSessionManager.ts  current session / generation / lifecycle cleanup の正本
 ```
 
 `jsonRpcConnection.ts`（§19.2）が子プロセスの stdio に直接結びついているのに対し、**`dapConnection.ts` は stream を受け取る形にする**。TCP の adapter が来たときに層を作り直さずに済む唯一の分け方になる。
@@ -7504,6 +7506,12 @@ DebugProfile
 - **Workspace が変わったとき・ウィンドウを閉じるときは、必ずセッションを終わらせる。** §19.2 と §13 で orphan process を残さないと決めてある
 
 Renderer が知るのは `DebugSessionState`（`idle` / `starting` / `running` / `stopped` / `terminating`）だけで、上の10段は1つも見えない。
+
+Session 6-2 の実装では、この lifecycle を Main 内部の `debugSessionManager.ts` が所有する。v1 の同時 Debug Session は1本だけで、2本目の start は `already-running` として拒否する。開始時には generation と sessionId を発行し、adapter から遅れて届いた event / error / close は現在の generation と一致する場合だけ扱う。これにより、古い session の callback が新しい session の状態を壊さない。
+
+`launch` request は送るが、その応答で `running` へ進めない。`initialized` event を受け、`supportsConfigurationDoneRequest` を名乗る adapter にだけ `configurationDone` を送り、その応答後に `starting → running` とする。Breakpoint は Session 6-3 の範囲なので、Session 6-2 では実際の breakpoint 情報はまだ持たない。
+
+stop / dispose / Workspace switch / app quit / start timeout / adapter error / adapter exit は、同じ冪等 cleanup path に入る。cleanup では `disconnect` を送れる場合だけ送り、DAP connection を dispose して pending request を `closed` にし、adapter process を kill してから `terminating → idle` に戻す。
 
 #### セッションをまたいだ handle を通さない
 

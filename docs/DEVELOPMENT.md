@@ -1,6 +1,6 @@
 # 開発ガイド
 
-> 対象: Session 5-13（STEP 5 LSP Closing）完了時点 ＋ Session 6-1（STEP 6 DAP foundation）
+> 対象: Session 5-13（STEP 5 LSP Closing）完了時点 ＋ Session 6-2（STEP 6 DAP lifecycle foundation）
 > 最終更新: 2026-09-10
 
 ---
@@ -40,7 +40,9 @@ Language Server と同じく**アプリの開発・テスト・ビルドには�
 
 この PC の現状は **Node のみ利用可能**で、Python / .NET SDK は STEP 5 Closing 時点と同じく入っていない。Python / C# を実機で確かめるときは、STEP 5 の C# と同じく一時ディレクトリへ置き、起動する Electron の `env` にだけ PATH を足す（§4）。
 
-Session 6-1 で入ったのは `main/debug/` の wire protocol / process foundation まで。実 adapter への `initialize` / `launch`、Debug Profile 保存、Renderer / preload IPC はまだ無い。wire protocol の境界条件は `src/main/debug/*.test.ts` の unit test で固定する。
+Session 6-1 で `main/debug/` の wire protocol / process foundation が入り、Session 6-2 で Main-owned Debug Session lifecycle / state machine が入った。`initialize` / `launch` / `initialized` / `configurationDone` の lifecycle foundation、単一 session 制限、generation による stale callback rejection、Workspace switch / app quit cleanup は `src/main/debug/debugSessionManager.ts` と unit test で固定している。
+
+Debug Profile 保存、Renderer / preload IPC、Breakpoint、Continue / Step、Variables、Debug Console、実 adapter 統合はまだ無い。
 
 ---
 

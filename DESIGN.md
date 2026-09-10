@@ -1,6 +1,6 @@
 # Fluvix Nexus 設計ドキュメント
 
-> ステータス: STEP 1（基盤構築）完了 / STEP 2（Dockable Workspace 基盤）完了 / STEP 3（各パネルの本機能）完了 / STEP 4（日常使用の土台）完了 / STEP 5（LSP）完了 / **STEP 6（DAP）基盤実装中（Session 6-1）**
+> ステータス: STEP 1（基盤構築）完了 / STEP 2（Dockable Workspace 基盤）完了 / STEP 3（各パネルの本機能）完了 / STEP 4（日常使用の土台）完了 / STEP 5（LSP）完了 / **STEP 6（DAP）基盤実装中（Session 6-2）**
 > 最終更新: 2026-09-10
 
 このドキュメントは**製品としての設計方針**を扱う。実装の構造と開発手順は以下を参照。
@@ -1719,11 +1719,27 @@ Catalog は `node` / `python` / `csharp` の行を持つが、Session 6-1 では
 
 `dapConnection` は adapter からの逆方向 request（`runInTerminal` を含む）を Main の任意実行にはつなげず、DAP の失敗 response を返す。これにより adapter を待たせず、Session 6-0 の Security boundary を保つ。
 
-### Session 6-2 〜 6-13（予定）— 実装
+### Session 6-2（完了）— Debug Session Lifecycle / State Machine
+
+Session 6-1 の DAP wire / adapter process foundation の上に、Main-owned の `debugSessionManager` と純粋な `debugSessionState` を追加した。Renderer / preload IPC、Debug Profile UI、Breakpoint、Continue / Step、Variables、実 adapter 統合はまだ無い。
+
+入れたもの:
+
+| ファイル                            | 役割                                                                                           |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `main/debug/debugSessionState.ts`   | `idle` / `starting` / `running` / `stopped` / `terminating` の許可遷移を固定する純粋な状態機械 |
+| `main/debug/debugSessionManager.ts` | current session、generation、adapter process、DAP lifecycle、stop / dispose / cleanup を所有   |
+| `main/app/lifecycle.ts`             | Workspace 切り替えと app quit で Debug Session を片付ける                                      |
+| `main/debug/debugSession*.test.ts`  | 状態遷移、単一セッション制限、stale generation、pending cleanup、orphan prevention の固定      |
+
+Lifecycle は `initialize` の capability を読み、`launch` を送った後、`initialized` event を合図に `configurationDone`（adapter が対応を名乗る場合のみ）を送って `running` へ進む。**`launch` の応答を開始の合図にはしない。**
+
+古い adapter から遅れて届いた event / error / close は、session generation が現在のものと一致するときだけ扱う。stop / dispose / Workspace switch / app quit / start failure / adapter error / adapter exit は同じ冪等 cleanup path に収束し、DAP connection の pending request も閉じる。
+
+### Session 6-3 〜 6-13（予定）— 実装
 
 | Session | 入れるもの                                                                     | 推奨 Agent   |
 | ------- | ------------------------------------------------------------------------------ | ------------ |
-| 6-2     | セッションの状態機械（initialize → launch → configurationDone → running）      | どちらでも可 |
 | 6-3     | Breakpoint（Monaco の gutter・`setBreakpoints`・verified の反映）              | Claude Code  |
 | 6-4     | 実行制御（Continue / Pause / Step Over / Into / Out / Stop）と停止行           | Claude Code  |
 | 6-5     | Call Stack（フレーム選択 → 該当行へジャンプ。§5 の「エラー位置へのジャンプ」） | どちらでも可 |

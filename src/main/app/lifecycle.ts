@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { startWorkspaceWatching, stopWorkspaceWatching } from '../files/workspaceWatcher'
 import { startGitWatching, stopGitWatching } from '../git/gitWatcher'
 import { registerIpcHandlers } from '../ipc'
+import { disposeDebugSession, startDebugSessionHosting } from '../debug/debugSessionManager'
 import { startLanguageServerDiagnostics } from '../lsp/diagnostics'
 import { startLanguageServerDocumentSync } from '../lsp/documentSync'
 import { startLanguageServerSettings } from '../lsp/languageServerSettings'
@@ -15,6 +16,7 @@ import { flushWorkspaceFolderDocument } from '../store/workspaceFolder'
 import { flushWorkspaceLayoutDocument } from '../store/workspaceLayout'
 import { stopTerminalSessions } from '../terminal/terminalSessions'
 import { createMainWindow, focusMainWindow, getMainWindow } from '../windows/mainWindow'
+import { onWorkspaceFolderChange } from '../workspaceFolder/currentWorkspaceFolder'
 import { applyApplicationMenu } from './menu'
 
 /**
@@ -108,6 +110,13 @@ export function bootstrapApp(): void {
     startLanguageServerStatusReporting()
 
     /*
+      Debug Session は Main が1本だけ持つ（Session 6-2）。Workspace が変わると
+      adapter / handles / pending requests は前の Workspace に属するため、LSP と同じく
+      切り替えの時点で必ず片付ける。
+    */
+    startDebugSessionHosting(onWorkspaceFolderChange)
+
+    /*
       シェルのセッションは Workspace の切り替えに追従しない（Session 3-7-3）。
       作業ディレクトリは起動時に決まり、動いているプロセスを切り替えで
       終わらせることはしないため、起動時に用意するものが無い
@@ -144,6 +153,12 @@ export function bootstrapApp(): void {
       2本**になる（main/lsp/languageServers.ts）。
     */
     stopLanguageServers('the application is quitting.')
+
+    /*
+      Debug Adapter も Main の長命な子プロセスなので、アプリ終了時に確実に閉じる。
+      Renderer へ adapter executable / args / cwd を露出する口はまだ無い。
+    */
+    disposeDebugSession('the application is quitting.')
 
     flushWorkspaceLayoutDocument()
     flushWorkspaceFolderDocument()
