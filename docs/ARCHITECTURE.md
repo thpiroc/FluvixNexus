@@ -503,7 +503,7 @@ Session 3-1 の Workspace（開いているフォルダ）もこの方針に従�
 | Terminal                           | **§13 として実装済み**（node-pty は Main・作業ディレクトリは §8・出力は §3.3 の経路）。複数タブは同じ表に足す                                                                                     |
 | Git / GitHub パネル                | **§14 として実装済み**（git の実行基盤・検出・一覧・Stage / Unstage・Commit・Push / Pull・ブランチ・`.git` の監視・差分と破棄・`git init` と GitHub への公開）。増やすときは操作ごとに1本ずつ切る |
 | GitHub パネルの独立ウィンドウ化    | セキュリティガードは webContents 単位、IPC は送信元ウィンドウを `IpcContext` で受け取れる。イベントは全ウィンドウへ届く（§3.3）                                                                   |
-| DAP                                | **§20 として設計確定（Session 6-0）**。Terminal / LSP と同じ経路（Main でプロセス、IPC でやり取り、通知は §3.3）。実装は Session 6-1 から                                                         |
+| DAP                                | **§20 として設計確定（Session 6-0）**し、Session 6-1 で Main 内の DAP wire / adapter process / catalog foundation を追加。Renderer / preload IPC と Debug Session 本体はまだ無い                  |
 | Mac 対応                           | OS 依存判定は `platform/`。Renderer / shared に OS 依存は入っていない                                                                                                                             |
 
 STEP 1 から持ち越していた **Main → Renderer のイベント経路**は Session 3-3 で用意した（§3.3）。残る機能はいずれも現在の構造のまま追加できる。
@@ -7315,7 +7315,7 @@ Session 5-13 で実際に測った範囲は次のとおり。
 
 ## 20. Debug（DAP。STEP 6）
 
-**この節はまだコードを持たない。** Session 6-0（設計）で決めたことだけを書いてあり、実装は Session 6-1 から入る。ここに書いていない口・欄・経路を実装側で足すときは、足す前にこの節へ戻ること。
+Session 6-0 で設計を確定し、Session 6-1 で Main 内の最下層（DAP message / connection、adapter process、adapter catalog）だけを実装した。ここに書いていない口・欄・経路を実装側で足すときは、足す前にこの節へ戻ること。
 
 DESIGN.md §5 の11機能（Breakpoint / Continue / Pause / Step Over / Step Into / Step Out / Stop / Variables / Call Stack / Debug Console / エラー位置へのジャンプ）を、Terminal（§13）と LSP（§19）が固めた「**Main が長命な子プロセスを持ち、Renderer は app-domain の言葉だけで話す**」形の上に載せる。
 
@@ -7450,6 +7450,8 @@ Workspace の絶対パスが key として保存ファイルに載るが、**こ
 - Windows の `.cmd` は `cmd.exe /c <絶対パス>` で包み、その `cmd.exe` も `%SystemRoot%` から組み立てる
 - adapter の引数は**表の側**が持つ
 
+Session 6-1 では catalog の基盤だけを置き、`node` / `python` / `csharp` の固定行を `not-integrated` として持つ。`debugpy` / `vscode-js-debug` / `netcoredbg` の実 adapter 統合は後続 Session で行う。Renderer から任意 adapter、実行ファイル、引数、cwd を指定する口は作っていない。
+
 繋ぐ相手（**入手経路と stdio 対応は Session 6-1 で実機確認する**）:
 
 | 言語    | Debug Adapter 候補                       | 入手経路              | 6-1 で確かめること            |
@@ -7472,6 +7474,7 @@ DAP のフレーミングは LSP と同じ `Content-Length` ヘッダ + JSON 本
 main/debug/dapMessage.ts      1本のメッセージの読み書き（純粋・テスト対象）
 main/debug/dapConnection.ts   duplex stream の上の DAP（stdio か socket かを知らない）
 main/debug/adapterProcess.ts  起動 / 停止 / どの stream を繋ぐか
+main/debug/adapterCatalog.ts  Main 内部の固定 adapter catalog
 ```
 
 `jsonRpcConnection.ts`（§19.2）が子プロセスの stdio に直接結びついているのに対し、**`dapConnection.ts` は stream を受け取る形にする**。TCP の adapter が来たときに層を作り直さずに済む唯一の分け方になる。

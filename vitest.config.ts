@@ -1,4 +1,6 @@
-import { resolve } from 'path'
+import { mkdirSync } from 'fs'
+import { join, resolve } from 'path'
+import { tmpdir } from 'os'
 import { defineConfig } from 'vitest/config'
 
 /**
@@ -11,6 +13,11 @@ import { defineConfig } from 'vitest/config'
  * この方針を成立させるために、判断を含むロジックは Electron 依存の薄い層から
  * 切り離しておくこと（例: store/windowBounds.ts と store/windowState.ts の分離）。
  */
+const testConfigHome = join(tmpdir(), 'fluvix-nexus-vitest-xdg')
+
+mkdirSync(testConfigHome, { recursive: true })
+process.env.XDG_CONFIG_HOME ??= testConfigHome
+
 export default defineConfig({
   resolve: {
     alias: {
@@ -21,6 +28,11 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['src/**/*.test.ts'],
+    /*
+      Git / GitHub の repository tests は本物の git process を複数回起動する。
+      Windows では I/O が 5 秒を超えることがあるため、既定値より少し余裕を持たせる。
+    */
+    testTimeout: 30_000,
     /*
       Vitest は既定で CSS の import を空文字へ差し替える（見た目は実機で見るもので、
       テストが読む必要は無い）。**`theme.css` だけは例外**にしてある ── Session 4-4

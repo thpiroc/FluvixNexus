@@ -1,6 +1,6 @@
 # Fluvix Nexus 設計ドキュメント
 
-> ステータス: STEP 1（基盤構築）完了 / STEP 2（Dockable Workspace 基盤）完了 / STEP 3（各パネルの本機能）完了 / STEP 4（日常使用の土台）完了 / STEP 5（LSP）完了 / **STEP 6（DAP）設計確定（Session 6-0）**
+> ステータス: STEP 1（基盤構築）完了 / STEP 2（Dockable Workspace 基盤）完了 / STEP 3（各パネルの本機能）完了 / STEP 4（日常使用の土台）完了 / STEP 5（LSP）完了 / **STEP 6（DAP）基盤実装中（Session 6-1）**
 > 最終更新: 2026-09-10
 
 このドキュメントは**製品としての設計方針**を扱う。実装の構造と開発手順は以下を参照。
@@ -415,7 +415,7 @@ Auto Save は4方式すべてが動くようになり、設定はアプリ再起
 | Git / GitHub 本機能                              | **Session 3-8-1 〜 3-8-22A で実装済み・3-8-22B で production app 確認済み**（検出・変更一覧・Stage / Unstage・Commit・Push / Pull / Fetch・ブランチ・`.git` の監視・差分と破棄・`git init` と「GitHub に公開」・コミット履歴・コミットの詳細と差分・履歴からのブランチ作成・ブランチの削除 / rename・退避・remote の管理と URL 変更 / rename・競合の解決・remote の枝から手元にブランチを作る・マージの開始 / 中止・競合の ours / theirs の差分・途中の Git 操作の検出と禁止） |
 | ブランチ操作 UI                                  | **Session 3-8-6 / 3-8-13 / 3-8-14 / 3-8-19 / 3-8-20 で実装済み**（バーのブランチ名から開く面で一覧・切り替え・作成・削除・rename・マージ、履歴の行から始点を指す欄、remote の枝から作る畳んだ段。ローカルと remote-tracking は**別の一覧**。マージ中はパネルの帯から中止できる）                                                                                                                                                                                               |
 | LSP                                              | §4。JavaScript / TypeScript・Python・C#。SDK は同梱せず PC の環境を検出する                                                                                                                                                                                                                                                                                                                                                                                                    |
-| DAP                                              | §5 / §13。**STEP 6**。Breakpoint / Step / Variables / Call Stack。Session 6-0 で設計確定、6-1 から実装                                                                                                                                                                                                                                                                                                                                                                         |
+| DAP                                              | §5 / §13。**STEP 6**。Breakpoint / Step / Variables / Call Stack。Session 6-0 で設計確定、6-1 で DAP wire / adapter process / catalog foundation を実装                                                                                                                                                                                                                                                                                                                        |
 | パネルの独立ウィンドウ化                         | §3。Main 側で別ウィンドウを開き、Shell のルートを分岐する                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | タブのドラッグによる並べ替え                     | レイアウト操作としては実装済みで、UI の入口だけが無い（ARCHITECTURE.md §7.9）                                                                                                                                                                                                                                                                                                                                                                                                  |
 | レイアウトプリセットの追加・自作レイアウトの保存 | Coding / Debug などの表への追加と、名前を付けた保存（§3）                                                                                                                                                                                                                                                                                                                                                                                                                      |
@@ -1702,11 +1702,27 @@ LSP には無くて DAP にだけある問題が1つあり、それがこの Ses
 
 **adapter の逆方向要求 `runInTerminal` は拒否する。** adapter が「このコマンドラインを実行してくれ」と client に頼む経路で、受ければ起動するプロセスの argv を adapter が決められる ── STEP 5 で `client/registerCapability` を拒否したのと同じ性格になる。代償（本物の端末を必要とするプログラムは Debug Console の中では同じように動かない）は制約として記録してある。
 
-### Session 6-1 〜 6-12（予定）— 実装
+### Session 6-1（完了）— DAP Wire Protocol / Adapter Process Foundation
+
+STEP 6 の最下層として、Main 内に `main/debug/` を追加した。入れたのは **Debug Adapter と安全に通信するための最小基盤**だけで、Renderer / preload IPC、Debug Profile UI、`initialize` / `launch` の状態機械、実 adapter 統合はまだ無い。
+
+実装の分割:
+
+| ファイル                       | 役割                                                                  |
+| ------------------------------ | --------------------------------------------------------------------- |
+| `main/debug/dapMessage.ts`     | DAP message 型、runtime validation、Content-Length framing / parser   |
+| `main/debug/dapConnection.ts`  | request seq 管理、response correlation、Event 受信、pending cleanup   |
+| `main/debug/adapterProcess.ts` | spawn、stdio 接続、stderr、error / close / dispose、orphan prevention |
+| `main/debug/adapterCatalog.ts` | Main 内部の固定 catalog。3言語を閉じた集合として持つ                  |
+
+Catalog は `node` / `python` / `csharp` の行を持つが、Session 6-1 ではすべて `not-integrated` として記録している。`debugpy` / `vscode-js-debug` / `netcoredbg` の実接続は後続 Session の仕事であり、6-1 では任意 adapter 選択や任意 process spawn の口を作っていない。
+
+`dapConnection` は adapter からの逆方向 request（`runInTerminal` を含む）を Main の任意実行にはつなげず、DAP の失敗 response を返す。これにより adapter を待たせず、Session 6-0 の Security boundary を保つ。
+
+### Session 6-2 〜 6-13（予定）— 実装
 
 | Session | 入れるもの                                                                     | 推奨 Agent   |
 | ------- | ------------------------------------------------------------------------------ | ------------ |
-| 6-1     | adapter のプロセス基盤、DAP フレーミング、adapter catalog                      | Codex        |
 | 6-2     | セッションの状態機械（initialize → launch → configurationDone → running）      | どちらでも可 |
 | 6-3     | Breakpoint（Monaco の gutter・`setBreakpoints`・verified の反映）              | Claude Code  |
 | 6-4     | 実行制御（Continue / Pause / Step Over / Into / Out / Stop）と停止行           | Claude Code  |
