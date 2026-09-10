@@ -1,6 +1,6 @@
 # 開発ガイド
 
-> 対象: Session 5-13（STEP 5 LSP Closing）完了時点 ＋ Session 6-2（STEP 6 DAP lifecycle foundation）
+> 対象: Session 5-13（STEP 5 LSP Closing）完了時点 ＋ Session 6-3（STEP 6 DAP Breakpoint）
 > 最終更新: 2026-09-10
 
 ---
@@ -42,7 +42,9 @@ Language Server と同じく**アプリの開発・テスト・ビルドには�
 
 Session 6-1 で `main/debug/` の wire protocol / process foundation が入り、Session 6-2 で Main-owned Debug Session lifecycle / state machine が入った。`initialize` / `launch` / `initialized` / `configurationDone` の lifecycle foundation、単一 session 制限、generation による stale callback rejection、Workspace switch / app quit cleanup は `src/main/debug/debugSessionManager.ts` と unit test で固定している。
 
-Debug Profile 保存、Renderer / preload IPC、Breakpoint、Continue / Step、Variables、Debug Console、実 adapter 統合はまだ無い。
+Session 6-3 で **Breakpoint** が入った。Monaco の glyph margin での追加 / 削除、Workspace ごとの保存（`userData/debug-breakpoints.json`）、`initialized` → `setBreakpoints` → `configurationDone` の同期、verified / unverified の反映までが揃っている（docs/ARCHITECTURE.md §20.12）。**実 adapter がまだ無いので、実機で見えるのは常に「答え待ち」の赤い丸**になる ── verified / unverified の色分けは mock adapter でのみ確認できる。
+
+Debug Profile 保存、Continue / Step、Call Stack、Variables、Debug Console、Debug パネル、実 adapter 統合はまだ無い。
 
 ---
 
@@ -546,6 +548,24 @@ gh そのものの振る舞い（引数・出力の読み方・失敗の文言�
 境界のリサイズも同じ分け方で、判断（`layout/resize.ts` と `layout/constraints.ts`）はここでテストし、ポインタの追跡（`resize/useSplitResize.ts`）は起動確認で見る。
 
 レイアウトの永続化も同じで、形式の変換と検証（`persistence/layoutDocument.ts` / `persistence/restoreLayout.ts` / `store/workspaceLayoutDocument.ts`）はここでテストし、実際に書き込まれて次回起動で戻ることは起動確認で見る。
+
+#### Breakpoint（Session 6-3）
+
+DAP の周りは 6-1 / 6-2 と同じ分け方で、**Electron も子プロセスも使わない層**だけをここで見る。
+
+- `src/shared/debug/breakpoint.test.ts` — 行として受け取れる値・同一性・並び・取り出し
+- `src/main/debug/breakpointModel.test.ts` — **入れ替え / 重複 / 上限 / adapter の答えの当て方**（同じ位置を続けて押しても増えないこと・上限に達していても外せること・**Renderer へ返る形に adapter の文言と動かされた行が載らないこと**・送った順で verified を当てること・数が合わない答えで前半まで捨てないこと・セッションが終われば忘れること）
+- `src/main/debug/breakpointSource.test.ts` — **相対位置 → DAP の `Source`**（`..` / 絶対パス / ドライブ相対 / 代替データストリーム / NUL / UNC を断つこと・**まだ存在しないファイルにも印を置けること**・`Source.path` が URI ではないこと）
+- `src/main/debug/dapBreakpoints.test.ts` — `setBreakpoints` の要求と応答（`breakpoints` と `lines` の両方を載せること・`sourceModified` が常に false・**壊れた応答・`verified` を省いた応答・数の食い違いで落ちないこと**）
+- `src/main/debug/breakpointSync.test.ts` — 1ファイルぶんの送信（失敗 / 切断 / 壊れた応答を「答えが無かった」に畳むこと）
+- `src/main/debug/debugSessionBreakpoints.test.ts` — **lifecycle への差し込み**（`initialized` の後・`configurationDone` の前であること・仕込みが失敗しても running まで進むこと・**仕込みが無ければ 6-2 の順序が1 tick も変わらないこと**・口が `running` / `stopped` のときだけ返ること・前のセッションの口が `closed` を返すこと）
+- `src/main/store/debugBreakpointsDocument.test.ts` — **保存ファイルの検証**（エンベロープが読めなければ文書ごと捨てる・**1件が壊れても他は残る**・重複を畳む・件数と Workspace 数の上限・古い Workspace から落ちること）
+- `src/renderer/src/editor/debug/breakpointDecorations.test.ts` — 印の見え方（**`null` を「置けない」と同じ見た目にしないこと**・16進数の色を持たないこと・文言ではなく翻訳キーを返すこと）
+- `src/renderer/src/editor/debug/breakpointGlyphs.test.ts` — **glyph margin の面**（左クリック / glyph margin 以外では何も起きないこと・印の増減・**ファイル切替で当て直すこと**・行数が変わる編集の後に置き直すこと・捨てると購読も decoration も残らないこと）
+
+**Monaco は読み込まない。** 叩く相手を構造的部分型で受けているため、偽のエディタで glyph margin の click も decoration の増減も通せる（`editor/lsp/editorActions.ts` と同じ形）。実際に Monaco の帯が出て押せることは起動確認で見る。
+
+**実 adapter との往復はここに置かない。** Session 6-3 の確認では、DAP を話す小さな Node スクリプトを一時的に adapter として立て、`initialize → launch → initialized → setBreakpoints → configurationDone → running` を本物の子プロセスと本物の `Content-Length` フレーミングで通した（結果は §4）。リポジトリのテストは 6-1 / 6-2 と同じく spawn を差し替えた形のままにしてある。
 
 ### 整形
 
@@ -1812,6 +1832,30 @@ Session 4-5 / 4-7 は**境界を1つも動かしていない**ことを、両ス
 - **プロセスを数える PowerShell が自分自身を数える。** `CommandLine -like '*pyright-langserver*'` は、そのフィルタを書いた powershell 自身のコマンドラインにも当たる。プロセス名（`node.exe` / `cmd.exe` / `csharp-ls.exe`）で先に絞る。なお1本のサーバは `cmd.exe`（`.cmd` を包む窓口）と `node.exe`（本体）の**2プロセス**として見える
 - **`onSyncRequested` は「要求を出す口」ではない。** 公開面を正規表現で検査すると `request` に当たって誤検出する。`on*` を除いてから見るか、期待する16個と厳密に突き合わせる
 - **Go to References が peek を出すとは限らない。** 結果が1件だと Monaco はその場所へ移動する（`multipleReferences` の既定が `peek` でも、複数無ければ移動になる）。件数が読める題材を用意する
+
+### Session 6-3（Breakpoint）
+
+**production build 版 37項目、全項目 PASS。** 使い捨ての Workspace 2つ（`ws` / `ws2`）と使い捨ての `--user-data-dir` を作り、`workspace-folder.json` を先に置いてから起動する ── ネイティブのフォルダ選択ダイアログを通さずに Workspace を決められる。
+
+- glyph margin: 帯が出ること、click で追加、再 click で削除、**同じ行を続けて押しても増えない**こと、複数行に置けること、**本文を押しても印が増えない**こと
+- 複数ファイル: 別のファイルには前の印が出ないこと、切り替えて戻ると復元されること、2ファイル分が Main に保持されていること
+- 永続化: `userData/debug-breakpoints.json` が作られること、**Workspace の絶対パスが key**・中身は相対位置だけであること、**プロジェクトフォルダに何も書かれない**こと、アプリを閉じて開き直すと印が戻ること
+- Workspace 切り替え: 別 Workspace には前の印が出ないこと、そこでも置けること、戻すと元の印が戻ること、2つが別々に保存されていること
+- 壊れた保存ファイル: JSON として壊れていても落ちずに起動し、そのまま印を置けること
+- Security boundary: preload の `debug` が3つだけであること、**Workspace 外 / 絶対パス / `file:` URI / 代替データストリームがすべて `PERMISSION_DENIED`**、不正な行が `INVALID_REQUEST`、応答に絶対パスも adapter の文言も載らないこと、任意 DAP method / adapter を指す口が無いこと、Node / process / electron の非露出、公開ドメインが既存 + `debug` のみ、**CSP が1文字も変わっていない**こと
+- 回帰: 編集が普通にできること、編集後も印が残ること、Monaco の marker 面（LSP の指摘）が壊れていないこと、console エラー / CSP 違反が無いこと
+
+**mock adapter での smoke（別途）。** 実 adapter がまだ無いので、DAP を話す小さな Node スクリプトを一時的に adapter として立て、**本物の子プロセス・本物の `Content-Length` フレーミング**で `initialize → launch → initialized → setBreakpoints → configurationDone → running` を通した。verified / unverified が控えへ当たること、adapter の文言が Main の控えにだけ残ること、running 中の再送、最後の1件を外したときに空の配列を送れること、`stop` で口が返らなくなることを確認済み（このスクリプトはリポジトリに置いていない）。
+
+#### 確認で見つけた実際の不具合
+
+**印がファイル切替で消えた。** `useBreakpointGlyphs` を `MonacoEditor.tsx` の**上の方**で呼んでいたため、React が「印を当てる → Model を差し替える」の順に effect を走らせ、当てた decoration が差し替えの時点で捨てられていた（decoration は Model に紐づく）。フックを呼ぶ位置を**一番下**（位置を見せる effect のさらに後）へ移して解決。unit test では偽のエディタが Model を差し替えないので出ず、**production build で初めて見えた**種類の不具合になる。
+
+#### 確認スクリプトを書くときに踏んだこと（Session 6-3）
+
+- **`.view-line` の並びから行番号を数えない。** 折り返しやスクロールで1行ずれる。Monaco 自身が描いている行番号（`.margin-view-overlays .line-numbers`）の矩形を正本にして、印の縦位置と突き合わせる。最初これで「6行目に付いた」と読み、**アプリが壊れているように見えた**（Main の控えは正しく5だった）
+- **Files ツリーは lazy load。** `src` を先に展開しないと、その中のファイルの行が DOM に存在しない
+- **編集の回帰確認をしたら、必ず元へ戻す。** 未保存のまま `app.close()` すると終了前の確認が出て、スクリプトが止まる
 
 ---
 

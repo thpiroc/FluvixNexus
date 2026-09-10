@@ -413,3 +413,63 @@
 .fx-editor__empty-body {
   margin: 0;
 }
+
+/* Breakpoint の印（Session 6-3） */
+
+/**
+ * Monaco の glyph margin に出す丸。
+ *
+ * Monaco は `glyphMarginClassName` に渡したクラスを、帯の中の 1行ぶんの箱へ当てる。
+ * **その箱の大きさは Monaco が決める**（行の高さ × 帯の幅）ので、ここが持つのは
+ * 中に描く丸の形と色だけにする。
+ *
+ * 色は theme.css の変数から引く ── Theme を切り替えたときに印だけ前の色で
+ * 取り残されないため（このアプリの色は theme.css の1箇所にしかない。Session 4-4）。
+ * Monaco 側のテーマ（`glyphMargin` の色）には触れない。
+ *
+ * `cursor: pointer` は帯そのものではなく印に付ける。帯の空いている行を押しても
+ * 印は付く（そこに置く操作にあたる）が、押せる場所であることを常時カーソルで
+ * 示すと、行番号の列まで反応しているように見える。
+ */
+.fx-breakpoint {
+  position: relative;
+  cursor: pointer;
+}
+
+.fx-breakpoint::before {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  content: '';
+}
+
+/* 置いてある（Debug Session が無い / まだ答えが来ていない）。 */
+.fx-breakpoint--pending::before {
+  background: var(--fx-debug-breakpoint);
+}
+
+/* adapter が「そこで止められる」と答えた。 */
+.fx-breakpoint--verified::before {
+  background: var(--fx-debug-breakpoint-verified);
+}
+
+/*
+ * adapter が「置けない」と答えた。
+ *
+ * **消さずに輪郭で残す。** 消すと「押したのに付かなかった」に見えるが、
+ * 実際には印は保存されていて、次のセッションでは置けるかもしれない。
+ */
+.fx-breakpoint--unverified::before {
+  background: transparent;
+  border: 1.5px solid var(--fx-debug-breakpoint-unverified);
+}
+
+/* 無効（v1 の UI では起きないが、保存形式としてはありうる）。 */
+.fx-breakpoint--disabled::before {
+  background: var(--fx-debug-breakpoint-unverified);
+  opacity: 0.5;
+}

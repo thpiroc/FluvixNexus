@@ -85,6 +85,8 @@ export const IPC_CHANNELS = {
   LSP_PREPARE_RENAME: 'lsp:prepare-rename',
   LSP_RENAME: 'lsp:rename',
   LSP_GET_STATUS: 'lsp:get-status',
+  DEBUG_LIST_BREAKPOINTS: 'debug:list-breakpoints',
+  DEBUG_TOGGLE_BREAKPOINT: 'debug:toggle-breakpoint',
   SETTINGS_LOAD: 'settings:load',
   SETTINGS_SAVE_SECTION: 'settings:save-section'
 } as const satisfies Record<string, IpcChannel>

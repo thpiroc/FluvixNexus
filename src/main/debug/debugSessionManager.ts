@@ -6,6 +6,7 @@ import {
   type StartDebugAdapterProcessOutcome
 } from './adapterProcess'
 import type { DapRequestOutcome } from './dapConnection'
+import type { DapSetBreakpointsArguments } from './dapBreakpoints'
 import {
   applyDebugSessionTransition,
   type DebugSessionState,
@@ -36,12 +37,53 @@ export type DebugSessionStateListener = (
 
 export const DEBUG_SESSION_START_TIMEOUT_MS = 60_000
 
+/**
+ * 動いている Debug Session へ breakpoint を送る口（Session 6-3）。
+ *
+ * ## なぜ「送れるもの」を1つに絞ってあるのか
+ *
+ * ここを `request(command, args)` の形にすると、**Main の中に任意の DAP method を
+ * 送れる場所ができる。** Renderer からは届かないので Security boundary は破れないが、
+ * 「口は機能ごとに分かれている」（docs/ARCHITECTURE.md §20.9）という決めは
+ * Main の内側でも保つ ── 機能が増えるたびに、その機能の名前の付いた口を足す。
+ *
+ * ## 世代を持って渡す
+ *
+ * `generation` は発行時のセッションの世代で、受け取った側は**答えが返ってきた
+ * 時点でまだ同じ世代か**を確かめる（main/debug/breakpoints.ts）。前のセッションへ
+ * 送った `setBreakpoints` の応答が、新しいセッションの verified を書き換えないため。
+ * LSP が版（`version`）で古い応答を捨てたのと同じ仕組みを、単位をセッションに
+ * 変えて置いてある（§20.8）。
+ */
+export interface DebugSessionBreakpointChannel {
+  readonly sessionId: string
+  readonly generation: number
+  readonly setBreakpoints: (args: DapSetBreakpointsArguments) => Promise<DapRequestOutcome>
+}
+
+/**
+ * `initialized` の後、`configurationDone` の前に呼ばれる仕込み（Session 6-3）。
+ *
+ * DAP の lifecycle 上、breakpoint を送ってよいのは
+ * **`initialized` を受けてから `configurationDone` を送るまで**の間になる
+ * （docs/ARCHITECTURE.md §20.8）。その一点を外から差し込めるようにしてあるのが
+ * この hook で、**`launch` の応答は待たない**という 6-2 の決めは動かない。
+ *
+ * 失敗しても Debug Session は続く。印が付かないことは、走らせられないことと同じでは
+ * ないため ── 失敗は Main のログに残す。
+ */
+export type DebugSessionConfigurationHook = (
+  channel: DebugSessionBreakpointChannel
+) => Promise<void> | void
+
 export type StartDebugAdapterProcess = typeof startDebugAdapterProcess
 
 export interface DebugSessionManagerOptions {
   readonly startAdapterProcess?: StartDebugAdapterProcess
   readonly startTimeoutMs?: number
   readonly onLog?: (level: 'debug' | 'warn' | 'error', message: string) => void
+  /** `initialized` の後、`configurationDone` の前に呼ばれる仕込み（Session 6-3）。 */
+  readonly configurationHook?: DebugSessionConfigurationHook
 }
 
 interface RunningDebugSession {
@@ -73,6 +115,22 @@ export interface DebugSessionManager {
   readonly start: (options: DebugSessionStartOptions) => StartDebugSessionOutcome
   readonly stop: (reason: string) => StopDebugSessionOutcome
   readonly dispose: (reason: string) => void
+  /**
+   * `initialized` → `configurationDone` の間に差し込む仕込みを差し替える（Session 6-3）。
+   *
+   * 既定のマネージャは module の読み込み時に作られるため、options では渡せない。
+   * 登録するのは main/debug/breakpoints.ts 1箇所だけになる。
+   */
+  readonly setConfigurationHook: (hook: DebugSessionConfigurationHook | null) => void
+  /**
+   * 動いているセッションへ breakpoint を送る口（Session 6-3）。
+   *
+   * **`running` / `stopped` のときだけ返る。** `starting` の間に返してしまうと、
+   * 仕込み（`configurationHook`）が走っている最中に別経路の送信が割り込み、
+   * 同じファイルへ2通の `setBreakpoints` が前後して届きうる。
+   * 起動中の同期は仕込みの側が引き受ける。
+   */
+  readonly getBreakpointChannel: () => DebugSessionBreakpointChannel | null
 }
 
 export function createDebugSessionManager(
@@ -82,6 +140,7 @@ export function createDebugSessionManager(
   const listeners = new Set<DebugSessionStateListener>()
   let generation = 0
   let current: RunningDebugSession | null = null
+  let configurationHook: DebugSessionConfigurationHook | null = options.configurationHook ?? null
 
   function getState(): DebugSessionState {
     return current?.state ?? 'idle'
@@ -233,6 +292,25 @@ export function createDebugSessionManager(
         return
       }
 
+      /*
+        Breakpoint を送るのはここになる（Session 6-3）。
+
+        `initialized` を受けた後、`configurationDone` を送る前 ── DAP が
+        「設定を送ってよい」と定めている唯一の窓にあたる（§20.8）。
+        **`launch` の応答は依然として待っていない。**
+
+        仕込みが登録されていなければ `await` そのものを踏まない。踏むと、
+        仕込みが何もしない場合でも `configurationDone` の送信が1 tick 遅れる
+        ── Session 6-2 の lifecycle を、6-3 の有無で変えないための形にあたる。
+      */
+      if (configurationHook !== null) {
+        await runConfigurationHook(record)
+
+        if (!isCurrent(record)) {
+          return
+        }
+      }
+
       if (supportsConfigurationDone) {
         const configurationDone = await request(record, 'configurationDone')
 
@@ -252,6 +330,47 @@ export function createDebugSessionManager(
     } finally {
       clearTimeout(timer)
     }
+  }
+
+  /**
+   * 仕込みを走らせる（Session 6-3）。
+   *
+   * **仕込みが失敗しても Debug Session は止めない。** breakpoint が付かないことと、
+   * プログラムを走らせられないことは別のことにほかならない ── 止めてしまうと、
+   * 印の同期に失敗しただけでデバッグそのものが始まらなくなる。
+   */
+  async function runConfigurationHook(record: RunningDebugSession): Promise<void> {
+    if (configurationHook === null) {
+      return
+    }
+
+    try {
+      await configurationHook(createBreakpointChannel(record))
+    } catch (cause) {
+      log('warn', `the debug session configuration hook failed: ${describeError(cause)}`)
+    }
+  }
+
+  function createBreakpointChannel(record: RunningDebugSession): DebugSessionBreakpointChannel {
+    return {
+      sessionId: record.sessionId,
+      generation: record.generation,
+      setBreakpoints: (args) =>
+        isCurrent(record)
+          ? request(record, 'setBreakpoints', args)
+          : Promise.resolve({
+              status: 'closed' as const,
+              reason: 'the debug session has already ended.'
+            })
+    }
+  }
+
+  function getBreakpointChannel(): DebugSessionBreakpointChannel | null {
+    if (current === null || (current.state !== 'running' && current.state !== 'stopped')) {
+      return null
+    }
+
+    return createBreakpointChannel(current)
   }
 
   function handleAdapterEvent(generation: number, event: string, body: unknown): void {
@@ -418,7 +537,11 @@ export function createDebugSessionManager(
     },
     start,
     stop,
-    dispose
+    dispose,
+    setConfigurationHook: (hook) => {
+      configurationHook = hook
+    },
+    getBreakpointChannel
   }
 }
 
@@ -426,6 +549,17 @@ const defaultManager = createDebugSessionManager()
 
 export function getDebugSessionState(): DebugSessionState {
   return defaultManager.getState()
+}
+
+/**
+ * 最後に発行されたセッションの世代（Session 6-3）。
+ *
+ * 非同期に返ってきた応答が、まだ同じセッションのものかを確かめるのに使う。
+ * 状態（`getDebugSessionState()`）と**対で見る**こと ── 世代だけでは
+ * 「終わった後に、新しいセッションがまだ始まっていない」を区別できない。
+ */
+export function getDebugSessionGeneration(): number {
+  return defaultManager.getGeneration()
 }
 
 export function startDebugSession(options: DebugSessionStartOptions): StartDebugSessionOutcome {
@@ -442,6 +576,24 @@ export function disposeDebugSession(reason: string): void {
 
 export function onDebugSessionStateChange(listener: DebugSessionStateListener): () => void {
   return defaultManager.onStateChange(listener)
+}
+
+/**
+ * `initialized` → `configurationDone` の間に差し込む仕込みを登録する（Session 6-3）。
+ *
+ * 呼ぶのは main/debug/breakpoints.ts 1箇所だけになる。
+ */
+export function setDebugSessionConfigurationHook(hook: DebugSessionConfigurationHook | null): void {
+  defaultManager.setConfigurationHook(hook)
+}
+
+/**
+ * 動いているセッションへ breakpoint を送る口（Session 6-3）。
+ *
+ * 動いていない（`idle` / `starting` / `terminating`）なら null。
+ */
+export function getDebugSessionBreakpointChannel(): DebugSessionBreakpointChannel | null {
+  return defaultManager.getBreakpointChannel()
 }
 
 export function startDebugSessionHosting(

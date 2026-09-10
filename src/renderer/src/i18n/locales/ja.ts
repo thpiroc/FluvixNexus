@@ -799,6 +799,12 @@ export const jaMessages = {
         '{name} へ保存しました。その場所は別のタブで開いているため、このタブは切り替えていません。',
       saved: '{name} へ保存しました。'
     },
+    breakpoint: {
+      pending: 'ブレークポイント',
+      verified: 'ブレークポイント（ここで停止できます）',
+      unverified: 'ブレークポイント（ここでは停止できません）',
+      disabled: 'ブレークポイント（無効）'
+    },
     document: {
       saving: '保存中…',
       saveError: '保存できませんでした（{message}）',

@@ -1,5 +1,6 @@
 export { FLUVIX_API_KEY } from './api'
 export type {
+  DebugApi,
   EnvApi,
   FilesApi,
   FluvixApi,
@@ -43,6 +44,18 @@ export type {
   WorkspaceFileChangeKind,
   WorkspaceFileStatus
 } from './files'
+
+export {
+  DEBUG_BREAKPOINT_MAX_LINE,
+  DEBUG_BREAKPOINT_MIN_LINE,
+  DEBUG_BREAKPOINTS_MAX_PER_WORKSPACE,
+  compareDebugBreakpoints,
+  filterDebugBreakpointsForPath,
+  findDebugBreakpointAt,
+  isDebugBreakpointLine,
+  isSameDebugBreakpointLocation
+} from './debug'
+export type { DebugBreakpoint } from './debug'
 
 export type { GitFailureReason, GitHead, GitRepositoryState } from './git'
 

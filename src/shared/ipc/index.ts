@@ -96,6 +96,11 @@ export type {
   SaveLspDocumentRequest
 } from './contracts/lsp'
 export type {
+  DebugBreakpointsResponse,
+  DebugIpcContract,
+  ToggleDebugBreakpointRequest
+} from './contracts/debug'
+export type {
   LoadSettingsResponse,
   SaveSettingsSectionRequest,
   SettingsIpcContract
@@ -159,6 +164,7 @@ export type {
   WorkspaceFileChangeSource,
   WorkspaceFilesChangedEvent
 } from './events/files'
+export type { DebugBreakpointsChangedEvent, DebugIpcEventContract } from './events/debug'
 export type { GitChangedEvent, GitIpcEventContract } from './events/git'
 export type {
   LspDiagnosticsClearedEvent,

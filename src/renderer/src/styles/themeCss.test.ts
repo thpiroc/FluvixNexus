@@ -80,7 +80,7 @@ const light = declarationsOf(SELECTORS.light)
 /** 色にあたる変数だけ（間隔・文字サイズ・高さは Theme に依らない）。 */
 function colorNames(declarations: Map<string, string>): string[] {
   return [...declarations.keys()]
-    .filter((name) => /^--fx-(color|accent|file-icon|git|shadow)-/.test(name))
+    .filter((name) => /^--fx-(color|accent|debug|file-icon|git|shadow)-/.test(name))
     .sort()
 }
 
@@ -113,12 +113,13 @@ describe('Dark と Light が同じ集合を持つ', () => {
 
   /*
     内訳。Session 4-3B までの35色（面5・枠2・文字5・識別色4・ファイル種別13・
-    Git 6）に、Session 4-4 で変数へ出した幕と影の5つが加わって40になる。
+    Git 6）に、Session 4-4 で変数へ出した幕と影の5つが加わって40、
+    Session 6-3 の Breakpoint 3色を足して43になる。
     数を書いてあるのは、**Light 側へ足し忘れた色があると集合の比較より先に
     ここが落ちる**ようにするため。
   */
-  it('色は40ある（面 / 枠 / 文字 / 識別色 / ファイル種別 / Git / 幕と影）', () => {
-    expect(colorNames(dark)).toHaveLength(40)
+  it('色は43ある（面 / 枠 / 文字 / 識別色 / ファイル種別 / Git / Debug / 幕と影）', () => {
+    expect(colorNames(dark)).toHaveLength(43)
   })
 
   /*

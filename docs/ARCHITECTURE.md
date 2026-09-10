@@ -7315,7 +7315,7 @@ Session 5-13 で実際に測った範囲は次のとおり。
 
 ## 20. Debug（DAP。STEP 6）
 
-Session 6-0 で設計を確定し、Session 6-1 で Main 内の最下層（DAP message / connection、adapter process、adapter catalog）を実装し、Session 6-2 で Main-owned Debug Session lifecycle / state machine を追加した。ここに書いていない口・欄・経路を実装側で足すときは、足す前にこの節へ戻ること。
+Session 6-0 で設計を確定し、Session 6-1 で Main 内の最下層（DAP message / connection、adapter process、adapter catalog）を実装し、Session 6-2 で Main-owned Debug Session lifecycle / state machine を追加し、Session 6-3 で Breakpoint（Monaco の glyph margin・保存・`setBreakpoints`）を入れた（§20.12）。ここに書いていない口・欄・経路を実装側で足すときは、足す前にこの節へ戻ること。
 
 DESIGN.md §5 の11機能（Breakpoint / Continue / Pause / Step Over / Step Into / Step Out / Stop / Variables / Call Stack / Debug Console / エラー位置へのジャンプ）を、Terminal（§13）と LSP（§19）が固めた「**Main が長命な子プロセスを持ち、Renderer は app-domain の言葉だけで話す**」形の上に載せる。
 
@@ -7562,11 +7562,16 @@ adapter の `output` event が運ぶのは**デバッグ対象プログラム自
 #### 切る口の一覧（STEP 6 の予定。増やすときは設計へ戻る）
 
 ```
-要求(17): listProfiles createProfile updateProfile deleteProfile
+要求(18): listProfiles createProfile updateProfile deleteProfile
           start stop continue pause stepOver stepInto stepOut
-          setBreakpoints getState getStack getScopes getVariables evaluate
+          listBreakpoints toggleBreakpoint
+          getState getStack getScopes getVariables evaluate
 購読(4):  onStateChanged onStopped onOutput onBreakpointsChanged
 ```
+
+Session 6-0 の予定では breakpoint の口は `setBreakpoints` 1つだったが、**Session 6-3 で
+2つに分けた**（17 → 18）。理由は §20.12。要点だけ言うと、**一覧を丸ごと渡す口を
+作らない**ためで、`setBreakpoints` という名前も DAP の request 名と1対1に見えるので使わない。
 
 **プロセスを操作する口は1つも無い**（§19.2 と同じ）。`start` に載るのは `profileId` だけで、`stop` は `void` になる。
 
@@ -7590,19 +7595,147 @@ v1: node / python / csharp のどの枝も固有欄を持たない
 
 ### 20.11 STEP 6 で入れないもの
 
-| 項目                                | 判断                                                                             |
-| ----------------------------------- | -------------------------------------------------------------------------------- |
-| `.vscode/launch.json` の読み込み    | **読まない。** Workspace の中のファイルが実行対象を決める形にしない（§20.5）     |
-| attach（動いているプロセスへ接続）  | 入れない。launch のみ                                                            |
-| `runInTerminal` / 統合端末での実行  | 入れない（§20.9）                                                                |
-| conditional / hit count breakpoint  | 入れない。行の breakpoint だけ                                                   |
-| logpoint                            | 入れない                                                                         |
-| Data / Function breakpoint          | 入れない                                                                         |
-| 変数の値の書き換え（`setVariable`） | 入れない。v1 は見るだけ                                                          |
-| Watch 式の永続化                    | 入れない。評価は Debug Console から                                              |
-| breakpoint の永続化                 | 入れない。アプリを閉じると消える（足すなら §20.5 の保存に Workspace key で載る） |
-| 複数セッションの同時実行            | 入れない。**同時に走るのは1本**                                                  |
-| 子プロセスへの追従                  | 入れない                                                                         |
-| `cwd` の指定                        | 入れない。常に Workspace root（§20.3）                                           |
-| 変数展開（`${workspaceFolder}` 等） | 入れない。展開の仕組みは、書ける文字列が増える仕組みにほかならない               |
-| Problems panel との連携             | 入れない。診断は STEP 5 のまま（§19.11）                                         |
+| 項目                                | 判断                                                                                                                           |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `.vscode/launch.json` の読み込み    | **読まない。** Workspace の中のファイルが実行対象を決める形にしない（§20.5）                                                   |
+| attach（動いているプロセスへ接続）  | 入れない。launch のみ                                                                                                          |
+| `runInTerminal` / 統合端末での実行  | 入れない（§20.9）                                                                                                              |
+| conditional / hit count breakpoint  | 入れない。行の breakpoint だけ                                                                                                 |
+| logpoint                            | 入れない                                                                                                                       |
+| Data / Function breakpoint          | 入れない                                                                                                                       |
+| 変数の値の書き換え（`setVariable`） | 入れない。v1 は見るだけ                                                                                                        |
+| Watch 式の永続化                    | 入れない。評価は Debug Console から                                                                                            |
+| ~~breakpoint の永続化~~             | **Session 6-3 で入れた。**予告どおり §20.5 と同じ形（userData の JSON 1つを Workspace の絶対パスで引く）に載せてある（§20.12） |
+| 複数セッションの同時実行            | 入れない。**同時に走るのは1本**                                                                                                |
+| 子プロセスへの追従                  | 入れない                                                                                                                       |
+| `cwd` の指定                        | 入れない。常に Workspace root（§20.3）                                                                                         |
+| 変数展開（`${workspaceFolder}` 等） | 入れない。展開の仕組みは、書ける文字列が増える仕組みにほかならない                                                             |
+| Problems panel との連携             | 入れない。診断は STEP 5 のまま（§19.11）                                                                                       |
+
+### 20.12 Breakpoint（Session 6-3）
+
+STEP 6 で**最初に Renderer へ面が出た**機能になる。Session 6-1 / 6-2 は Main の中だけで閉じていたが、ここで初めて Monaco・preload・IPC・保存の4つが一度に繋がる。
+
+v1 は **行 breakpoint だけ**（条件付き・hit count・logpoint・function・data は §20.11 のまま入れない）。
+
+#### 責務の分け方
+
+```
+Renderer                              Main
+────────                              ────
+Monaco の glyph margin
+  editor/debug/breakpointGlyphs.ts    印の描画と click（Monaco を import しない）
+  editor/debug/breakpointDecorations.ts  見た目の決め方（クラス名と翻訳キーだけ）
+  debug/BreakpointProvider.tsx        今の Workspace の写し
+      │
+      │ debug:toggle-breakpoint { relativePath, line }    ← 載るのはこの2つだけ
+      ▼
+                                      ipc/handlers/debug.ts   行と相対位置を確かめる
+                                      debug/breakpoints.ts    正本・保存・通知・同期
+                                        ├ breakpointModel.ts   入れ替え / 重複 / 並び / verified
+                                        ├ breakpointSource.ts  相対位置 → DAP の Source（絶対パス）
+                                        ├ dapBreakpoints.ts    setBreakpoints 1往復の形
+                                        └ breakpointSync.ts    送信と応答の読み取り
+                                      store/debugBreakpoints.ts  userData の JSON 1つ
+      ▲
+      │ debug:breakpoints-changed（全件）
+   印を描き直す
+```
+
+**Renderer は DAP を1語も知らない。** `Source` も `setBreakpoints` も `verified` の由来も Main の中で閉じる。
+
+#### 口は2つに分けた（`setBreakpoints` という口を作らない）
+
+Session 6-0 の口の一覧（§20.9）では breakpoint の口を `setBreakpoints` 1つと見積もっていた。実装では **`listBreakpoints` と `toggleBreakpoint` の2つ**にしてある。
+
+| 分けた理由                      | 内容                                                                                                             |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| **一覧を渡す口を作らない**      | 配列を丸ごと渡せる口は「Renderer が保存領域を任意に書き込む口」になる。1件ずつなら検証が必ず1件ずつ通る          |
+| **DAP の request 名を使わない** | `setBreakpoints` は DAP の request 名そのもので、口の名前と一致させると「method 名を渡す口」との距離が近く見える |
+| **最初の1回が要る**             | 通知は変わったときにしか流れない。画面が開いた時点の状態は要求で読む（`lsp:get-status` と同じ形）                |
+
+応答には**入れ替えた後の全件**を載せる。通知（`debug:breakpoints-changed`）と同じ形なので、受け手の処理が1つで済む。
+
+#### 保存（§20.5 と同じ形）
+
+| 決めたこと            | 内容                                                          |
+| --------------------- | ------------------------------------------------------------- |
+| 持ち主                | **Main**。Renderer はファイルにも保存先にも触れない           |
+| 保存先                | `userData` 配下の `debug-breakpoints.json` 1つ                |
+| 単位                  | **Workspace ごと**。ファイルの中を Workspace の絶対パスで引く |
+| Renderer が渡せる key | **無い**。`debug:list-breakpoints` の要求は `void`            |
+| 保存形式のバージョン  | 版を持ち、読めなければその Workspace の breakpoint は空で起動 |
+| 保存する欄            | `relativePath` / `line` / `enabled` の3つだけ                 |
+
+**`verified` は保存しない。** あれは「今動いている adapter がどう答えたか」であって breakpoint の性質ではない ── セッションが終われば忘れ、次のセッションで訊き直す。
+
+**Workspace の中（`.vscode/` や `.fluvix/`）には置かない。** Debug Profile と同じ理由で、clone しただけで他人の印が手元に入ってくる形にしない。
+
+読み込んだ内容も**境界の外から来た値**として扱う。1件が壊れていてもその1件だけを落とし（設定の section と同じ扱い）、`..` や絶対パスが書かれていれば `breakpointSource.ts` がそこで断る。
+
+#### DAP へ渡すところ
+
+```
+"src/app.js" の 12 行目
+  → breakpointSource.ts   D:\proj + "src/app.js" → D:\proj\src\app.js（2段の検証）
+  → dapBreakpoints.ts     { source: { path, name }, breakpoints: [{ line: 12 }], lines: [12] }
+  → setBreakpoints
+```
+
+守っていること:
+
+- **検証は Files / LSP と同じ関数**（`main/files/workspacePath.ts`）。別の検証を書き起こさない
+- **realpath は取らない。** LSP の URI と同じ理由で、この境界が守るのは「Renderer から任意の場所を指せないこと」にほかならない。加えて breakpoint は**まだ保存していない / 一時的に消えているファイル**にも置ける必要がある
+- **ファイルごとに1通。** `setBreakpoints` はそのファイルの全件を毎回送る（差分ではない）。最後の1件を外したときは**空の配列**を送る
+- **`lines` も併せて送る。** 古い adapter が `lines` しか読まないことがあり、DAP の仕様書自身が両方送ってよいとしている
+- **`sourceModified` は常に false。** true にすると adapter によっては一切 verify せず、未保存のファイルで印がすべて灰色になる
+
+#### lifecycle への差し込み
+
+```
+initialize → launch → initialized event → [ setBreakpoints ] → configurationDone → running
+                                            ↑ Session 6-3 が足したのはここ1点
+```
+
+`debugSessionManager` に**仕込み（`configurationHook`）を1つ**足した。守ったこと:
+
+- **`launch` の応答を開始の合図にしない**（§20.8）は動いていない
+- **仕込みが登録されていなければ `await` を踏まない。** 踏むと `configurationDone` が1 tick 遅れ、6-3 の有無で 6-2 の lifecycle が変わってしまう
+- **仕込みが失敗しても Debug Session は続く。** 印が付かないことと、走らせられないことは別のことにほかならない
+- 送る口は `setBreakpoints` **1つに絞ってある**。`request(command, args)` の形にすると、Main の中に任意の DAP method を送れる場所ができる ── Renderer からは届かないが、「口は機能ごとに分かれている」は Main の内側でも保つ
+
+セッション中の変更は `getBreakpointChannel()` から送り直す。**`running` / `stopped` のときだけ**口が返るので、起動中の同期（仕込み）と割り込まない。
+
+応答は**世代と状態を対で見て**当てる。世代だけでは「終わった後に新しいセッションがまだ始まっていない」を、状態だけでは「新しいセッションが同じ `running` に居る」を区別できない。
+
+#### verified / unverified
+
+| 値      | 意味                                    | 見た目         |
+| ------- | --------------------------------------- | -------------- |
+| `null`  | Debug Session が無い / まだ答えが来ない | 赤い丸         |
+| `true`  | adapter が「そこで止められる」と答えた  | 赤い丸         |
+| `false` | adapter が「置けない」と答えた          | 中を抜いた輪郭 |
+
+**`null` を「置けない」と同じ見た目にしない。** 走らせる前はいつも `null` で、そこを失敗の色にすると始める前から間違っているように見える。
+
+色は `theme.css` の3変数（`--fx-debug-breakpoint*`）から引き、Dark / Light それぞれで設計した値を持つ。**Renderer 側のコードに16進数は1つも無い**（Session 4-4 の形をそのまま守る）。**色だけに意味を持たせていない** ── どの状態かは hover の説明が言葉で伝える（Git の変更種別で記号を主にしてあるのと同じ）。
+
+Renderer へ返さないものが2つある。
+
+| 返さないもの         | 理由                                                                                                                                                                   |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| adapter の `message` | adapter が組み立てた文字列で**絶対パスを含みうる**。§20.9 の例外（Debug Console の出力）は利用者のプログラムの出力に限った話で、adapter の内部事情はそちら側に置かない |
+| adapter が動かした行 | 印の位置を動かすと**利用者が押した行と印の行がずれ**、もう一度押しても外せなくなる。ずれたことは Main のログに残す                                                     |
+
+#### Monaco 側で守ったこと
+
+- **`MonacoEditor.tsx` への追加は最小**（Session 6-0 の申し送り）。増えたのは器を state に載せる行と、フックを呼ぶ1行だけで、LSP の provider 登録にも decoration にも触れていない
+- **フックを呼ぶ位置は一番下。** React は宣言順に effect を走らせるため、上に置くと「印を当てる → Model を差し替える」の順になり、当てた decoration が差し替えで捨てられる（decoration は Model に紐づく）。位置を見せる effect を Model の後に置いてあるのと同じ理由になる
+- **Monaco の実体を import する場所を増やしていない。** 判断は `editor/debug/breakpointGlyphs.ts` に置き、Monaco は構造的部分型で受ける（`editor/lsp/editorActions.ts` と同じ形）── 副産物として、glyph margin の click も decoration の増減もファイル切替も**素のテストから試せる**
+- **差分エディタ（Compare）には glyph margin を出さない。** 読むためだけの面で、印を置く相手が居ない
+
+#### 既知の制約: 印は編集に付いて回らない
+
+正本は Main の側で、行番号は**利用者が印を置いた行**のまま動かない。一方 Monaco の decoration は編集に合わせて自分で動くため、上に行を挿入すると画面の印だけがずれる。ずれたまま押すと**別の行に2つ目の印が付き、元の印は外せない**。
+
+そこで、**行数が変わる編集のたびに保存された行へ置き直す**。行の挿入に印が付いて回る挙動（VS Code はこちら）は v1 では入れない ── 付いて回らせるには編集のたびに正本を書き換える経路が要り、それは印の同期を Renderer 側の編集イベントに依存させることになる。§19.10（`pyright-no-file-watching`）と同じく、**選択の裏返しとして受け入れる制約**であり不具合ではない。

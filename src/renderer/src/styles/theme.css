@@ -132,6 +132,29 @@
   --fx-git-conflicted: #bf6f4f;
 
   /*
+   * Breakpoint の印（Session 6-3）。
+   *
+   * 3つの状態を色で分ける。**赤（置いた）は他のどれとも取り違えない濃さにする** ──
+   * glyph margin は 20px ほどの帯で、そこに出る 10px の丸が唯一の手掛かりになる。
+   *
+   * ```
+   * breakpoint            置いてある（Debug Session が無い / 答え待ち も含む）
+   * breakpoint-verified   adapter が「そこで止められる」と答えた
+   * breakpoint-unverified adapter が「置けない」と答えた
+   * ```
+   *
+   * **色だけに意味を持たせていない。** どの状態かは hover の説明が言葉で伝える
+   * （renderer/src/editor/debug/breakpointDecorations.ts が翻訳キーを持つ）──
+   * Git の変更種別で記号を主にしてあるのと同じ考え方になる。
+   *
+   * unverified を「消す」のではなく**中を抜いた輪郭**にしてあるのは editor.css の側。
+   * ここが持つのは色だけで、形は持たない。
+   */
+  --fx-debug-breakpoint: #c05353;
+  --fx-debug-breakpoint-verified: #d05a5a;
+  --fx-debug-breakpoint-unverified: #8a8a8a;
+
+  /*
    * 前に出るものの影と、その後ろを暗くする幕（Session 4-4）。
    *
    * Session 4-3B まではこの6つが files.css / git.css / unsaved.css に
@@ -248,6 +271,17 @@
   --fx-git-renamed: #1f6ab0;
   --fx-git-untracked: #2b7565;
   --fx-git-conflicted: #ad4f1a;
+
+  /*
+   * Breakpoint の印。**Dark 用の値を流用しない**（F）。
+   *
+   * 白い面の上では Dark の赤（#c05353）が浅く見え、行番号の灰色と競って
+   * 「印が付いているのか」が読み取りにくくなる。彩度を上げて暗くする。
+   * 灰（unverified）も同じ理由で、白地に対して十分沈む値にする。
+   */
+  --fx-debug-breakpoint: #c62828;
+  --fx-debug-breakpoint-verified: #d32f2f;
+  --fx-debug-breakpoint-unverified: #6e6e6e;
 
   /*
    * 幕と影。**Dark 用の値を流用しない**（F）。

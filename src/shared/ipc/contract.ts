@@ -1,3 +1,4 @@
+import type { DebugIpcContract } from './contracts/debug'
 import type { FilesIpcContract } from './contracts/files'
 import type { GitIpcContract } from './contracts/git'
 import type { GitHubIpcContract } from './contracts/github'
@@ -40,7 +41,8 @@ export interface IpcContract
     TerminalIpcContract,
     GitIpcContract,
     GitHubIpcContract,
-    LspIpcContract {}
+    LspIpcContract,
+    DebugIpcContract {}
 
 /** 有効な IPC チャンネル名。契約に定義されたものだけが存在しうる。 */
 export type IpcChannel = keyof IpcContract & string

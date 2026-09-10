@@ -12,6 +12,8 @@ import { monacoThemeBase, readThemeTokens, toMonacoThemeColors } from '../../the
  *
  * **Monaco の実体を import してよいのは、このファイルと MonacoEditor.tsx /
  * MonacoDiffEditor.tsx / markers.ts だけ**（documentStore.ts は型としてしか見ない）。
+ * Session 6-3 で足した breakpoint の印も、この決めを崩していない ── 判断は
+ * `editor/debug/breakpointGlyphs.ts` に置き、Monaco は構造的部分型で受けている。
  * 言語判定（language.ts）を Monaco から切り離してあるのと同じ理由で、
  * 「Monaco だから決まること」と「このアプリが決めること」を混ぜない。
  *
@@ -421,7 +423,18 @@ export const EDITOR_OPTIONS: monaco.editor.IStandaloneEditorConstructionOptions 
     インデント幅はファイルの中身から推定させる（Monaco の既定）。
     プロジェクトごとに違うものを、アプリ側の設定で上書きしない。
   */
-  detectIndentation: true
+  detectIndentation: true,
+  /*
+    Breakpoint を置く帯（Session 6-3）。
+
+    既定では出ない。**印を出すためだけでなく、押す場所としても要る** ──
+    Monaco が `MouseTargetType.GUTTER_GLYPH_MARGIN` を返すのは、この帯が
+    有効なときだけになる（renderer/src/editor/debug/breakpointGlyphs.ts）。
+
+    LSP の指摘（marker）は本文と行番号の側に出るので、ここが増えても
+    重ならない ── glyph margin は行番号よりさらに左の、独立した帯にあたる。
+  */
+  glyphMargin: true
 }
 
 /**
@@ -442,6 +455,11 @@ export const DIFF_EDITOR_OPTIONS: monaco.editor.IStandaloneDiffEditorConstructio
   ...EDITOR_OPTIONS,
   readOnly: true,
   originalEditable: false,
+  /*
+    Breakpoint の帯は出さない（Session 6-3）。差分は読むためだけの面で、
+    印を置く相手が居ない ── 出すと左右それぞれに空の帯が1本ずつ増えるだけになる。
+  */
+  glyphMargin: false,
   renderSideBySide: true,
   // 狭いパネルでは左右に並べられないので、その場合だけ Monaco に畳ませる。
   renderSideBySideInlineBreakpoint: 600,

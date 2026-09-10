@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { startWorkspaceWatching, stopWorkspaceWatching } from '../files/workspaceWatcher'
 import { startGitWatching, stopGitWatching } from '../git/gitWatcher'
 import { registerIpcHandlers } from '../ipc'
+import { startDebugBreakpointHosting } from '../debug/breakpoints'
 import { disposeDebugSession, startDebugSessionHosting } from '../debug/debugSessionManager'
 import { startLanguageServerDiagnostics } from '../lsp/diagnostics'
 import { startLanguageServerDocumentSync } from '../lsp/documentSync'
@@ -11,6 +12,7 @@ import { startLanguageServerStatusReporting } from '../lsp/serverStatus'
 import { createLogger } from '../logger'
 import { isMacOS } from '../platform'
 import { applySessionSecurityPolicy, applyWebContentsSecurityPolicy } from '../security'
+import { flushDebugBreakpointsDocument } from '../store/debugBreakpoints'
 import { flushSettingsDocument } from '../store/settings'
 import { flushWorkspaceFolderDocument } from '../store/workspaceFolder'
 import { flushWorkspaceLayoutDocument } from '../store/workspaceLayout'
@@ -117,6 +119,17 @@ export function bootstrapApp(): void {
     startDebugSessionHosting(onWorkspaceFolderChange)
 
     /*
+      Breakpoint も Workspace ごとのもの（Session 6-3）。**Debug Session より後に
+      張る**のが要点で、こちらは切り替えのときに「控えを捨てて保存内容から
+      読み直す」を行う ── 先に張ると、前の Workspace の印を新しい Workspace の
+      adapter へ送りうる順序になる。
+
+      ここは Debug Session の仕込み（initialized → configurationDone の間に
+      setBreakpoints を送る）を登録する唯一の場所でもある。
+    */
+    startDebugBreakpointHosting(onWorkspaceFolderChange)
+
+    /*
       シェルのセッションは Workspace の切り替えに追従しない（Session 3-7-3）。
       作業ディレクトリは起動時に決まり、動いているプロセスを切り替えで
       終わらせることはしないため、起動時に用意するものが無い
@@ -163,6 +176,8 @@ export function bootstrapApp(): void {
     flushWorkspaceLayoutDocument()
     flushWorkspaceFolderDocument()
     flushSettingsDocument()
+    // 印を付けた直後に終了しても、次回起動で戻ってくるようにする（Session 6-3）。
+    flushDebugBreakpointsDocument()
   })
 
   app.on('window-all-closed', () => {

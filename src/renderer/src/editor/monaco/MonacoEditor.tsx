@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, type JSX } from 'react'
+import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
 import type { FileEncoding, FileLineEnding, FileRevision } from '@shared/files'
+import { useBreakpointGlyphs } from '../debug/useBreakpointGlyphs'
 import type { EditorRevealRequest } from '../editorReveal'
 import { useEditorActionCommands } from '../lsp/useEditorActionCommands'
 import type { EditorDocumentSource, EditorDocumentStore } from './documentStore'
@@ -128,6 +129,20 @@ export function MonacoEditor({
 }: MonacoEditorProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
+  /**
+   * 生まれた器（Session 6-3）。
+   *
+   * 参照（`editorRef`）とは別に state でも持つ。**器が生まれたことを描画の側から
+   * 見る手段が要る**ためで、breakpoint の印は器に紐づく decoration として
+   * 当たる（editor/debug/useBreakpointGlyphs.ts）── ref だけでは、
+   * 器ができた瞬間に印を当て直す effect を走らせられない。
+   *
+   * 増える描画は器の生成と破棄のときの1回ずつで、中身（テキスト）を描くのは
+   * Monaco 自身なので React の再描画には乗らない。
+   */
+  const [editorInstance, setEditorInstance] = useState<monaco.editor.IStandaloneCodeEditor | null>(
+    null
+  )
   /** 今エディタに載っている位置。離れるときに viewState を控える相手。 */
   const mountedPathRef = useRef<string | null>(null)
   const { settings: appearance } = useTheme()
@@ -180,6 +195,8 @@ export function MonacoEditor({
 
     const editor = monaco.editor.create(container, EDITOR_OPTIONS)
     editorRef.current = editor
+    // 器が生まれたことを描画の側へ伝える（Session 6-3。上記）。
+    setEditorInstance(editor)
 
     /*
       ストアへ参照を預ける。中身を差し替える（Reload・外部変更の取り込み）ときに、
@@ -197,6 +214,7 @@ export function MonacoEditor({
       documents.attachEditor(null)
       mountedPathRef.current = null
       editorRef.current = null
+      setEditorInstance(null)
 
       /*
         エディタだけを捨てる。`editor.dispose()` は自分が作った Model しか捨てないため、
@@ -328,6 +346,28 @@ export function MonacoEditor({
 
     onRevealed?.()
   }, [reveal, relativePath, onRevealed])
+
+  /*
+    Breakpoint の印（Session 6-3）。
+
+    判断は1つも持たない ── 何行目が押されたかも、印の見た目も、Main への
+    要求も、すべて渡した先が持つ（editor/debug/useBreakpointGlyphs.ts）。
+    ここから渡すのは**器**と、Monaco の enum の値と、今出しているファイルだけになる。
+
+    `MouseTargetType` をここで読むのは、**Monaco の実体を import してよいのが
+    この器の側だけ**だからにほかならない（monaco/monacoSetup.ts の冒頭）。
+
+    **呼ぶ位置がこの一番下であることに意味がある。** React は宣言した順に
+    effect を走らせるため、上に置くと「印を当てる → Model を差し替える」の順に
+    なり、当てた decoration が**差し替えの時点で捨てられる**（decoration は
+    Model に紐づく）。位置を見せる effect を Model の後に置いてあるのと同じ理由で、
+    ここでもファイルを切り替えたときの順序が要点になる。
+  */
+  useBreakpointGlyphs(
+    editorInstance,
+    monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN,
+    relativePath
+  )
 
   return (
     <div

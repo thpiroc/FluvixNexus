@@ -21,6 +21,7 @@ import type {
   SearchWorkspaceFilesRequest,
   WriteWorkspaceFileRequest
 } from './ipc/contracts/files'
+import type { ToggleDebugBreakpointRequest } from './ipc/contracts/debug'
 import type { IpcInvokeResult } from './ipc/contract'
 import type {
   AddGitRemoteRequest,
@@ -1066,6 +1067,56 @@ export interface LspApi {
 }
 
 /**
+ * debug ドメインの Preload API（Session 6-3 ── Breakpoint）。
+ *
+ * **口は3つだけで、そのどれもプロセスを操作しない。** `lsp` と同じ性格の面に
+ * なっており、Renderer から渡せるのは「Workspace の中の相対位置と行」だけになる。
+ *
+ * ここに無いもの:
+ *
+ * ```
+ * 任意の DAP request / command … 無い（method 名を渡す欄が無い）
+ * adapter の選択 / 実行ファイル … 無い（表は Main。docs/ARCHITECTURE.md §20.7）
+ * 絶対パス / file URI           … 無い（組み立てるのは Main）
+ * Debug Session を起動 / 停止   … 無い（Session 6-4 以降）
+ * breakpoint の一覧を書き込む口 … 無い（1件ずつの入れ替えだけ。§20.12）
+ * ```
+ *
+ * したがって、この面が増えても「Renderer からの要求で任意の実行ファイルが動く」
+ * 形は作られない（`lsp` を足したときと同じ線）。
+ */
+export interface DebugApi {
+  /**
+   * 今の Workspace の breakpoint を読む。
+   *
+   * 画面を開いた時点で1度読む。以降は `onBreakpointsChanged` が届くが、
+   * **変わったときにしか流れない**ので最初の1回はこちらが要る
+   * （`lsp.getStatus` と同じ形）。
+   */
+  readonly listBreakpoints: () => IpcInvokeResult<'debug:list-breakpoints'>
+  /**
+   * その位置の breakpoint を入れ替える（無ければ付け、あれば外す）。
+   *
+   * 応答は入れ替えた後の全件。Debug Session が動いていれば、Main が
+   * `setBreakpoints` へ翻訳して adapter へ送る ── **Renderer はその翻訳を
+   * 1段も知らない**（docs/ARCHITECTURE.md §20.12）。
+   */
+  readonly toggleBreakpoint: (
+    request: ToggleDebugBreakpointRequest
+  ) => IpcInvokeResult<'debug:toggle-breakpoint'>
+  /**
+   * breakpoint の一覧が変わった。
+   *
+   * 利用者の操作の結果としても届くが、**要求が無くても届く** ── adapter が
+   * verified を返したとき、Workspace が切り替わったときがそれにあたる。
+   * 全件が毎回届くので、受け手は差分を当てず届いた一覧で置き換える。
+   */
+  readonly onBreakpointsChanged: (
+    listener: IpcEventListener<'debug:breakpoints-changed'>
+  ) => IpcEventUnsubscribe
+}
+
+/**
  * `window.fluvix` として Renderer に公開される API 全体。
  *
  * Files / Terminal / GitHub など OS に触れるドメイン API は、
@@ -1091,6 +1142,8 @@ export interface FluvixApi {
   readonly github: GitHubApi
   /** 開いている文書を Language Server と同期する（Session 5-2）。 */
   readonly lsp: LspApi
+  /** その Workspace の breakpoint（Session 6-3）。 */
+  readonly debug: DebugApi
   /** アプリの設定の永続化。 */
   readonly settings: SettingsApi
 }

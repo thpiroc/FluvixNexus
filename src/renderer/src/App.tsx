@@ -1,5 +1,6 @@
 import type { JSX } from 'react'
 import { CommandProvider } from './commands/CommandProvider'
+import { BreakpointProvider } from './debug/BreakpointProvider'
 import { EditorProvider } from './editor/EditorProvider'
 import { FilesViewProvider } from './files/FilesViewProvider'
 import { LanguageProvider } from './i18n/LanguageProvider'
@@ -18,7 +19,7 @@ import { WorkspaceFolderProvider } from './workspaceFolder/WorkspaceFolderProvid
  * アプリ全体に関わるもの（エラーバウンダリ、独立ウィンドウ化した際のルート分岐など）が
  * 必要になったときだけこの層に足す。
  *
- * Shell より外側に置いているものが9つある。どれも**レイアウトの都合でパネルが
+ * Shell より外側に置いているものが10ある。どれも**レイアウトの都合でパネルが
  * 作り直されても消えてはいけない状態**で、パネルは自由に配置を変えられて
  * 親子関係が固定されていないため prop では配れない。
  *
@@ -30,6 +31,7 @@ import { WorkspaceFolderProvider } from './workspaceFolder/WorkspaceFolderProvid
  *   TerminalProvider        … 動いているシェルと、その画面（Session 3-7-1）
  *   FilesViewProvider       … Files の表示方式として**利用者が選んだ方**（Session 3-6-7）
  *   LspSettingsProvider     … Language Server を使うか（Session 5-4。lsp/）
+ *   BreakpointProvider      … その Workspace の breakpoint（Session 6-3。debug/）
  *   KeybindingProvider      … 打鍵を command へ繋ぐ（Session 4-7A。keybindings/）
  *
  * Shell の中に置くと、レイアウトの都合でパネルが作り直されたときに
@@ -94,9 +96,19 @@ function App(): JSX.Element {
                       Main が自分で読んだ同じ設定になる（lsp/LspSettingsProvider.tsx）。
                     */}
                     <LspSettingsProvider>
-                      <KeybindingProvider>
-                        <WorkspaceShell />
-                      </KeybindingProvider>
+                      {/*
+                        Breakpoint（Session 6-3）。**Editor より外**に置く必要がある
+                        ── 印は Editor パネルより長く生き、パネルを閉じても
+                        別の場所へ運んでも消えない（debug/context.ts）。
+
+                        Workspace には依存する（相対位置は Workspace が変われば
+                        別のファイルを指す）ので、WorkspaceFolderProvider の内側になる。
+                      */}
+                      <BreakpointProvider>
+                        <KeybindingProvider>
+                          <WorkspaceShell />
+                        </KeybindingProvider>
+                      </BreakpointProvider>
                     </LspSettingsProvider>
                   </FilesViewProvider>
                 </TerminalProvider>

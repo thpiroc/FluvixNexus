@@ -1,6 +1,6 @@
 # Fluvix Nexus 設計ドキュメント
 
-> ステータス: STEP 1（基盤構築）完了 / STEP 2（Dockable Workspace 基盤）完了 / STEP 3（各パネルの本機能）完了 / STEP 4（日常使用の土台）完了 / STEP 5（LSP）完了 / **STEP 6（DAP）基盤実装中（Session 6-2）**
+> ステータス: STEP 1（基盤構築）完了 / STEP 2（Dockable Workspace 基盤）完了 / STEP 3（各パネルの本機能）完了 / STEP 4（日常使用の土台）完了 / STEP 5（LSP）完了 / **STEP 6（DAP）実装中（Session 6-3）**
 > 最終更新: 2026-09-10
 
 このドキュメントは**製品としての設計方針**を扱う。実装の構造と開発手順は以下を参照。
@@ -415,7 +415,7 @@ Auto Save は4方式すべてが動くようになり、設定はアプリ再起
 | Git / GitHub 本機能                              | **Session 3-8-1 〜 3-8-22A で実装済み・3-8-22B で production app 確認済み**（検出・変更一覧・Stage / Unstage・Commit・Push / Pull / Fetch・ブランチ・`.git` の監視・差分と破棄・`git init` と「GitHub に公開」・コミット履歴・コミットの詳細と差分・履歴からのブランチ作成・ブランチの削除 / rename・退避・remote の管理と URL 変更 / rename・競合の解決・remote の枝から手元にブランチを作る・マージの開始 / 中止・競合の ours / theirs の差分・途中の Git 操作の検出と禁止） |
 | ブランチ操作 UI                                  | **Session 3-8-6 / 3-8-13 / 3-8-14 / 3-8-19 / 3-8-20 で実装済み**（バーのブランチ名から開く面で一覧・切り替え・作成・削除・rename・マージ、履歴の行から始点を指す欄、remote の枝から作る畳んだ段。ローカルと remote-tracking は**別の一覧**。マージ中はパネルの帯から中止できる）                                                                                                                                                                                               |
 | LSP                                              | §4。JavaScript / TypeScript・Python・C#。SDK は同梱せず PC の環境を検出する                                                                                                                                                                                                                                                                                                                                                                                                    |
-| DAP                                              | §5 / §13。**STEP 6**。Breakpoint / Step / Variables / Call Stack。Session 6-0 で設計確定、6-1 で DAP wire / adapter process / catalog foundation を実装                                                                                                                                                                                                                                                                                                                        |
+| DAP                                              | §5 / §13。**STEP 6**。Breakpoint / Step / Variables / Call Stack。Session 6-0 で設計確定、6-1 で DAP wire / adapter process / catalog foundation、6-2 で Debug Session lifecycle、6-3 で Breakpoint を実装                                                                                                                                                                                                                                                                     |
 | パネルの独立ウィンドウ化                         | §3。Main 側で別ウィンドウを開き、Shell のルートを分岐する                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | タブのドラッグによる並べ替え                     | レイアウト操作としては実装済みで、UI の入口だけが無い（ARCHITECTURE.md §7.9）                                                                                                                                                                                                                                                                                                                                                                                                  |
 | レイアウトプリセットの追加・自作レイアウトの保存 | Coding / Debug などの表への追加と、名前を付けた保存（§3）                                                                                                                                                                                                                                                                                                                                                                                                                      |
@@ -1736,11 +1736,44 @@ Lifecycle は `initialize` の capability を読み、`launch` を送った後�
 
 古い adapter から遅れて届いた event / error / close は、session generation が現在のものと一致するときだけ扱う。stop / dispose / Workspace switch / app quit / start failure / adapter error / adapter exit は同じ冪等 cleanup path に収束し、DAP connection の pending request も閉じる。
 
-### Session 6-3 〜 6-13（予定）— 実装
+### Session 6-3（完了）— Breakpoint
+
+STEP 6 で**初めて Renderer に面が出た** Session になる。6-1 / 6-2 は Main の中だけで閉じていたが、ここで Monaco・preload・IPC・保存の4つが一度に繋がった。
+
+入れたもの:
+
+| ファイル                             | 役割                                                                 |
+| ------------------------------------ | -------------------------------------------------------------------- |
+| `shared/debug/breakpoint.ts`         | Renderer が扱う4欄（相対位置 / 行 / enabled / verified）と純粋な判断 |
+| `shared/debug/breakpointDocument.ts` | 保存形式（Workspace の絶対パスで引く JSON）                          |
+| `main/debug/breakpointModel.ts`      | 入れ替え・重複・並び・adapter の答えの当て方（純粋）                 |
+| `main/debug/breakpointSource.ts`     | 相対位置 → DAP の `Source`（2段の検証。Workspace の外なら null）     |
+| `main/debug/dapBreakpoints.ts`       | `setBreakpoints` 1往復の形と応答の読み取り                           |
+| `main/debug/breakpointSync.ts`       | 1ファイルぶんの送信と、控えへの反映                                  |
+| `main/debug/breakpoints.ts`          | 正本・保存・通知・セッションとの同期                                 |
+| `main/store/debugBreakpoints*.ts`    | `userData/debug-breakpoints.json` と、その検証                       |
+| `renderer/src/debug/`                | 今の Workspace の写しを配る器                                        |
+| `renderer/src/editor/debug/`         | glyph margin の印（**Monaco を import しない**構造的部分型）         |
+
+**v1 は行 breakpoint だけ。** 条件付き・hit count・logpoint・function・data は STEP 6 の範囲外のまま（[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §20.11）。
+
+決めたことのうち、設計から動いたものが2つある。
+
+| 論点                | Session 6-0 の予定                     | Session 6-3 の実装                                                                                 |
+| ------------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| breakpoint の永続化 | **入れない**（アプリを閉じると消える） | **入れた。**予告どおり §20.5 と同じ形（userData の JSON 1つを Workspace の絶対パスで引く）に載せた |
+| 切る口              | `setBreakpoints` 1つ（要求17）         | `listBreakpoints` / `toggleBreakpoint` の2つ（要求18）。**一覧を丸ごと渡す口を作らない**ため       |
+
+Renderer へ返さないものが2つ増えた ── adapter が返した**文言**（絶対パスを含みうる）と、adapter が**動かした行**（印の位置を動かすと、押した行と印がずれて外せなくなる）。どちらも Main の控えにだけ残る。
+
+lifecycle への差し込みは1点だけで、`initialized` の後・`configurationDone` の前に `setBreakpoints` を送る仕込みを `debugSessionManager` に足した。**`launch` の応答を開始の合図にしない**（Session 6-2 の決め）は動いていない。仕込みが登録されていなければ `await` そのものを踏まない形にしてあり、6-3 の有無で 6-2 の lifecycle は1 tick も変わらない。
+
+`MonacoEditor.tsx` への追加は**器を state に載せる行とフックを呼ぶ1行だけ**（Session 6-0 の申し送り）。呼ぶ位置が一番下であることに意味があり、上に置くと「印を当てる → Model を差し替える」の順になって decoration が捨てられる ── production build の確認で実際にそうなった。
+
+### Session 6-4 〜 6-13（予定）— 実装
 
 | Session | 入れるもの                                                                     | 推奨 Agent   |
 | ------- | ------------------------------------------------------------------------------ | ------------ |
-| 6-3     | Breakpoint（Monaco の gutter・`setBreakpoints`・verified の反映）              | Claude Code  |
 | 6-4     | 実行制御（Continue / Pause / Step Over / Into / Out / Stop）と停止行           | Claude Code  |
 | 6-5     | Call Stack（フレーム選択 → 該当行へジャンプ。§5 の「エラー位置へのジャンプ」） | どちらでも可 |
 | 6-6     | Variables                                                                      | Codex        |

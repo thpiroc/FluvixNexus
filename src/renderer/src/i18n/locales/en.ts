@@ -811,6 +811,19 @@ export const enMessages = {
         '{name} was saved. That location is already open in another tab, so this tab was not switched.',
       saved: '{name} was saved.'
     },
+    /*
+      Breakpoint の印の説明（Session 6-3）。glyph margin に hover したときに出る。
+
+      **色だけに意味を持たせない**ためにここが要る ── 赤い丸と輪郭だけでは
+      「まだ答えが来ていない」と「置けないと言われた」の区別が付かない
+      （renderer/src/editor/debug/breakpointDecorations.ts）。
+    */
+    breakpoint: {
+      pending: 'Breakpoint',
+      verified: 'Breakpoint (the debugger can stop here)',
+      unverified: 'Breakpoint (the debugger cannot stop here)',
+      disabled: 'Breakpoint (disabled)'
+    },
     document: {
       saving: 'Saving…',
       saveError: 'Could not save ({message})',
