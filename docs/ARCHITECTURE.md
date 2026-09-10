@@ -1,7 +1,7 @@
 # アーキテクチャ
 
-> 対象: Session 4-8A（Localization / Keyboard Shortcuts の production app 統合確認）完了時点の実装
-> 最終更新: 2026-09-06
+> 対象: Session 5-13（STEP 5 LSP Closing）完了時点の実装 ＋ Session 6-0（STEP 6 DAP 設計確定。§20 は**まだコードが無い**設計）
+> 最終更新: 2026-09-10
 
 製品としての方向性は [DESIGN.md](../DESIGN.md) を参照。このドキュメントは「現在のコードがどう組まれているか」と「機能を足すときにどこへ書くか」を扱う。
 
@@ -503,7 +503,7 @@ Session 3-1 の Workspace（開いているフォルダ）もこの方針に従�
 | Terminal                           | **§13 として実装済み**（node-pty は Main・作業ディレクトリは §8・出力は §3.3 の経路）。複数タブは同じ表に足す                                                                                     |
 | Git / GitHub パネル                | **§14 として実装済み**（git の実行基盤・検出・一覧・Stage / Unstage・Commit・Push / Pull・ブランチ・`.git` の監視・差分と破棄・`git init` と GitHub への公開）。増やすときは操作ごとに1本ずつ切る |
 | GitHub パネルの独立ウィンドウ化    | セキュリティガードは webContents 単位、IPC は送信元ウィンドウを `IpcContext` で受け取れる。イベントは全ウィンドウへ届く（§3.3）                                                                   |
-| DAP                                | Terminal / LSP と同じ経路（Main でプロセス、IPC でやり取り、通知は §3.3）                                                                                                                         |
+| DAP                                | **§20 として設計確定（Session 6-0）**。Terminal / LSP と同じ経路（Main でプロセス、IPC でやり取り、通知は §3.3）。実装は Session 6-1 から                                                         |
 | Mac 対応                           | OS 依存判定は `platform/`。Renderer / shared に OS 依存は入っていない                                                                                                                             |
 
 STEP 1 から持ち越していた **Main → Renderer のイベント経路**は Session 3-3 で用意した（§3.3）。残る機能はいずれも現在の構造のまま追加できる。
@@ -6493,7 +6493,7 @@ Session 3-7-5 では、下書きを持って Enter / blur で確定する欄は 
 | Language / General   | **Session 4-5A で入った**（§17）。同じく section 1つと目録の1行だけ                                                             |
 | Keyboard Shortcuts   | **Session 4-7C で入った**（§18.6）。**値を持たない最初のカテゴリ**で、section は増えていない                                    |
 | Workspace ごとの設定 | 入れていない。プロジェクトフォルダの中には何も書かない方針のまま                                                                |
-| LSP / DAP の設定     | 入れていない。**実行ファイルのパスを Renderer から保存して Main が実行する形は作らない** ── 安全設計ごと STEP 5 / STEP 8 で行う |
+| LSP / DAP の設定     | 入れていない。**実行ファイルのパスを Renderer から保存して Main が実行する形は作らない** ── 安全設計ごと STEP 5 / STEP 6 で行う |
 | 設定の検索           | 置いていない。**Keyboard Shortcuts の一覧だけは自前の絞り込みを持つ**（27件並ぶため。§18.6）                                    |
 | 既定へ戻す           | 置いていない。項目ごとに範囲と既定が説明文に出ている                                                                            |
 | `settings:changed`   | 要らない（単一 Renderer が Context で同期している。§12.4）                                                                      |
@@ -7309,4 +7309,289 @@ Session 5-13 で実際に測った範囲は次のとおり。
 | Workspace 外のファイルを開く | しない。定義の行き先が Workspace の外なら開かない                                       |
 | file watching                | 入れていない（§19.10）                                                                  |
 | Python の整形器              | 入れていない（§19.4）                                                                   |
-| DAP                          | STEP 8。LSP とは別のプロセス系統として設計する                                          |
+| DAP                          | STEP 6。LSP とは別のプロセス系統として設計する（§20）                                   |
+
+---
+
+## 20. Debug（DAP。STEP 6）
+
+**この節はまだコードを持たない。** Session 6-0（設計）で決めたことだけを書いてあり、実装は Session 6-1 から入る。ここに書いていない口・欄・経路を実装側で足すときは、足す前にこの節へ戻ること。
+
+DESIGN.md §5 の11機能（Breakpoint / Continue / Pause / Step Over / Step Into / Step Out / Stop / Variables / Call Stack / Debug Console / エラー位置へのジャンプ）を、Terminal（§13）と LSP（§19）が固めた「**Main が長命な子プロセスを持ち、Renderer は app-domain の言葉だけで話す**」形の上に載せる。
+
+### 20.1 LSP と決定的に違う一点
+
+LSP は「**何を起動するか**」を Renderer に相談する必要が無かった。開いた文書の拡張子だけで行き先のサーバが決まり、実行ファイル・引数・cwd は catalog（Main）が持てば足りた（§19.2・§19.8）。
+
+デバッグは違う。**「何を、どんな引数で、どこで動かすか」は利用者にしか決められない。** ここに欄をまったく作らなければ道具にならず、そのまま欄を作れば「Renderer が指定した実行ファイルを Main が起動する場所」になる ── §19.8 で閉じた線がそこで崩れる。
+
+そこで STEP 6 は、境界を**欄の有無**ではなく**欄の性格**で引く。
+
+| 性格                                   | 例                                                 | どちら側 |
+| -------------------------------------- | -------------------------------------------------- | -------- |
+| **プログラムが何をするか**を変えるもの | 対象のファイル、プログラムへの引数、入口で止めるか | Renderer |
+| **何のプログラムが動くか**を変えるもの | 実行ファイル、interpreter、adapter、cwd、探索パス  | Main     |
+
+この1行が STEP 6 の Security boundary そのものになる。以下はすべてこの線の言い換えにあたる。
+
+### 20.2 責務の分け方
+
+```
+Renderer                         Main
+────────                         ────
+Debug Profile を作る / 選ぶ
+  （アプリの言葉だけ）
+      │
+      │ debug:start { profileId }        ← 送るのは id 1つ
+      ▼
+                                 profileStore      profileId → DebugProfile
+                                 profileResolver   Profile → ResolvedLaunchConfiguration
+                                     ├ 言語 → adapter の決定
+                                     ├ adapter の実行ファイルを PATH から解決（絶対パス）
+                                     ├ program の workspace-relative → 絶対パス
+                                     ├ cwd = 現在の Workspace root
+                                     ├ 環境の組み立て（表から）
+                                     └ DAP launch request への変換
+                                 adapterCatalog    何を、どの引数で起動するか（表）
+                                 adapterProcess    起動 / 停止 / 片付け
+                                 dapConnection     Content-Length フレーミング
+                                 debugSession      状態機械（initialize → … → running）
+      ▲
+      │ debug:state-changed / stopped / output / breakpoints-changed（§3.3 の経路）
+      │
+   画面を描く
+```
+
+**Renderer はこの変換を1段も知らない。** `debug:start` に載るのは `profileId` だけで、そこから先に何が起きるかは Main の中で閉じる。
+
+### 20.3 Debug Profile（Renderer が扱える唯一の形）
+
+`shared/debug/profile.ts` に置く。**Renderer が読むのも書くのもこの型だけ**になる。
+
+| 欄                    | 型                                | 誰が決めるか    | なぜ渡してよいか                                                                |
+| --------------------- | --------------------------------- | --------------- | ------------------------------------------------------------------------------- |
+| `profileId`           | `string`                          | **Main が発番** | Renderer が任意の id を書けると、保存領域の任意の位置を指せる形に近づく         |
+| `name`                | `string`                          | Renderer        | 画面に出す名前。実行に一切関与しない                                            |
+| `language`            | `'node' \| 'python' \| 'csharp'`  | Renderer        | **閉じた集合**。ここから adapter が決まる（§20.7）。`LanguageServerId` と同じ形 |
+| `programRelativePath` | `string`                          | Renderer        | **Workspace 相対のみ**。検証は Files と同じ2段（§20.9）                         |
+| `programArgs`         | `readonly string[]`               | Renderer        | **プログラムへの**引数。shell を通さないので語の分割も展開も起きない（§20.4）   |
+| `env`                 | `Readonly<Record<string,string>>` | Renderer        | プログラムの振る舞いを変えるもの。ただし名前に制限がある（§20.9）               |
+| `stopOnEntry`         | `boolean`                         | Renderer        | 入口で止めるか。何が動くかを変えない                                            |
+
+**この7つで確定とする。** 利用者が候補として挙げた `console policy` は**入れない**（§20.9 の `runInTerminal` の判断と対になる）。
+
+Renderer から欄そのものを作らないもの:
+
+| 作らない欄                           | 理由                                                                                  |
+| ------------------------------------ | ------------------------------------------------------------------------------------- |
+| `cwd`                                | v1 は**常に Workspace root**。欄を作れば「Renderer が指定した場所で起動する」になる   |
+| `runtime` / `interpreter` / `python` | 実行ファイルの指定そのもの。PATH から解決するのは Main（§19.2 と同じ規則）            |
+| `adapter*`                           | §20.4                                                                                 |
+| `console`                            | 出力先は Debug Console 固定。`integratedTerminal` は `runInTerminal` を開くことになる |
+| `preLaunchTask` / `postDebugTask`    | 「デバッグの前に別のものを走らせる」は、任意コマンド実行の別名にほかならない          |
+| 絶対パス / file URI                  | §19.8 と同じ。組み立てるのも解くのも Main の中だけ                                    |
+| `attach` 系（processId / port）      | v1 は **launch のみ**。動いているプロセスに繋ぐ形は STEP 6 の範囲外                   |
+| 任意の DAP request 名                | 口は機能ごとに分かれている（§20.9）。method 名を渡す口を作らない                      |
+
+`DebugProfileDraft` は `profileId` を持たない同じ形とし、作成 / 更新の要求はこれで受ける。
+
+### 20.4 program args と adapter args は、別のもの
+
+**ここを混ぜると境界が消える。** 名前が似ているだけで、行き先も持ち主も違う。
+
+|                | program arguments                              | adapter executable / args / cwd              |
+| -------------- | ---------------------------------------------- | -------------------------------------------- |
+| 何に渡るか     | **デバッグ対象のプログラム**（利用者のコード） | **Debug Adapter のプロセス**（デバッガ本体） |
+| 誰が決めるか   | 利用者（Debug Profile の欄）                   | **Main の catalog だけ**                     |
+| 経路           | Profile → `launch` request の `args`           | `spawn()` の引数そのもの                     |
+| 変えられるもの | プログラムの振る舞い                           | **何のプログラムが動くか**                   |
+| Renderer の欄  | ある（`programArgs`）                          | **無い**                                     |
+
+利用者の挙げた区別は**そのまま採用する**。理由は §20.1 の1行に還元できる ── `programArgs` をいくら変えても動くのは同じ debugpy と同じ `main.py` であり、`adapterArgs` を1語変えれば動くものが変わる。
+
+補強として2つ:
+
+- `programArgs` は**shell を通さない**。`spawn` の引数配列としてそのまま渡るので、`&&` も `|` も `%VAR%` も語として扱われる（§13.2 で Terminal が、§14.2 で git が採った形と同じ）
+- `programArgs` は `launch` request の中に入る。**adapter のコマンドラインには一語も現れない**
+
+### 20.5 Profile の保存
+
+| 決めたこと            | 内容                                                                                          |
+| --------------------- | --------------------------------------------------------------------------------------------- |
+| 持ち主                | **Main**。Renderer はファイルにも保存先にも触れない（§5 の方針どおり）                        |
+| 保存先                | `userData` 配下の `debug-profiles.json` 1つ                                                   |
+| 単位                  | **Workspace ごと**。ファイルの中を Workspace の絶対パス（realpath で正規化）で引く            |
+| Renderer が渡せる key | **無い**。`debug:list-profiles` の要求は `void` で、返るのは常に**現在の Workspace の分だけ** |
+| 保存形式のバージョン  | レイアウト（§7.8）と同じく版を持ち、読めなければその Workspace の profile は空で起動          |
+
+**Workspace の中（`.vscode/` や `.fluvix/`）には置かない。** 置いた瞬間、リポジトリを clone しただけで「このプロジェクトではこれが起動する」が手元に入ってくる。§19.2 が「Workspace の中は探さない」で閉じたのと同じ穴になる。
+
+Workspace の絶対パスが key として保存ファイルに載るが、**この key が Renderer へ出ることは無い**（応答は profile の配列だけ）。
+
+### 20.6 解決済みの形は、Main の中だけにある
+
+型を2つに分け、**置き場所で分離を担保する**。
+
+| 型                            | 置き場所                       | 中身                                                           | IPC に載るか |
+| ----------------------------- | ------------------------------ | -------------------------------------------------------------- | ------------ |
+| `DebugProfile`                | `shared/debug/profile.ts`      | §20.3 の7欄だけ                                                | **載る**     |
+| `ResolvedLaunchConfiguration` | `main/debug/resolvedLaunch.ts` | adapter の絶対パス・adapter args・cwd・env・program の絶対パス | **載らない** |
+
+`shared/` は Node 側と DOM 側の両方でコンパイルされる層で、「純粋な型と定数だけ」という制約が既にある（DEVELOPMENT.md §3）。**解決済みの形を `shared/` に置かない**というルールは、その制約の延長に置く ── `shared/debug/` に `executable` や絶対パスを表す欄が現れたら、それは設計に戻る合図になる。
+
+`profileResolver` は `DebugProfile` を受け取り `ResolvedLaunchConfiguration` を返す純粋な関数として書く（Electron / fs 非依存・テスト対象）。§14.1 の `gitExecutable.ts`・§13.2 の `shellCommand.ts` と同じ置き方で、**STEP 6 で最もテストが効く場所**にあたる。
+
+### 20.7 Adapter catalog（Main が持つ表）
+
+`main/debug/adapterCatalog.ts`。守ることは `languageServerCatalog.ts`（§19.2）と**同一**とする。
+
+- 実行ファイルは **PATH から解決した絶対パス**で起動する。名前だけで起動しない
+- **Workspace の中は探さない**
+- Windows の `.cmd` は `cmd.exe /c <絶対パス>` で包み、その `cmd.exe` も `%SystemRoot%` から組み立てる
+- adapter の引数は**表の側**が持つ
+
+繋ぐ相手（**入手経路と stdio 対応は Session 6-1 で実機確認する**）:
+
+| 言語    | Debug Adapter 候補                       | 入手経路              | 6-1 で確かめること            |
+| ------- | ---------------------------------------- | --------------------- | ----------------------------- |
+| Node.js | vscode-js-debug の DAP server            | 未確定（同梱しない）  | **stdio か TCP か**・入手経路 |
+| Python  | `debugpy`（`python -m debugpy.adapter`） | `pip install debugpy` | 起動と `initialize` の往復    |
+| C#      | `netcoredbg --interpreter=vscode`        | 配布バイナリ          | 同上。**vsdbg は使わない**    |
+
+**vsdbg（Visual Studio の debugger）はライセンス上 Visual Studio / VS Code 以外から使えない。** C# は netcoredbg を前提とし、入手できない PC では「未インストール」に留める（LSP の csharp-ls と同じ扱い。§19.6 の状態表がそのまま使える）。
+
+この PC の現状: **Node のみ利用可能**（Python / .NET SDK は未導入。STEP 5 Closing 時点と同じ）。Python / C# の実機確認は STEP 5 と同じく一時ディレクトリ + 起動する Electron の `env` にだけ PATH を足す形で行う（DEVELOPMENT.md §4）。
+
+#### framing と transport を分ける
+
+DAP のフレーミングは LSP と同じ `Content-Length` ヘッダ + JSON 本体で、違うのは中身（`seq` / `type: request | response | event`）だけになる。一方で**繋ぎ先は adapter によって stdio とは限らず、TCP のこともある**（Node の候補がまさにそれ）。
+
+そこで 6-1 は3つに割る。
+
+```
+main/debug/dapMessage.ts      1本のメッセージの読み書き（純粋・テスト対象）
+main/debug/dapConnection.ts   duplex stream の上の DAP（stdio か socket かを知らない）
+main/debug/adapterProcess.ts  起動 / 停止 / どの stream を繋ぐか
+```
+
+`jsonRpcConnection.ts`（§19.2）が子プロセスの stdio に直接結びついているのに対し、**`dapConnection.ts` は stream を受け取る形にする**。TCP の adapter が来たときに層を作り直さずに済む唯一の分け方になる。
+
+### 20.8 launch lifecycle
+
+責務の順序は次で確定とする。
+
+```
+DebugProfile
+  → profileResolver        （Main。§20.6）
+  → adapterCatalog         （Main。§20.7）
+  → adapter process start
+  → initialize             request  → 応答で capability を読む（§19.4 と同じ考え方）
+  → launch                 request  （応答はまだ待たない）
+  → initialized            event    ← ここが合図
+  → setBreakpoints         request  （§20.3 の相対パスを絶対パスへ変換して渡す）
+  → configurationDone      request  （adapter が名乗っている場合のみ）
+  → running
+```
+
+実装で必ず守ること:
+
+- **`launch` の応答を「開始した」の合図にしない。** 多くの adapter は `configurationDone` の後に `launch` の応答を返す。状態機械を進めるのは **event**（`initialized` / `stopped` / `continued` / `terminated` / `exited`）であって、応答の到着順ではない
+- **`configurationDone` は capability を見てから送る。** `supportsConfigurationDoneRequest` を名乗らない adapter に送ると `Unhandled method` が返る（§19.4 で Pyright の整形に対して採ったのと同じ判断）
+- **`terminated` と `exited` は別の event。** 前者はデバッグセッションの終わり、後者はデバッグ対象プロセスの終わり。片方だけで片付けると orphan process が残る
+- **Workspace が変わったとき・ウィンドウを閉じるときは、必ずセッションを終わらせる。** §19.2 と §13 で orphan process を残さないと決めてある
+
+Renderer が知るのは `DebugSessionState`（`idle` / `starting` / `running` / `stopped` / `terminating`）だけで、上の10段は1つも見えない。
+
+#### セッションをまたいだ handle を通さない
+
+`threadId` / `frameId` / `variablesReference` は adapter が配る不透明な数で、Renderer はそれを持ち回る。**Main は現在のセッションが配った handle だけを通す**（セッションごとに世代を持ち、前のセッションの handle は断る）。LSP が版（`version`）で古い要求を `stale` として断ったのと同じ仕組みを、単位をセッションに変えて置く（§19.3）。
+
+### 20.9 Security boundary
+
+§19.8 の表をそのまま引き継ぎ、DAP 固有の3行を足す。
+
+| 渡さないもの                         | どう閉じているか                                                                |
+| ------------------------------------ | ------------------------------------------------------------------------------- |
+| 絶対パス                             | Profile も応答も **workspace-relative path** だけ。変換は Main の中             |
+| file URI                             | 組み立てるのも解くのも Main の中だけ                                            |
+| adapter の実行ファイル / 引数 / cwd  | catalog が持つ。Profile にも IPC にも欄が無い（§20.4）                          |
+| interpreter / runtime の実行ファイル | PATH から Main が解決する。Profile に欄が無い                                   |
+| 任意の DAP request 名                | 口は機能ごとに分かれている。method 名を渡す口が無い                             |
+| 任意の adapter 選択                  | 行き先は `language`（3つの閉じた集合）だけで決まる                              |
+| 任意の Workspace の profile          | `debug:list-profiles` の要求は `void`。key を渡す口が無い（§20.5）              |
+| **`runInTerminal`（逆方向要求）**    | **拒否する。** `initialize` で `supportsRunInTerminalRequest: false` を名乗る   |
+| **Workspace 外の program**           | `programRelativePath` を Files と同じ2段（パス文字列 → realpath）で検証して断る |
+| **実行を差し替える環境変数**         | 下記                                                                            |
+
+#### `runInTerminal` を拒否する
+
+`runInTerminal` は、**adapter が client に「このコマンドラインを実行してくれ」と頼む**逆方向の要求になる。受ければ、Main が起動するプロセスの argv を adapter が決める経路が開く ── §19.8 で `client/registerCapability` を拒否したのと同じ性格の穴にほかならない。
+
+**代償は記録しておく。** 拒否すると、デバッグ対象は本物の端末を持たない。標準入力を待つプログラム・端末の色や大きさを見るプログラムは、Debug Console の中では同じようには動かない。§19.10（`pyright-no-file-watching`）と同じく、**選択の裏返しとして受け入れる制約**であり、不具合ではない。
+
+#### 環境変数
+
+`env` は Profile の欄として**持つ**。ただし**名前に制限を置く**。
+
+- 名前は `^[A-Za-z_][A-Za-z0-9_]*$` に一致すること
+- 値は文字列。Main は展開も置換も行わない（`${...}` のような変数展開の仕組みを作らない）
+- **「何が読み込まれるか」を変える名前は断る**: `PATH` / `NODE_OPTIONS` / `ELECTRON_RUN_AS_NODE` / `PYTHONSTARTUP` / `PYTHONHOME` / `PYTHONPATH` / `DOTNET_STARTUP_HOOKS` / `LD_PRELOAD` / `LD_LIBRARY_PATH` / `DYLD_INSERT_LIBRARIES`
+- 断る場所は**保存時と解決時の両方**（`main/debug/environmentPolicy.ts`。純粋・テスト対象）
+
+**ここは唯一「欄を作らない」ではなく「形を検査する」を選んだ場所になる。** この設計の既定は「弾くのではなく欄を作らない」だが（§14.2）、`env` を丸ごと落とすとデバッグが道具として成立しない。欄を残す以上、**通してよい形を決める関数を対にして置く** ── `gitPathspec.ts`（§14.10）が pathspec に対して採ったのと同じ形にする。
+
+上の名前は「プログラムの振る舞いを変える」ものではなく「**プログラムより先に何かを読み込ませる**」ものであり、§20.1 の線の向こう側にあたる。
+
+#### 例外: Debug Console の出力は加工しない
+
+adapter の `output` event が運ぶのは**デバッグ対象プログラム自身の出力**で、絶対パスを含むスタックトレースが普通に流れる。**これはそのまま Renderer へ渡す。**
+
+境界に反しない理由は、この節が守っているものが「Renderer が**何を起こせるか**」であって「Renderer が**何を目にするか**」ではないため。文字列として画面に出るだけのものに、Renderer が起動できる経路は付いていない。逆に加工すれば、利用者にとって最も必要な情報が読めなくなる。
+
+#### 切る口の一覧（STEP 6 の予定。増やすときは設計へ戻る）
+
+```
+要求(17): listProfiles createProfile updateProfile deleteProfile
+          start stop continue pause stepOver stepInto stepOut
+          setBreakpoints getState getStack getScopes getVariables evaluate
+購読(4):  onStateChanged onStopped onOutput onBreakpointsChanged
+```
+
+**プロセスを操作する口は1つも無い**（§19.2 と同じ）。`start` に載るのは `profileId` だけで、`stop` は `void` になる。
+
+### 20.10 言語別の違いをどう持つか
+
+`DebugProfile` は **`language` を判別子とする discriminated union の形を最初から持つ**。ただし **v1 では枝ごとの固有欄をゼロにする**。
+
+```
+共通の7欄（§20.3） + language による判別
+  ↓
+v1: node / python / csharp のどの枝も固有欄を持たない
+将来: 実際に必要になった言語の枝にだけ欄が生える
+```
+
+こうする理由は2つ。
+
+- **`language` はどのみち必要**（adapter を決めるのは これ1つ）。判別子として使える欄が既にあるのに、後から union へ作り替えると Renderer 側の分岐がすべて動く
+- **共通 + 自由な入れ物（`Record<string, unknown>` や `languageOptions`）にはしない。** 何でも入る欄を1つ作れば、そこが `launch.json` の作り直しになる ── 通ってはいけない値の一覧をそこに書き続けることになり、§20.9 の表が意味を失う
+
+言語を1つ足す作業は、**union に枝を1本・catalog に行を1行**で閉じる。言語ごとの `launch` request の組み立ての違いは `profileResolver` の中にあり、Renderer には現れない。
+
+### 20.11 STEP 6 で入れないもの
+
+| 項目                                | 判断                                                                             |
+| ----------------------------------- | -------------------------------------------------------------------------------- |
+| `.vscode/launch.json` の読み込み    | **読まない。** Workspace の中のファイルが実行対象を決める形にしない（§20.5）     |
+| attach（動いているプロセスへ接続）  | 入れない。launch のみ                                                            |
+| `runInTerminal` / 統合端末での実行  | 入れない（§20.9）                                                                |
+| conditional / hit count breakpoint  | 入れない。行の breakpoint だけ                                                   |
+| logpoint                            | 入れない                                                                         |
+| Data / Function breakpoint          | 入れない                                                                         |
+| 変数の値の書き換え（`setVariable`） | 入れない。v1 は見るだけ                                                          |
+| Watch 式の永続化                    | 入れない。評価は Debug Console から                                              |
+| breakpoint の永続化                 | 入れない。アプリを閉じると消える（足すなら §20.5 の保存に Workspace key で載る） |
+| 複数セッションの同時実行            | 入れない。**同時に走るのは1本**                                                  |
+| 子プロセスへの追従                  | 入れない                                                                         |
+| `cwd` の指定                        | 入れない。常に Workspace root（§20.3）                                           |
+| 変数展開（`${workspaceFolder}` 等） | 入れない。展開の仕組みは、書ける文字列が増える仕組みにほかならない               |
+| Problems panel との連携             | 入れない。診断は STEP 5 のまま（§19.11）                                         |

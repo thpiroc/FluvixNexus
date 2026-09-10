@@ -1,7 +1,7 @@
 # Fluvix Nexus 設計ドキュメント
 
-> ステータス: STEP 1（基盤構築）完了 / STEP 2（Dockable Workspace 基盤）完了 / STEP 3（各パネルの本機能）完了 / STEP 4（日常使用の土台）完了 / **STEP 5（LSP）完了**
-> 最終更新: 2026-09-06
+> ステータス: STEP 1（基盤構築）完了 / STEP 2（Dockable Workspace 基盤）完了 / STEP 3（各パネルの本機能）完了 / STEP 4（日常使用の土台）完了 / STEP 5（LSP）完了 / **STEP 6（DAP）設計確定（Session 6-0）**
+> 最終更新: 2026-09-10
 
 このドキュメントは**製品としての設計方針**を扱う。実装の構造と開発手順は以下を参照。
 
@@ -173,6 +173,10 @@ v1 から対応する。**DAP（Debug Adapter Protocol）** の利用を前提�
 - Call Stack
 - Debug Console
 - エラー位置へのジャンプ
+
+**何を実行するかは、`.vscode/launch.json` ではなく Fluvix Nexus 独自の Debug Profile が持つ**（Session 6-0 の決定）。Workspace の中に置かれたファイルが「何が起動するか」を決める形にはしない ── フォルダを開いただけで実行対象が決まるのは、LSP で「Workspace の中の実行ファイルは探さない」と決めたのと同じ線に反する（§12・[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §19.2）。
+
+Profile は Main が `userData` 配下に Workspace 単位で持ち、Renderer が触れるのは**アプリの言葉で書かれた安全な欄だけ**になる。Debug Adapter の実行ファイル・引数・作業ディレクトリ・絶対パス・環境の組み立ては Main の側にあり、Renderer には欄が無い。決定の全体は §13、構造は [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §20。
 
 ---
 
@@ -411,7 +415,7 @@ Auto Save は4方式すべてが動くようになり、設定はアプリ再起
 | Git / GitHub 本機能                              | **Session 3-8-1 〜 3-8-22A で実装済み・3-8-22B で production app 確認済み**（検出・変更一覧・Stage / Unstage・Commit・Push / Pull / Fetch・ブランチ・`.git` の監視・差分と破棄・`git init` と「GitHub に公開」・コミット履歴・コミットの詳細と差分・履歴からのブランチ作成・ブランチの削除 / rename・退避・remote の管理と URL 変更 / rename・競合の解決・remote の枝から手元にブランチを作る・マージの開始 / 中止・競合の ours / theirs の差分・途中の Git 操作の検出と禁止） |
 | ブランチ操作 UI                                  | **Session 3-8-6 / 3-8-13 / 3-8-14 / 3-8-19 / 3-8-20 で実装済み**（バーのブランチ名から開く面で一覧・切り替え・作成・削除・rename・マージ、履歴の行から始点を指す欄、remote の枝から作る畳んだ段。ローカルと remote-tracking は**別の一覧**。マージ中はパネルの帯から中止できる）                                                                                                                                                                                               |
 | LSP                                              | §4。JavaScript / TypeScript・Python・C#。SDK は同梱せず PC の環境を検出する                                                                                                                                                                                                                                                                                                                                                                                                    |
-| DAP                                              | §5。Breakpoint / Step / Variables / Call Stack                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| DAP                                              | §5 / §13。**STEP 6**。Breakpoint / Step / Variables / Call Stack。Session 6-0 で設計確定、6-1 から実装                                                                                                                                                                                                                                                                                                                                                                         |
 | パネルの独立ウィンドウ化                         | §3。Main 側で別ウィンドウを開き、Shell のルートを分岐する                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | タブのドラッグによる並べ替え                     | レイアウト操作としては実装済みで、UI の入口だけが無い（ARCHITECTURE.md §7.9）                                                                                                                                                                                                                                                                                                                                                                                                  |
 | レイアウトプリセットの追加・自作レイアウトの保存 | Coding / Debug などの表への追加と、名前を付けた保存（§3）                                                                                                                                                                                                                                                                                                                                                                                                                      |
@@ -1278,7 +1282,7 @@ Session 4-3A で設定の**保存**は揃っていた。残っていたのは並
 
 残した2つは、どちらから変えても同じ setter を通り、片方で変えればもう片方にもその場で出る（二重に持っていない）。移した3つは**同じ設定を変える口を2つ残さない**ためで、残すと「どちらが効いているか」を利用者に確かめさせることになる。
 
-**保存基盤は1行も作り替えていない。** IPC も preload の口も Main の検証も Session 4-3A のままで、Renderer から任意の JSON や任意のファイルパスを渡せる API は増えていない。Theme / Workspace 設定 / LSP・DAP は今回入れていない（下の表と、STEP 5 / STEP 8）。
+**保存基盤は1行も作り替えていない。** IPC も preload の口も Main の検証も Session 4-3A のままで、Renderer から任意の JSON や任意のファイルパスを渡せる API は増えていない。Theme / Workspace 設定 / LSP・DAP は今回入れていない（下の表と、STEP 5 / STEP 6）。
 
 ### Session 4-3B の後へ残していること
 
@@ -1286,7 +1290,7 @@ Session 4-3A で設定の**保存**は揃っていた。残っていたのは並
 | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | Theme / Appearance   | **Session 4-4 で入った**（下記）。増えたのは `appearance` section 1つと key 1つだけ                                                |
 | Workspace ごとの設定 | 未着手。プロジェクトフォルダの中には何も書かない方針のまま                                                                         |
-| LSP / DAP の設定     | LSP は STEP 5 で入った。保存するのは**使うか / 使わないか**の4つだけで、実行ファイルのパスの欄は作っていない（§12）。DAP は STEP 8 |
+| LSP / DAP の設定     | LSP は STEP 5 で入った。保存するのは**使うか / 使わないか**の4つだけで、実行ファイルのパスの欄は作っていない（§12）。DAP は STEP 6 |
 | 設定の検索           | 置いていない。5項目しか無い                                                                                                        |
 | 「既定へ戻す」       | 置いていない。範囲と既定は項目ごとの説明文に出ている                                                                               |
 | Files のカラムの幅   | Settings には載せない。`FileColumns.tsx` の直接操作のまま（値は保存され続ける）                                                    |
@@ -1619,7 +1623,7 @@ STEP 5 で意図的に入れていないもの:
 | Workspace 外のファイルを開く     | 定義の行き先が Workspace の外なら開かない                                                                          |
 | file watching                    | 入れていない（下記の既知制約）。監視対象・間引き・Workspace の外へ出ない保証を同時に設計する話になる               |
 | Python の整形器（Black / Ruff）  | 入れていない。言語サーバを1本足す作業に、別系統の外部ツールを増やす判断を混ぜない                                  |
-| DAP                              | STEP 8。LSP とは別のプロセス系統として設計する                                                                     |
+| DAP                              | STEP 6。LSP とは別のプロセス系統として設計する                                                                     |
 
 STEP 5 Closing 時点の既知事項:
 
@@ -1653,10 +1657,99 @@ STEP 6 以降への引き継ぎ:
 
 | 項目                       | 次の段で守ること                                                                                                                  |
 | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| 長命プロセスの持ち主       | Terminal（STEP 3）と LSP（STEP 5）で同じ形になった。DAP（STEP 8）も Main が持つ ── Renderer に executable / args / cwd を渡さない |
+| 長命プロセスの持ち主       | Terminal（STEP 3）と LSP（STEP 5）で同じ形になった。DAP（STEP 6）も Main が持つ ── Renderer に executable / args / cwd を渡さない |
 | 編集を当てる経路           | `workspace/applyEdit` の一般対応を入れるなら、ファイルの作成 / 改名 / 削除まで表せる形と、それを断る境界を先に決める              |
 | 診断の面（Problems panel） | 出す元は既にある（`diagnosticStore`）。面を作るときは「どこまで出すか」と「押したらどう飛ぶか」を Files の検索結果と揃える        |
 | file watching              | 入れるなら Files の監視（§10.5）と1本にする。LSP のためだけにもう1系統の監視を作らない                                            |
 | Command Palette            | `Ctrl+P` / `Ctrl+Shift+P` は依然として空いている。LSP の6操作は descriptor を持つので、Palette 側は表を読むだけで済む             |
 
 以上により、STEP 5 は「Language Server 統合」として正式に完了する。
+
+---
+
+## 13. STEP 6（進行中）— Debug（DAP）
+
+STEP 5 が「編集する器に、その言語を理解しているプログラムを繋ぐ」段だったのに対し、STEP 6 は **書いたコードを実際に走らせて、止めて、中を見る**段になる。§5 の11機能がここで揃う。
+
+構造は [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §20 に書いてある。
+
+### Session 6-0（完了）— 設計確定
+
+**コードは1行も書いていない。** STEP 6 全体の設計判断を確定し、ドキュメントへ反映しただけの Session になる。
+
+LSP には無くて DAP にだけある問題が1つあり、それがこの Session の全体になった ── **「何を起動するか」は利用者にしか決められない**。LSP は開いた文書の拡張子だけで行き先が決まったため、実行ファイル・引数・cwd を Renderer に一切見せずに済んだ（§12）。デバッグで同じことをすると道具にならず、かといってそのまま欄を作れば「Renderer が指定した実行ファイルを Main が起動する場所」になる。
+
+決めた線は1行に収まる。
+
+> **プログラムが何をするかを変えるものは Renderer、何のプログラムが動くかを変えるものは Main。**
+
+確定した10項目:
+
+| #   | 論点                                  | 決定                                                                                               |
+| --- | ------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| 1   | `.vscode/launch.json`                 | **v1 では読まない。** Workspace の中のファイルが実行対象を決める形にしない                         |
+| 2   | 独自 Debug Profile                    | **採用する。** アプリの言葉だけで書かれた7つの欄に限る                                             |
+| 3   | 保存の単位                            | **Workspace ごと**                                                                                 |
+| 4   | 保存先                                | **Main が持つ `userData` 配下の `debug-profiles.json` 1つ。**Workspace の絶対パスで引く            |
+| 5   | Renderer へ返す形                     | **正規化する。**返るのは常に現在の Workspace の profile だけで、key を渡す口が無い                 |
+| 6   | 解決済みの launch 構成                | **型ごと分ける。**`ResolvedLaunchConfiguration` は `main/` に置き、`shared/` にも IPC にも出さない |
+| 7   | Workspace 外の program                | **断る。**検証は Files と同じ2段（パス文字列 → realpath）                                          |
+| 8   | 環境変数                              | **欄は持つが、名前を検査する。**「プログラムより先に何かを読み込ませる」名前は断る                 |
+| 9   | プログラムへの引数                    | **持つ。**shell を通さないので、語の分割も展開も起きない                                           |
+| 10  | 任意の command / shell / 実行ファイル | **指定できない。**弾くのではなく、欄そのものを作らない                                             |
+
+このうち 8 だけが「欄を作らない」ではなく「形を検査する」を選んだ場所になる。理由は [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §20.9。
+
+**adapter の逆方向要求 `runInTerminal` は拒否する。** adapter が「このコマンドラインを実行してくれ」と client に頼む経路で、受ければ起動するプロセスの argv を adapter が決められる ── STEP 5 で `client/registerCapability` を拒否したのと同じ性格になる。代償（本物の端末を必要とするプログラムは Debug Console の中では同じように動かない）は制約として記録してある。
+
+### Session 6-1 〜 6-12（予定）— 実装
+
+| Session | 入れるもの                                                                     | 推奨 Agent   |
+| ------- | ------------------------------------------------------------------------------ | ------------ |
+| 6-1     | adapter のプロセス基盤、DAP フレーミング、adapter catalog                      | Codex        |
+| 6-2     | セッションの状態機械（initialize → launch → configurationDone → running）      | どちらでも可 |
+| 6-3     | Breakpoint（Monaco の gutter・`setBreakpoints`・verified の反映）              | Claude Code  |
+| 6-4     | 実行制御（Continue / Pause / Step Over / Into / Out / Stop）と停止行           | Claude Code  |
+| 6-5     | Call Stack（フレーム選択 → 該当行へジャンプ。§5 の「エラー位置へのジャンプ」） | どちらでも可 |
+| 6-6     | Variables                                                                      | Codex        |
+| 6-7     | Debug Console（出力と評価）                                                    | Codex        |
+| 6-8     | Debug パネルの器・Panel Registry 登録・Debug Toolbar                           | Claude Code  |
+| 6-9     | Debug Profile の編集 UI と Settings / Status                                   | Claude Code  |
+| 6-10    | Python（debugpy）                                                              | どちらでも可 |
+| 6-11    | C#（netcoredbg）                                                               | どちらでも可 |
+| 6-12    | Command / Keybinding（F5 / F9 / F10 / F11 / Shift+F11 / Shift+F5）             | Codex        |
+| 6-13    | STEP 6 Closing（production build での横断確認とドキュメント追従）              | Claude Code  |
+
+最初に繋ぐのは **Node**（この PC で実機確認できる唯一の言語。Python / .NET SDK は STEP 5 Closing 時点と同じく未導入）。ただし Node の adapter だけは**入手経路と stdio 対応が未確定**で、6-1 の最初の仕事がその確認になる（[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §20.7）。
+
+### 実装を Claude Code と Codex で分担する
+
+STEP 5 は両方を使って進めたが、**同じ working tree で並行実装はしない**と決めた。STEP 5 の実測で、機能追加の5 Session（5-5 〜 5-9）が**9つの同じファイルを全員触っていた**ため ── 契約・チャンネル・preload の口・ハンドラ・provider の登録は、機能を1つ足すたびに必ず同じ場所へ1行ずつ増える。DAP でも同型になり、さらに `MonacoEditor.tsx`・Panel Registry・i18n の3面が加わる。
+
+運用は次で固定する。
+
+> **1 Session を1つの Agent が担当し、`npm run verify` を通して Commit / Push してから次の Agent へ渡す。**
+
+| 項目               | 決めたこと                                                                        |
+| ------------------ | --------------------------------------------------------------------------------- |
+| 引き継ぎの単位     | Session（= 1 commit）。**push していない commit を残さない**                      |
+| 切り替えてよい境界 | 6-0 → 6-1、6-2 → 6-3、6-9 → 6-10、6-10 → 6-11                                     |
+| 切り替えない区間   | 6-3 / 6-4 / 6-5 の内部（`MonacoEditor.tsx` を3連続で触る）、6-9 の内部            |
+| ドキュメント       | **Closing まで溜めない。**各 Session の commit に決めたことを最小限で残す         |
+| 役割               | Codex が先行調査 → Claude Code が設計確定（Session 6-0 がその最初の適用にあたる） |
+
+### STEP 6 で意図的に入れないもの
+
+一覧は [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §20.11。主なものは `launch.json` の読み込み・attach・統合端末での実行・条件付き breakpoint・変数の書き換え・複数セッションの同時実行・`cwd` の指定・`${...}` の変数展開。
+
+### Session 6-1 へ渡す条件
+
+| 条件                                                  | 状態                                                                                      |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Debug Profile の欄が確定している                      | 7欄（[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §20.3）                                 |
+| Renderer へ渡さないものが確定している                 | §20.9 の表                                                                                |
+| program args と adapter args の区別が明文化されている | §20.4                                                                                     |
+| launch lifecycle の順序が確定している                 | §20.8。**`launch` の応答を開始の合図にしない**まで含む                                    |
+| 切る口の数が決まっている                              | 要求17・購読4（§20.9）                                                                    |
+| 言語の増やし方が決まっている                          | `language` を判別子とする union。v1 は枝ごとの固有欄ゼロ（§20.10）                        |
+| 6-1 の分割が決まっている                              | `dapMessage.ts` / `dapConnection.ts` / `adapterProcess.ts` / `adapterCatalog.ts`（§20.7） |

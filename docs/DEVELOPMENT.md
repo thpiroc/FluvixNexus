@@ -1,7 +1,7 @@
 # 開発ガイド
 
-> 対象: Session 4-8A（Localization / Keyboard Shortcuts の production app 統合確認）完了時点
-> 最終更新: 2026-09-06
+> 対象: Session 5-13（STEP 5 LSP Closing）完了時点 ＋ Session 6-0（STEP 6 DAP 設計確定）
+> 最終更新: 2026-09-10
 
 ---
 
@@ -25,6 +25,20 @@
 いずれも **PATH から解決できること**が条件（csharp-ls だけは `~/.dotnet/tools` も見る）。Workspace の中は探さない。
 
 **このリポジトリ自身を Workspace として開いても TypeScript のサーバは立たない。** `typescript` を 7.x（native preview）で pin しており、`node_modules/typescript/lib` に `tsserver.js` が無いため `initialize` が断られる。TS の LSP を実機で確かめるときは、`typescript@5` を入れた別の検証用フォルダを Workspace にすること（下記 §4）。
+
+### Debug Adapter（STEP 6。任意）
+
+Language Server と同じく**アプリの開発・テスト・ビルドには要らない**し、同梱もしない（docs/ARCHITECTURE.md §20.7）。
+
+| 言語    | Debug Adapter 候補                       | 入手経路              | 状態                                         |
+| ------- | ---------------------------------------- | --------------------- | -------------------------------------------- |
+| Node.js | vscode-js-debug の DAP server            | **未確定**            | 入手経路と stdio / TCP を Session 6-1 で確認 |
+| Python  | `debugpy`（`python -m debugpy.adapter`） | `pip install debugpy` | Session 6-10 で確認                          |
+| C#      | `netcoredbg --interpreter=vscode`        | 配布バイナリ          | Session 6-11 で確認                          |
+
+**vsdbg は使わない**（ライセンス上 Visual Studio / VS Code 以外から利用できない）。C# は netcoredbg を前提にする。
+
+この PC の現状は **Node のみ利用可能**で、Python / .NET SDK は STEP 5 Closing 時点と同じく入っていない。Python / C# を実機で確かめるときは、STEP 5 の C# と同じく一時ディレクトリへ置き、起動する Electron の `env` にだけ PATH を足す（§4）。
 
 ---
 
@@ -1800,6 +1814,24 @@ Session 4-5 / 4-7 は**境界を1つも動かしていない**ことを、両ス
 ## 5. 進め方
 
 実装は「Session 1-1」「Session 1-2」のような番号付きセッション単位で進める。各セッションではその範囲だけを実装し、完了したら次へ進まずに停止する。次のセッションで実装する箇所には、コード中に継ぎ目（コメント）だけ残しておく。
+
+### 複数の Agent で進めるときの作法（Session 6-0 で確定）
+
+STEP 5 以降、実装を Claude Code と Codex の両方で進めている。**同じ working tree で並行実装はしない。**
+
+STEP 5 の実測では、LSP の機能追加5 Session（5-5 〜 5-9）が次の9ファイルを**全員触っていた** ── `shared/ipc/channels.ts`・`shared/ipc/contracts/lsp.ts`・`shared/ipc/index.ts`・`shared/api.ts`・`shared/lsp/index.ts`・`preload/api/lsp.ts`・`main/ipc/handlers/lsp.ts`・`renderer/src/editor/monaco/monacoSetup.ts`・`renderer/src/editor/useEditorSession.ts`。機能を1つ足すたびに、同じ表の末尾へ1行ずつ増える構造になっているため、並行させると必ず衝突する。
+
+したがって運用は次で固定する。
+
+| 項目             | 決めたこと                                                                             |
+| ---------------- | -------------------------------------------------------------------------------------- |
+| 担当の単位       | **1 Session = 1 Agent**                                                                |
+| 引き継ぎの手順   | `npm run verify` を通す → Commit → Push → 次の Agent へ渡す                            |
+| 引き継ぎの単位   | Session（= 1 commit）。**push していない commit を残さない**                           |
+| ドキュメント     | Closing まで溜めない。**各 Session の commit に、決めたことを最小限で残す**            |
+| 途中で止まるとき | `wip/session-x-y` へ退避し、①確定した設計判断 ②触りかけの横断ファイル ③次の一手 を残す |
+
+次の Agent が読めるのは **push 済みの main と、そこに入っているドキュメントだけ**になる。会話の連続性が引き継ぎを埋めてくれないため、docs の追従を Closing まで遅らせないことがこの運用の要になる。
 
 ---
 
