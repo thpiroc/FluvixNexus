@@ -1,7 +1,8 @@
 import type { DebugBreakpoint } from '../../debug/breakpoint'
+import type { DebugControlOutcome } from '../../debug/session'
 
 /**
- * debug ドメインの IPC 契約（Session 6-3 ── Breakpoint）。
+ * debug ドメインの IPC 契約（Session 6-3 ── Breakpoint / Session 6-4 ── 実行制御）。
  *
  * ## この契約に無いもの
  *
@@ -31,10 +32,26 @@ import type { DebugBreakpoint } from '../../debug/breakpoint'
  * Main が `setBreakpoints` へ翻訳して送るが、動いていなければ保存と通知だけで完結する
  * ── **走らせる前に印を付けられること**が breakpoint の最初の役目にほかならない。
  *
- * ## 実行を始める口はここに無い
+ * ## 実行制御は、操作ごとに口を分ける（Session 6-4）
  *
- * `debug:start` / `debug:stop` は Session 6-4 以降で、この契約にはまだ現れない。
- * Session 6-3 が足したのは breakpoint の3つ（要求2・購読1）だけになる。
+ * ```
+ * debug:continue   debug:pause   debug:step-over   debug:step-into   debug:step-out
+ * debug:stop
+ * ```
+ *
+ * **要求はどれも `void`。** `{ command: 'next' }` のような1つの口にすると、
+ * 欄の中身が DAP の request 名と1対1に見え、「method 名を渡す口」との距離が縮む
+ * ── 口の名前で操作が決まる形にしてある（§20.9）。`threadId` も受け取らない。
+ * どのスレッドを動かすかは Main が adapter の答えから決める（スレッドを選ぶのは
+ * Call Stack の Session 6-5）。
+ *
+ * 応答は結末（`DebugControlOutcome`）で、**断ったことも値で返す**。「stopped でないので
+ * Step できない」は利用者の操作への普通の答えで、IPC の失敗ではない。
+ *
+ * ## 実行を始める口はまだ無い
+ *
+ * `debug:start` は Debug Profile（Session 6-9）が入るまで現れない。起動を頼めない以上、
+ * Session 6-4 の口が相手にするのは Main が立てたセッションだけになる。
  */
 
 /**
@@ -83,5 +100,40 @@ export interface DebugIpcContract {
   'debug:toggle-breakpoint': {
     request: ToggleDebugBreakpointRequest
     response: DebugBreakpointsResponse
+  }
+  /** 止まっているプログラムを再開する（stopped のときだけ）。 */
+  'debug:continue': {
+    request: void
+    response: DebugControlOutcome
+  }
+  /** 走っているプログラムを止める（running のときだけ）。止まったことは後から届く。 */
+  'debug:pause': {
+    request: void
+    response: DebugControlOutcome
+  }
+  /** 次の文へ進む（stopped のときだけ）。 */
+  'debug:step-over': {
+    request: void
+    response: DebugControlOutcome
+  }
+  /** 呼び出しの中へ入る（stopped のときだけ）。 */
+  'debug:step-into': {
+    request: void
+    response: DebugControlOutcome
+  }
+  /** 今の関数から出る（stopped のときだけ）。 */
+  'debug:step-out': {
+    request: void
+    response: DebugControlOutcome
+  }
+  /**
+   * Debug Session を終わらせる（starting / running / stopped / terminating）。
+   *
+   * **答えるのはセッションが idle へ戻り終えてから**で、何度頼んでも同じ終わりを待つ。
+   * 2回目は「穏やかに」から「無条件に」へ切り替わる（main/debug/executionControl.ts）。
+   */
+  'debug:stop': {
+    request: void
+    response: DebugControlOutcome
   }
 }

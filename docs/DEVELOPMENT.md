@@ -1,7 +1,7 @@
 # 開発ガイド
 
-> 対象: Session 5-13（STEP 5 LSP Closing）完了時点 ＋ Session 6-3（STEP 6 DAP Breakpoint）
-> 最終更新: 2026-09-10
+> 対象: Session 5-13（STEP 5 LSP Closing）完了時点 ＋ Session 6-4（STEP 6 DAP Execution Control）
+> 最終更新: 2026-09-11
 
 ---
 
@@ -44,7 +44,9 @@ Session 6-1 で `main/debug/` の wire protocol / process foundation が入り�
 
 Session 6-3 で **Breakpoint** が入った。Monaco の glyph margin での追加 / 削除、Workspace ごとの保存（`userData/debug-breakpoints.json`）、`initialized` → `setBreakpoints` → `configurationDone` の同期、verified / unverified の反映までが揃っている（docs/ARCHITECTURE.md §20.12）。**実 adapter がまだ無いので、実機で見えるのは常に「答え待ち」の赤い丸**になる ── verified / unverified の色分けは mock adapter でのみ確認できる。
 
-Debug Profile 保存、Continue / Step、Call Stack、Variables、Debug Console、Debug パネル、実 adapter 統合はまだ無い。
+Session 6-4 で **実行制御**（Continue / Pause / Step Over / Step Into / Step Out / Stop）が入った。typed IPC 6つ（要求はどれも `void`）と、その裏の状態ごとの許可 / 拒否・DAP への翻訳・`terminate` → `disconnect` → kill の Stop（docs/ARCHITECTURE.md §20.13）。**押すボタンもキーもまだ無く**、Debug Session を起動する口（Debug Profile）も無いので、実機で制御を通せるのは mock adapter を Main から立てた確認だけになる（§4）。
+
+Debug Profile 保存、Debug Session の起動 UI、Call Stack / 停止行、Variables、Debug Console、Debug パネル、実 adapter 統合はまだ無い。
 
 ---
 
@@ -566,6 +568,18 @@ DAP の周りは 6-1 / 6-2 と同じ分け方で、**Electron も子プロセス
 **Monaco は読み込まない。** 叩く相手を構造的部分型で受けているため、偽のエディタで glyph margin の click も decoration の増減も通せる（`editor/lsp/editorActions.ts` と同じ形）。実際に Monaco の帯が出て押せることは起動確認で見る。
 
 **実 adapter との往復はここに置かない。** Session 6-3 の確認では、DAP を話す小さな Node スクリプトを一時的に adapter として立て、`initialize → launch → initialized → setBreakpoints → configurationDone → running` を本物の子プロセスと本物の `Content-Length` フレーミングで通した（結果は §4）。リポジトリのテストは 6-1 / 6-2 と同じく spawn を差し替えた形のままにしてある。
+
+#### Execution Control（Session 6-4）
+
+- `src/main/debug/executionControl.test.ts` — **状態ごとの許可 / 拒否の表**（idle は `no-session`、starting / terminating は全部 `invalid-state`、running は Pause だけ、stopped は Continue / Step だけ）・**閉じた集合の外の名前を通さないこと**・app-domain の名前 → DAP の command（`stepOver` → `next` など）・`threadId` の読み取り・`terminateDebuggee` を名乗る adapter にだけ載せること・**Stop の段の決め方**（terminate を名乗れば terminate、名乗らなければ / starting なら disconnect、2回目は disconnect、disconnect 中は待つだけ）
+- `src/main/debug/debugSessionControl.test.ts` — Manager を通した**実行制御と Stop**
+  - 6つの制御がそれぞれ正しい DAP request と `threadId` になり、running ↔ stopped が動くこと
+  - `busy`（答え待ちの間の2通目）・**応答より先に次の `stopped` が届いたら running へ戻さないこと**・`continued` が先に届いても二重に遷移しないこと・adapter の失敗の文言が結末に載らないこと・`timeout` の後に遅れた答えを当てること
+  - **stale generation**（前のセッションへ送った制御の答えが、新しいセッションを動かさないこと・前のセッションのスレッドを使い回さないこと）
+  - Stop の各段（disconnect のみ / terminate → terminated → disconnect / **2回目の Stop で disconnect へ** / terminate の失敗 / debuggee が拒んだまま猶予切れ / disconnect に答えない adapter の kill / Stop 中に adapter が閉じる・落ちる / starting 中の Stop で `configurationDone` を送らないこと）
+  - **cleanup との競合**（Stop の途中で Workspace 切り替え / アプリ終了が走っても `disconnect` は1通・タイマーが次のセッションへ漏れないこと）・6-2 の「adapter が自分で終わった」経路が変わっていないこと・terminating 中は breakpoint の口が閉じること
+  - **本物の子プロセス**（stdio の mock adapter）で pause → step ×3 → continue → pause → Stop を通し、adapter が受け取った request の列と、adapter のプロセスが消えたことを確かめる
+- `src/preload/api/debug.test.ts` — **preload が経路だけであること**（公開される関数が9つだけ・6つの制御は何を渡されてもチャンネル名だけを送ること）。`electron` の `ipcRenderer.invoke` 1つだけを差し替える
 
 ### 整形
 
@@ -1856,6 +1870,27 @@ Session 4-5 / 4-7 は**境界を1つも動かしていない**ことを、両ス
 - **`.view-line` の並びから行番号を数えない。** 折り返しやスクロールで1行ずれる。Monaco 自身が描いている行番号（`.margin-view-overlays .line-numbers`）の矩形を正本にして、印の縦位置と突き合わせる。最初これで「6行目に付いた」と読み、**アプリが壊れているように見えた**（Main の控えは正しく5だった）
 - **Files ツリーは lazy load。** `src` を先に展開しないと、その中のファイルの行が DOM に存在しない
 - **編集の回帰確認をしたら、必ず元へ戻す。** 未保存のまま `app.close()` すると終了前の確認が出て、スクリプトが止まる
+
+### Session 6-4（Execution Control）
+
+**production build 版 52項目、全項目 PASS。** 使い捨ての Workspace と `--user-data-dir` で起動し、**制御はすべて Renderer の `window.fluvix.debug.*` から**通した（Renderer → preload → IPC → Main → DAP → 本物の子プロセス）。
+
+起動の口がまだ無いため、セッションだけは Main から立てた。`npm run build` の後の `out/main/index.js` の末尾へ、環境変数で開く数行（`defaultManager.start(...)` を `globalThis` に置くだけ）を**確認のあいだだけ**足し、`app.evaluate` から mock adapter（DAP を話す小さな Node スクリプト。variant で振る舞いを変える）を立てる。確認の後は `npm run build` で out/ ごと作り直す ── ソースには何も残らない。
+
+- 面: `debug` の関数が9つだけ、start / attach / 生の request / evaluate が無い、`require` / `process` / `ipcRenderer` の非露出、公開ドメインが増えていない、**CSP が1文字も変わっていない**（renderer に差分が無い）
+- idle: 6つすべてが `no-session`、**`void` の口に何を載せても無視される**（adapter は立たない）
+- running ↔ stopped: Pause → `threads` + `pause {threadId:1}` で stopped、Step Over / Into / Out → `next` / `stepIn` / `stepOut` で running → stopped、Continue → `continue` で running。running 中の Continue / Step と stopped 中の Pause は `invalid-state`、**答え待ちの2通目は `busy` で1通しか送られない**
+- Breakpoint の回帰: 起動前に置いた印が `initialized` と `configurationDone` の間に送られ、verified が Renderer へ届き、running 中の追加で送り直され、終わると null に戻る
+- Stop: terminate → disconnect（`terminateDebuggee` は名乗る adapter にだけ）→ idle、**2回目の Stop で待たずに disconnect**、debuggee が terminate を拒んだら猶予（約3秒）で disconnect、terminate を名乗らない adapter には disconnect だけ、starting 中の Stop は `configurationDone` を送らずに disconnect、どの場合も adapter のプロセスが消えること
+- 異常: Step Out の最中に adapter が落ちると `session-ended` で idle、その後の制御は `no-session`
+- 終了: セッションが running のままアプリを閉じても adapter のプロセスが残らない
+- console エラー / CSP 違反が無い
+
+#### 確認スクリプトを書くときに踏んだこと（Session 6-4）
+
+- **本番ビルドでは `startDebugSession` が tree-shaking で消えている**（呼ぶ場所がまだ無い）。残っているのは `defaultManager` の方なので、足す数行はそちらを直接叩く
+- **mock adapter の `next` は応答を 150ms 遅らせる。** すぐ答えると2通目の IPC が届く前に1通目が終わり、`busy` を通せない
+- **ユニットテストで使い捨てフォルダを adapter の cwd にしない。** 全テストを並べて走らせると、Windows がフォルダの掴みを離すのが遅れ、`rmSync` が `EPERM` で落ちる（アプリのせいに見える FAIL）
 
 ---
 

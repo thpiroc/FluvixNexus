@@ -1067,18 +1067,21 @@ export interface LspApi {
 }
 
 /**
- * debug ドメインの Preload API（Session 6-3 ── Breakpoint）。
+ * debug ドメインの Preload API（Session 6-3 ── Breakpoint / Session 6-4 ── 実行制御）。
  *
- * **口は3つだけで、そのどれもプロセスを操作しない。** `lsp` と同じ性格の面に
- * なっており、Renderer から渡せるのは「Workspace の中の相対位置と行」だけになる。
+ * Renderer から渡せるのは「Workspace の中の相対位置と行」だけで、
+ * 実行制御の6つ（Session 6-4）は**引数を1つも取らない**。
+ * **プロセスを立てる口は1つも無い** ── Stop が終わらせるのは Main が立てた
+ * セッションだけで、どのプロセスかを指す欄は無い（`lsp` と同じ線）。
  *
  * ここに無いもの:
  *
  * ```
- * 任意の DAP request / command … 無い（method 名を渡す欄が無い）
+ * 任意の DAP request / command … 無い（method 名を渡す欄が無い。操作ごとに関数が分かれている）
  * adapter の選択 / 実行ファイル … 無い（表は Main。docs/ARCHITECTURE.md §20.7）
  * 絶対パス / file URI           … 無い（組み立てるのは Main）
- * Debug Session を起動 / 停止   … 無い（Session 6-4 以降）
+ * threadId / frameId            … 無い（どのスレッドを動かすかは Main が決める。選ぶのは 6-5）
+ * Debug Session を起動          … 無い（Debug Profile の Session 6-9 まで）
  * breakpoint の一覧を書き込む口 … 無い（1件ずつの入れ替えだけ。§20.12）
  * ```
  *
@@ -1104,6 +1107,24 @@ export interface DebugApi {
   readonly toggleBreakpoint: (
     request: ToggleDebugBreakpointRequest
   ) => IpcInvokeResult<'debug:toggle-breakpoint'>
+  /**
+   * 実行制御（Session 6-4）。
+   *
+   * 結末は値で返る（`accepted` / `rejected` / `failed`）。今の状態で意味の無い操作
+   * （running 中の Step など）は adapter へ何も送られずに `rejected` になる。
+   */
+  readonly continue: () => IpcInvokeResult<'debug:continue'>
+  readonly pause: () => IpcInvokeResult<'debug:pause'>
+  readonly stepOver: () => IpcInvokeResult<'debug:step-over'>
+  readonly stepInto: () => IpcInvokeResult<'debug:step-into'>
+  readonly stepOut: () => IpcInvokeResult<'debug:step-out'>
+  /**
+   * Debug Session を終わらせる（Session 6-4）。
+   *
+   * セッションが idle へ戻り終えてから答える。終わりきる前にもう一度呼ぶと、
+   * 穏やかな終わらせ方（terminate）から無条件の終わらせ方（disconnect）へ切り替わる。
+   */
+  readonly stop: () => IpcInvokeResult<'debug:stop'>
   /**
    * breakpoint の一覧が変わった。
    *
@@ -1142,7 +1163,7 @@ export interface FluvixApi {
   readonly github: GitHubApi
   /** 開いている文書を Language Server と同期する（Session 5-2）。 */
   readonly lsp: LspApi
-  /** その Workspace の breakpoint（Session 6-3）。 */
+  /** その Workspace の breakpoint（Session 6-3）と実行制御（Session 6-4）。 */
   readonly debug: DebugApi
   /** アプリの設定の永続化。 */
   readonly settings: SettingsApi

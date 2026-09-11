@@ -1,4 +1,11 @@
-export type DebugSessionState = 'idle' | 'starting' | 'running' | 'stopped' | 'terminating'
+import type { DebugSessionState } from '@shared/debug'
+
+/*
+  状態の名前そのものは shared へ出した（Session 6-4）── 実行制御の結末に載せて
+  Renderer へ返すため。**遷移の表はここに残す。** Renderer は「今どれか」を
+  知るだけで、遷移を起こす力は持たない。
+*/
+export type { DebugSessionState }
 
 export type DebugSessionTransition =
   'start' | 'started' | 'stopped' | 'continued' | 'terminate' | 'cleanup'

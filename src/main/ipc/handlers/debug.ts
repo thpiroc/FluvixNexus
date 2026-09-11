@@ -1,14 +1,38 @@
+import type { DebugExecutionControl } from '@shared/debug'
 import {
   IPC_CHANNELS,
   type DebugBreakpointsResponse,
+  type IpcChannel,
   type ToggleDebugBreakpointRequest
 } from '@shared/ipc'
 import { listDebugBreakpoints, toggleDebugBreakpoint } from '../../debug/breakpoints'
+import { controlDebugSession, requestDebugSessionStop } from '../../debug/debugSessionManager'
 import { IpcError, invalidRequest } from '../errors'
 import { handleIpc } from '../registry'
 
 /**
- * debug ドメインのハンドラ（Session 6-3 ── Breakpoint）。
+ * 実行制御のチャンネルと、Main の中での名前（Session 6-4）。
+ *
+ * **対応はこの表で閉じている。** 要求から制御の名前を読むことはしない
+ * ── 要求はどれも `void` で、どの制御かはチャンネルそのものが決める。
+ */
+type ExecutionControlChannel = Extract<
+  IpcChannel,
+  'debug:continue' | 'debug:pause' | 'debug:step-over' | 'debug:step-into' | 'debug:step-out'
+>
+
+const EXECUTION_CONTROL_CHANNELS: ReadonlyArray<
+  readonly [ExecutionControlChannel, DebugExecutionControl]
+> = [
+  [IPC_CHANNELS.DEBUG_CONTINUE, 'continue'],
+  [IPC_CHANNELS.DEBUG_PAUSE, 'pause'],
+  [IPC_CHANNELS.DEBUG_STEP_OVER, 'stepOver'],
+  [IPC_CHANNELS.DEBUG_STEP_INTO, 'stepInto'],
+  [IPC_CHANNELS.DEBUG_STEP_OUT, 'stepOut']
+]
+
+/**
+ * debug ドメインのハンドラ（Session 6-3 ── Breakpoint / Session 6-4 ── 実行制御）。
  *
  * このファイルが持つのは2つだけで、adapter との話は main/debug/ に閉じている
  * （lsp / terminal ドメインと同じ分担）。
@@ -21,6 +45,8 @@ import { handleIpc } from '../registry'
  * 相対位置 … Workspace の中を指しているか（main/debug/breakpointSource.ts）
  * 行       … 1起点の整数で、上限の中か（shared/debug/breakpoint.ts）
  * ```
+ *
+ * 実行制御（Session 6-4）は要求そのものが `void` で、確かめる値が1つも無い。
  *
  * **それ以外に受け取る欄が無い。** adapter も、DAP の method 名も、絶対パスも、
  * 要求に載る欄そのものが存在しない（shared/ipc/contracts/debug.ts）。
@@ -73,6 +99,21 @@ export function registerDebugHandlers(): void {
       }
     }
   )
+
+  /*
+    実行制御（Session 6-4）。**要求は読まない** ── `void` の契約に何かが載って
+    届いても、それを制御の名前や `threadId` として使う経路は無い。
+    状態による断りは値として返り（`rejected`）、IPC の失敗にはしない。
+  */
+  for (const [channel, control] of EXECUTION_CONTROL_CHANNELS) {
+    handleIpc(channel, () => controlDebugSession(control))
+  }
+
+  /*
+    利用者の Stop（Session 6-4）。terminate → disconnect → kill の段を踏み、
+    idle へ戻り終えてから答える（main/debug/debugSessionManager.ts）。
+  */
+  handleIpc(IPC_CHANNELS.DEBUG_STOP, () => requestDebugSessionStop())
 }
 
 /**

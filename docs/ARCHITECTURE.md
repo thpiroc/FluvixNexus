@@ -7315,7 +7315,7 @@ Session 5-13 で実際に測った範囲は次のとおり。
 
 ## 20. Debug（DAP。STEP 6）
 
-Session 6-0 で設計を確定し、Session 6-1 で Main 内の最下層（DAP message / connection、adapter process、adapter catalog）を実装し、Session 6-2 で Main-owned Debug Session lifecycle / state machine を追加し、Session 6-3 で Breakpoint（Monaco の glyph margin・保存・`setBreakpoints`）を入れた（§20.12）。ここに書いていない口・欄・経路を実装側で足すときは、足す前にこの節へ戻ること。
+Session 6-0 で設計を確定し、Session 6-1 で Main 内の最下層（DAP message / connection、adapter process、adapter catalog）を実装し、Session 6-2 で Main-owned Debug Session lifecycle / state machine を追加し、Session 6-3 で Breakpoint（Monaco の glyph margin・保存・`setBreakpoints`）を入れ（§20.12）、Session 6-4 で実行制御（Continue / Pause / Step Over / Step Into / Step Out / Stop）を入れた（§20.13）。ここに書いていない口・欄・経路を実装側で足すときは、足す前にこの節へ戻ること。
 
 DESIGN.md §5 の11機能（Breakpoint / Continue / Pause / Step Over / Step Into / Step Out / Stop / Variables / Call Stack / Debug Console / エラー位置へのジャンプ）を、Terminal（§13）と LSP（§19）が固めた「**Main が長命な子プロセスを持ち、Renderer は app-domain の言葉だけで話す**」形の上に載せる。
 
@@ -7477,6 +7477,7 @@ main/debug/adapterProcess.ts  起動 / 停止 / どの stream を繋ぐか
 main/debug/adapterCatalog.ts  Main 内部の固定 adapter catalog
 main/debug/debugSessionState.ts    idle / starting / running / stopped / terminating の許可遷移
 main/debug/debugSessionManager.ts  current session / generation / lifecycle cleanup の正本
+main/debug/executionControl.ts     実行制御の許可 / 拒否と DAP への翻訳、Stop の段（Session 6-4）
 ```
 
 `jsonRpcConnection.ts`（§19.2）が子プロセスの stdio に直接結びついているのに対し、**`dapConnection.ts` は stream を受け取る形にする**。TCP の adapter が来たときに層を作り直さずに済む唯一の分け方になる。
@@ -7512,6 +7513,8 @@ Session 6-2 の実装では、この lifecycle を Main 内部の `debugSessionM
 `launch` request は送るが、その応答で `running` へ進めない。`initialized` event を受け、`supportsConfigurationDoneRequest` を名乗る adapter にだけ `configurationDone` を送り、その応答後に `starting → running` とする。Breakpoint は Session 6-3 の範囲なので、Session 6-2 では実際の breakpoint 情報はまだ持たない。
 
 stop / dispose / Workspace switch / app quit / start timeout / adapter error / adapter exit は、同じ冪等 cleanup path に入る。cleanup では `disconnect` を送れる場合だけ送り、DAP connection を dispose して pending request を `closed` にし、adapter process を kill してから `terminating → idle` に戻す。
+
+**利用者の Stop はこの経路を使わない**（Session 6-4）。この経路は「その場で終わらせる」ためのもので、`disconnect` を書いた直後に kill する ── adapter が debuggee を終わらせる暇が無い。Stop は `terminate` → `disconnect` → kill の段を踏む別の経路を通り、最後にこの cleanup へ合流する（§20.13）。
 
 #### セッションをまたいだ handle を通さない
 
@@ -7572,6 +7575,8 @@ adapter の `output` event が運ぶのは**デバッグ対象プログラム自
 Session 6-0 の予定では breakpoint の口は `setBreakpoints` 1つだったが、**Session 6-3 で
 2つに分けた**（17 → 18）。理由は §20.12。要点だけ言うと、**一覧を丸ごと渡す口を
 作らない**ためで、`setBreakpoints` という名前も DAP の request 名と1対1に見えるので使わない。
+
+Session 6-4 で `continue` / `pause` / `stepOver` / `stepInto` / `stepOut` / `stop` の6つが入った（チャンネルは `debug:continue` / `debug:pause` / `debug:step-over` / `debug:step-into` / `debug:step-out` / `debug:stop`）。**どれも要求が `void`** で、予定の数（18）は動いていない。`getState` / `onStateChanged` はまだ無い ── 状態を画面に出すのは Debug パネル（Session 6-8）で、それまでは制御の応答に載る `state` だけが Renderer に届く。
 
 **プロセスを操作する口は1つも無い**（§19.2 と同じ）。`start` に載るのは `profileId` だけで、`stop` は `void` になる。
 
@@ -7739,3 +7744,112 @@ Renderer へ返さないものが2つある。
 正本は Main の側で、行番号は**利用者が印を置いた行**のまま動かない。一方 Monaco の decoration は編集に合わせて自分で動くため、上に行を挿入すると画面の印だけがずれる。ずれたまま押すと**別の行に2つ目の印が付き、元の印は外せない**。
 
 そこで、**行数が変わる編集のたびに保存された行へ置き直す**。行の挿入に印が付いて回る挙動（VS Code はこちら）は v1 では入れない ── 付いて回らせるには編集のたびに正本を書き換える経路が要り、それは印の同期を Renderer 側の編集イベントに依存させることになる。§19.10（`pyright-no-file-watching`）と同じく、**選択の裏返しとして受け入れる制約**であり不具合ではない。
+
+### 20.13 Execution Control（Session 6-4）
+
+Main が持つ Debug Session に、Continue / Pause / Step Over / Step Into / Step Out / Stop を足した。Renderer 側の面（ボタン・キー）はまだ無く、入ったのは **typed IPC の6つと、その裏の判断**だけになる（ボタンは Debug Toolbar の Session 6-8、キーは 6-12）。
+
+#### 責務の分け方
+
+```
+Renderer                         Main
+────────                         ────
+window.fluvix.debug.stepOver()
+      │
+      │ debug:step-over（要求は void）  ← 載るものが1つも無い
+      ▼
+                                 ipc/handlers/debug.ts        チャンネル → 制御の名前（閉じた表）
+                                 debug/debugSessionManager.ts control('stepOver')
+                                   ├ executionControl.ts       状態で許可 / 拒否
+                                   ├ スレッドの決定             止まったスレッド / threads の最初
+                                   ├ executionControl.ts       stepOver → next { threadId }
+                                   └ 応答を状態へ当てる         stopped → running
+      ▲
+      │ DebugControlOutcome { status, reason?, state }
+```
+
+**Renderer は DAP を1語も知らない。** `next` / `stepIn` への翻訳も、`threadId` の選び方も Main の中で閉じる。
+
+#### 口は操作ごとに分けた
+
+`debug:control { action: 'stepOver' }` のような1本の口にしなかった。欄の値が DAP の request 名と1対1に並ぶと「method 名を渡す口」との距離が縮む（§20.12 で `setBreakpoints` という名前を避けたのと同じ理由）。**要求はどれも `void`** で、何かが載って届いても Main はそれを読まない ── 制御の名前はチャンネルが決め、`threadId` は Main が決める。
+
+#### 状態ごとの許可 / 拒否
+
+| 状態        | Continue / Step Over / Into / Out | Pause           | Stop                           |
+| ----------- | --------------------------------- | --------------- | ------------------------------ |
+| idle        | `no-session`                      | `no-session`    | `no-session`                   |
+| starting    | `invalid-state`                   | `invalid-state` | **通す**（`disconnect`）       |
+| running     | `invalid-state`                   | **通す**        | **通す**                       |
+| stopped     | **通す**                          | `invalid-state` | **通す**                       |
+| terminating | `invalid-state`                   | `invalid-state` | **通す**（2回目の Stop。下記） |
+
+- **starting で Continue / Step を通さない。** `configurationDone` を送り終える前に進めると、breakpoint の仕込み（§20.12）を追い越してプログラムが走り出しうる
+- **starting で Stop を通す。** 起動が固まったとき（adapter が `initialized` を送らない）に、start timeout（60秒）まで待たせないため
+- **断ったものは adapter へ何も送らない。** 断りは値として返し、IPC の失敗にはしない（Git の §14.7 と同じ）
+- **同時に待つ制御は1つだけ**（`busy`）。Step Over の連打で2通目が1通目の進めた先で意味を持つかは分からない。Stop はこの制限を受けない
+
+#### スレッドは Main が決める
+
+DAP の `continue` / `next` / `stepIn` / `stepOut` / `pause` は `threadId` を必須とする。v1 は Renderer から受け取らず、
+
+- Continue / Step … **最後の `stopped` event が名指したスレッド**
+- Pause と、`stopped` が `threadId` を省いていた場合 … **`threads` 応答の最初のスレッド**
+
+とする。どのスレッドを動かすかを利用者が選ぶのは Call Stack（Session 6-5）で、そのとき受け取る handle も §20.8 の世代で守る。`singleThread` / `granularity` / `targetId` は送らない（どれも capability を要し、画面に選ぶ手段が無い）。
+
+#### 応答を状態へ当てる
+
+| 制御            | 状態の動き                                                                                                        |
+| --------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Continue / Step | **応答で** stopped → running。DAP は `continue` などの応答に対して `continued` event を送らなくてよいと定めている |
+| Step の終わり   | `stopped`（reason `step`）event で running → stopped                                                              |
+| Pause           | 応答では動かさない。`stopped`（reason `pause`）event で running → stopped                                         |
+
+**応答より先に次の `stopped` が届いたら、running へ戻さない。** DAP は「応答 → `stopped`」の順を定めているが、すぐ終わる Step では前後しうる。`stopped` を受けた回数（`stopEpoch`）を送信時と応答時で比べ、進んでいれば当てない ── 当てると、止まっているのに走っていることになる。`continued` が先に届いた場合も、もう stopped でないので当てない。
+
+**前のセッションの応答は当てない。** 世代と「Stop を頼まれていない」を対で見る（§20.8 と同じ考え方）。答えを待っている間にセッションが入れ替わった制御は `session-ended` になる。
+
+adapter の失敗の文言は Renderer へ返さない（`adapter-rejected` という分類だけ）。§20.12 の breakpoint と同じく、adapter が組み立てた文字列は絶対パスを含みうる。
+
+制御の答えは10秒で `timeout` として返し、次の操作を受け付ける。**遅れて届いた答えは捨てずに当てる** ── 待つのをやめたのは Renderer への返事だけで、状態は adapter の事実に合わせるべきだから。
+
+#### Stop: `terminate` と `disconnect` の使い分け
+
+DAP の仕様書（Overview "Debug session end"）は、launch で立てた debuggee について2段の終わらせ方を定めている。
+
+- `terminate` … debuggee に**穏やかに**終わるよう頼む（後片付けの機会を与える）。**debuggee は拒める** ── これだけではセッションは終わらない。`supportsTerminateRequest` を名乗る adapter にだけ送る
+- `disconnect` … **無条件に**終わらせる。adapter は launch で立てた debuggee を終わらせてから自分も閉じる。`terminateDebuggee` は `supportTerminateDebuggee` を名乗る adapter にだけ載せる（仕様上、名乗らない adapter はこの欄を読まない）
+
+これをそのまま段にした。
+
+```
+Stop（running / stopped）
+  ├ terminate を名乗る ──→ terminate ─┬ terminated / exited ─→ disconnect
+  │                                   ├ 失敗の応答 ─────────→ disconnect
+  │                                   ├ 猶予 3 秒切れ ──────→ disconnect（debuggee が拒んだ）
+  │                                   └ もう一度 Stop ──────→ disconnect
+  └ 名乗らない ──────────────────────────────────────────────→ disconnect
+Stop（starting） ────────────────────────────────────────────→ disconnect
+
+disconnect ─┬ 応答 / adapter が自分で閉じた ─→ kill → idle
+            └ 猶予 2 秒切れ ─────────────────→ kill → idle
+```
+
+守っていること:
+
+- **両方を同時に投げない。** terminate の答えを待たずに disconnect を投げると debuggee の後片付けを打ち切ることになり、terminate を送る意味が無くなる。`terminated` を受けてから `disconnect` を送るのは、仕様どおり adapter 自身を閉じさせるため
+- **Stop を押したセッションは、猶予の和（5秒）を上限に必ず idle へ戻る。** debuggee が terminate を拒み続けても、adapter が disconnect に答えなくても、最後は kill に落ちる
+- **押した時点で terminating へ進める。** 以降の Continue / Step は断り、breakpoint の口（§20.12）も閉じる
+- **Stop の返事は idle へ戻り終えてから。** 何度押しても同じ終わりを待ち、全員に同じ答えが返る
+- **`disconnect` は1通だけ。** Stop の途中で Workspace の切り替え / アプリの終了（その場で終わらせる経路。§20.8）が走っても重ねて送らず、猶予のタイマーもそこで消える
+- **Stop の途中で adapter が閉じた / 落ちたのは正常な終わり。** 「予期せず閉じた」として error に残さない
+- adapter が自分から `terminated` / `exited` を送った場合（Stop を押していない）は、6-2 のまま**その場で片付ける**
+
+#### orphan process について
+
+終わり方はどれも最後に `adapterProcess.dispose()`（adapter の kill）へ落ちる。**debuggee を終わらせるのは adapter の仕事**で、Stop が `disconnect` の答えを待つのはそのためにある。一方、アプリの終了は `will-quit` の中で同期に片付けるため、`disconnect` を書いた直後に adapter を kill する（6-2 のまま）── debuggee が adapter の孫プロセスとして残るかどうかは adapter の作りに依存する。実 adapter（Session 6-10 / 6-11）を繋ぐときに、終了時に debuggee が残らないことを実機で確かめる。
+
+#### 停止行は 6-5 へ送った
+
+Session 6-0 の予定では「停止行」（止まった行を Editor に示す）も 6-4 に含めていた。**`stopped` event は位置を運ばない**ため、止まった行は `stackTrace` の最上段を読むまで分からない ── それは Call Stack（`getStack`）そのものになる。先取りを避け、6-5 へ移した。

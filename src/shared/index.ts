@@ -53,9 +53,17 @@ export {
   filterDebugBreakpointsForPath,
   findDebugBreakpointAt,
   isDebugBreakpointLine,
-  isSameDebugBreakpointLocation
+  isSameDebugBreakpointLocation,
+  DEBUG_EXECUTION_CONTROLS
 } from './debug'
-export type { DebugBreakpoint } from './debug'
+export type {
+  DebugBreakpoint,
+  DebugControlFailure,
+  DebugControlOutcome,
+  DebugControlRejection,
+  DebugExecutionControl,
+  DebugSessionState
+} from './debug'
 
 export type { GitFailureReason, GitHead, GitRepositoryState } from './git'
 

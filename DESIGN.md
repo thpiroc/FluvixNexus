@@ -1,7 +1,7 @@
 # Fluvix Nexus 設計ドキュメント
 
-> ステータス: STEP 1（基盤構築）完了 / STEP 2（Dockable Workspace 基盤）完了 / STEP 3（各パネルの本機能）完了 / STEP 4（日常使用の土台）完了 / STEP 5（LSP）完了 / **STEP 6（DAP）実装中（Session 6-3）**
-> 最終更新: 2026-09-10
+> ステータス: STEP 1（基盤構築）完了 / STEP 2（Dockable Workspace 基盤）完了 / STEP 3（各パネルの本機能）完了 / STEP 4（日常使用の土台）完了 / STEP 5（LSP）完了 / **STEP 6（DAP）実装中（Session 6-4）**
+> 最終更新: 2026-09-11
 
 このドキュメントは**製品としての設計方針**を扱う。実装の構造と開発手順は以下を参照。
 
@@ -415,7 +415,7 @@ Auto Save は4方式すべてが動くようになり、設定はアプリ再起
 | Git / GitHub 本機能                              | **Session 3-8-1 〜 3-8-22A で実装済み・3-8-22B で production app 確認済み**（検出・変更一覧・Stage / Unstage・Commit・Push / Pull / Fetch・ブランチ・`.git` の監視・差分と破棄・`git init` と「GitHub に公開」・コミット履歴・コミットの詳細と差分・履歴からのブランチ作成・ブランチの削除 / rename・退避・remote の管理と URL 変更 / rename・競合の解決・remote の枝から手元にブランチを作る・マージの開始 / 中止・競合の ours / theirs の差分・途中の Git 操作の検出と禁止） |
 | ブランチ操作 UI                                  | **Session 3-8-6 / 3-8-13 / 3-8-14 / 3-8-19 / 3-8-20 で実装済み**（バーのブランチ名から開く面で一覧・切り替え・作成・削除・rename・マージ、履歴の行から始点を指す欄、remote の枝から作る畳んだ段。ローカルと remote-tracking は**別の一覧**。マージ中はパネルの帯から中止できる）                                                                                                                                                                                               |
 | LSP                                              | §4。JavaScript / TypeScript・Python・C#。SDK は同梱せず PC の環境を検出する                                                                                                                                                                                                                                                                                                                                                                                                    |
-| DAP                                              | §5 / §13。**STEP 6**。Breakpoint / Step / Variables / Call Stack。Session 6-0 で設計確定、6-1 で DAP wire / adapter process / catalog foundation、6-2 で Debug Session lifecycle、6-3 で Breakpoint を実装                                                                                                                                                                                                                                                                     |
+| DAP                                              | §5 / §13。**STEP 6**。Breakpoint / Step / Variables / Call Stack。Session 6-0 で設計確定、6-1 で DAP wire / adapter process / catalog foundation、6-2 で Debug Session lifecycle、6-3 で Breakpoint、6-4 で実行制御（Continue / Pause / Step / Stop）を実装                                                                                                                                                                                                                    |
 | パネルの独立ウィンドウ化                         | §3。Main 側で別ウィンドウを開き、Shell のルートを分岐する                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | タブのドラッグによる並べ替え                     | レイアウト操作としては実装済みで、UI の入口だけが無い（ARCHITECTURE.md §7.9）                                                                                                                                                                                                                                                                                                                                                                                                  |
 | レイアウトプリセットの追加・自作レイアウトの保存 | Coding / Debug などの表への追加と、名前を付けた保存（§3）                                                                                                                                                                                                                                                                                                                                                                                                                      |
@@ -1770,20 +1770,52 @@ lifecycle への差し込みは1点だけで、`initialized` の後・`configura
 
 `MonacoEditor.tsx` への追加は**器を state に載せる行とフックを呼ぶ1行だけ**（Session 6-0 の申し送り）。呼ぶ位置が一番下であることに意味があり、上に置くと「印を当てる → Model を差し替える」の順になって decoration が捨てられる ── production build の確認で実際にそうなった。
 
-### Session 6-4 〜 6-13（予定）— 実装
+### Session 6-4（完了）— Execution Control
 
-| Session | 入れるもの                                                                     | 推奨 Agent   |
-| ------- | ------------------------------------------------------------------------------ | ------------ |
-| 6-4     | 実行制御（Continue / Pause / Step Over / Into / Out / Stop）と停止行           | Claude Code  |
-| 6-5     | Call Stack（フレーム選択 → 該当行へジャンプ。§5 の「エラー位置へのジャンプ」） | どちらでも可 |
-| 6-6     | Variables                                                                      | Codex        |
-| 6-7     | Debug Console（出力と評価）                                                    | Codex        |
-| 6-8     | Debug パネルの器・Panel Registry 登録・Debug Toolbar                           | Claude Code  |
-| 6-9     | Debug Profile の編集 UI と Settings / Status                                   | Claude Code  |
-| 6-10    | Python（debugpy）                                                              | どちらでも可 |
-| 6-11    | C#（netcoredbg）                                                               | どちらでも可 |
-| 6-12    | Command / Keybinding（F5 / F9 / F10 / F11 / Shift+F11 / Shift+F5）             | Codex        |
-| 6-13    | STEP 6 Closing（production build での横断確認とドキュメント追従）              | Claude Code  |
+Main が持つ Debug Session に、**Continue / Pause / Step Over / Step Into / Step Out / Stop** の6つを足した。Renderer から見えるのは6つの引数なしの関数だけで、DAP の request 名も `threadId` も渡らない。
+
+入れたもの:
+
+| ファイル                                         | 役割                                                                                          |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------- |
+| `shared/debug/session.ts`                        | `DebugSessionState`（6-2 で Main に置いたものを shared へ出した）と、制御の結末の形           |
+| `main/debug/executionControl.ts`                 | 状態ごとの許可 / 拒否、app-domain の名前 → DAP request の閉じた表、Stop の段の決め方          |
+| `main/debug/debugSessionManager.ts`              | `control()` と `requestStop()`。スレッドの決定、応答の当て方、terminate → disconnect          |
+| `ipc/handlers/debug.ts` / `preload/api/debug.ts` | typed IPC 6つ（`debug:continue` / `pause` / `step-over` / `step-into` / `step-out` / `stop`） |
+
+状態ごとの許可:
+
+| 状態        | 通すもの                                  | 断るもの（adapter へは何も送らない）       |
+| ----------- | ----------------------------------------- | ------------------------------------------ |
+| idle        | なし                                      | すべて `no-session`                        |
+| starting    | **Stop だけ**（disconnect で終わらせる）  | Continue / Pause / Step は `invalid-state` |
+| running     | Pause / Stop                              | Continue / Step は `invalid-state`         |
+| stopped     | Continue / Step Over / Into / Out / Stop  | Pause は `invalid-state`                   |
+| terminating | Stop（2回目は terminate → disconnect へ） | Continue / Pause / Step は `invalid-state` |
+
+**Stop は DAP 仕様の2段にした。** `terminate` を名乗る adapter にはまず `terminate`（debuggee に後片付けの機会を与える）、debuggee が拒んだら猶予（3秒）を過ぎるか2回目の Stop で `disconnect`、`disconnect` にも答えなければ猶予（2秒）で kill。**両方を同時には投げない。** `terminate` を名乗らない adapter と、まだ starting のセッションは最初から `disconnect`。Stop の返事は **idle へ戻り終えてから**返す。
+
+Workspace の切り替え・アプリの終了・adapter の異常で Main 自身が使う「その場で終わらせる」経路（`stop(reason)`、6-2）は**動かしていない**。Stop の途中でその経路が走っても `disconnect` は1通しか送られない。
+
+設計から動いたものが1つある。
+
+| 論点   | Session 6-0 の予定          | Session 6-4 の実装                                                                                                                                         |
+| ------ | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 停止行 | 6-4 に含める（表の 6-4 行） | **6-5 へ送った。** `stopped` event は位置を運ばず、止まった行は `stackTrace` の最上段を読むまで分からない ── それは Call Stack（`getStack`）そのものになる |
+
+### Session 6-5 〜 6-13（予定）— 実装
+
+| Session | 入れるもの                                                                                               | 推奨 Agent   |
+| ------- | -------------------------------------------------------------------------------------------------------- | ------------ |
+| 6-5     | Call Stack（フレーム選択 → 該当行へジャンプ。§5 の「エラー位置へのジャンプ」）と停止行（6-4 から移した） | どちらでも可 |
+| 6-6     | Variables                                                                                                | Codex        |
+| 6-7     | Debug Console（出力と評価）                                                                              | Codex        |
+| 6-8     | Debug パネルの器・Panel Registry 登録・Debug Toolbar                                                     | Claude Code  |
+| 6-9     | Debug Profile の編集 UI と Settings / Status                                                             | Claude Code  |
+| 6-10    | Python（debugpy）                                                                                        | どちらでも可 |
+| 6-11    | C#（netcoredbg）                                                                                         | どちらでも可 |
+| 6-12    | Command / Keybinding（F5 / F9 / F10 / F11 / Shift+F11 / Shift+F5）                                       | Codex        |
+| 6-13    | STEP 6 Closing（production build での横断確認とドキュメント追従）                                        | Claude Code  |
 
 最初に繋ぐのは **Node**（この PC で実機確認できる唯一の言語。Python / .NET SDK は STEP 5 Closing 時点と同じく未導入）。ただし Node の adapter だけは**入手経路と stdio 対応が未確定**で、6-1 の最初の仕事がその確認になる（[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §20.7）。
 

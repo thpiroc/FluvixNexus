@@ -1,7 +1,8 @@
 /**
  * Debug（DAP）契約レイヤーの公開窓口（Session 6-3）。
  *
- * Main / Preload / Renderer はこのモジュール経由で Breakpoint の型を参照する。
+ * Main / Preload / Renderer はこのモジュール経由で Breakpoint の型と、
+ * Debug Session の状態・実行制御の結末（Session 6-4）を参照する。
  * shared 層のルールどおり、ここに実装（プロセス・DAP の電文・保存先）は置かない
  * ── それらは Main の持ち物で、main/debug/ と main/store/ に閉じている。
  *
@@ -21,6 +22,16 @@ export {
 } from './breakpoint'
 
 export type { DebugBreakpoint } from './breakpoint'
+
+export { DEBUG_EXECUTION_CONTROLS } from './session'
+
+export type {
+  DebugControlFailure,
+  DebugControlOutcome,
+  DebugControlRejection,
+  DebugExecutionControl,
+  DebugSessionState
+} from './session'
 
 export {
   DEBUG_BREAKPOINTS_DOCUMENT_MAX_BYTES,

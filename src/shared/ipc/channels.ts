@@ -87,6 +87,12 @@ export const IPC_CHANNELS = {
   LSP_GET_STATUS: 'lsp:get-status',
   DEBUG_LIST_BREAKPOINTS: 'debug:list-breakpoints',
   DEBUG_TOGGLE_BREAKPOINT: 'debug:toggle-breakpoint',
+  DEBUG_CONTINUE: 'debug:continue',
+  DEBUG_PAUSE: 'debug:pause',
+  DEBUG_STEP_OVER: 'debug:step-over',
+  DEBUG_STEP_INTO: 'debug:step-into',
+  DEBUG_STEP_OUT: 'debug:step-out',
+  DEBUG_STOP: 'debug:stop',
   SETTINGS_LOAD: 'settings:load',
   SETTINGS_SAVE_SECTION: 'settings:save-section'
 } as const satisfies Record<string, IpcChannel>
