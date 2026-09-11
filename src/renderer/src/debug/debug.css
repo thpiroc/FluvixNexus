@@ -72,11 +72,12 @@
   font: inherit;
 }
 
-.fx-debug-call-stack__frame[data-openable='true'] {
+/* Session 6-6 から、開けない frame も「選ぶ」ために押せる。 */
+.fx-debug-call-stack__frame {
   cursor: pointer;
 }
 
-.fx-debug-call-stack__frame[data-openable='true']:hover {
+.fx-debug-call-stack__frame:hover {
   background: var(--fx-color-surface-hover);
 }
 
@@ -94,4 +95,108 @@
 
 .fx-debug-call-stack__frame-location {
   color: var(--fx-color-text-faint);
+}
+
+/* 選んでいる frame（Session 6-6）。Variables はこの frame を読む。 */
+.fx-debug-call-stack__frame[data-selected='true'] {
+  background: var(--fx-color-surface-raised);
+  color: var(--fx-color-text-strong);
+}
+
+.fx-debug-call-stack__frame:focus-visible {
+  outline: 1px solid var(--fx-accent-blue);
+  outline-offset: -1px;
+}
+
+.fx-debug-call-stack__frame[data-openable='false'] .fx-debug-call-stack__frame-name {
+  color: var(--fx-color-text-muted);
+}
+
+/* Variables（Session 6-6） */
+
+.fx-debug-panel__header--section {
+  border-top: 1px solid var(--fx-color-border);
+}
+
+.fx-debug-variables {
+  display: flex;
+  flex-direction: column;
+  padding: var(--fx-space-1) 0;
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-debug-variables__notice {
+  margin: 0;
+  padding: var(--fx-space-3);
+  color: var(--fx-color-text-faint);
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-debug-variables__row {
+  display: flex;
+  align-items: center;
+  gap: var(--fx-space-1);
+  min-height: 22px;
+  padding-right: var(--fx-space-2);
+  padding-left: calc(var(--fx-space-2) + var(--fx-debug-variable-depth, 0) * 12px);
+  overflow: hidden;
+  white-space: nowrap;
+  cursor: default;
+  user-select: none;
+}
+
+.fx-debug-variables__row[data-expandable='true'] {
+  cursor: pointer;
+}
+
+.fx-debug-variables__row:hover {
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-debug-variables__row:focus-visible {
+  outline: 1px solid var(--fx-accent-blue);
+  outline-offset: -1px;
+}
+
+.fx-debug-variables__row--notice {
+  color: var(--fx-color-text-faint);
+  font-style: italic;
+}
+
+.fx-debug-variables__row--notice:hover {
+  background: transparent;
+}
+
+.fx-debug-variables__twisty {
+  flex: 0 0 auto;
+  width: 12px;
+  color: var(--fx-color-text-muted);
+  text-align: center;
+}
+
+.fx-debug-variables__scope {
+  color: var(--fx-color-text-muted);
+  font-weight: 600;
+}
+
+.fx-debug-variables__name {
+  flex: 0 0 auto;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--fx-color-text);
+}
+
+.fx-debug-variables__separator {
+  flex: 0 0 auto;
+  color: var(--fx-color-text-faint);
+}
+
+.fx-debug-variables__value {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--fx-color-text-muted);
+  font-family: ui-monospace, Consolas, monospace;
 }

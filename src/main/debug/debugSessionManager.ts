@@ -15,6 +15,11 @@ import type { DapRequestOutcome } from './dapConnection'
 import type { DapSetBreakpointsArguments } from './dapBreakpoints'
 import type { DapStackTraceArguments } from './dapStackTrace'
 import {
+  readSupportsVariablePaging,
+  type DapScopesArguments,
+  type DapVariablesArguments
+} from './dapVariables'
+import {
   applyDebugSessionTransition,
   type DebugSessionState,
   type DebugSessionTransition
@@ -135,6 +140,23 @@ export interface DebugSessionCallStackChannel {
 }
 
 /**
+ * 止まっているセッションへ `scopes` / `variables` を送る口（Session 6-6）。
+ *
+ * Call Stack の口と同じく、取得した時点の session generation / stop generation を
+ * 閉じ込め、送る時点でまだ同じ停止かを確かめる。送れるのはこの2つだけで、
+ * `evaluate` / `setVariable` / `readMemory` を送る口は作らない。
+ */
+export interface DebugSessionVariablesChannel {
+  readonly sessionId: string
+  readonly generation: number
+  readonly stopGeneration: number
+  /** `initialize` の応答で adapter が `supportsVariablePaging` を名乗ったか。 */
+  readonly supportsVariablePaging: boolean
+  readonly requestScopes: (args: DapScopesArguments) => Promise<DapRequestOutcome>
+  readonly requestVariables: (args: DapVariablesArguments) => Promise<DapRequestOutcome>
+}
+
+/**
  * `initialized` の後、`configurationDone` の前に呼ばれる仕込み（Session 6-3）。
  *
  * DAP の lifecycle 上、breakpoint を送ってよいのは
@@ -180,6 +202,8 @@ interface RunningDebugSession {
   /** 以下は Session 6-4（実行制御と Stop）。 */
   /** `initialize` の応答から読んだ、終わらせ方に関わる capability。 */
   stopCapabilities: DebugAdapterStopCapabilities
+  /** `initialize` の応答で `supportsVariablePaging` を名乗ったか（Session 6-6）。 */
+  supportsVariablePaging: boolean
   /** 最後の `stopped` event が名指したスレッド（無ければ null）。 */
   stoppedThreadId: number | null
   /**
@@ -234,6 +258,8 @@ export interface DebugSessionManager {
    */
   readonly getBreakpointChannel: () => DebugSessionBreakpointChannel | null
   readonly getCallStackChannel: () => DebugSessionCallStackChannel | null
+  /** `scopes` / `variables` を送る口（Session 6-6）。**stopped のときだけ返る。** */
+  readonly getVariablesChannel: () => DebugSessionVariablesChannel | null
   /**
    * 実行制御（Session 6-4）。Continue / Pause / Step Over / Step Into / Step Out。
    *
@@ -353,6 +379,7 @@ export function createDebugSessionManager(
       cleanupStarted: false,
       terminationRequested: false,
       stopCapabilities: NO_DEBUG_ADAPTER_STOP_CAPABILITIES,
+      supportsVariablePaging: false,
       stoppedThreadId: null,
       stopEpoch: 0,
       pendingControl: null,
@@ -445,6 +472,7 @@ export function createDebugSessionManager(
       }
 
       record.stopCapabilities = readDebugAdapterStopCapabilities(initialize.body)
+      record.supportsVariablePaging = readSupportsVariablePaging(initialize.body)
 
       const supportsConfigurationDone = supportsConfigurationDoneRequest(initialize.body)
 
@@ -577,6 +605,34 @@ export function createDebugSessionManager(
     }
 
     return createCallStackChannel(current)
+  }
+
+  function createVariablesChannel(record: RunningDebugSession): DebugSessionVariablesChannel {
+    const stopGeneration = record.stopEpoch
+    const moved = (): Promise<DapRequestOutcome> =>
+      Promise.resolve({
+        status: 'closed' as const,
+        reason: 'the stopped debug session has already moved on.'
+      })
+
+    return {
+      sessionId: record.sessionId,
+      generation: record.generation,
+      stopGeneration,
+      supportsVariablePaging: record.supportsVariablePaging,
+      requestScopes: (args) =>
+        isCurrentStopped(record, stopGeneration) ? request(record, 'scopes', args) : moved(),
+      requestVariables: (args) =>
+        isCurrentStopped(record, stopGeneration) ? request(record, 'variables', args) : moved()
+    }
+  }
+
+  function getVariablesChannel(): DebugSessionVariablesChannel | null {
+    if (current === null || current.state !== 'stopped') {
+      return null
+    }
+
+    return createVariablesChannel(current)
   }
 
   function handleAdapterEvent(generation: number, event: string, body: unknown): void {
@@ -1114,6 +1170,7 @@ export function createDebugSessionManager(
     },
     getBreakpointChannel,
     getCallStackChannel,
+    getVariablesChannel,
     control,
     requestStop
   }
@@ -1184,6 +1241,11 @@ export function getDebugSessionBreakpointChannel(): DebugSessionBreakpointChanne
 
 export function getDebugSessionCallStackChannel(): DebugSessionCallStackChannel | null {
   return defaultManager.getCallStackChannel()
+}
+
+/** `scopes` / `variables` を送る口（Session 6-6）。stopped でなければ null。 */
+export function getDebugSessionVariablesChannel(): DebugSessionVariablesChannel | null {
+  return defaultManager.getVariablesChannel()
 }
 
 /** 実行制御（Session 6-4）。呼ぶのは main/ipc/handlers/debug.ts だけになる。 */

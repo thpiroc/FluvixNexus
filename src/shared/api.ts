@@ -21,7 +21,11 @@ import type {
   SearchWorkspaceFilesRequest,
   WriteWorkspaceFileRequest
 } from './ipc/contracts/files'
-import type { ToggleDebugBreakpointRequest } from './ipc/contracts/debug'
+import type {
+  ListDebugScopesRequest,
+  ListDebugVariablesRequest,
+  ToggleDebugBreakpointRequest
+} from './ipc/contracts/debug'
 import type { IpcInvokeResult } from './ipc/contract'
 import type {
   AddGitRemoteRequest,
@@ -1081,6 +1085,9 @@ export interface LspApi {
  * adapter の選択 / 実行ファイル … 無い（表は Main。docs/ARCHITECTURE.md §20.7）
  * 絶対パス / file URI           … 無い（組み立てるのは Main）
  * threadId / frameId            … 無い（どのスレッドを動かすかは Main が決める。選ぶのは 6-5）
+ *                                  frameId は Scope を読むときだけ載る（今の停止の frame しか通らない）
+ * variablesReference            … 無い（渡すのは Main が発行した handle。Session 6-6）
+ * evaluate / setVariable        … 無い（evaluate は Session 6-7。値の書き換えは入れない）
  * Debug Session を起動          … 無い（Debug Profile の Session 6-9 まで）
  * breakpoint の一覧を書き込む口 … 無い（1件ずつの入れ替えだけ。§20.12）
  * ```
@@ -1109,6 +1116,17 @@ export interface DebugApi {
   ) => IpcInvokeResult<'debug:toggle-breakpoint'>
   /** 今の Call Stack snapshot を読む。返る source は safe domain model だけ。 */
   readonly listCallStack: () => IpcInvokeResult<'debug:list-call-stack'>
+  /**
+   * Call Stack の frame の Scope を読む（Session 6-6）。
+   *
+   * 渡すのは snapshot に載っていた `frameId` だけで、Main は今の停止の frame しか通さない。
+   * 返る Scope が持つのは Main の handle で、DAP の `variablesReference` は載らない。
+   */
+  readonly listScopes: (request: ListDebugScopesRequest) => IpcInvokeResult<'debug:list-scopes'>
+  /** Scope / Variable の子を1段読む（Session 6-6）。渡せるのは Main が発行した handle だけ。 */
+  readonly listVariables: (
+    request: ListDebugVariablesRequest
+  ) => IpcInvokeResult<'debug:list-variables'>
   /**
    * 実行制御（Session 6-4）。
    *

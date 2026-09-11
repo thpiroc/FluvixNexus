@@ -99,6 +99,10 @@ export type {
   DebugCallStackResponse,
   DebugBreakpointsResponse,
   DebugIpcContract,
+  DebugScopesResponse,
+  DebugVariablesResponse,
+  ListDebugScopesRequest,
+  ListDebugVariablesRequest,
   ToggleDebugBreakpointRequest
 } from './contracts/debug'
 export type {

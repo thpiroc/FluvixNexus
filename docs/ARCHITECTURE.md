@@ -7530,19 +7530,20 @@ Session 6-5 で `frameId` 用にもう1段足した。`frameId` は同じ sessio
 
 §19.8 の表をそのまま引き継ぎ、DAP 固有の3行を足す。
 
-| 渡さないもの                          | どう閉じているか                                                                |
-| ------------------------------------- | ------------------------------------------------------------------------------- |
-| 絶対パス                              | Profile も応答も **workspace-relative path** だけ。変換は Main の中             |
-| file URI                              | 組み立てるのも解くのも Main の中だけ                                            |
-| adapter の実行ファイル / 引数 / cwd   | catalog が持つ。Profile にも IPC にも欄が無い（§20.4）                          |
-| interpreter / runtime の実行ファイル  | PATH から Main が解決する。Profile に欄が無い                                   |
-| 任意の DAP request 名                 | 口は機能ごとに分かれている。method 名を渡す口が無い                             |
-| 任意の adapter 選択                   | 行き先は `language`（3つの閉じた集合）だけで決まる                              |
-| 任意の Workspace の profile           | `debug:list-profiles` の要求は `void`。key を渡す口が無い（§20.5）              |
-| **`runInTerminal`（逆方向要求）**     | **拒否する。** `initialize` で `supportsRunInTerminalRequest: false` を名乗る   |
-| **Workspace 外の program**            | `programRelativePath` を Files と同じ2段（パス文字列 → realpath）で検証して断る |
-| **adapter が返す stack frame source** | Main が Workspace 相対へ正規化し、Workspace 外 / missing / malformed は開けない |
-| **実行を差し替える環境変数**          | 下記                                                                            |
+| 渡さないもの                          | どう閉じているか                                                                   |
+| ------------------------------------- | ---------------------------------------------------------------------------------- |
+| 絶対パス                              | Profile も応答も **workspace-relative path** だけ。変換は Main の中                |
+| file URI                              | 組み立てるのも解くのも Main の中だけ                                               |
+| adapter の実行ファイル / 引数 / cwd   | catalog が持つ。Profile にも IPC にも欄が無い（§20.4）                             |
+| interpreter / runtime の実行ファイル  | PATH から Main が解決する。Profile に欄が無い                                      |
+| 任意の DAP request 名                 | 口は機能ごとに分かれている。method 名を渡す口が無い                                |
+| 任意の adapter 選択                   | 行き先は `language`（3つの閉じた集合）だけで決まる                                 |
+| 任意の Workspace の profile           | `debug:list-profiles` の要求は `void`。key を渡す口が無い（§20.5）                 |
+| **`runInTerminal`（逆方向要求）**     | **拒否する。** `initialize` で `supportsRunInTerminalRequest: false` を名乗る      |
+| **Workspace 外の program**            | `programRelativePath` を Files と同じ2段（パス文字列 → realpath）で検証して断る    |
+| **adapter が返す stack frame source** | Main が Workspace 相対へ正規化し、Workspace 外 / missing / malformed は開けない    |
+| **`variablesReference`**              | Main の handle 表に控え、Renderer へは Main が発行した handle だけを渡す（§20.15） |
+| **実行を差し替える環境変数**          | 下記                                                                               |
 
 #### `runInTerminal` を拒否する
 
@@ -7586,6 +7587,8 @@ Session 6-0 の予定では breakpoint の口は `setBreakpoints` 1つだった�
 Session 6-4 で `continue` / `pause` / `stepOver` / `stepInto` / `stepOut` / `stop` の6つが入った（チャンネルは `debug:continue` / `debug:pause` / `debug:step-over` / `debug:step-into` / `debug:step-out` / `debug:stop`）。**どれも要求が `void`** で、予定の数（18）は動いていない。`getState` / `onStateChanged` はまだ無い ── 状態を画面に出すのは Debug パネル（Session 6-8）で、それまでは制御の応答に載る `state` だけが Renderer に届く。
 
 Session 6-5 で `getStack` は実際の名前を `debug:list-call-stack` / `listCallStack` として入れた。要求は `void` で、応答は Main が持つ現在 Workspace の Call Stack snapshot だけになる。変化通知として `debug:call-stack-changed` / `onCallStackChanged` を足したため購読は5本になった。`onStopped` は Main 内部の lifecycle listener で、Renderer の購読口としてはまだ出していない。
+
+Session 6-6 で `getScopes` / `getVariables` を実際の名前 `debug:list-scopes` / `listScopes`・`debug:list-variables` / `listVariables` として入れた（6-5 の `list-call-stack` と揃えた）。要求に載るのは `{ frameId }` / `{ handle }` の1欄だけで、予定の数（18）は動いていない（§20.15）。
 
 **プロセスを操作する口は1つも無い**（§19.2 と同じ）。`start` に載るのは `profileId` だけで、`stop` は `void` になる。
 
@@ -7942,3 +7945,108 @@ Call Stack snapshot は stopped の瞬間だけ生きる。次の場合は空に
 #### Renderer
 
 Session 6-5 では最小の Debug panel を登録し、Call Stack だけを置いた。6-8 の Debug Toolbar や状態表示は先取りしない。frame 選択は `EditorContext.openFileAt({ relativePath, line, column })` を使い、Files / editor opener の既存経路へ乗せる。Monaco へ直接ファイルを開く新しい口は作らない。
+
+### 20.15 Variables / Scopes（Session 6-6）
+
+Call Stack で選んだ frame の Scope と、その下の Variable を **lazy に**辿れるようにした。
+
+```
+stopped → threads → stackTrace → frame 選択 → scopes → variables → 入れ子の variables
+                                  （6-5）      └──────── Session 6-6 ────────┘
+```
+
+#### 責務の分け方
+
+```
+Renderer                                   Main                                          adapter
+────────                                   ────                                          ───────
+Call Stack の frame を選ぶ
+  debug/callStackSelection.ts
+VariablesView（ARIA tree）
+  │ debug:list-scopes { frameId }
+  ▼
+                                           ipc/handlers/debug.ts   形だけを確かめる
+                                           debug/variables.ts
+                                             frame を 6-5 の経路で確かめる
+                                             （getDebugCallStackFrameHandle）
+                                             Variables channel ─── scopes { frameId } ──▶
+                                             ◀──────────────────── scopes[] ─────────────
+                                             dapVariables.ts で正規化
+                                             variablesReference → handle を発行
+  ◀── DebugScope[]（handle だけ）
+  │ debug:list-variables { handle }        （子を開いたときだけ）
+  ▼
+                                             表を引き、世代 / Workspace / epoch を照合
+                                             ─────────────── variables { variablesReference } ──▶
+                                             ◀──────────────────── variables[] ──────────
+                                             子の handle を新しく発行
+  ◀── DebugVariable[]
+```
+
+**Renderer は `variablesReference` を1度も目にしない。** handle は Main が停止ごとに発行する不透明な文字列（`dv-<通し番号>`）で、数値にしていないのは DAP の番号と取り違えられないようにするため。Main は数値を handle として受け付けない（IPC で INVALID_REQUEST）。通し番号は表を捨てても戻さないので、古い handle が新しい handle と重なることは無い。
+
+#### handle 表
+
+1件が持つもの: raw `variablesReference`・origin（scope / variable）・Workspace id・session generation・stop generation・epoch。Renderer から返された handle は、**表に実在し、epoch・Workspace・session generation・stop generation がすべて現在値と一致し、状態が stopped** のときだけ DAP の request へ戻す。
+
+`variablesReference` は stopped の間だけ有効（DAP の仕様）なので、表は次のどれかで捨て、epoch を進める。
+
+| きっかけ                                      | 通る経路                                          |
+| --------------------------------------------- | ------------------------------------------------- |
+| Continue / Step / `continued` / running       | 状態が stopped 以外へ動いた                       |
+| Stop / adapter error / adapter close          | 同上（terminating → idle）                        |
+| `terminated` / `exited` / app cleanup         | 同上                                              |
+| session replacement                           | 同上（idle → starting を経る）                    |
+| stopped のまま次の `stopped` が届いた         | `stopped` event                                   |
+| Call Stack snapshot の差し替え（`thread` 等） | `callStack.ts` の `onChange`                      |
+| Workspace switch                              | Workspace の購読 + 要求時の照合（通知前でも断る） |
+
+途中で返ってきた応答は、送った時点の epoch と今の epoch が違えば **handle を発行せずに `stale`** にする。前の停止で同じ番号が再利用されていても、それを今の停止の中身として見せることは無い。
+
+#### 読めなかったことは値で返す
+
+| 結果          | 意味                                       |
+| ------------- | ------------------------------------------ |
+| `not-stopped` | 止まっている Debug Session が無い          |
+| `stale`       | frame / handle が今の停止のものでない      |
+| `failed`      | adapter が断った / 応答が壊れていた        |
+| `limit`       | この停止で発行できる handle の上限に達した |
+
+押した直後に再開した、は利用者の操作への普通の答えなので IPC の失敗にしない。adapter の失敗の文言は絶対パスを含みうるため Main のログにだけ残す（§20.12 と同じ）。
+
+#### safe domain model（`shared/debug/variables.ts`）
+
+```
+DebugScope    { handle | null, name, kind, expensive, namedCount, indexedCount }
+DebugVariable { handle | null, name, value, type, kind, namedCount, indexedCount }
+```
+
+- `kind` は `presentationHint` を閉じた集合へ畳んだもの（Scope: arguments / locals / registers / returnValue / other、Variable: property / method / class / data / … / other）
+- `variablesReference = 0`（葉）と、読めない番号は `handle: null`。変数そのものは表示に残す
+- 渡さないもの: `memoryReference` / `evaluateName`（evaluate は 6-7 で境界を決める）/ `declarationLocationReference` / `valueLocationReference` / `Scope.source`・`line`・`column` / `presentationHint` の生の値（attributes / visibility を含む）
+- `value` は利用者のプログラムの中身で、Debug Console の出力と同じく**表示するだけの文字列**（§20.9 の例外と同じ線）。意味は変えず、制御文字だけを空白に置き換え、1,000文字で切る
+
+#### paging / 大きな Variables
+
+| 上限                         | 値      | 理由                                                             |
+| ---------------------------- | ------- | ---------------------------------------------------------------- |
+| 1応答で渡す Scope / Variable | 500     | DOM に一度に並べても重くならない行数。上限より先は正規化もしない |
+| 1停止で発行する handle       | 5,000   | 手で開ける範囲を大きく超え、Main の表が無制限に育たない          |
+| 値の表示                     | 1,000字 | 行の表示には十分で、巨大な文字列を IPC に載せない                |
+
+`start` / `count` は **`supportsVariablePaging` を名乗る adapter にだけ**載せる（`start: 0, count: 501`。1件多く頼むのは超えたかどうかを長さで知るため）。名乗らない adapter は全件を返しうるので、どちらの場合も読む側で 500 に切り、`truncated` を立てる。
+
+**「さらに読む」は入れていない。** 続きを読むには `filter`（named / indexed）と範囲の仮想ノード（`[0..99]` のようなもの）が要り、adapter ごとの差が大きい。実 adapter（6-10 / 6-11）で挙動を見てから決める。handle の上限に達した停止では、それ以上の展開を adapter へ送らずに `limit` で断る（上限を超えた子は開けない葉として見せる）。
+
+#### Renderer
+
+- **frame の「選ぶ」と「開く」を分けた。** Call Stack の frame を押すと Variables がその frame を読み、開ける frame なら従来どおり `EditorContext.openFileAt` で開く。Workspace 外 / 位置の無い frame も**選べるが開かない**（6-5 では押せない形だった）
+- 選択は **snapshot の版**に結び付ける。snapshot が差し替わったら最上段へ戻す ── frame id は次の停止で再利用されうるため、同じ数でも同じ frame とは限らない
+- `VariablesView` は tree を **snapshot の版 × frame を key に作り直す**。前の停止の展開・handle・読みかけの応答は持ち越さず、unmount した tree へ届いた応答は当てない
+- tree model は Variables 専用の軽い形（`variablesTreeModel.ts`）。Files の FileTreeModel は FileEntry 専用なので使っていない。最初は Scope だけを読み、**重くない最初の Scope だけ**を自動で開く。`expensive` の Scope と子を持つ Variable は利用者が開いたときに初めて読む。閉じても読んだ子は控え、同じ停止の中で開き直しても往復しない
+- ARIA は Files と同じ tree パターン（`role="tree"` / `treeitem` / `aria-level` / `aria-expanded`、roving tabindex、↑↓ / Home / End / → / ← / Enter / Space）
+- Workspace が変わったら、読み直しの答えを待たずに Call Stack の写しを空へ戻す
+
+#### 入れていないもの（Session 6-6）
+
+evaluate / Debug Console / Watch / `setVariable` / `setExpression` / memory read / write / data breakpoint / 任意の DAP request。**停止行（止まった行を Editor に示す）** は 6-4 → 6-5 へ送ったが 6-5 でも入っておらず、担当 Session は未確定のまま（6-6 には含めていない）。

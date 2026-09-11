@@ -1,6 +1,11 @@
 import type { DebugBreakpoint } from '../../debug/breakpoint'
 import type { DebugCallStackSnapshot } from '../../debug/callStack'
 import type { DebugControlOutcome } from '../../debug/session'
+import type {
+  DebugScopesResult,
+  DebugVariableHandle,
+  DebugVariablesResult
+} from '../../debug/variables'
 
 /**
  * debug ドメインの IPC 契約（Session 6-3 ── Breakpoint / Session 6-4 ── 実行制御）。
@@ -84,6 +89,35 @@ export interface DebugCallStackResponse {
   readonly callStack: DebugCallStackSnapshot
 }
 
+/**
+ * その frame の Scope を読む（Session 6-6）。
+ *
+ * `frameId` は Call Stack snapshot に載っていた値で、Main は**今の snapshot に
+ * 実在し、今の停止・今の Workspace に属する frame だけ**を通す（Session 6-5 の
+ * `getDebugCallStackFrameHandle`）。任意の数を入れても adapter へは届かない。
+ */
+export interface ListDebugScopesRequest {
+  readonly frameId: number
+}
+
+/**
+ * その Scope / Variable の子を読む（Session 6-6）。
+ *
+ * 渡せるのは **Main が発行した handle だけ**。DAP の `variablesReference` を
+ * 指す欄は無く、数値を入れても handle として扱われない。
+ */
+export interface ListDebugVariablesRequest {
+  readonly handle: DebugVariableHandle
+}
+
+export interface DebugScopesResponse {
+  readonly result: DebugScopesResult
+}
+
+export interface DebugVariablesResponse {
+  readonly result: DebugVariablesResult
+}
+
 export interface DebugIpcContract {
   /**
    * 今の Workspace の breakpoint を読む。
@@ -116,6 +150,26 @@ export interface DebugIpcContract {
   'debug:list-call-stack': {
     request: void
     response: DebugCallStackResponse
+  }
+  /**
+   * Call Stack の frame の Scope を読む（Session 6-6）。
+   *
+   * 止まっていない・古い frame は IPC の失敗ではなく `unavailable` として値で返る
+   * （押した直後に再開した、は利用者の操作への普通の答え）。形の壊れた要求だけが
+   * INVALID_REQUEST になる。
+   */
+  'debug:list-scopes': {
+    request: ListDebugScopesRequest
+    response: DebugScopesResponse
+  }
+  /**
+   * Scope / Variable の子を読む（Session 6-6。lazy expansion の1段ぶん）。
+   *
+   * 子に中身があれば、その子の handle も Main が新しく発行して載せる。
+   */
+  'debug:list-variables': {
+    request: ListDebugVariablesRequest
+    response: DebugVariablesResponse
   }
   /** 止まっているプログラムを再開する（stopped のときだけ）。 */
   'debug:continue': {

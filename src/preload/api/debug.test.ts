@@ -29,6 +29,8 @@ describe('debug preload api', () => {
         'continue',
         'listBreakpoints',
         'listCallStack',
+        'listScopes',
+        'listVariables',
         'onBreakpointsChanged',
         'onCallStackChanged',
         'pause',
@@ -60,9 +62,29 @@ describe('debug preload api', () => {
     }
   )
 
+  it('listScopes / listVariables forward only frameId / handle (Session 6-6)', async () => {
+    await debugApi.listScopes({
+      frameId: 11,
+      command: 'evaluate',
+      variablesReference: 1000,
+      adapter: 'C:\\evil.exe'
+    } as never)
+    await debugApi.listVariables({
+      handle: 'dv-1',
+      variablesReference: 1000,
+      command: 'setVariable',
+      memoryReference: '0x1'
+    } as never)
+
+    expect(invoke).toHaveBeenNthCalledWith(1, 'debug:list-scopes', { frameId: 11 })
+    expect(invoke).toHaveBeenNthCalledWith(2, 'debug:list-variables', { handle: 'dv-1' })
+  })
+
   it('has no function that takes a DAP method, adapter, or process', () => {
     for (const name of Object.keys(debugApi)) {
-      expect(name).not.toMatch(/request|command|method|adapter|spawn|exec|process|attach/i)
+      expect(name).not.toMatch(
+        /request|command|method|adapter|spawn|exec|process|attach|evaluate|setVariable|memory/i
+      )
     }
   })
 })

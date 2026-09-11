@@ -1,6 +1,6 @@
 # Fluvix Nexus 設計ドキュメント
 
-> ステータス: STEP 1（基盤構築）完了 / STEP 2（Dockable Workspace 基盤）完了 / STEP 3（各パネルの本機能）完了 / STEP 4（日常使用の土台）完了 / STEP 5（LSP）完了 / **STEP 6（DAP）実装中（Session 6-5）**
+> ステータス: STEP 1（基盤構築）完了 / STEP 2（Dockable Workspace 基盤）完了 / STEP 3（各パネルの本機能）完了 / STEP 4（日常使用の土台）完了 / STEP 5（LSP）完了 / **STEP 6（DAP）実装中（Session 6-6）**
 > 最終更新: 2026-09-11
 
 このドキュメントは**製品としての設計方針**を扱う。実装の構造と開発手順は以下を参照。
@@ -415,7 +415,7 @@ Auto Save は4方式すべてが動くようになり、設定はアプリ再起
 | Git / GitHub 本機能                              | **Session 3-8-1 〜 3-8-22A で実装済み・3-8-22B で production app 確認済み**（検出・変更一覧・Stage / Unstage・Commit・Push / Pull / Fetch・ブランチ・`.git` の監視・差分と破棄・`git init` と「GitHub に公開」・コミット履歴・コミットの詳細と差分・履歴からのブランチ作成・ブランチの削除 / rename・退避・remote の管理と URL 変更 / rename・競合の解決・remote の枝から手元にブランチを作る・マージの開始 / 中止・競合の ours / theirs の差分・途中の Git 操作の検出と禁止） |
 | ブランチ操作 UI                                  | **Session 3-8-6 / 3-8-13 / 3-8-14 / 3-8-19 / 3-8-20 で実装済み**（バーのブランチ名から開く面で一覧・切り替え・作成・削除・rename・マージ、履歴の行から始点を指す欄、remote の枝から作る畳んだ段。ローカルと remote-tracking は**別の一覧**。マージ中はパネルの帯から中止できる）                                                                                                                                                                                               |
 | LSP                                              | §4。JavaScript / TypeScript・Python・C#。SDK は同梱せず PC の環境を検出する                                                                                                                                                                                                                                                                                                                                                                                                    |
-| DAP                                              | §5 / §13。**STEP 6**。Breakpoint / Step / Variables / Call Stack。Session 6-0 で設計確定、6-1 で DAP wire / adapter process / catalog foundation、6-2 で Debug Session lifecycle、6-3 で Breakpoint、6-4 で実行制御（Continue / Pause / Step / Stop）、6-5 で Main-owned Call Stack を実装                                                                                                                                                                                     |
+| DAP                                              | §5 / §13。**STEP 6**。Breakpoint / Step / Variables / Call Stack。Session 6-0 で設計確定、6-1 で DAP wire / adapter process / catalog foundation、6-2 で Debug Session lifecycle、6-3 で Breakpoint、6-4 で実行制御（Continue / Pause / Step / Stop）、6-5 で Main-owned Call Stack、6-6 で Variables / Scopes（Main-owned handle による lazy expansion）を実装                                                                                                                |
 | パネルの独立ウィンドウ化                         | §3。Main 側で別ウィンドウを開き、Shell のルートを分岐する                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | タブのドラッグによる並べ替え                     | レイアウト操作としては実装済みで、UI の入口だけが無い（ARCHITECTURE.md §7.9）                                                                                                                                                                                                                                                                                                                                                                                                  |
 | レイアウトプリセットの追加・自作レイアウトの保存 | Coding / Debug などの表への追加と、名前を付けた保存（§3）                                                                                                                                                                                                                                                                                                                                                                                                                      |
@@ -1839,11 +1839,37 @@ running へ戻ったとき、`continued` event、adapter error / exit、`termina
 
 Workspace 内の source だけが `relativePath` を持ち、Workspace 外 / missing / unknown / malformed source は frame 自体を残したうえで `unavailable` として開けない。これにより「外部ライブラリの frame は見えるが、Renderer からその絶対位置へ触る経路は無い」という形にしてある。
 
-### Session 6-6 〜 6-13（予定）— 実装
+### Session 6-6（完了）— Variables
+
+Call Stack の frame から **Scopes → Variables → 入れ子の Variables** を lazy に辿れるようにした。DAP の `variablesReference` は Main の handle 表に控え、Renderer へは **Main が発行した不透明な handle（文字列）** だけを渡す。Renderer は raw `variablesReference` も任意の DAP method も指定できない。
+
+入れたもの:
+
+| ファイル                                         | 役割                                                                                                 |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| `shared/debug/variables.ts`                      | `DebugScope` / `DebugVariable` の safe domain model、読めなかった理由、上限の定数、handle の形の検査 |
+| `main/debug/dapVariables.ts`                     | DAP `scopes` / `variables` の検証と正規化、`supportsVariablePaging` を見た引数の組み立て             |
+| `main/debug/variables.ts`                        | handle 表（raw reference / session generation / stop generation / Workspace / epoch）と lifecycle    |
+| `main/debug/debugSessionManager.ts`              | stopped の間だけ開く Variables channel（`scopes` / `variables` の2つだけ）                           |
+| `main/debug/callStack.ts`                        | snapshot 差し替えの通知（Variables が handle 表を捨てる合図）                                        |
+| `ipc/handlers/debug.ts` / `preload/api/debug.ts` | `debug:list-scopes { frameId }` / `debug:list-variables { handle }`                                  |
+| `renderer/src/debug/`                            | frame 選択（`callStackSelection.ts`）、Variables tree model、`VariablesView`（ARIA tree）            |
+
+決めたこと:
+
+- **frame は 6-5 の検証経路をそのまま通す。** `debug:list-scopes` の `frameId` は `getDebugCallStackFrameHandle()` を通り、今の snapshot に実在し、stopped・同じ session / stop generation・同じ Workspace の frame だけが adapter へ届く。frame handle の設計は作り直していない
+- **handle 表は停止ごとに捨てる。** stopped 以外への状態変化（Continue / Step / terminating / idle ── adapter error / close / app cleanup / session replacement を含む）・新しい `stopped` event・Call Stack snapshot の差し替え・Workspace switch のどれでも捨て、epoch を進める。途中で返ってきた応答は handle を発行せず `stale` にする
+- **古いものは値で返す。** 止まっていない（`not-stopped`）・古い（`stale`）・adapter が断った / 壊れた応答（`failed`）・handle の上限（`limit`）は IPC の失敗ではなく `unavailable` として返る。IPC の失敗（INVALID_REQUEST）になるのは形の壊れた要求（正の整数でない `frameId`、文字列でない `handle` ── 生の `variablesReference` の数値を含む）だけ
+- **上限:** 1応答 500件（Scope / Variable とも）、1停止の handle 5,000件、値の表示は 1,000文字。`supportsVariablePaging` を名乗る adapter にだけ `start: 0, count: 501` を送り、名乗らない adapter には送らない（どちらも読む側で 500 に切る）
+- **「さらに読む」は入れない。** 上限を超えたら「先頭の一部だけを表示しています」と出す。続きを読むには `filter`（named / indexed）と範囲の仮想ノードが要り、adapter ごとの差が大きい ── 実 adapter（6-10 / 6-11）で挙動を見てから決める
+- **Renderer の tree は snapshot の版 × frame を key に作り直す。** 前の停止の展開・handle・読みかけの応答は持ち越さない。frame id は次の停止で再利用されうるため、同じ数でも選択は持ち越さない
+- **frame の「選ぶ」と「開く」を分けた。** Workspace 外 / 位置の無い frame も選べる（Variables を読むため）が、開かない。6-5 では押せない（disabled）形だったのを、押せるが開かない形に変えた
+- 渡さないもの: `variablesReference` / `memoryReference` / `evaluateName`（evaluate は 6-7）/ `declarationLocationReference` / `valueLocationReference` / `Scope.source`・`line`・`column` / `presentationHint` の生の値 / adapter の文言
+
+### Session 6-7 〜 6-13（予定）— 実装
 
 | Session | 入れるもの                                                         | 推奨 Agent   |
 | ------- | ------------------------------------------------------------------ | ------------ |
-| 6-6     | Variables                                                          | Codex        |
 | 6-7     | Debug Console（出力と評価）                                        | Codex        |
 | 6-8     | Debug パネルの器・Panel Registry 登録・Debug Toolbar               | Claude Code  |
 | 6-9     | Debug Profile の編集 UI と Settings / Status                       | Claude Code  |

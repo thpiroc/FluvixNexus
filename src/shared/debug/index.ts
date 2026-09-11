@@ -37,6 +37,25 @@ export type {
 export { EMPTY_DEBUG_CALL_STACK } from './callStack'
 
 export type {
+  DebugScope,
+  DebugScopeKind,
+  DebugScopesResult,
+  DebugVariable,
+  DebugVariableHandle,
+  DebugVariableKind,
+  DebugVariablesResult,
+  DebugVariablesUnavailableReason
+} from './variables'
+
+export {
+  DEBUG_VARIABLE_HANDLE_MAX_LENGTH,
+  DEBUG_VARIABLE_HANDLES_MAX_PER_STOP,
+  DEBUG_VARIABLE_VALUE_MAX_LENGTH,
+  DEBUG_VARIABLES_MAX_PER_RESPONSE,
+  isDebugVariableHandleShape
+} from './variables'
+
+export type {
   DebugControlFailure,
   DebugControlOutcome,
   DebugControlRejection,

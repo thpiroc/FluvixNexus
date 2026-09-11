@@ -1160,6 +1160,19 @@ export const jaMessages = {
       openFrame: 'Stack frame を開く',
       sourceUnavailable: 'Source は Workspace 外、または利用できません。',
       invalidLocation: 'この Stack frame の位置は開けません。'
+    },
+    variables: {
+      aria: 'Variables',
+      title: 'Variables',
+      loading: 'Variables を読み込んでいます…',
+      notStopped: 'Variables はプログラムが停止している間に表示されます。',
+      noFrame: 'Stack frame を選ぶと Variables を表示します。',
+      noScopes: 'この Stack frame に Scope はありません。',
+      empty: 'Variable がありません。',
+      truncated: '先頭の一部だけを表示しています。',
+      stale: 'この Variables はもう最新ではありません。',
+      failed: 'Debug adapter から Variables を取得できませんでした。',
+      limit: 'この停止で展開できる Variables の上限に達しました。'
     }
   },
   workspace: {

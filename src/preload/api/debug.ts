@@ -29,6 +29,13 @@ export const debugApi: DebugApi = {
   listBreakpoints: () => invokeIpc(IPC_CHANNELS.DEBUG_LIST_BREAKPOINTS),
   toggleBreakpoint: (request) => invokeIpc(IPC_CHANNELS.DEBUG_TOGGLE_BREAKPOINT, request),
   listCallStack: () => invokeIpc(IPC_CHANNELS.DEBUG_LIST_CALL_STACK),
+  /*
+    Variables（Session 6-6）。載せるのは `frameId` / `handle` の1欄だけで、
+    ほかに何が付いてきても Main へは渡さない（`variablesReference` を運ぶ経路を作らない）。
+  */
+  listScopes: (request) => invokeIpc(IPC_CHANNELS.DEBUG_LIST_SCOPES, { frameId: request?.frameId }),
+  listVariables: (request) =>
+    invokeIpc(IPC_CHANNELS.DEBUG_LIST_VARIABLES, { handle: request?.handle }),
   continue: () => invokeIpc(IPC_CHANNELS.DEBUG_CONTINUE),
   pause: () => invokeIpc(IPC_CHANNELS.DEBUG_PAUSE),
   stepOver: () => invokeIpc(IPC_CHANNELS.DEBUG_STEP_OVER),

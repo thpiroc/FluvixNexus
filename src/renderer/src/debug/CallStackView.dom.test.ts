@@ -27,7 +27,12 @@ afterEach(() => {
   document.body.innerHTML = ''
 })
 
-function render(snapshot: DebugCallStackSnapshot, openFileAt = vi.fn()): typeof openFileAt {
+function render(
+  snapshot: DebugCallStackSnapshot,
+  openFileAt = vi.fn(),
+  selectFrame = vi.fn(),
+  selectedFrameId: number | null = null
+): typeof openFileAt {
   const t = createTranslator('en')
   const editor = { openFileAt } as unknown as EditorController
   const node: ReactElement = createElement(
@@ -38,7 +43,7 @@ function render(snapshot: DebugCallStackSnapshot, openFileAt = vi.fn()): typeof 
       { value: editor },
       createElement(
         CallStackContext.Provider,
-        { value: { snapshot } },
+        { value: { snapshot, version: 1, selectedFrameId, selectFrame } },
         createElement(CallStackView)
       )
     )
@@ -90,37 +95,82 @@ describe('CallStackView', () => {
     })
   })
 
-  it('keeps workspace-external frames visible but disabled', () => {
-    const openFileAt = render({
-      status: 'stopped',
-      activeThreadId: 1,
-      threads: [
-        {
-          id: 1,
-          name: 'main',
-          stopped: true,
-          frames: [
-            {
-              id: 10,
-              name: 'external',
-              source: { kind: 'unavailable', name: 'External source', reason: 'outside-workspace' },
-              line: 12,
-              column: 1
-            }
-          ]
-        }
-      ]
-    })
+  it('selects workspace-external frames for Variables but never opens them (Session 6-6)', () => {
+    const selectFrame = vi.fn()
+    const openFileAt = render(
+      {
+        status: 'stopped',
+        activeThreadId: 1,
+        threads: [
+          {
+            id: 1,
+            name: 'main',
+            stopped: true,
+            frames: [
+              {
+                id: 10,
+                name: 'external',
+                source: {
+                  kind: 'unavailable',
+                  name: 'External source',
+                  reason: 'outside-workspace'
+                },
+                line: 12,
+                column: 1
+              }
+            ]
+          }
+        ]
+      },
+      vi.fn(),
+      selectFrame
+    )
 
     const button = container.querySelector('button.fx-debug-call-stack__frame')
 
     expect(container.textContent).toContain('external')
-    expect(button).toHaveProperty('disabled', true)
+    expect(button?.getAttribute('data-openable')).toBe('false')
+    expect(button?.getAttribute('title')).toBe('Source is outside the Workspace or unavailable.')
 
     act(() => {
       button?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
+    expect(selectFrame).toHaveBeenCalledWith(10)
     expect(openFileAt).not.toHaveBeenCalled()
+  })
+
+  it('marks the selected frame with aria-current and selects on click (Session 6-6)', () => {
+    const selectFrame = vi.fn()
+    const frame = (id: number, name: string) => ({
+      id,
+      name,
+      source: { kind: 'workspace' as const, relativePath: 'src/app.ts', name: 'app.ts' },
+      line: id,
+      column: 1
+    })
+
+    render(
+      {
+        status: 'stopped',
+        activeThreadId: 1,
+        threads: [
+          { id: 1, name: 'main', stopped: true, frames: [frame(10, 'top'), frame(11, 'caller')] }
+        ]
+      },
+      vi.fn(),
+      selectFrame,
+      11
+    )
+
+    const buttons = [...container.querySelectorAll('button.fx-debug-call-stack__frame')]
+
+    expect(buttons.map((button) => button.getAttribute('aria-current'))).toEqual([null, 'true'])
+
+    act(() => {
+      buttons[0]?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(selectFrame).toHaveBeenCalledWith(10)
   })
 })

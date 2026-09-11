@@ -1199,6 +1199,19 @@ export const enMessages = {
       openFrame: 'Open stack frame',
       sourceUnavailable: 'Source is outside the Workspace or unavailable.',
       invalidLocation: 'The stack frame location is not available.'
+    },
+    variables: {
+      aria: 'Variables',
+      title: 'Variables',
+      loading: 'Loading variables…',
+      notStopped: 'Variables are shown while the program is paused.',
+      noFrame: 'Select a stack frame to see its variables.',
+      noScopes: 'This stack frame has no scopes.',
+      empty: 'No variables.',
+      truncated: 'Only the first items are shown.',
+      stale: 'These variables are no longer current.',
+      failed: 'The debug adapter could not provide these variables.',
+      limit: 'Too many variables are expanded for this pause.'
     }
   },
   workspace: {

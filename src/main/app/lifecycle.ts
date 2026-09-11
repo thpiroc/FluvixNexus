@@ -5,6 +5,7 @@ import { registerIpcHandlers } from '../ipc'
 import { startDebugBreakpointHosting } from '../debug/breakpoints'
 import { startDebugCallStackHosting } from '../debug/callStack'
 import { disposeDebugSession, startDebugSessionHosting } from '../debug/debugSessionManager'
+import { startDebugVariablesHosting } from '../debug/variables'
 import { startLanguageServerDiagnostics } from '../lsp/diagnostics'
 import { startLanguageServerDocumentSync } from '../lsp/documentSync'
 import { startLanguageServerSettings } from '../lsp/languageServerSettings'
@@ -135,6 +136,13 @@ export function bootstrapApp(): void {
       Workspace-relative へ落とし、外側の frame は開けない表示だけにして Renderer へ送る。
     */
     startDebugCallStackHosting(onWorkspaceFolderChange)
+
+    /*
+      Variables / Scopes（Session 6-6）。DAP の `variablesReference` は Main の表に控え、
+      Renderer へは Main が発行した handle だけを渡す。**Call Stack より後に張る** ──
+      snapshot の差し替えを合図に表を捨てるため、購読する相手が先に立っている必要がある。
+    */
+    startDebugVariablesHosting(onWorkspaceFolderChange)
 
     /*
       シェルのセッションは Workspace の切り替えに追従しない（Session 3-7-3）。

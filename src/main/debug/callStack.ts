@@ -37,6 +37,13 @@ export interface DebugCallStackFrameHandle {
 export interface DebugCallStackStore {
   readonly list: () => DebugCallStackSnapshot
   readonly getFrameHandle: (rawFrameId: unknown) => DebugCallStackFrameHandle | null
+  /**
+   * snapshot が差し替わった（Session 6-6）。
+   *
+   * Variables は frame から辿った handle を持つため、snapshot が変わった時点で
+   * 手元の handle を捨てる ── 同じ停止の中の読み直し（`thread` event）でも捨てる。
+   */
+  readonly onChange: (listener: () => void) => () => void
   readonly start: (
     onWorkspaceChange: (listener: (next: WorkspaceFolder | null) => void) => () => void
   ) => void
@@ -68,6 +75,7 @@ export function createDebugCallStackStore(
   let workspace: WorkspaceFolder | null = null
   let snapshot: DebugCallStackSnapshot = EMPTY_DEBUG_CALL_STACK
   let frames = new Map<number, DebugCallStackFrameHandle>()
+  const changeListeners = new Set<() => void>()
 
   function list(): DebugCallStackSnapshot {
     ensureWorkspace()
@@ -255,14 +263,30 @@ export function createDebugCallStackStore(
   }
 
   function notify(): void {
+    for (const listener of changeListeners) {
+      try {
+        listener()
+      } catch (cause) {
+        log('warn', `a call stack change listener failed: ${String(cause)}`)
+      }
+    }
+
     dependencies.emit(workspace?.id ?? '', snapshot)
+  }
+
+  function onChange(listener: () => void): () => void {
+    changeListeners.add(listener)
+
+    return () => {
+      changeListeners.delete(listener)
+    }
   }
 
   function log(level: 'warn' | 'debug', message: string): void {
     dependencies.log?.(level, message)
   }
 
-  return { list, getFrameHandle, start }
+  return { list, getFrameHandle, onChange, start }
 }
 
 const log = createLogger('debug-call-stack')
@@ -296,6 +320,11 @@ export function getDebugCallStackFrameHandle(
   rawFrameId: unknown
 ): DebugCallStackFrameHandle | null {
   return defaultStore.getFrameHandle(rawFrameId)
+}
+
+/** Call Stack snapshot が差し替わった（Session 6-6。Variables が handle を捨てる合図）。 */
+export function onDebugCallStackChange(listener: () => void): () => void {
+  return defaultStore.onChange(listener)
 }
 
 export function startDebugCallStackHosting(

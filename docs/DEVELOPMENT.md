@@ -1,6 +1,6 @@
 # 開発ガイド
 
-> 対象: Session 5-13（STEP 5 LSP Closing）完了時点 ＋ Session 6-5（STEP 6 DAP Call Stack）
+> 対象: Session 5-13（STEP 5 LSP Closing）完了時点 ＋ Session 6-6（STEP 6 DAP Variables）
 > 最終更新: 2026-09-11
 
 ---
@@ -48,7 +48,9 @@ Session 6-4 で **実行制御**（Continue / Pause / Step Over / Step Into / St
 
 Session 6-5 で **Call Stack** が入った。`stopped` event から Main が `threads` → `stackTrace` を読み、`source.path` / 絶対パス / file URI / `sourceReference` を落とした safe domain model を Renderer へ配る（docs/ARCHITECTURE.md §20.14）。Workspace 内 source だけが `relativePath` を持ち、Workspace 外 / missing / malformed source は frame を残したまま開けない。frame 選択は既存の `EditorContext.openFileAt` に乗る。Debug panel は Call Stack だけを置く最小実装で、6-8 の Toolbar はまだ無い。
 
-Debug Profile 保存、Debug Session の起動 UI、Variables、Debug Console、Debug Toolbar、実 adapter 統合はまだ無い。
+Session 6-6 で **Variables / Scopes** が入った。Call Stack で選んだ frame の Scope と Variable を lazy に辿る。DAP の `variablesReference` は Main の handle 表に控え、Renderer へは Main が発行した handle だけを渡す（docs/ARCHITECTURE.md §20.15）。Workspace 外の frame も選べる（Variables を読むため）が、開きはしない。
+
+Debug Profile 保存、Debug Session の起動 UI、Debug Console（evaluate）、Debug Toolbar、実 adapter 統合はまだ無い。
 
 ---
 
@@ -594,6 +596,18 @@ DAP の周りは 6-1 / 6-2 と同じ分け方で、**Electron も子プロセス
 - `src/renderer/src/debug/CallStackView.dom.test.ts` — Call Stack 表示と frame ボタンの有効 / 無効、開けない source の表示
 
 6-6 Variables は `getDebugCallStackFrameHandle()` から現在の Workspace・session generation・stop generation・stopped state と一致する frame だけを受け取る。Scopes / Variables 自体は Session 6-5 では実装していない。
+
+#### Variables / Scopes（Session 6-6）
+
+- `src/main/debug/dapVariables.test.ts` — `scopes` / `variables` 応答の正規化（入れ子・`variablesReference = 0`・named / indexed の数・壊れた Scope / Variable / 応答・`presentationHint` を閉じた集合へ畳むこと・`evaluateName` / `memoryReference` / 位置参照 / `Scope.source` を Renderer 形へ出さないこと・上限より先を読まないこと・値の制御文字と長さ）、`supportsVariablePaging` を名乗る adapter にだけ `start` / `count` を載せること
+- `src/main/debug/variables.test.ts` — handle 表（有効な handle・未知の handle・**生の `variablesReference` を拒否**・stale session generation / stop generation / Workspace / frame・Call Stack snapshot の差し替えで無効・handle の上限）、lifecycle（stopped の間だけ・running / terminating / idle で clear・新しい stopped・Workspace switch・応答が返る前に再開 / 次の停止 / Workspace switch が起きたら handle を発行しないこと）
+- `src/main/debug/debugSessionVariables.test.ts` — Manager を通した Variables channel（stopped の間だけ開くこと・次の停止 / `continued` / cleanup で古い channel が閉じること・paging capability の読み取り）と、**本物の stdio mock adapter** で initialize → launch → initialized → setBreakpoints → configurationDone → stopped → threads → stackTrace → scopes → variables → 入れ子 → continue → 次の停止（同じ番号の再利用）で古い handle が `stale` になり adapter へ届かないこと
+- `src/main/ipc/handlers/debug.test.ts` — `debug:list-scopes` / `debug:list-variables` の形の検査（正の整数でない `frameId`・文字列でない `handle` は INVALID_REQUEST、`frameId` / `handle` 以外を Main の処理へ渡さないこと）
+- `src/preload/api/debug.test.ts` — 13関数になったこと、`listScopes` / `listVariables` が `frameId` / `handle` 以外を送らないこと、evaluate / setVariable / memory を名乗る関数が無いこと
+- `src/renderer/src/debug/callStackSelection.test.ts` — 既定の frame（止まった thread の最上段）、選択を snapshot の版に結び付けること
+- `src/renderer/src/debug/variablesTreeModel.test.ts` — lazy expansion・閉じても控えること・empty / truncated / unavailable・遅れた応答を当てないこと
+- `src/renderer/src/debug/VariablesView.dom.test.ts` — Scope / Variable 表示、入れ子の展開 / 折り畳み、loading / empty / unavailable、snapshot の差し替えで clear・遅れた応答を捨てること、frame 選択への追従、ARIA tree とキーボード
+- `src/renderer/src/debug/CallStackView.dom.test.ts` — 6-5 の「Workspace 外 frame を開かない」を保ったまま、**押せる（選べる）が開かない**形に変えた（6-5 では disabled）。選択中の frame の `aria-current`
 
 ### 整形
 
@@ -1905,6 +1919,22 @@ Session 4-5 / 4-7 は**境界を1つも動かしていない**ことを、両ス
 - **本番ビルドでは `startDebugSession` が tree-shaking で消えている**（呼ぶ場所がまだ無い）。残っているのは `defaultManager` の方なので、足す数行はそちらを直接叩く
 - **mock adapter の `next` は応答を 150ms 遅らせる。** すぐ答えると2通目の IPC が届く前に1通目が終わり、`busy` を通せない
 - **ユニットテストで使い捨てフォルダを adapter の cwd にしない。** 全テストを並べて走らせると、Windows がフォルダの掴みを離すのが遅れ、`rmSync` が `EPERM` で落ちる（アプリのせいに見える FAIL）
+
+### Session 6-6（Variables / Scopes）
+
+**production build 版 76項目、全項目 PASS。** 6-4 と同じく、使い捨ての Workspace と `--user-data-dir` で起動し、`npm run build` 後の `out/main/index.js` の末尾へ環境変数で開く数行（`defaultManager.start(...)` を `globalThis` に置くだけ）を**確認のあいだだけ**足して mock adapter を立てた。確認の後は `npm run build` で out/ を作り直している（ソースにも out/ にも何も残らない）。Variables の操作は**画面（Debug パネルの Call Stack / Variables）**から、境界の確認は Renderer の `window.fluvix.debug.*` から通した。
+
+- 面 / 境界: `debug` の関数が13個、evaluate / setVariable / readMemory / 生の request / start が無い、`require` / `process` / `ipcRenderer` の非露出、**CSP が source の index.html と一致**、生の数値 `variablesReference` は INVALID_REQUEST、未知の handle 文字列と今の Call Stack に無い frame は `stale`、応答に `variablesReference` / `evaluateName` / `memoryReference` / `Scope.source` / 絶対パス / adapter の文言が載らない
+- 流れ: breakpoint を置いてから起動 → `setBreakpoints` が `configurationDone` の前 → stopped → Call Stack 3 frame（最上段が選択）→ Scope 3つ → **重くない最初の Scope だけ自動で開く**（adapter が受けた `variables` は `1000` の1通だけ）→ 入れ子を2段開く → 折り畳み → 開き直しで再要求しない → 1200件の配列は 500件 + 「先頭の一部」表示、paging を名乗らない adapter には `start` / `count` を送らない → 空の Scope は「Variable がありません」
+- frame 選択: Workspace 外の frame を選ぶと Variables がその Scope を出し、**Editor のタブは増えない**／scopes を断る frame では「取得できませんでした」だけが出て adapter の文言は出ない／Workspace 内の frame を選ぶと `src/app.js` が開き Variables も戻る／キーボード（↓）で tree の中を移動できる
+- stale: Step Over / Into / Out → 次の停止で読み直し、前の停止の handle は `stale` で adapter へは届かない、展開は持ち越さない／Continue → Variables と Call Stack が空になり、handle は `not-stopped`／Pause（同じ番号の再利用）→ 前の handle は `stale`
+- 片付け: Workspace を閉じると session が idle・adapter のプロセスが消え、Variables / Call Stack が空／再起動して scopes を遅らせる adapter で「読み込んでいます」が出てから中身が出る、paging を名乗る adapter には `start: 0, count: 501`／stopped のままアプリを閉じても adapter のプロセスが残らない
+- console エラー / CSP 違反が無い
+
+#### 確認スクリプトを書くときに踏んだこと（Session 6-6）
+
+- **Debug パネルを View メニューから出すと、Files と同じ dock のタブになる。** 次の起動では Debug が前面のまま復元されるので、`.fx-file-row__name` を待つと永久に出てこない ── 待つ前に Files のタブを押す。タブは `mousedown` を合成しても切り替わらず、`page.mouse.click` で本物の click を送る必要がある
+- **Workspace を閉じるボタンは Files パネルの root 行にある。** Debug タブが前面だとボタンが DOM に無い（アプリのせいに見える FAIL）
 
 ---
 

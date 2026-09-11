@@ -1,14 +1,19 @@
-import type { DebugExecutionControl } from '@shared/debug'
+import { isDebugVariableHandleShape, type DebugExecutionControl } from '@shared/debug'
 import {
   IPC_CHANNELS,
   type DebugCallStackResponse,
   type DebugBreakpointsResponse,
+  type DebugScopesResponse,
+  type DebugVariablesResponse,
   type IpcChannel,
+  type ListDebugScopesRequest,
+  type ListDebugVariablesRequest,
   type ToggleDebugBreakpointRequest
 } from '@shared/ipc'
 import { listDebugBreakpoints, toggleDebugBreakpoint } from '../../debug/breakpoints'
 import { listDebugCallStack } from '../../debug/callStack'
 import { controlDebugSession, requestDebugSessionStop } from '../../debug/debugSessionManager'
+import { listDebugScopes, listDebugVariables } from '../../debug/variables'
 import { IpcError, invalidRequest } from '../errors'
 import { handleIpc } from '../registry'
 
@@ -74,6 +79,38 @@ export function registerDebugHandlers(): void {
   handleIpc(IPC_CHANNELS.DEBUG_LIST_CALL_STACK, (): DebugCallStackResponse => {
     return { callStack: listDebugCallStack() }
   })
+
+  /*
+    Variables（Session 6-6）。**形だけをここで確かめる** ── frame が今の停止のものか、
+    handle が今の表にあるかは main/debug/variables.ts が決め、古いものは値
+    （`unavailable`）で返る。ここで断るのは「frameId が正の整数でない」
+    「handle が文字列でない（生の `variablesReference` の数値を含む）」の2つだけ。
+  */
+  handleIpc(
+    IPC_CHANNELS.DEBUG_LIST_SCOPES,
+    async (request: ListDebugScopesRequest): Promise<DebugScopesResponse> => {
+      const frameId: unknown = request?.frameId
+
+      if (typeof frameId !== 'number' || !Number.isSafeInteger(frameId) || frameId <= 0) {
+        throw invalidRequest('the frame id must be a positive integer.')
+      }
+
+      return { result: await listDebugScopes(frameId) }
+    }
+  )
+
+  handleIpc(
+    IPC_CHANNELS.DEBUG_LIST_VARIABLES,
+    async (request: ListDebugVariablesRequest): Promise<DebugVariablesResponse> => {
+      const handle: unknown = request?.handle
+
+      if (!isDebugVariableHandleShape(handle)) {
+        throw invalidRequest('the variable handle must be a handle issued by the main process.')
+      }
+
+      return { result: await listDebugVariables(handle) }
+    }
+  )
 
   handleIpc(
     IPC_CHANNELS.DEBUG_TOGGLE_BREAKPOINT,

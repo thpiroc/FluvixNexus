@@ -7,7 +7,7 @@ import { openCallStackFrame } from './callStackNavigation'
 import './debug.css'
 
 export function CallStackView(): JSX.Element {
-  const { snapshot } = useCallStack()
+  const { snapshot, selectedFrameId, selectFrame } = useCallStack()
   const editor = useEditorContext()
   const { t } = useI18n()
 
@@ -43,7 +43,19 @@ export function CallStackView(): JSX.Element {
             <ol className="fx-debug-call-stack__frames">
               {thread.frames.map((frame) => (
                 <li className="fx-debug-call-stack__frame-item" key={frame.id}>
-                  <FrameButton frame={frame} openFrame={() => openCallStackFrame(frame, editor)} />
+                  <FrameButton
+                    frame={frame}
+                    selected={frame.id === selectedFrameId}
+                    activate={() => {
+                      /*
+                        選ぶ（Variables がこの frame を読む）と、開く（Editor で位置を見せる）は
+                        別のこと（Session 6-6）。Workspace 外の frame も選べるが、開きはしない
+                        ── 開けるかどうかは openCallStackFrame が source の種類で決める。
+                      */
+                      selectFrame(frame.id)
+                      openCallStackFrame(frame, editor)
+                    }}
+                  />
                 </li>
               ))}
             </ol>
@@ -56,10 +68,12 @@ export function CallStackView(): JSX.Element {
 
 function FrameButton({
   frame,
-  openFrame
+  selected,
+  activate
 }: {
   readonly frame: DebugCallStackFrame
-  readonly openFrame: () => boolean
+  readonly selected: boolean
+  readonly activate: () => void
 }): JSX.Element {
   const { t } = useI18n()
   const canOpen = frame.source.kind === 'workspace' && frame.line !== null
@@ -69,10 +83,9 @@ function FrameButton({
       type="button"
       className="fx-debug-call-stack__frame"
       data-openable={canOpen}
-      disabled={!canOpen}
-      onClick={() => {
-        openFrame()
-      }}
+      data-selected={selected}
+      aria-current={selected ? 'true' : undefined}
+      onClick={activate}
       title={
         canOpen
           ? t('debug.callStack.openFrame')
