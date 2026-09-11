@@ -26,6 +26,17 @@ export type { DebugBreakpoint } from './breakpoint'
 export { DEBUG_EXECUTION_CONTROLS } from './session'
 
 export type {
+  DebugCallStackFrame,
+  DebugCallStackSnapshot,
+  DebugCallStackSource,
+  DebugCallStackSourceUnavailableReason,
+  DebugCallStackStatus,
+  DebugCallStackThread
+} from './callStack'
+
+export { EMPTY_DEBUG_CALL_STACK } from './callStack'
+
+export type {
   DebugControlFailure,
   DebugControlOutcome,
   DebugControlRejection,

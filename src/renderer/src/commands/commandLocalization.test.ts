@@ -42,9 +42,9 @@ describe('command の titleKey', () => {
     /*
       実数も押さえる（表に足したのに翻訳を忘れた、を `COMMAND_IDS.length` との
       比較だけに任せない）。Session 4-7C の 21件に、Session 5-12 の
-      Language Server の6操作が加わって 27件。
+      Language Server の6操作と Session 6-5 の Debug panel が加わって 28件。
     */
-    expect(COMMAND_IDS).toHaveLength(27)
+    expect(COMMAND_IDS).toHaveLength(28)
   })
 
   /*

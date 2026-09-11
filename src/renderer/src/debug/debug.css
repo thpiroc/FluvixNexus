@@ -1,0 +1,97 @@
+.fx-debug-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  color: var(--fx-color-text);
+}
+
+.fx-debug-panel__header {
+  flex: 0 0 auto;
+  padding: var(--fx-space-2) var(--fx-space-3);
+  border-bottom: 1px solid var(--fx-color-border);
+  color: var(--fx-color-text-strong);
+  font-size: var(--fx-font-size-sm);
+  font-weight: 600;
+}
+
+.fx-debug-call-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-2);
+  padding: var(--fx-space-2);
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-debug-call-stack__notice,
+.fx-debug-call-stack__thread-empty {
+  margin: 0;
+  padding: var(--fx-space-3);
+  color: var(--fx-color-text-faint);
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-debug-call-stack__thread {
+  min-width: 0;
+}
+
+.fx-debug-call-stack__thread-title {
+  display: flex;
+  align-items: center;
+  gap: var(--fx-space-2);
+  margin: 0;
+  padding: var(--fx-space-1) var(--fx-space-2);
+  color: var(--fx-color-text-muted);
+  font-size: var(--fx-font-size-sm);
+  font-weight: 600;
+}
+
+.fx-debug-call-stack__thread-state {
+  color: var(--fx-color-text-faint);
+  font-weight: 400;
+}
+
+.fx-debug-call-stack__frames {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fx-debug-call-stack__frame {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  width: 100%;
+  padding: var(--fx-space-1) var(--fx-space-2);
+  color: var(--fx-color-text);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  font: inherit;
+}
+
+.fx-debug-call-stack__frame[data-openable='true'] {
+  cursor: pointer;
+}
+
+.fx-debug-call-stack__frame[data-openable='true']:hover {
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-debug-call-stack__frame:disabled {
+  color: var(--fx-color-text-faint);
+  cursor: default;
+}
+
+.fx-debug-call-stack__frame-name,
+.fx-debug-call-stack__frame-location {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fx-debug-call-stack__frame-location {
+  color: var(--fx-color-text-faint);
+}

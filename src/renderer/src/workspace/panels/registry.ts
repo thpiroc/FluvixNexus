@@ -1,4 +1,5 @@
 import type { PanelDefinition, PanelId } from './types'
+import { DebugPanel } from './DebugPanel'
 import { EditorPanel } from './EditorPanel'
 import { FilesPanel } from './FilesPanel'
 import { GitPanel } from './GitPanel'
@@ -41,6 +42,12 @@ const PANEL_REGISTRY: Readonly<Record<PanelId, PanelDefinition>> = {
     title: 'Git',
     accent: 'orange',
     Component: GitPanel
+  },
+  debug: {
+    id: 'debug',
+    title: 'Debug',
+    accent: 'neutral',
+    Component: DebugPanel
   }
 }
 

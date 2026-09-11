@@ -169,6 +169,10 @@ export function WorkspaceShell(): JSX.Element {
     'view.togglePanel.git',
     useCallback(() => togglePanel('git'), [togglePanel])
   )
+  useCommand(
+    'view.togglePanel.debug',
+    useCallback(() => togglePanel('debug'), [togglePanel])
+  )
   useCommand('view.resetLayout', resetLayout)
   useCommand('settings.open', openSettings)
   useCommand('settings.close', closeSettings)

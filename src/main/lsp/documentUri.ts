@@ -184,7 +184,7 @@ export function toWorkspaceRelativePath(rootPath: string, rawUri: unknown): stri
  * `decodeURIComponent` は壊れた並び（`%zz`）で例外を投げるため、要素ごとに
  * 受け止める ── **相手のプロセスが送ってきた文字列で Main を落とさない。**
  */
-function fileUriToPath(rawUri: unknown): string | null {
+export function fileUriToPath(rawUri: unknown): string | null {
   if (typeof rawUri !== 'string' || rawUri.length === 0 || rawUri.includes('\0')) {
     return null
   }

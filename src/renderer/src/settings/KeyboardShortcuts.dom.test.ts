@@ -199,11 +199,11 @@ describe('Settings から開く', () => {
 })
 
 describe('並ぶもの', () => {
-  it('登録されている 27 件が1つ残らず出る', async () => {
+  it('登録されている 28 件が1つ残らず出る', async () => {
     await openKeyboard()
 
     expect(rows()).toHaveLength(COMMAND_IDS.length)
-    expect(rows()).toHaveLength(27)
+    expect(rows()).toHaveLength(28)
 
     const shown = rows().map((row) => row.dataset.command)
     expect([...shown].sort()).toEqual([...COMMAND_IDS].sort())
@@ -256,13 +256,14 @@ describe('並ぶもの', () => {
     **一覧に出ないのではなく「未割り当て」として出る**（keybindings/defaults.ts）。
 
     Session 5-12 の `editor.showHover` も同じ（Monaco の既定が2打鍵のため）。
+    Session 6-5 の Debug panel toggle も、6-8 の Toolbar までは未割り当て。
   */
-  it('未割り当ての15件が「未割り当て」として出る', async () => {
+  it('未割り当ての16件が「未割り当て」として出る', async () => {
     await openKeyboard()
 
     const unassigned = rows().filter((row) => row.dataset.unassigned === 'true')
 
-    expect(unassigned).toHaveLength(15)
+    expect(unassigned).toHaveLength(16)
     for (const row of unassigned) {
       expect(row.textContent, row.dataset.command).toContain('未割り当て')
       expect(row.querySelector('kbd')).toBeNull()
@@ -351,7 +352,7 @@ describe('絞り込み', () => {
     await type('git.')
     await click('settings-keyboard-search-clear')
 
-    expect(rows()).toHaveLength(27)
+    expect(rows()).toHaveLength(28)
     expect(byTestId<HTMLInputElement>('settings-keyboard-search').value).toBe('')
   })
 
@@ -362,7 +363,7 @@ describe('絞り込み', () => {
     await click('settings-category-general')
     await click('settings-category-keyboard')
 
-    expect(rows()).toHaveLength(27)
+    expect(rows()).toHaveLength(28)
   })
 })
 
@@ -391,13 +392,13 @@ describe('ja / en の切り替え', () => {
     expect(byTestId('settings-keyboard-row-editor.save').textContent).toContain('Ctrl+S')
   })
 
-  it('切り替えても 27 件・6 グループのまま', async () => {
+  it('切り替えても 28 件・6 グループのまま', async () => {
     await openKeyboard()
     await click('settings-category-general')
     await click('settings-general-language-en')
     await click('settings-category-keyboard')
 
-    expect(rows()).toHaveLength(27)
+    expect(rows()).toHaveLength(28)
     expect(groups()).toEqual(['workspace', 'editor', 'view', 'settings', 'git', 'files'])
   })
 })

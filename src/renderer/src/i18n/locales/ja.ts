@@ -45,7 +45,8 @@ export const jaMessages = {
         files: 'Files パネルの表示を切り替える',
         editor: 'Editor パネルの表示を切り替える',
         terminal: 'Terminal パネルの表示を切り替える',
-        git: 'Git パネルの表示を切り替える'
+        git: 'Git パネルの表示を切り替える',
+        debug: 'Debug パネルの表示を切り替える'
       },
       resetLayout: 'レイアウトを初期化'
     },
@@ -1146,6 +1147,21 @@ export const jaMessages = {
       writeFailed: '更新できなかったファイルがあります: {files}'
     }
   },
+  debug: {
+    callStack: {
+      aria: 'Call Stack',
+      title: 'Call Stack',
+      loading: 'Call Stack を読み込んでいます…',
+      empty: '停止中の Debug Session はありません。',
+      noThreads: 'Thread がありません。',
+      noFrames: 'Stack frame がありません。',
+      notLoaded: 'この Thread の Stack frame はまだ読み込んでいません。',
+      stopped: '停止中',
+      openFrame: 'Stack frame を開く',
+      sourceUnavailable: 'Source は Workspace 外、または利用できません。',
+      invalidLocation: 'この Stack frame の位置は開けません。'
+    }
+  },
   workspace: {
     noWorkspace: 'Workspace 未選択',
     noWorkspaceOpen: 'Workspace が開かれていません。',
@@ -1169,7 +1185,8 @@ export const jaMessages = {
       files: 'Files',
       editor: 'Editor',
       terminal: 'Terminal',
-      git: 'Git'
+      git: 'Git',
+      debug: 'Debug'
     },
     layout: {
       default: {

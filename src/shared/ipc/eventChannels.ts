@@ -21,7 +21,8 @@ export const IPC_EVENT_CHANNELS = {
   LSP_DIAGNOSTICS: 'lsp:diagnostics',
   LSP_DIAGNOSTICS_CLEARED: 'lsp:diagnostics-cleared',
   LSP_STATUS_CHANGED: 'lsp:status-changed',
-  DEBUG_BREAKPOINTS_CHANGED: 'debug:breakpoints-changed'
+  DEBUG_BREAKPOINTS_CHANGED: 'debug:breakpoints-changed',
+  DEBUG_CALL_STACK_CHANGED: 'debug:call-stack-changed'
 } as const satisfies Record<string, IpcEventChannel>
 
 /**

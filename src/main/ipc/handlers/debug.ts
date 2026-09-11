@@ -1,11 +1,13 @@
 import type { DebugExecutionControl } from '@shared/debug'
 import {
   IPC_CHANNELS,
+  type DebugCallStackResponse,
   type DebugBreakpointsResponse,
   type IpcChannel,
   type ToggleDebugBreakpointRequest
 } from '@shared/ipc'
 import { listDebugBreakpoints, toggleDebugBreakpoint } from '../../debug/breakpoints'
+import { listDebugCallStack } from '../../debug/callStack'
 import { controlDebugSession, requestDebugSessionStop } from '../../debug/debugSessionManager'
 import { IpcError, invalidRequest } from '../errors'
 import { handleIpc } from '../registry'
@@ -67,6 +69,10 @@ export function registerDebugHandlers(): void {
   */
   handleIpc(IPC_CHANNELS.DEBUG_LIST_BREAKPOINTS, (): DebugBreakpointsResponse => {
     return { breakpoints: listDebugBreakpoints() }
+  })
+
+  handleIpc(IPC_CHANNELS.DEBUG_LIST_CALL_STACK, (): DebugCallStackResponse => {
+    return { callStack: listDebugCallStack() }
   })
 
   handleIpc(

@@ -57,7 +57,8 @@ export const enMessages = {
         files: 'Toggle Files Panel',
         editor: 'Toggle Editor Panel',
         terminal: 'Toggle Terminal Panel',
-        git: 'Toggle Git Panel'
+        git: 'Toggle Git Panel',
+        debug: 'Toggle Debug Panel'
       },
       resetLayout: 'Reset Layout'
     },
@@ -1185,6 +1186,21 @@ export const enMessages = {
       writeFailed: 'Some files could not be updated: {files}'
     }
   },
+  debug: {
+    callStack: {
+      aria: 'Call Stack',
+      title: 'Call Stack',
+      loading: 'Loading Call Stack…',
+      empty: 'No stopped debug session.',
+      noThreads: 'No threads.',
+      noFrames: 'No stack frames.',
+      notLoaded: 'Stack frames are not loaded for this thread.',
+      stopped: 'stopped',
+      openFrame: 'Open stack frame',
+      sourceUnavailable: 'Source is outside the Workspace or unavailable.',
+      invalidLocation: 'The stack frame location is not available.'
+    }
+  },
   workspace: {
     noWorkspace: 'No Workspace',
     noWorkspaceOpen: 'No Workspace is open.',
@@ -1207,7 +1223,8 @@ export const enMessages = {
       files: 'Files',
       editor: 'Editor',
       terminal: 'Terminal',
-      git: 'Git'
+      git: 'Git',
+      debug: 'Debug'
     },
     layout: {
       default: {

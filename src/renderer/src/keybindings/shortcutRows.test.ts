@@ -124,7 +124,8 @@ describe('filterShortcutRows', () => {
       'view.togglePanel.files',
       'view.togglePanel.editor',
       'view.togglePanel.terminal',
-      'view.togglePanel.git'
+      'view.togglePanel.git',
+      'view.togglePanel.debug'
     ])
   })
 

@@ -1,6 +1,6 @@
 # 開発ガイド
 
-> 対象: Session 5-13（STEP 5 LSP Closing）完了時点 ＋ Session 6-4（STEP 6 DAP Execution Control）
+> 対象: Session 5-13（STEP 5 LSP Closing）完了時点 ＋ Session 6-5（STEP 6 DAP Call Stack）
 > 最終更新: 2026-09-11
 
 ---
@@ -46,7 +46,9 @@ Session 6-3 で **Breakpoint** が入った。Monaco の glyph margin での追�
 
 Session 6-4 で **実行制御**（Continue / Pause / Step Over / Step Into / Step Out / Stop）が入った。typed IPC 6つ（要求はどれも `void`）と、その裏の状態ごとの許可 / 拒否・DAP への翻訳・`terminate` → `disconnect` → kill の Stop（docs/ARCHITECTURE.md §20.13）。**押すボタンもキーもまだ無く**、Debug Session を起動する口（Debug Profile）も無いので、実機で制御を通せるのは mock adapter を Main から立てた確認だけになる（§4）。
 
-Debug Profile 保存、Debug Session の起動 UI、Call Stack / 停止行、Variables、Debug Console、Debug パネル、実 adapter 統合はまだ無い。
+Session 6-5 で **Call Stack** が入った。`stopped` event から Main が `threads` → `stackTrace` を読み、`source.path` / 絶対パス / file URI / `sourceReference` を落とした safe domain model を Renderer へ配る（docs/ARCHITECTURE.md §20.14）。Workspace 内 source だけが `relativePath` を持ち、Workspace 外 / missing / malformed source は frame を残したまま開けない。frame 選択は既存の `EditorContext.openFileAt` に乗る。Debug panel は Call Stack だけを置く最小実装で、6-8 の Toolbar はまだ無い。
+
+Debug Profile 保存、Debug Session の起動 UI、Variables、Debug Console、Debug Toolbar、実 adapter 統合はまだ無い。
 
 ---
 
@@ -579,7 +581,19 @@ DAP の周りは 6-1 / 6-2 と同じ分け方で、**Electron も子プロセス
   - Stop の各段（disconnect のみ / terminate → terminated → disconnect / **2回目の Stop で disconnect へ** / terminate の失敗 / debuggee が拒んだまま猶予切れ / disconnect に答えない adapter の kill / Stop 中に adapter が閉じる・落ちる / starting 中の Stop で `configurationDone` を送らないこと）
   - **cleanup との競合**（Stop の途中で Workspace 切り替え / アプリ終了が走っても `disconnect` は1通・タイマーが次のセッションへ漏れないこと）・6-2 の「adapter が自分で終わった」経路が変わっていないこと・terminating 中は breakpoint の口が閉じること
   - **本物の子プロセス**（stdio の mock adapter）で pause → step ×3 → continue → pause → Stop を通し、adapter が受け取った request の列と、adapter のプロセスが消えたことを確かめる
-- `src/preload/api/debug.test.ts` — **preload が経路だけであること**（公開される関数が9つだけ・6つの制御は何を渡されてもチャンネル名だけを送ること）。`electron` の `ipcRenderer.invoke` 1つだけを差し替える
+- `src/preload/api/debug.test.ts` — **preload が経路だけであること**（6-4 時点の9関数に、6-5 の `listCallStack` / `onCallStackChanged` が足されたこと・6つの制御は何を渡されてもチャンネル名だけを送ること）。`electron` の `ipcRenderer.invoke` 1つだけを差し替える
+
+#### Call Stack（Session 6-5）
+
+- `src/main/debug/dapThreads.test.ts` — `threads` 応答の検証（複数 thread・壊れた body / id / name を落とすこと）
+- `src/main/debug/stackFrameSource.test.ts` — stack frame source の安全化（Workspace 内の絶対パス / file URI → `relativePath`、Workspace 外 / missing / malformed / NUL は `unavailable`）
+- `src/main/debug/dapStackTrace.test.ts` — `stackTrace` 応答の検証（line / column の正の整数だけを通すこと・壊れた frame を落とすこと・`sourceReference` を Renderer 形へ出さないこと）
+- `src/main/debug/callStack.test.ts` — stopped → threads → stackTrace → snapshot、multiple threads、continued / running / adapter error / exit / terminated / exited / Workspace switch / cleanup で clear、stale session generation / stop generation の破棄
+- `src/main/debug/debugSessionCallStack.test.ts` — Manager を通した Call Stack channel（stopped の間だけ開くこと・次の停止で古い channel が閉じること・本物の stdio mock adapter で stopped → threads → stackTrace → continue → clear が通ること）
+- `src/renderer/src/debug/callStackNavigation.test.ts` — frame 選択が `EditorContext.openFileAt` に `relativePath` / line / column だけを渡し、Workspace 外 frame を開かないこと
+- `src/renderer/src/debug/CallStackView.dom.test.ts` — Call Stack 表示と frame ボタンの有効 / 無効、開けない source の表示
+
+6-6 Variables は `getDebugCallStackFrameHandle()` から現在の Workspace・session generation・stop generation・stopped state と一致する frame だけを受け取る。Scopes / Variables 自体は Session 6-5 では実装していない。
 
 ### 整形
 
@@ -1877,7 +1891,7 @@ Session 4-5 / 4-7 は**境界を1つも動かしていない**ことを、両ス
 
 起動の口がまだ無いため、セッションだけは Main から立てた。`npm run build` の後の `out/main/index.js` の末尾へ、環境変数で開く数行（`defaultManager.start(...)` を `globalThis` に置くだけ）を**確認のあいだだけ**足し、`app.evaluate` から mock adapter（DAP を話す小さな Node スクリプト。variant で振る舞いを変える）を立てる。確認の後は `npm run build` で out/ ごと作り直す ── ソースには何も残らない。
 
-- 面: `debug` の関数が9つだけ、start / attach / 生の request / evaluate が無い、`require` / `process` / `ipcRenderer` の非露出、公開ドメインが増えていない、**CSP が1文字も変わっていない**（renderer に差分が無い）
+- 面: `debug` の関数が11個、start / attach / 生の request / evaluate が無い、`require` / `process` / `ipcRenderer` の非露出、公開ドメインは Call Stack の safe domain model だけ、**CSP が1文字も変わっていない**
 - idle: 6つすべてが `no-session`、**`void` の口に何を載せても無視される**（adapter は立たない）
 - running ↔ stopped: Pause → `threads` + `pause {threadId:1}` で stopped、Step Over / Into / Out → `next` / `stepIn` / `stepOut` で running → stopped、Continue → `continue` で running。running 中の Continue / Step と stopped 中の Pause は `invalid-state`、**答え待ちの2通目は `busy` で1通しか送られない**
 - Breakpoint の回帰: 起動前に置いた印が `initialized` と `configurationDone` の間に送られ、verified が Renderer へ届き、running 中の追加で送り直され、終わると null に戻る

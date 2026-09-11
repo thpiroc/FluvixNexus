@@ -1,4 +1,5 @@
 import type { DebugBreakpoint } from '../../debug/breakpoint'
+import type { DebugCallStackSnapshot } from '../../debug/callStack'
 
 /**
  * debug ドメインの Main → Renderer イベント（Session 6-3）。
@@ -47,6 +48,19 @@ export interface DebugBreakpointsChangedEvent {
   readonly breakpoints: readonly DebugBreakpoint[]
 }
 
+export interface DebugCallStackChangedEvent {
+  /**
+   * どの Workspace についての通知か。
+   *
+   * frame の relativePath は Workspace が変わると別のファイルを指すため、Renderer は
+   * これを突き合わせて古い snapshot を捨てる。
+   */
+  readonly workspaceId: string
+  /** Main が正規化した Call Stack。 */
+  readonly callStack: DebugCallStackSnapshot
+}
+
 export interface DebugIpcEventContract {
   'debug:breakpoints-changed': DebugBreakpointsChangedEvent
+  'debug:call-stack-changed': DebugCallStackChangedEvent
 }

@@ -1,6 +1,7 @@
 import type { JSX } from 'react'
 import { CommandProvider } from './commands/CommandProvider'
 import { BreakpointProvider } from './debug/BreakpointProvider'
+import { CallStackProvider } from './debug/CallStackProvider'
 import { EditorProvider } from './editor/EditorProvider'
 import { FilesViewProvider } from './files/FilesViewProvider'
 import { LanguageProvider } from './i18n/LanguageProvider'
@@ -105,9 +106,11 @@ function App(): JSX.Element {
                         別のファイルを指す）ので、WorkspaceFolderProvider の内側になる。
                       */}
                       <BreakpointProvider>
-                        <KeybindingProvider>
-                          <WorkspaceShell />
-                        </KeybindingProvider>
+                        <CallStackProvider>
+                          <KeybindingProvider>
+                            <WorkspaceShell />
+                          </KeybindingProvider>
+                        </CallStackProvider>
                       </BreakpointProvider>
                     </LspSettingsProvider>
                   </FilesViewProvider>

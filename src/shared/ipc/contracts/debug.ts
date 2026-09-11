@@ -1,4 +1,5 @@
 import type { DebugBreakpoint } from '../../debug/breakpoint'
+import type { DebugCallStackSnapshot } from '../../debug/callStack'
 import type { DebugControlOutcome } from '../../debug/session'
 
 /**
@@ -78,6 +79,11 @@ export interface DebugBreakpointsResponse {
   readonly breakpoints: readonly DebugBreakpoint[]
 }
 
+export interface DebugCallStackResponse {
+  /** 今の Workspace の Call Stack。絶対パス・file URI・sourceReference は含まない。 */
+  readonly callStack: DebugCallStackSnapshot
+}
+
 export interface DebugIpcContract {
   /**
    * 今の Workspace の breakpoint を読む。
@@ -100,6 +106,16 @@ export interface DebugIpcContract {
   'debug:toggle-breakpoint': {
     request: ToggleDebugBreakpointRequest
     response: DebugBreakpointsResponse
+  }
+  /**
+   * 今の Workspace の Call Stack snapshot を読む。
+   *
+   * 要求に `threadId` / `frameId` / DAP method 名は無い。停止イベントを受けて
+   * Main が `threads` → `stackTrace` を取り、safe domain model に落とした写しだけを返す。
+   */
+  'debug:list-call-stack': {
+    request: void
+    response: DebugCallStackResponse
   }
   /** 止まっているプログラムを再開する（stopped のときだけ）。 */
   'debug:continue': {

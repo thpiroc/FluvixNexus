@@ -1,6 +1,6 @@
 # Fluvix Nexus 設計ドキュメント
 
-> ステータス: STEP 1（基盤構築）完了 / STEP 2（Dockable Workspace 基盤）完了 / STEP 3（各パネルの本機能）完了 / STEP 4（日常使用の土台）完了 / STEP 5（LSP）完了 / **STEP 6（DAP）実装中（Session 6-4）**
+> ステータス: STEP 1（基盤構築）完了 / STEP 2（Dockable Workspace 基盤）完了 / STEP 3（各パネルの本機能）完了 / STEP 4（日常使用の土台）完了 / STEP 5（LSP）完了 / **STEP 6（DAP）実装中（Session 6-5）**
 > 最終更新: 2026-09-11
 
 このドキュメントは**製品としての設計方針**を扱う。実装の構造と開発手順は以下を参照。
@@ -415,7 +415,7 @@ Auto Save は4方式すべてが動くようになり、設定はアプリ再起
 | Git / GitHub 本機能                              | **Session 3-8-1 〜 3-8-22A で実装済み・3-8-22B で production app 確認済み**（検出・変更一覧・Stage / Unstage・Commit・Push / Pull / Fetch・ブランチ・`.git` の監視・差分と破棄・`git init` と「GitHub に公開」・コミット履歴・コミットの詳細と差分・履歴からのブランチ作成・ブランチの削除 / rename・退避・remote の管理と URL 変更 / rename・競合の解決・remote の枝から手元にブランチを作る・マージの開始 / 中止・競合の ours / theirs の差分・途中の Git 操作の検出と禁止） |
 | ブランチ操作 UI                                  | **Session 3-8-6 / 3-8-13 / 3-8-14 / 3-8-19 / 3-8-20 で実装済み**（バーのブランチ名から開く面で一覧・切り替え・作成・削除・rename・マージ、履歴の行から始点を指す欄、remote の枝から作る畳んだ段。ローカルと remote-tracking は**別の一覧**。マージ中はパネルの帯から中止できる）                                                                                                                                                                                               |
 | LSP                                              | §4。JavaScript / TypeScript・Python・C#。SDK は同梱せず PC の環境を検出する                                                                                                                                                                                                                                                                                                                                                                                                    |
-| DAP                                              | §5 / §13。**STEP 6**。Breakpoint / Step / Variables / Call Stack。Session 6-0 で設計確定、6-1 で DAP wire / adapter process / catalog foundation、6-2 で Debug Session lifecycle、6-3 で Breakpoint、6-4 で実行制御（Continue / Pause / Step / Stop）を実装                                                                                                                                                                                                                    |
+| DAP                                              | §5 / §13。**STEP 6**。Breakpoint / Step / Variables / Call Stack。Session 6-0 で設計確定、6-1 で DAP wire / adapter process / catalog foundation、6-2 で Debug Session lifecycle、6-3 で Breakpoint、6-4 で実行制御（Continue / Pause / Step / Stop）、6-5 で Main-owned Call Stack を実装                                                                                                                                                                                     |
 | パネルの独立ウィンドウ化                         | §3。Main 側で別ウィンドウを開き、Shell のルートを分岐する                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | タブのドラッグによる並べ替え                     | レイアウト操作としては実装済みで、UI の入口だけが無い（ARCHITECTURE.md §7.9）                                                                                                                                                                                                                                                                                                                                                                                                  |
 | レイアウトプリセットの追加・自作レイアウトの保存 | Coding / Debug などの表への追加と、名前を付けた保存（§3）                                                                                                                                                                                                                                                                                                                                                                                                                      |
@@ -1803,19 +1803,54 @@ Workspace の切り替え・アプリの終了・adapter の異常で Main 自�
 | ------ | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 停止行 | 6-4 に含める（表の 6-4 行） | **6-5 へ送った。** `stopped` event は位置を運ばず、止まった行は `stackTrace` の最上段を読むまで分からない ── それは Call Stack（`getStack`）そのものになる |
 
-### Session 6-5 〜 6-13（予定）— 実装
+### Session 6-5（完了）— Call Stack
 
-| Session | 入れるもの                                                                                               | 推奨 Agent   |
-| ------- | -------------------------------------------------------------------------------------------------------- | ------------ |
-| 6-5     | Call Stack（フレーム選択 → 該当行へジャンプ。§5 の「エラー位置へのジャンプ」）と停止行（6-4 から移した） | どちらでも可 |
-| 6-6     | Variables                                                                                                | Codex        |
-| 6-7     | Debug Console（出力と評価）                                                                              | Codex        |
-| 6-8     | Debug パネルの器・Panel Registry 登録・Debug Toolbar                                                     | Claude Code  |
-| 6-9     | Debug Profile の編集 UI と Settings / Status                                                             | Claude Code  |
-| 6-10    | Python（debugpy）                                                                                        | どちらでも可 |
-| 6-11    | C#（netcoredbg）                                                                                         | どちらでも可 |
-| 6-12    | Command / Keybinding（F5 / F9 / F10 / F11 / Shift+F11 / Shift+F5）                                       | Codex        |
-| 6-13    | STEP 6 Closing（production build での横断確認とドキュメント追従）                                        | Claude Code  |
+Main が持つ Debug Session に、**Call Stack snapshot** を足した。`stopped` event を受けたら Main が `threads` → `stackTrace` を読み、Renderer へは安全な app-domain の写しだけを返す。Renderer へ `source.path`、絶対パス、file URI、`sourceReference` は渡らない。
+
+入れたもの:
+
+| ファイル                                         | 役割                                                                                          |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------- |
+| `shared/debug/callStack.ts`                      | Renderer が扱う thread / frame / source の安全な domain model                                 |
+| `main/debug/callStack.ts`                        | stopped event から snapshot を作る Main-owned store。stale response と lifecycle clear を担当 |
+| `main/debug/dapThreads.ts`                       | DAP `threads` 応答の検証                                                                      |
+| `main/debug/dapStackTrace.ts`                    | DAP `stackTrace` 応答の検証と frame の安全化                                                  |
+| `main/debug/stackFrameSource.ts`                 | `source.path` / file URI を Workspace 相対へ正規化し、Workspace 外は unavailable に畳む       |
+| `ipc/handlers/debug.ts` / `preload/api/debug.ts` | `debug:list-call-stack` と `debug:call-stack-changed`                                         |
+| `renderer/src/debug/`                            | Call Stack の Provider / 表示 / frame navigation                                              |
+| `renderer/src/workspace/panels/DebugPanel.tsx`   | 6-8 を先取りしない最小の Debug panel                                                          |
+
+flow は次の形に固定した。
+
+```
+stopped event
+  → threads request
+  → stopped thread の stackTrace request
+  → Main で safe domain model へ normalize
+  → debug:call-stack-changed / debug:list-call-stack
+  → Renderer の Call Stack
+  → frame 選択
+  → 既存 EditorContext.openFileAt({ relativePath, line, column })
+```
+
+`frameId` は adapter の不透明 handle で、次の停止では再利用されうる。そこで Session generation に加えて **stop generation** を見て、古い `threads` / `stackTrace` 応答を捨てる。6-6 Variables はこの基盤の上で、現在の Workspace・現在の session generation・現在の stop generation・現在の stopped state に属する frame だけを使う。
+
+running へ戻ったとき、`continued` event、adapter error / exit、`terminated` / `exited`、Workspace switch、session cleanup では Call Stack snapshot を空にする。
+
+Workspace 内の source だけが `relativePath` を持ち、Workspace 外 / missing / unknown / malformed source は frame 自体を残したうえで `unavailable` として開けない。これにより「外部ライブラリの frame は見えるが、Renderer からその絶対位置へ触る経路は無い」という形にしてある。
+
+### Session 6-6 〜 6-13（予定）— 実装
+
+| Session | 入れるもの                                                         | 推奨 Agent   |
+| ------- | ------------------------------------------------------------------ | ------------ |
+| 6-6     | Variables                                                          | Codex        |
+| 6-7     | Debug Console（出力と評価）                                        | Codex        |
+| 6-8     | Debug パネルの器・Panel Registry 登録・Debug Toolbar               | Claude Code  |
+| 6-9     | Debug Profile の編集 UI と Settings / Status                       | Claude Code  |
+| 6-10    | Python（debugpy）                                                  | どちらでも可 |
+| 6-11    | C#（netcoredbg）                                                   | どちらでも可 |
+| 6-12    | Command / Keybinding（F5 / F9 / F10 / F11 / Shift+F11 / Shift+F5） | Codex        |
+| 6-13    | STEP 6 Closing（production build での横断確認とドキュメント追従）  | Claude Code  |
 
 最初に繋ぐのは **Node**（この PC で実機確認できる唯一の言語。Python / .NET SDK は STEP 5 Closing 時点と同じく未導入）。ただし Node の adapter だけは**入手経路と stdio 対応が未確定**で、6-1 の最初の仕事がその確認になる（[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §20.7）。
 

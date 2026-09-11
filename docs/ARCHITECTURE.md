@@ -1,7 +1,7 @@
 # アーキテクチャ
 
-> 対象: Session 5-13（STEP 5 LSP Closing）完了時点の実装 ＋ Session 6-2（STEP 6 DAP lifecycle foundation）
-> 最終更新: 2026-09-10
+> 対象: Session 5-13（STEP 5 LSP Closing）完了時点の実装 ＋ Session 6-5（STEP 6 DAP Call Stack）
+> 最終更新: 2026-09-11
 
 製品としての方向性は [DESIGN.md](../DESIGN.md) を参照。このドキュメントは「現在のコードがどう組まれているか」と「機能を足すときにどこへ書くか」を扱う。
 
@@ -503,7 +503,7 @@ Session 3-1 の Workspace（開いているフォルダ）もこの方針に従�
 | Terminal                           | **§13 として実装済み**（node-pty は Main・作業ディレクトリは §8・出力は §3.3 の経路）。複数タブは同じ表に足す                                                                                     |
 | Git / GitHub パネル                | **§14 として実装済み**（git の実行基盤・検出・一覧・Stage / Unstage・Commit・Push / Pull・ブランチ・`.git` の監視・差分と破棄・`git init` と GitHub への公開）。増やすときは操作ごとに1本ずつ切る |
 | GitHub パネルの独立ウィンドウ化    | セキュリティガードは webContents 単位、IPC は送信元ウィンドウを `IpcContext` で受け取れる。イベントは全ウィンドウへ届く（§3.3）                                                                   |
-| DAP                                | **§20 として設計確定（Session 6-0）**し、Session 6-1 で Main 内の DAP wire / adapter process / catalog foundation を追加。Renderer / preload IPC と Debug Session 本体はまだ無い                  |
+| DAP                                | **§20 として設計確定（Session 6-0）**し、Session 6-1 で DAP wire / adapter process / catalog foundation、6-2 で lifecycle、6-3 で Breakpoint、6-4 で実行制御、6-5 で Call Stack を追加            |
 | Mac 対応                           | OS 依存判定は `platform/`。Renderer / shared に OS 依存は入っていない                                                                                                                             |
 
 STEP 1 から持ち越していた **Main → Renderer のイベント経路**は Session 3-3 で用意した（§3.3）。残る機能はいずれも現在の構造のまま追加できる。
@@ -7315,7 +7315,7 @@ Session 5-13 で実際に測った範囲は次のとおり。
 
 ## 20. Debug（DAP。STEP 6）
 
-Session 6-0 で設計を確定し、Session 6-1 で Main 内の最下層（DAP message / connection、adapter process、adapter catalog）を実装し、Session 6-2 で Main-owned Debug Session lifecycle / state machine を追加し、Session 6-3 で Breakpoint（Monaco の glyph margin・保存・`setBreakpoints`）を入れ（§20.12）、Session 6-4 で実行制御（Continue / Pause / Step Over / Step Into / Step Out / Stop）を入れた（§20.13）。ここに書いていない口・欄・経路を実装側で足すときは、足す前にこの節へ戻ること。
+Session 6-0 で設計を確定し、Session 6-1 で Main 内の最下層（DAP message / connection、adapter process、adapter catalog）を実装し、Session 6-2 で Main-owned Debug Session lifecycle / state machine を追加し、Session 6-3 で Breakpoint（Monaco の glyph margin・保存・`setBreakpoints`）を入れ（§20.12）、Session 6-4 で実行制御（Continue / Pause / Step Over / Step Into / Step Out / Stop）を入れ（§20.13）、Session 6-5 で Call Stack（`threads` / `stackTrace` と safe source normalization）を入れた（§20.14）。ここに書いていない口・欄・経路を実装側で足すときは、足す前にこの節へ戻ること。
 
 DESIGN.md §5 の11機能（Breakpoint / Continue / Pause / Step Over / Step Into / Step Out / Stop / Variables / Call Stack / Debug Console / エラー位置へのジャンプ）を、Terminal（§13）と LSP（§19）が固めた「**Main が長命な子プロセスを持ち、Renderer は app-domain の言葉だけで話す**」形の上に載せる。
 
@@ -7478,6 +7478,10 @@ main/debug/adapterCatalog.ts  Main 内部の固定 adapter catalog
 main/debug/debugSessionState.ts    idle / starting / running / stopped / terminating の許可遷移
 main/debug/debugSessionManager.ts  current session / generation / lifecycle cleanup の正本
 main/debug/executionControl.ts     実行制御の許可 / 拒否と DAP への翻訳、Stop の段（Session 6-4）
+main/debug/callStack.ts            stopped event から safe Call Stack snapshot を作る正本（Session 6-5）
+main/debug/dapThreads.ts           threads response の検証（Session 6-5）
+main/debug/dapStackTrace.ts        stackTrace response の検証（Session 6-5）
+main/debug/stackFrameSource.ts     stack frame の source を Workspace 相対 / unavailable へ畳む（Session 6-5）
 ```
 
 `jsonRpcConnection.ts`（§19.2）が子プロセスの stdio に直接結びついているのに対し、**`dapConnection.ts` は stream を受け取る形にする**。TCP の adapter が来たときに層を作り直さずに済む唯一の分け方になる。
@@ -7520,22 +7524,25 @@ stop / dispose / Workspace switch / app quit / start timeout / adapter error / a
 
 `threadId` / `frameId` / `variablesReference` は adapter が配る不透明な数で、Renderer はそれを持ち回る。**Main は現在のセッションが配った handle だけを通す**（セッションごとに世代を持ち、前のセッションの handle は断る）。LSP が版（`version`）で古い要求を `stale` として断ったのと同じ仕組みを、単位をセッションに変えて置く（§19.3）。
 
+Session 6-5 で `frameId` 用にもう1段足した。`frameId` は同じ session の中でも次の停止で再利用されうるため、Call Stack snapshot は **session generation + stop generation + stopped state + Workspace identity** を一緒に持つ。6-6 Variables は、この4つが現在値と一致する frame だけを使う。
+
 ### 20.9 Security boundary
 
 §19.8 の表をそのまま引き継ぎ、DAP 固有の3行を足す。
 
-| 渡さないもの                         | どう閉じているか                                                                |
-| ------------------------------------ | ------------------------------------------------------------------------------- |
-| 絶対パス                             | Profile も応答も **workspace-relative path** だけ。変換は Main の中             |
-| file URI                             | 組み立てるのも解くのも Main の中だけ                                            |
-| adapter の実行ファイル / 引数 / cwd  | catalog が持つ。Profile にも IPC にも欄が無い（§20.4）                          |
-| interpreter / runtime の実行ファイル | PATH から Main が解決する。Profile に欄が無い                                   |
-| 任意の DAP request 名                | 口は機能ごとに分かれている。method 名を渡す口が無い                             |
-| 任意の adapter 選択                  | 行き先は `language`（3つの閉じた集合）だけで決まる                              |
-| 任意の Workspace の profile          | `debug:list-profiles` の要求は `void`。key を渡す口が無い（§20.5）              |
-| **`runInTerminal`（逆方向要求）**    | **拒否する。** `initialize` で `supportsRunInTerminalRequest: false` を名乗る   |
-| **Workspace 外の program**           | `programRelativePath` を Files と同じ2段（パス文字列 → realpath）で検証して断る |
-| **実行を差し替える環境変数**         | 下記                                                                            |
+| 渡さないもの                          | どう閉じているか                                                                |
+| ------------------------------------- | ------------------------------------------------------------------------------- |
+| 絶対パス                              | Profile も応答も **workspace-relative path** だけ。変換は Main の中             |
+| file URI                              | 組み立てるのも解くのも Main の中だけ                                            |
+| adapter の実行ファイル / 引数 / cwd   | catalog が持つ。Profile にも IPC にも欄が無い（§20.4）                          |
+| interpreter / runtime の実行ファイル  | PATH から Main が解決する。Profile に欄が無い                                   |
+| 任意の DAP request 名                 | 口は機能ごとに分かれている。method 名を渡す口が無い                             |
+| 任意の adapter 選択                   | 行き先は `language`（3つの閉じた集合）だけで決まる                              |
+| 任意の Workspace の profile           | `debug:list-profiles` の要求は `void`。key を渡す口が無い（§20.5）              |
+| **`runInTerminal`（逆方向要求）**     | **拒否する。** `initialize` で `supportsRunInTerminalRequest: false` を名乗る   |
+| **Workspace 外の program**            | `programRelativePath` を Files と同じ2段（パス文字列 → realpath）で検証して断る |
+| **adapter が返す stack frame source** | Main が Workspace 相対へ正規化し、Workspace 外 / missing / malformed は開けない |
+| **実行を差し替える環境変数**          | 下記                                                                            |
 
 #### `runInTerminal` を拒否する
 
@@ -7568,8 +7575,8 @@ adapter の `output` event が運ぶのは**デバッグ対象プログラム自
 要求(18): listProfiles createProfile updateProfile deleteProfile
           start stop continue pause stepOver stepInto stepOut
           listBreakpoints toggleBreakpoint
-          getState getStack getScopes getVariables evaluate
-購読(4):  onStateChanged onStopped onOutput onBreakpointsChanged
+          getState listCallStack getScopes getVariables evaluate
+購読(5):  onStateChanged onStopped onOutput onBreakpointsChanged onCallStackChanged
 ```
 
 Session 6-0 の予定では breakpoint の口は `setBreakpoints` 1つだったが、**Session 6-3 で
@@ -7577,6 +7584,8 @@ Session 6-0 の予定では breakpoint の口は `setBreakpoints` 1つだった�
 作らない**ためで、`setBreakpoints` という名前も DAP の request 名と1対1に見えるので使わない。
 
 Session 6-4 で `continue` / `pause` / `stepOver` / `stepInto` / `stepOut` / `stop` の6つが入った（チャンネルは `debug:continue` / `debug:pause` / `debug:step-over` / `debug:step-into` / `debug:step-out` / `debug:stop`）。**どれも要求が `void`** で、予定の数（18）は動いていない。`getState` / `onStateChanged` はまだ無い ── 状態を画面に出すのは Debug パネル（Session 6-8）で、それまでは制御の応答に載る `state` だけが Renderer に届く。
+
+Session 6-5 で `getStack` は実際の名前を `debug:list-call-stack` / `listCallStack` として入れた。要求は `void` で、応答は Main が持つ現在 Workspace の Call Stack snapshot だけになる。変化通知として `debug:call-stack-changed` / `onCallStackChanged` を足したため購読は5本になった。`onStopped` は Main 内部の lifecycle listener で、Renderer の購読口としてはまだ出していない。
 
 **プロセスを操作する口は1つも無い**（§19.2 と同じ）。`start` に載るのは `profileId` だけで、`stop` は `void` になる。
 
@@ -7853,3 +7862,83 @@ disconnect ─┬ 応答 / adapter が自分で閉じた ─→ kill → idle
 #### 停止行は 6-5 へ送った
 
 Session 6-0 の予定では「停止行」（止まった行を Editor に示す）も 6-4 に含めていた。**`stopped` event は位置を運ばない**ため、止まった行は `stackTrace` の最上段を読むまで分からない ── それは Call Stack（`getStack`）そのものになる。先取りを避け、6-5 へ移した。
+
+### 20.14 Call Stack（Session 6-5）
+
+Session 6-5 は、Main が DAP の `threads` / `stackTrace` を読み、Renderer へ安全な Call Stack snapshot を配るところまでを入れた。Variables / Scopes はまだ入れないが、6-6 が安全に `frameId` を使えるよう、frame lifecycle の境界だけ先に作ってある。
+
+#### 責務の分け方
+
+```
+Adapter event                    Main                                      Renderer
+─────────────                    ────                                      ────────
+stopped
+  │                              debugSessionManager
+  │                                stop generation を進める
+  │                                stopped thread を記録
+  │
+  └────────────────────────────▶ debug/callStack.ts
+                                   threads request
+                                   stackTrace request
+                                   source を safe domain model へ正規化
+                                   stale response を破棄
+      debug:call-stack-changed ◀────────────────────────────────────────── CallStackProvider
+                                                                              CallStackView
+                                                                              frame 選択
+                                                                                │
+                                                                                ▼
+                                                                            EditorContext.openFileAt
+```
+
+`debugSessionManager` は DAP request を送れる **Call Stack channel** を stopped state の間だけ返す。channel は取得時点の session generation と stop generation を閉じ込め、後から応答が返ってきても現在値と一致しなければ `closed` として扱う。
+
+#### safe domain model
+
+Renderer に届く source は2種類だけにした。
+
+```
+{ kind: 'workspace', relativePath, name }
+{ kind: 'unavailable', name, reason }
+```
+
+`workspace` は Main が現在の Workspace root と照合して作った相対パスだけを持つ。`unavailable` は `missing` / `outside-workspace` / `malformed` のどれかで、frame 自体は一覧に残すが開けない。`source.path`、絶対パス、file URI、`sourceReference` は Renderer に出さない。
+
+`line` / `column` は正の整数だけを通し、それ以外は `null` に畳む。開ける frame でも `line` が無い場合はボタンを無効にする。`name` は表示用に空白と長さを整えるだけで、ファイルを開く入力には使わない。
+
+#### stopped から stackTrace まで
+
+```
+stopped event
+  → threads
+  → stopped event の threadId が threads にあればそれを選ぶ
+  → 無ければ threads の先頭を選ぶ
+  → stackTrace { threadId, startFrame: 0, levels: 50 }
+  → 選んだ thread にだけ frames を載せて snapshot を publish
+```
+
+複数 thread は thread 名と stopped かどうかを表示するが、Session 6-5 では全 thread の stackTrace は読まない。Variables の UI や thread 選択が入るまでは、停止した thread を最小単位として扱う。
+
+#### source path security
+
+adapter の `stackTrace` response は、`source.path` に OS の絶対パスや `file://` URI を載せることが多い。Session 6-5 では Main が必ず次の順に畳む。
+
+- `source.path` が無い: `unavailable / missing`
+- file URI として読める: file path に変換して Workspace 内なら `relativePath`、外なら `unavailable / outside-workspace`
+- OS の絶対パスとして読める: Workspace 内なら `relativePath`、外なら `unavailable / outside-workspace`
+- 壊れた URI / NUL / 相対 path / その他: `unavailable / malformed`
+
+Workspace 外 frame を丸ごと消さないのは、利用者に「どこを経由して止まったか」を見せるため。ただし開けない状態にして、Renderer から外部パスへ進む経路は作らない。
+
+#### clear 条件
+
+Call Stack snapshot は stopped の瞬間だけ生きる。次の場合は空に戻す。
+
+- Continue / Step などで `running` へ戻った
+- adapter から `continued` event が届いた
+- Stop / adapter error / adapter exit / `terminated` / `exited` で session が終わった
+- Workspace switch
+- session cleanup
+
+#### Renderer
+
+Session 6-5 では最小の Debug panel を登録し、Call Stack だけを置いた。6-8 の Debug Toolbar や状態表示は先取りしない。frame 選択は `EditorContext.openFileAt({ relativePath, line, column })` を使い、Files / editor opener の既存経路へ乗せる。Monaco へ直接ファイルを開く新しい口は作らない。

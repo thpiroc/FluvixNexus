@@ -13,6 +13,7 @@ import {
 } from './adapterProcess'
 import type { DapRequestOutcome } from './dapConnection'
 import type { DapSetBreakpointsArguments } from './dapBreakpoints'
+import type { DapStackTraceArguments } from './dapStackTrace'
 import {
   applyDebugSessionTransition,
   type DebugSessionState,
@@ -53,6 +54,25 @@ export type DebugSessionStateListener = (
   sessionId: string | null,
   generation: number
 ) => void
+
+export interface DebugSessionStoppedEvent {
+  readonly sessionId: string
+  readonly generation: number
+  readonly stopGeneration: number
+  readonly stoppedThreadId: number | null
+  readonly allThreadsStopped: boolean | null
+}
+
+export interface DebugSessionThreadEvent {
+  readonly sessionId: string
+  readonly generation: number
+  readonly stopGeneration: number
+  readonly threadId: number | null
+  readonly reason: 'started' | 'exited' | null
+}
+
+export type DebugSessionStoppedListener = (event: DebugSessionStoppedEvent) => void
+export type DebugSessionThreadListener = (event: DebugSessionThreadEvent) => void
 
 export const DEBUG_SESSION_START_TIMEOUT_MS = 60_000
 
@@ -103,6 +123,15 @@ export interface DebugSessionBreakpointChannel {
   readonly sessionId: string
   readonly generation: number
   readonly setBreakpoints: (args: DapSetBreakpointsArguments) => Promise<DapRequestOutcome>
+}
+
+export interface DebugSessionCallStackChannel {
+  readonly sessionId: string
+  readonly generation: number
+  readonly stopGeneration: number
+  readonly stoppedThreadId: number | null
+  readonly requestThreads: () => Promise<DapRequestOutcome>
+  readonly requestStackTrace: (args: DapStackTraceArguments) => Promise<DapRequestOutcome>
 }
 
 /**
@@ -178,6 +207,8 @@ export interface DebugSessionManager {
   readonly getSessionId: () => string | null
   readonly getGeneration: () => number
   readonly onStateChange: (listener: DebugSessionStateListener) => () => void
+  readonly onStopped: (listener: DebugSessionStoppedListener) => () => void
+  readonly onThread: (listener: DebugSessionThreadListener) => () => void
   readonly start: (options: DebugSessionStartOptions) => StartDebugSessionOutcome
   /**
    * **その場で**終わらせる（Session 6-2）。Workspace の切り替え・アプリの終了・
@@ -202,6 +233,7 @@ export interface DebugSessionManager {
    * 起動中の同期は仕込みの側が引き受ける。
    */
   readonly getBreakpointChannel: () => DebugSessionBreakpointChannel | null
+  readonly getCallStackChannel: () => DebugSessionCallStackChannel | null
   /**
    * 実行制御（Session 6-4）。Continue / Pause / Step Over / Step Into / Step Out。
    *
@@ -225,6 +257,8 @@ export function createDebugSessionManager(
 ): DebugSessionManager {
   const startAdapterProcess = options.startAdapterProcess ?? startDebugAdapterProcess
   const listeners = new Set<DebugSessionStateListener>()
+  const stoppedListeners = new Set<DebugSessionStoppedListener>()
+  const threadListeners = new Set<DebugSessionThreadListener>()
   let generation = 0
   let current: RunningDebugSession | null = null
   let configurationHook: DebugSessionConfigurationHook | null = options.configurationHook ?? null
@@ -247,6 +281,42 @@ export function createDebugSessionManager(
         listener(state, sessionId, eventGeneration)
       } catch (cause) {
         log('error', `a debug session state listener failed: ${describeError(cause)}`)
+      }
+    }
+  }
+
+  function notifyStopped(record: RunningDebugSession, body: unknown): void {
+    const event: DebugSessionStoppedEvent = {
+      sessionId: record.sessionId,
+      generation: record.generation,
+      stopGeneration: record.stopEpoch,
+      stoppedThreadId: record.stoppedThreadId,
+      allThreadsStopped: readAllThreadsStopped(body)
+    }
+
+    for (const listener of stoppedListeners) {
+      try {
+        listener(event)
+      } catch (cause) {
+        log('error', `a debug session stopped listener failed: ${describeError(cause)}`)
+      }
+    }
+  }
+
+  function notifyThread(record: RunningDebugSession, body: unknown): void {
+    const event: DebugSessionThreadEvent = {
+      sessionId: record.sessionId,
+      generation: record.generation,
+      stopGeneration: record.stopEpoch,
+      threadId: readThreadEventId(body),
+      reason: readThreadEventReason(body)
+    }
+
+    for (const listener of threadListeners) {
+      try {
+        listener(event)
+      } catch (cause) {
+        log('error', `a debug session thread listener failed: ${describeError(cause)}`)
       }
     }
   }
@@ -476,6 +546,39 @@ export function createDebugSessionManager(
     return createBreakpointChannel(current)
   }
 
+  function createCallStackChannel(record: RunningDebugSession): DebugSessionCallStackChannel {
+    const stopGeneration = record.stopEpoch
+
+    return {
+      sessionId: record.sessionId,
+      generation: record.generation,
+      stopGeneration,
+      stoppedThreadId: record.stoppedThreadId,
+      requestThreads: () =>
+        isCurrentStopped(record, stopGeneration)
+          ? request(record, 'threads')
+          : Promise.resolve({
+              status: 'closed' as const,
+              reason: 'the stopped debug session has already moved on.'
+            }),
+      requestStackTrace: (args) =>
+        isCurrentStopped(record, stopGeneration)
+          ? request(record, 'stackTrace', args)
+          : Promise.resolve({
+              status: 'closed' as const,
+              reason: 'the stopped debug session has already moved on.'
+            })
+    }
+  }
+
+  function getCallStackChannel(): DebugSessionCallStackChannel | null {
+    if (current === null || current.state !== 'stopped') {
+      return null
+    }
+
+    return createCallStackChannel(current)
+  }
+
   function handleAdapterEvent(generation: number, event: string, body: unknown): void {
     const record = current
 
@@ -501,6 +604,11 @@ export function createDebugSessionManager(
         if (record.state === 'running') {
           transition(record, 'stopped')
         }
+        notifyStopped(record, body)
+        return
+
+      case 'thread':
+        notifyThread(record, body)
         return
 
       case 'continued':
@@ -960,6 +1068,10 @@ export function createDebugSessionManager(
     return current === record && current.generation === record.generation
   }
 
+  function isCurrentStopped(record: RunningDebugSession, stopGeneration: number): boolean {
+    return isActive(record) && record.state === 'stopped' && record.stopEpoch === stopGeneration
+  }
+
   /** 今のセッションで、まだ Stop を頼まれていない（Session 6-4）。 */
   function isActive(record: RunningDebugSession): boolean {
     return isCurrent(record) && !record.terminationRequested
@@ -980,6 +1092,20 @@ export function createDebugSessionManager(
         listeners.delete(listener)
       }
     },
+    onStopped: (listener) => {
+      stoppedListeners.add(listener)
+
+      return () => {
+        stoppedListeners.delete(listener)
+      }
+    },
+    onThread: (listener) => {
+      threadListeners.add(listener)
+
+      return () => {
+        threadListeners.delete(listener)
+      }
+    },
     start,
     stop,
     dispose,
@@ -987,6 +1113,7 @@ export function createDebugSessionManager(
       configurationHook = hook
     },
     getBreakpointChannel,
+    getCallStackChannel,
     control,
     requestStop
   }
@@ -1009,6 +1136,10 @@ export function getDebugSessionGeneration(): number {
   return defaultManager.getGeneration()
 }
 
+export function getDebugSessionStopGeneration(): number {
+  return defaultManager.getCallStackChannel()?.stopGeneration ?? 0
+}
+
 export function startDebugSession(options: DebugSessionStartOptions): StartDebugSessionOutcome {
   return defaultManager.start(options)
 }
@@ -1023,6 +1154,14 @@ export function disposeDebugSession(reason: string): void {
 
 export function onDebugSessionStateChange(listener: DebugSessionStateListener): () => void {
   return defaultManager.onStateChange(listener)
+}
+
+export function onDebugSessionStopped(listener: DebugSessionStoppedListener): () => void {
+  return defaultManager.onStopped(listener)
+}
+
+export function onDebugSessionThread(listener: DebugSessionThreadListener): () => void {
+  return defaultManager.onThread(listener)
 }
 
 /**
@@ -1041,6 +1180,10 @@ export function setDebugSessionConfigurationHook(hook: DebugSessionConfiguration
  */
 export function getDebugSessionBreakpointChannel(): DebugSessionBreakpointChannel | null {
   return defaultManager.getBreakpointChannel()
+}
+
+export function getDebugSessionCallStackChannel(): DebugSessionCallStackChannel | null {
+  return defaultManager.getCallStackChannel()
 }
 
 /** 実行制御（Session 6-4）。呼ぶのは main/ipc/handlers/debug.ts だけになる。 */
@@ -1084,6 +1227,38 @@ function supportsConfigurationDoneRequest(body: unknown): boolean {
     (body as { readonly supportsConfigurationDoneRequest?: unknown })
       .supportsConfigurationDoneRequest === true
   )
+}
+
+function readAllThreadsStopped(body: unknown): boolean | null {
+  if (typeof body !== 'object' || body === null || !('allThreadsStopped' in body)) {
+    return null
+  }
+
+  const value = (body as { readonly allThreadsStopped?: unknown }).allThreadsStopped
+
+  return typeof value === 'boolean' ? value : null
+}
+
+function readThreadEventId(body: unknown): number | null {
+  if (typeof body !== 'object' || body === null || !('threadId' in body)) {
+    return null
+  }
+
+  const threadId = (body as { readonly threadId?: unknown }).threadId
+
+  return typeof threadId === 'number' && Number.isSafeInteger(threadId) && threadId > 0
+    ? threadId
+    : null
+}
+
+function readThreadEventReason(body: unknown): 'started' | 'exited' | null {
+  if (typeof body !== 'object' || body === null || !('reason' in body)) {
+    return null
+  }
+
+  const reason = (body as { readonly reason?: unknown }).reason
+
+  return reason === 'started' || reason === 'exited' ? reason : null
 }
 
 function createDeferred<T>(): Deferred<T> {

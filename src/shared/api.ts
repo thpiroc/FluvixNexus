@@ -1107,6 +1107,8 @@ export interface DebugApi {
   readonly toggleBreakpoint: (
     request: ToggleDebugBreakpointRequest
   ) => IpcInvokeResult<'debug:toggle-breakpoint'>
+  /** 今の Call Stack snapshot を読む。返る source は safe domain model だけ。 */
+  readonly listCallStack: () => IpcInvokeResult<'debug:list-call-stack'>
   /**
    * 実行制御（Session 6-4）。
    *
@@ -1134,6 +1136,10 @@ export interface DebugApi {
    */
   readonly onBreakpointsChanged: (
     listener: IpcEventListener<'debug:breakpoints-changed'>
+  ) => IpcEventUnsubscribe
+  /** Call Stack snapshot が変わった。 */
+  readonly onCallStackChanged: (
+    listener: IpcEventListener<'debug:call-stack-changed'>
   ) => IpcEventUnsubscribe
 }
 

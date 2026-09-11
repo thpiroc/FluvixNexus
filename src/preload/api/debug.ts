@@ -28,6 +28,7 @@ import { subscribeIpcEvent } from '../ipc/subscribe'
 export const debugApi: DebugApi = {
   listBreakpoints: () => invokeIpc(IPC_CHANNELS.DEBUG_LIST_BREAKPOINTS),
   toggleBreakpoint: (request) => invokeIpc(IPC_CHANNELS.DEBUG_TOGGLE_BREAKPOINT, request),
+  listCallStack: () => invokeIpc(IPC_CHANNELS.DEBUG_LIST_CALL_STACK),
   continue: () => invokeIpc(IPC_CHANNELS.DEBUG_CONTINUE),
   pause: () => invokeIpc(IPC_CHANNELS.DEBUG_PAUSE),
   stepOver: () => invokeIpc(IPC_CHANNELS.DEBUG_STEP_OVER),
@@ -35,5 +36,7 @@ export const debugApi: DebugApi = {
   stepOut: () => invokeIpc(IPC_CHANNELS.DEBUG_STEP_OUT),
   stop: () => invokeIpc(IPC_CHANNELS.DEBUG_STOP),
   onBreakpointsChanged: (listener) =>
-    subscribeIpcEvent(IPC_EVENT_CHANNELS.DEBUG_BREAKPOINTS_CHANGED, listener)
+    subscribeIpcEvent(IPC_EVENT_CHANNELS.DEBUG_BREAKPOINTS_CHANGED, listener),
+  onCallStackChanged: (listener) =>
+    subscribeIpcEvent(IPC_EVENT_CHANNELS.DEBUG_CALL_STACK_CHANGED, listener)
 }

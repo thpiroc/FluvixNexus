@@ -87,6 +87,7 @@ export const IPC_CHANNELS = {
   LSP_GET_STATUS: 'lsp:get-status',
   DEBUG_LIST_BREAKPOINTS: 'debug:list-breakpoints',
   DEBUG_TOGGLE_BREAKPOINT: 'debug:toggle-breakpoint',
+  DEBUG_LIST_CALL_STACK: 'debug:list-call-stack',
   DEBUG_CONTINUE: 'debug:continue',
   DEBUG_PAUSE: 'debug:pause',
   DEBUG_STEP_OVER: 'debug:step-over',

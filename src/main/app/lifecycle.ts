@@ -3,6 +3,7 @@ import { startWorkspaceWatching, stopWorkspaceWatching } from '../files/workspac
 import { startGitWatching, stopGitWatching } from '../git/gitWatcher'
 import { registerIpcHandlers } from '../ipc'
 import { startDebugBreakpointHosting } from '../debug/breakpoints'
+import { startDebugCallStackHosting } from '../debug/callStack'
 import { disposeDebugSession, startDebugSessionHosting } from '../debug/debugSessionManager'
 import { startLanguageServerDiagnostics } from '../lsp/diagnostics'
 import { startLanguageServerDocumentSync } from '../lsp/documentSync'
@@ -128,6 +129,12 @@ export function bootstrapApp(): void {
       setBreakpoints を送る）を登録する唯一の場所でもある。
     */
     startDebugBreakpointHosting(onWorkspaceFolderChange)
+
+    /*
+      Call Stack は Main-owned の stopped snapshot（Session 6-5）。`source.path` を
+      Workspace-relative へ落とし、外側の frame は開けない表示だけにして Renderer へ送る。
+    */
+    startDebugCallStackHosting(onWorkspaceFolderChange)
 
     /*
       シェルのセッションは Workspace の切り替えに追従しない（Session 3-7-3）。

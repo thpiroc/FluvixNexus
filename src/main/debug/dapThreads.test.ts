@@ -1,0 +1,38 @@
+import { describe, expect, it } from 'vitest'
+import { parseThreadsResponse } from './dapThreads'
+
+describe('DAP threads response', () => {
+  it('reads valid threads and sanitizes names', () => {
+    expect(
+      parseThreadsResponse({
+        threads: [{ id: 1, name: 'main' }, { id: 2, name: ' worker \n thread ' }, { id: 3 }]
+      })
+    ).toEqual([
+      { id: 1, name: 'main' },
+      { id: 2, name: 'worker thread' },
+      { id: 3, name: 'Thread 3' }
+    ])
+  })
+
+  it('drops malformed thread entries without failing the whole response', () => {
+    expect(
+      parseThreadsResponse({
+        threads: [
+          { id: 1, name: 'main' },
+          { id: 0, name: 'zero' },
+          { id: -1, name: 'negative' },
+          { id: 1.5, name: 'fraction' },
+          { id: '2', name: 'string' },
+          null
+        ]
+      })
+    ).toEqual([{ id: 1, name: 'main' }])
+  })
+
+  it.each([null, undefined, 42, 'threads', {}, { threads: null }, { threads: {} }, []])(
+    'returns null for malformed response bodies: %s',
+    (body) => {
+      expect(parseThreadsResponse(body)).toBeNull()
+    }
+  )
+})

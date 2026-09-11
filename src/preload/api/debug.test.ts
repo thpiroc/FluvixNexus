@@ -28,7 +28,9 @@ describe('debug preload api', () => {
       [
         'continue',
         'listBreakpoints',
+        'listCallStack',
         'onBreakpointsChanged',
+        'onCallStackChanged',
         'pause',
         'stepInto',
         'stepOut',
