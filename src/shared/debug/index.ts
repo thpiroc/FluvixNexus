@@ -44,6 +44,14 @@ export type {
   DebugEvaluateValue
 } from './evaluate'
 
+export type {
+  DebugConsoleEntry,
+  DebugConsoleEntryKind,
+  DebugConsoleSourceLocation
+} from './console'
+
+export { DEBUG_CONSOLE_TEXT_MAX_LENGTH } from './console'
+
 export {
   DEBUG_EVALUATE_CONTEXTS,
   DEBUG_EVALUATE_EXPRESSION_MAX_LENGTH,

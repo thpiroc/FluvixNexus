@@ -1226,6 +1226,20 @@ export const enMessages = {
       stale: 'This result is no longer current.',
       failed: 'The debug adapter could not evaluate this expression.',
       timeout: 'The debug adapter did not answer in time.'
+    },
+    console: {
+      aria: 'Debug Console',
+      title: 'Debug Console',
+      label: 'Debug Console expression',
+      placeholder: 'Evaluate in selected frame…',
+      clear: 'Clear',
+      empty: 'No console output.',
+      evaluating: 'Evaluating…',
+      notStopped: 'Debug Console evaluates expressions while the program is paused.',
+      noFrame: 'Select a stack frame to evaluate an expression.',
+      stale: 'This result is no longer current.',
+      failed: 'The debug adapter could not evaluate this expression.',
+      timeout: 'The debug adapter did not answer in time.'
     }
   },
   workspace: {

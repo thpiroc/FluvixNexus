@@ -291,3 +291,142 @@
   flex: 0 0 auto;
   color: var(--fx-color-text-faint);
 }
+
+/* Debug Console（Session 6-8） */
+
+.fx-debug-console {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 180px;
+  flex-direction: column;
+  padding: var(--fx-space-2);
+  gap: var(--fx-space-2);
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-debug-console__entries {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 120px;
+  flex-direction: column;
+  gap: 1px;
+  overflow: auto;
+  padding: var(--fx-space-1) 0;
+  background: var(--fx-color-surface-sunken);
+  border: 1px solid var(--fx-color-border);
+  border-radius: 3px;
+}
+
+.fx-debug-console__notice {
+  margin: 0;
+  padding: var(--fx-space-2);
+  color: var(--fx-color-text-faint);
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-debug-console__entry {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--fx-space-1);
+  min-width: 0;
+  min-height: 22px;
+  padding: var(--fx-space-1) var(--fx-space-2);
+  white-space: pre-wrap;
+}
+
+.fx-debug-console__entry[data-kind='input'] {
+  color: var(--fx-color-text-strong);
+}
+
+.fx-debug-console__entry[data-kind='stderr'],
+.fx-debug-console__entry[data-kind='error'] {
+  color: var(--fx-color-danger);
+}
+
+.fx-debug-console__entry[data-kind='system'] {
+  color: var(--fx-color-text-faint);
+}
+
+.fx-debug-console__entry[data-kind='result'][data-expandable='true'] {
+  cursor: pointer;
+}
+
+.fx-debug-console__prefix {
+  flex: 0 0 28px;
+  color: var(--fx-color-text-faint);
+  font-family: ui-monospace, Consolas, monospace;
+  text-align: right;
+  user-select: none;
+}
+
+.fx-debug-console__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, Consolas, monospace;
+}
+
+.fx-debug-console__expression {
+  flex: 0 1 auto;
+  max-width: 40%;
+  overflow: hidden;
+  color: var(--fx-color-text);
+  font-family: ui-monospace, Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fx-debug-console__type,
+.fx-debug-console__source {
+  flex: 0 0 auto;
+  color: var(--fx-color-text-faint);
+}
+
+.fx-debug-console__result {
+  display: flex;
+  flex-direction: column;
+}
+
+.fx-debug-console__form {
+  display: flex;
+  flex: 0 0 auto;
+  gap: var(--fx-space-2);
+  align-items: center;
+}
+
+.fx-debug-console__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: var(--fx-space-1) var(--fx-space-2);
+  color: var(--fx-color-text);
+  background: var(--fx-color-surface-sunken);
+  border: 1px solid var(--fx-color-border);
+  border-radius: 3px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-debug-console__input:disabled {
+  color: var(--fx-color-text-faint);
+}
+
+.fx-debug-console__input:focus-visible {
+  outline: 1px solid var(--fx-accent-blue);
+  outline-offset: -1px;
+}
+
+.fx-debug-console__button {
+  flex: 0 0 auto;
+  padding: var(--fx-space-1) var(--fx-space-3);
+  color: var(--fx-color-text);
+  background: var(--fx-color-surface-raised);
+  border: 1px solid var(--fx-color-border);
+  border-radius: 3px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.fx-debug-console__button:disabled {
+  color: var(--fx-color-text-faint);
+  cursor: default;
+}

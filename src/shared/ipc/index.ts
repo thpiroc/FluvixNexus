@@ -174,6 +174,7 @@ export type {
 export type {
   DebugBreakpointsChangedEvent,
   DebugCallStackChangedEvent,
+  DebugConsoleEntryEvent,
   DebugIpcEventContract
 } from './events/debug'
 export type { GitChangedEvent, GitIpcEventContract } from './events/git'

@@ -61,5 +61,6 @@ export const debugApi: DebugApi = {
   onBreakpointsChanged: (listener) =>
     subscribeIpcEvent(IPC_EVENT_CHANNELS.DEBUG_BREAKPOINTS_CHANGED, listener),
   onCallStackChanged: (listener) =>
-    subscribeIpcEvent(IPC_EVENT_CHANNELS.DEBUG_CALL_STACK_CHANGED, listener)
+    subscribeIpcEvent(IPC_EVENT_CHANNELS.DEBUG_CALL_STACK_CHANGED, listener),
+  onConsoleEntry: (listener) => subscribeIpcEvent(IPC_EVENT_CHANNELS.DEBUG_CONSOLE_ENTRY, listener)
 }

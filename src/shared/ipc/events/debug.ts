@@ -1,5 +1,6 @@
 import type { DebugBreakpoint } from '../../debug/breakpoint'
 import type { DebugCallStackSnapshot } from '../../debug/callStack'
+import type { DebugConsoleEntry } from '../../debug/console'
 
 /**
  * debug ドメインの Main → Renderer イベント（Session 6-3）。
@@ -60,7 +61,20 @@ export interface DebugCallStackChangedEvent {
   readonly callStack: DebugCallStackSnapshot
 }
 
+export interface DebugConsoleEntryEvent {
+  /**
+   * どの Workspace で出た Console entry か。
+   *
+   * output の意味は Workspace に結び付くため、Renderer は切り替え後に前の出力を
+   * 混ぜない。Workspace が無いときは Main から送らない。
+   */
+  readonly workspaceId: string
+  /** Main が safe domain model へ正規化した Debug Console entry。 */
+  readonly entry: DebugConsoleEntry
+}
+
 export interface DebugIpcEventContract {
   'debug:breakpoints-changed': DebugBreakpointsChangedEvent
   'debug:call-stack-changed': DebugCallStackChangedEvent
+  'debug:console-entry': DebugConsoleEntryEvent
 }

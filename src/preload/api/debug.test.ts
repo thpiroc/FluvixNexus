@@ -34,6 +34,7 @@ describe('debug preload api', () => {
         'listVariables',
         'onBreakpointsChanged',
         'onCallStackChanged',
+        'onConsoleEntry',
         'pause',
         'stepInto',
         'stepOut',

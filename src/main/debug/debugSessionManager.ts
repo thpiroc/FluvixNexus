@@ -77,8 +77,15 @@ export interface DebugSessionThreadEvent {
   readonly reason: 'started' | 'exited' | null
 }
 
+export interface DebugSessionOutputEvent {
+  readonly sessionId: string
+  readonly generation: number
+  readonly body: unknown
+}
+
 export type DebugSessionStoppedListener = (event: DebugSessionStoppedEvent) => void
 export type DebugSessionThreadListener = (event: DebugSessionThreadEvent) => void
+export type DebugSessionOutputListener = (event: DebugSessionOutputEvent) => void
 
 export const DEBUG_SESSION_START_TIMEOUT_MS = 60_000
 
@@ -255,6 +262,7 @@ export interface DebugSessionManager {
   readonly onStateChange: (listener: DebugSessionStateListener) => () => void
   readonly onStopped: (listener: DebugSessionStoppedListener) => () => void
   readonly onThread: (listener: DebugSessionThreadListener) => () => void
+  readonly onOutput: (listener: DebugSessionOutputListener) => () => void
   readonly start: (options: DebugSessionStartOptions) => StartDebugSessionOutcome
   /**
    * **その場で**終わらせる（Session 6-2）。Workspace の切り替え・アプリの終了・
@@ -309,6 +317,7 @@ export function createDebugSessionManager(
   const listeners = new Set<DebugSessionStateListener>()
   const stoppedListeners = new Set<DebugSessionStoppedListener>()
   const threadListeners = new Set<DebugSessionThreadListener>()
+  const outputListeners = new Set<DebugSessionOutputListener>()
   let generation = 0
   let current: RunningDebugSession | null = null
   let configurationHook: DebugSessionConfigurationHook | null = options.configurationHook ?? null
@@ -367,6 +376,22 @@ export function createDebugSessionManager(
         listener(event)
       } catch (cause) {
         log('error', `a debug session thread listener failed: ${describeError(cause)}`)
+      }
+    }
+  }
+
+  function notifyOutput(record: RunningDebugSession, body: unknown): void {
+    const event: DebugSessionOutputEvent = {
+      sessionId: record.sessionId,
+      generation: record.generation,
+      body
+    }
+
+    for (const listener of outputListeners) {
+      try {
+        listener(event)
+      } catch (cause) {
+        log('error', `a debug session output listener failed: ${describeError(cause)}`)
       }
     }
   }
@@ -711,6 +736,10 @@ export function createDebugSessionManager(
 
       case 'thread':
         notifyThread(record, body)
+        return
+
+      case 'output':
+        notifyOutput(record, body)
         return
 
       case 'continued':
@@ -1208,6 +1237,13 @@ export function createDebugSessionManager(
         threadListeners.delete(listener)
       }
     },
+    onOutput: (listener) => {
+      outputListeners.add(listener)
+
+      return () => {
+        outputListeners.delete(listener)
+      }
+    },
     start,
     stop,
     dispose,
@@ -1266,6 +1302,10 @@ export function onDebugSessionStopped(listener: DebugSessionStoppedListener): ()
 
 export function onDebugSessionThread(listener: DebugSessionThreadListener): () => void {
   return defaultManager.onThread(listener)
+}
+
+export function onDebugSessionOutput(listener: DebugSessionOutputListener): () => void {
+  return defaultManager.onOutput(listener)
 }
 
 /**

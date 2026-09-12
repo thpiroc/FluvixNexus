@@ -1,6 +1,6 @@
 import type { JSX } from 'react'
 import { CallStackView } from '../../debug/CallStackView'
-import { EvaluateView } from '../../debug/EvaluateView'
+import { DebugConsoleView } from '../../debug/DebugConsoleView'
 import { VariablesView } from '../../debug/VariablesView'
 import { useI18n } from '../../i18n/context'
 
@@ -16,11 +16,11 @@ export function DebugPanel(): JSX.Element {
         {t('debug.variables.title')}
       </div>
       <VariablesView />
-      {/* Evaluate（Session 6-7）。同じ frame の文脈で式を1つ評価する。 */}
+      {/* Debug Console（Session 6-8）。Evaluate と DAP output を同じ面に出す。 */}
       <div className="fx-debug-panel__header fx-debug-panel__header--section">
-        {t('debug.evaluate.title')}
+        {t('debug.console.title')}
       </div>
-      <EvaluateView />
+      <DebugConsoleView />
     </div>
   )
 }

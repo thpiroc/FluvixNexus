@@ -367,6 +367,39 @@ describe('debug session manager', () => {
     expect(harness.adapters).toHaveLength(2)
   })
 
+  it('emits output events from the active adapter only', async () => {
+    const harness = createHarness()
+    const outputs: unknown[] = []
+    const unsubscribe = harness.manager.onOutput((event) => {
+      outputs.push(event)
+    })
+    const oldAdapter = await startRunning(harness)
+
+    oldAdapter.event('output', { category: 'stdout', output: 'one' })
+
+    expect(outputs).toEqual([
+      {
+        sessionId: 'debug-session-1',
+        generation: 1,
+        body: { category: 'stdout', output: 'one' }
+      }
+    ])
+
+    harness.manager.stop('replace session')
+    expect(harness.manager.start(createStartOptions({ name: 'New Adapter' })).status).toBe(
+      'started'
+    )
+
+    oldAdapter.event('output', { category: 'stderr', output: 'stale' })
+
+    expect(outputs).toHaveLength(1)
+
+    unsubscribe()
+    harness.adapters[1]?.event('output', { category: 'stdout', output: 'ignored' })
+
+    expect(outputs).toHaveLength(1)
+  })
+
   it('workspace switch and app quit cleanup are the same idempotent dispose path', async () => {
     const workspaceHarness = createHarness()
     const workspaceAdapter = await startRunning(workspaceHarness)

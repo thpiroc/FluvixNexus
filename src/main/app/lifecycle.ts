@@ -4,6 +4,7 @@ import { startGitWatching, stopGitWatching } from '../git/gitWatcher'
 import { registerIpcHandlers } from '../ipc'
 import { startDebugBreakpointHosting } from '../debug/breakpoints'
 import { startDebugCallStackHosting } from '../debug/callStack'
+import { startDebugConsoleHosting } from '../debug/console'
 import { disposeDebugSession, startDebugSessionHosting } from '../debug/debugSessionManager'
 import { startDebugVariablesHosting } from '../debug/variables'
 import { startLanguageServerDiagnostics } from '../lsp/diagnostics'
@@ -143,6 +144,12 @@ export function bootstrapApp(): void {
       snapshot の差し替えを合図に表を捨てるため、購読する相手が先に立っている必要がある。
     */
     startDebugVariablesHosting(onWorkspaceFolderChange)
+
+    /*
+      Debug Console（Session 6-8）。DAP output event を Main で safe entry に畳み、
+      Renderer へは Debug Console 専用の通知として届ける。
+    */
+    startDebugConsoleHosting(onWorkspaceFolderChange)
 
     /*
       シェルのセッションは Workspace の切り替えに追従しない（Session 3-7-3）。

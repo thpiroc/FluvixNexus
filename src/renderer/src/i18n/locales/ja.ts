@@ -1187,6 +1187,20 @@ export const jaMessages = {
       stale: 'この結果はもう最新ではありません。',
       failed: 'Debug adapter がこの式を評価できませんでした。',
       timeout: 'Debug adapter から時間内に応答がありませんでした。'
+    },
+    console: {
+      aria: 'Debug Console',
+      title: 'Debug Console',
+      label: 'Debug Console で評価する式',
+      placeholder: '選択中の frame で評価…',
+      clear: '消去',
+      empty: 'Console output はまだありません。',
+      evaluating: '評価しています…',
+      notStopped: 'Debug Console の式評価はプログラムが停止している間に行えます。',
+      noFrame: 'Stack frame を選ぶと式を評価できます。',
+      stale: 'この結果はもう最新ではありません。',
+      failed: 'Debug adapter がこの式を評価できませんでした。',
+      timeout: 'Debug adapter から時間内に応答がありませんでした。'
     }
   },
   workspace: {

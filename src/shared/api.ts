@@ -1171,6 +1171,10 @@ export interface DebugApi {
   readonly onCallStackChanged: (
     listener: IpcEventListener<'debug:call-stack-changed'>
   ) => IpcEventUnsubscribe
+  /** Debug Console に表示する entry が届いた（DAP output / system message）。 */
+  readonly onConsoleEntry: (
+    listener: IpcEventListener<'debug:console-entry'>
+  ) => IpcEventUnsubscribe
 }
 
 /**
