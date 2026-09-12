@@ -147,8 +147,8 @@ function parseScope(value: unknown): DapScopeEntry | null {
       name: sanitizeLabel(value.name, 'Scope'),
       kind: readScopeKind(value.presentationHint),
       expensive: value.expensive === true,
-      namedCount: readCount(value.namedVariables),
-      indexedCount: readCount(value.indexedVariables)
+      namedCount: readVariableCount(value.namedVariables),
+      indexedCount: readVariableCount(value.indexedVariables)
     }
   }
 }
@@ -167,8 +167,8 @@ function parseVariable(value: unknown): DapVariableEntry | null {
       value: sanitizeVariableValue(value.value),
       type: type === '' ? null : type,
       kind: readVariableKind(value.presentationHint),
-      namedCount: readCount(value.namedVariables),
-      indexedCount: readCount(value.indexedVariables)
+      namedCount: readVariableCount(value.namedVariables),
+      indexedCount: readVariableCount(value.indexedVariables)
     }
   }
 }
@@ -192,11 +192,17 @@ export function sanitizeVariableValue(raw: unknown): string {
 }
 
 /** 読めない `variablesReference` は 0（葉）に畳む ── 変数そのものは表示に残す。 */
-function readReference(value: unknown): number {
+export function readReference(value: unknown): number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : 0
 }
 
-function readCount(value: unknown): number | null {
+/**
+ * 子の件数（`namedVariables` / `indexedVariables`）。名乗らない・読めないものは null。
+ *
+ * Session 6-7 の `evaluate` の応答も同じ欄を持つため、そちらから呼ぶ
+ * （main/debug/dapEvaluate.ts）── 同じ読み方を2箇所へ書き起こさない。
+ */
+export function readVariableCount(value: unknown): number | null {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null
 }
 
@@ -204,7 +210,8 @@ function readScopeKind(value: unknown): DebugScopeKind {
   return typeof value === 'string' && SCOPE_KINDS.has(value) ? (value as DebugScopeKind) : 'other'
 }
 
-function readVariableKind(value: unknown): DebugVariableKind {
+/** `VariablePresentationHint.kind` を閉じた集合へ畳む（Session 6-7 の evaluate も通る）。 */
+export function readVariableKind(value: unknown): DebugVariableKind {
   if (!isRecord(value)) {
     return 'other'
   }

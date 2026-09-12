@@ -6,6 +6,7 @@ import {
   applyScopesResult,
   collapseNode,
   expandNode,
+  flattenVariablesSubtree,
   flattenVariablesTree,
   needsChildren,
   selectInitialScopeHandle
@@ -172,5 +173,95 @@ describe('variables tree model', () => {
       ['dv-2', null],
       ['scope:2', null]
     ])
+  })
+})
+
+/**
+ * Evaluate（Session 6-7）の入口。Scope から始まらないだけで、その下は同じ構造になる。
+ */
+describe('variables subtree (Session 6-7 evaluate)', () => {
+  it('shows nothing until the root is expanded', () => {
+    expect(flattenVariablesSubtree(INITIAL_VARIABLES_TREE, 'dv-7', 'evaluate')).toEqual([])
+  })
+
+  it('shows loading, then the children, under the evaluate root', () => {
+    let state = expandNode(INITIAL_VARIABLES_TREE, 'dv-7')
+
+    expect(flattenVariablesSubtree(state, 'dv-7', 'evaluate')).toEqual([
+      {
+        kind: 'notice',
+        key: 'evaluate#loading',
+        depth: 1,
+        notice: 'loading',
+        reason: null,
+        parentKey: 'evaluate'
+      }
+    ])
+
+    state = applyChildrenResult(state, 'dv-7', {
+      status: 'ok',
+      variables: [variable('name', null, '"Ada"'), variable('address', 'dv-8')],
+      truncated: false
+    })
+
+    expect(
+      flattenVariablesSubtree(state, 'dv-7', 'evaluate').map((row) => [
+        row.key,
+        row.depth,
+        row.parentKey
+      ])
+    ).toEqual([
+      ['evaluate/0', 1, 'evaluate'],
+      ['dv-8', 1, 'evaluate']
+    ])
+  })
+
+  it('nests deeper levels the same way the scope tree does', () => {
+    let state = expandNode(INITIAL_VARIABLES_TREE, 'dv-7')
+    state = applyChildrenResult(state, 'dv-7', {
+      status: 'ok',
+      variables: [variable('address', 'dv-8')],
+      truncated: false
+    })
+    state = expandNode(state, 'dv-8')
+    state = applyChildrenResult(state, 'dv-8', {
+      status: 'ok',
+      variables: [variable('city', null, '"London"')],
+      truncated: false
+    })
+
+    expect(
+      flattenVariablesSubtree(state, 'dv-7', 'evaluate').map((row) => [row.key, row.depth])
+    ).toEqual([
+      ['dv-8', 1],
+      ['dv-8/0', 2]
+    ])
+  })
+
+  it('carries the same notices as the scope tree', () => {
+    let state = expandNode(INITIAL_VARIABLES_TREE, 'dv-7')
+    state = applyChildrenResult(state, 'dv-7', { status: 'unavailable', reason: 'stale' })
+
+    expect(flattenVariablesSubtree(state, 'dv-7', 'evaluate')).toEqual([
+      {
+        kind: 'notice',
+        key: 'evaluate#unavailable',
+        depth: 1,
+        notice: 'unavailable',
+        reason: 'stale',
+        parentKey: 'evaluate'
+      }
+    ])
+  })
+
+  it('collapses back to nothing', () => {
+    let state = expandNode(INITIAL_VARIABLES_TREE, 'dv-7')
+    state = applyChildrenResult(state, 'dv-7', {
+      status: 'ok',
+      variables: [variable('name', null)],
+      truncated: false
+    })
+
+    expect(flattenVariablesSubtree(collapseNode(state, 'dv-7'), 'dv-7', 'evaluate')).toEqual([])
   })
 })

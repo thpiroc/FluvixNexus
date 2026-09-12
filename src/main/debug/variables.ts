@@ -45,7 +45,7 @@ import {
  */
 interface VariableHandleEntry {
   readonly reference: number
-  readonly origin: 'scope' | 'variable'
+  readonly origin: 'scope' | 'variable' | 'evaluate'
   readonly workspaceId: string
   readonly sessionGeneration: number
   readonly stopGeneration: number
@@ -53,9 +53,44 @@ interface VariableHandleEntry {
   readonly epoch: number
 }
 
+/**
+ * evaluate（Session 6-7）が handle を載せるときに添える、送った時点の素性。
+ *
+ * `epoch` は **request を送る前に** `currentEpoch()` で控えたもの。表が捨てられた後に
+ * 返ってきた応答は、ここが今の値と食い違うので handle を貰えない。
+ */
+export interface DebugVariableHandleScope {
+  readonly workspaceId: string
+  readonly sessionGeneration: number
+  readonly stopGeneration: number
+  readonly epoch: number
+}
+
 export interface DebugVariablesStore {
   readonly listScopes: (rawFrameId: unknown) => Promise<DebugScopesResult>
   readonly listVariables: (rawHandle: unknown) => Promise<DebugVariablesResult>
+  /**
+   * 今の epoch（Session 6-7）。
+   *
+   * evaluate は自分の request を送る前にこれを控え、応答が返った時点で
+   * `registerEvaluateResult` に渡す ── 表が捨てられていれば handle は発行されない。
+   */
+  readonly currentEpoch: () => number
+  /**
+   * evaluate の結果を**同じ表**へ載せる（Session 6-7）。
+   *
+   * 別の表を持たせない理由は、持たせた瞬間に「どちらの表の handle か」を
+   * `listVariables` が見分ける必要が生まれ、捨てる契機も二重になるため。
+   * evaluate の結果から辿った子は、Scope から辿った子とまったく同じ経路
+   * （`listVariables`）に乗る。
+   *
+   * 素性が今と食い違う（epoch / Workspace / 世代 / 停止）か、表が一杯なら null。
+   * null は「展開できない値」として扱う ── evaluate 自体は成功のまま返す。
+   */
+  readonly registerEvaluateResult: (
+    scope: DebugVariableHandleScope,
+    reference: number
+  ) => DebugVariableHandle | null
   readonly start: (
     onWorkspaceChange: (listener: (next: WorkspaceFolder | null) => void) => () => void
   ) => void
@@ -247,9 +282,52 @@ export function createDebugVariablesStore(
     return { status: 'ok', variables, truncated: parsed.truncated || handleLimitHit }
   }
 
+  /**
+   * evaluate（Session 6-7）から呼ばれる。`issueHandle` と同じ表・同じ通し番号を使う。
+   *
+   * 呼ぶ側は自分の前提（stopped・frame・Workspace）を既に確かめているが、
+   * **ここでももう一度確かめる** ── 表に載せてよいかを決めるのは表の持ち主で、
+   * 呼び出し側の確認を信じる形にすると、次に呼ぶ人が同じ確認を書き落とせてしまう。
+   */
+  function registerEvaluateResult(
+    scope: DebugVariableHandleScope,
+    reference: number
+  ): DebugVariableHandle | null {
+    ensureWorkspace()
+
+    const current = workspace
+
+    if (
+      current === null ||
+      scope.epoch !== epoch ||
+      scope.workspaceId !== current.id ||
+      dependencies.getDebugState() !== 'stopped' ||
+      dependencies.getDebugGeneration() !== scope.sessionGeneration ||
+      dependencies.getDebugStopGeneration() !== scope.stopGeneration
+    ) {
+      return null
+    }
+
+    return issueHandle(
+      {
+        workspaceId: scope.workspaceId,
+        channel: {
+          generation: scope.sessionGeneration,
+          stopGeneration: scope.stopGeneration
+        },
+        epoch: scope.epoch
+      },
+      reference,
+      'evaluate'
+    )
+  }
+
   interface RequestScope {
     readonly workspaceId: string
-    readonly channel: DebugSessionVariablesChannel
+    readonly channel: {
+      readonly generation: number
+      readonly stopGeneration: number
+    }
     readonly epoch: number
   }
 
@@ -356,7 +434,28 @@ export function createDebugVariablesStore(
     dependencies.log?.(level, message)
   }
 
-  return { listScopes, listVariables, start, handleCount: () => handles.size }
+  /**
+   * 今の epoch（Session 6-7）。
+   *
+   * **`ensureWorkspace()` を先に通す。** Workspace の取り込みは要求のたびに遅れて
+   * 行われる（`start` の購読は「変わったとき」しか来ない）ため、通さずに返すと
+   * 「epoch を控える → 最初の要求で表が捨てられる → 控えた epoch が古くなる」に
+   * なり、evaluate の結果が必ず handle を貰えなくなる。
+   */
+  function currentEpoch(): number {
+    ensureWorkspace()
+
+    return epoch
+  }
+
+  return {
+    listScopes,
+    listVariables,
+    currentEpoch,
+    registerEvaluateResult,
+    start,
+    handleCount: () => handles.size
+  }
 }
 
 function successBody(outcome: DapRequestOutcome): unknown {
@@ -397,6 +496,19 @@ export function listDebugScopes(rawFrameId: unknown): Promise<DebugScopesResult>
 
 export function listDebugVariables(rawHandle: unknown): Promise<DebugVariablesResult> {
   return defaultStore.listVariables(rawHandle)
+}
+
+/** 今の handle 表の epoch（Session 6-7。evaluate が request の前に控える）。 */
+export function getDebugVariableHandleEpoch(): number {
+  return defaultStore.currentEpoch()
+}
+
+/** evaluate の結果を同じ handle 表へ載せる（Session 6-7）。 */
+export function registerDebugEvaluateHandle(
+  scope: DebugVariableHandleScope,
+  reference: number
+): DebugVariableHandle | null {
+  return defaultStore.registerEvaluateResult(scope, reference)
 }
 
 /** Call Stack（Session 6-5）より後に張る。lifecycle.ts から1度だけ呼ぶ。 */

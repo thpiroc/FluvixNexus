@@ -90,6 +90,7 @@ export const IPC_CHANNELS = {
   DEBUG_LIST_CALL_STACK: 'debug:list-call-stack',
   DEBUG_LIST_SCOPES: 'debug:list-scopes',
   DEBUG_LIST_VARIABLES: 'debug:list-variables',
+  DEBUG_EVALUATE: 'debug:evaluate',
   DEBUG_CONTINUE: 'debug:continue',
   DEBUG_PAUSE: 'debug:pause',
   DEBUG_STEP_OVER: 'debug:step-over',

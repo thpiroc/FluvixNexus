@@ -2,7 +2,8 @@
  * Debug（DAP）契約レイヤーの公開窓口（Session 6-3）。
  *
  * Main / Preload / Renderer はこのモジュール経由で Breakpoint の型と、
- * Debug Session の状態・実行制御の結末（Session 6-4）を参照する。
+ * Debug Session の状態・実行制御の結末（Session 6-4）・Call Stack（6-5）・
+ * Variables（6-6）・Evaluate（6-7）を参照する。
  * shared 層のルールどおり、ここに実装（プロセス・DAP の電文・保存先）は置かない
  * ── それらは Main の持ち物で、main/debug/ と main/store/ に閉じている。
  *
@@ -35,6 +36,20 @@ export type {
 } from './callStack'
 
 export { EMPTY_DEBUG_CALL_STACK } from './callStack'
+
+export type {
+  DebugEvaluateContext,
+  DebugEvaluateResult,
+  DebugEvaluateUnavailableReason,
+  DebugEvaluateValue
+} from './evaluate'
+
+export {
+  DEBUG_EVALUATE_CONTEXTS,
+  DEBUG_EVALUATE_EXPRESSION_MAX_LENGTH,
+  isDebugEvaluateContext,
+  isDebugEvaluateExpressionShape
+} from './evaluate'
 
 export type {
   DebugScope,

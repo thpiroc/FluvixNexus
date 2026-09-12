@@ -22,6 +22,7 @@ import type {
   WriteWorkspaceFileRequest
 } from './ipc/contracts/files'
 import type {
+  EvaluateDebugExpressionRequest,
   ListDebugScopesRequest,
   ListDebugVariablesRequest,
   ToggleDebugBreakpointRequest
@@ -1127,6 +1128,17 @@ export interface DebugApi {
   readonly listVariables: (
     request: ListDebugVariablesRequest
   ) => IpcInvokeResult<'debug:list-variables'>
+  /**
+   * 選んでいる frame の文脈で式を1つ評価する（Session 6-7）。
+   *
+   * **DAP の request を送る口ではない。** 渡せるのは式・frame・文脈（`repl` / `watch`）の
+   * 3つだけで、`command` も `variablesReference` も渡す欄が無い。止まっていない・
+   * 古い frame・adapter が断った・答えが返らなかったは、値（`unavailable`）で返る。
+   *
+   * 結果が展開できる構造なら `handle` が付き、それを `listVariables` へ渡すと
+   * Session 6-6 とまったく同じ経路で子を読める。
+   */
+  readonly evaluate: (request: EvaluateDebugExpressionRequest) => IpcInvokeResult<'debug:evaluate'>
   /**
    * 実行制御（Session 6-4）。
    *

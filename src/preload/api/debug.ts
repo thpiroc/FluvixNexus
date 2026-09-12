@@ -23,6 +23,11 @@ import { subscribeIpcEvent } from '../ipc/subscribe'
  * **払い出される payload に絶対パスは載らない** ── 載るのは Main が
  * 「Workspace の中だ」と確かめた相対位置だけになる。
  *
+ * `evaluate`（Session 6-7）は **DAP の `evaluate` を送る口ではなく、app-domain の
+ * 「式を1つ評価する」口**になる。渡せるのは式・frame・閉じた集合の文脈の3つで、
+ * DAP の request 名を渡す欄はここにも契約にも無い（`stepOver` が `next` になるのと
+ * 同じ線 ── 翻訳は Main の中）。
+ *
  * **Debug Session を起動する口はここに無い**（Debug Profile の Session 6-9 まで）。
  */
 export const debugApi: DebugApi = {
@@ -36,6 +41,17 @@ export const debugApi: DebugApi = {
   listScopes: (request) => invokeIpc(IPC_CHANNELS.DEBUG_LIST_SCOPES, { frameId: request?.frameId }),
   listVariables: (request) =>
     invokeIpc(IPC_CHANNELS.DEBUG_LIST_VARIABLES, { handle: request?.handle }),
+  /*
+    Evaluate（Session 6-7）。載せるのは3欄だけで、`command` / `variablesReference` /
+    `threadId` を運ぶ経路は無い。**式は加工しない** ── Preload が trim すると、
+    Main が見る値と利用者が打った値が食い違う。
+  */
+  evaluate: (request) =>
+    invokeIpc(IPC_CHANNELS.DEBUG_EVALUATE, {
+      expression: request?.expression,
+      frameId: request?.frameId,
+      context: request?.context
+    }),
   continue: () => invokeIpc(IPC_CHANNELS.DEBUG_CONTINUE),
   pause: () => invokeIpc(IPC_CHANNELS.DEBUG_PAUSE),
   stepOver: () => invokeIpc(IPC_CHANNELS.DEBUG_STEP_OVER),

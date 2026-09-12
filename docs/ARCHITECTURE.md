@@ -7543,6 +7543,7 @@ Session 6-5 で `frameId` 用にもう1段足した。`frameId` は同じ sessio
 | **Workspace 外の program**            | `programRelativePath` を Files と同じ2段（パス文字列 → realpath）で検証して断る    |
 | **adapter が返す stack frame source** | Main が Workspace 相対へ正規化し、Workspace 外 / missing / malformed は開けない    |
 | **`variablesReference`**              | Main の handle 表に控え、Renderer へは Main が発行した handle だけを渡す（§20.15） |
+| **evaluate の文脈**                   | 閉じた集合（`repl` / `watch`）だけ。任意の文字列を渡す欄が無い（§20.16）           |
 | **実行を差し替える環境変数**          | 下記                                                                               |
 
 #### `runInTerminal` を拒否する
@@ -7590,6 +7591,8 @@ Session 6-5 で `getStack` は実際の名前を `debug:list-call-stack` / `list
 
 Session 6-6 で `getScopes` / `getVariables` を実際の名前 `debug:list-scopes` / `listScopes`・`debug:list-variables` / `listVariables` として入れた（6-5 の `list-call-stack` と揃えた）。要求に載るのは `{ frameId }` / `{ handle }` の1欄だけで、予定の数（18）は動いていない（§20.15）。
 
+Session 6-7 で `evaluate` を `debug:evaluate` / `evaluate` として入れた。要求に載るのは `{ expression, frameId, context }` の3欄で、`context` は閉じた集合（`repl` / `watch`）── **DAP の request 名も raw `variablesReference` も載る場所が無い**。予定の数（18）は動いていない（§20.16）。名前が DAP の `evaluate` と同じ綴りなのは `continue` / `pause` と同じ事情で、**口の名前で操作が決まる**形は変わらない。
+
 **プロセスを操作する口は1つも無い**（§19.2 と同じ）。`start` に載るのは `profileId` だけで、`stop` は `void` になる。
 
 ### 20.10 言語別の違いをどう持つか
@@ -7621,7 +7624,7 @@ v1: node / python / csharp のどの枝も固有欄を持たない
 | logpoint                            | 入れない                                                                                                                       |
 | Data / Function breakpoint          | 入れない                                                                                                                       |
 | 変数の値の書き換え（`setVariable`） | 入れない。v1 は見るだけ                                                                                                        |
-| Watch 式の永続化                    | 入れない。評価は Debug Console から                                                                                            |
+| Watch 式の永続化                    | 入れない。評価は Debug Console から（評価そのものは **Session 6-7 で入れた**。§20.16）                                         |
 | ~~breakpoint の永続化~~             | **Session 6-3 で入れた。**予告どおり §20.5 と同じ形（userData の JSON 1つを Workspace の絶対パスで引く）に載せてある（§20.12） |
 | 複数セッションの同時実行            | 入れない。**同時に走るのは1本**                                                                                                |
 | 子プロセスへの追従                  | 入れない                                                                                                                       |
@@ -8049,4 +8052,96 @@ DebugVariable { handle | null, name, value, type, kind, namedCount, indexedCount
 
 #### 入れていないもの（Session 6-6）
 
-evaluate / Debug Console / Watch / `setVariable` / `setExpression` / memory read / write / data breakpoint / 任意の DAP request。**停止行（止まった行を Editor に示す）** は 6-4 → 6-5 へ送ったが 6-5 でも入っておらず、担当 Session は未確定のまま（6-6 には含めていない）。
+~~evaluate~~（**Session 6-7 で入れた**。§20.16）/ Debug Console / Watch / `setVariable` / `setExpression` / memory read / write / data breakpoint / 任意の DAP request。**停止行（止まった行を Editor に示す）** は 6-4 → 6-5 へ送ったが 6-5 でも入っておらず、担当 Session は未確定のまま（6-6 にも 6-7 にも含めていない）。
+
+### 20.16 Evaluate（Session 6-7）
+
+止まっているセッションに対して、**選んでいる stack frame の文脈で式を1つ評価する**。Session 6-8 の Debug Console と、その先の Watch が乗る土台にあたる。
+
+```
+stopped → threads → stackTrace → frame 選択 → scopes → variables
+                     （6-5）                  └──── 6-6 ────┘
+                                  └───────────── evaluate ──────────→ handle → variables
+                                                （6-7）                        （6-6 の経路）
+```
+
+#### 責務の分け方
+
+```
+Renderer                                Main                                        adapter
+────────                                ────                                        ───────
+EvaluateView（入力1つ + 結果1行）
+  │ debug:evaluate { expression, frameId, context }
+  ▼
+                                        ipc/handlers/debug.ts   形だけを確かめる
+                                        debug/evaluate.ts
+                                          frame を 6-5 の経路で確かめる
+                                          6-6 の表の epoch を控える
+                                          Evaluate channel ── evaluate {…} ────────▶
+                                          ◀───────────────────── EvaluateResponse ──
+                                          まだ同じ停止か照合
+                                          dapEvaluate.ts で正規化
+                                          variablesReference → **6-6 の表**へ handle
+  ◀── DebugEvaluateValue（handle だけ）
+  │ debug:list-variables { handle }     ← ここから先は Session 6-6 のまま
+```
+
+#### 表を2つにしない
+
+evaluate の結果が持つ `variablesReference` は、**Session 6-6 と同じ handle 表**へ載せる（`variables.ts` の `registerEvaluateResult`）。別の表を持たせれば1行で済むが、持たせた瞬間に `listVariables` が「どちらの表の handle か」を見分ける必要が生まれ、**捨てる契機も二重になる**。同じ表に載せてあるので、6-6 が表を捨てるきっかけ（§20.15 の表）がそのまま evaluate の結果にも効く。
+
+表の持ち主は、渡された素性（epoch / Workspace / session generation / stop generation）を**もう一度**現在値と突き合わせてから発行する。呼び出し側が既に確かめていても確かめ直すのは、次に呼ぶ人がその確認を書き落とせるため。
+
+ここで1つ実際の不具合が出た（unit test で検出）。`currentEpoch()` が表の遅延初期化（`ensureWorkspace()`）を通していなかったため、**最初の evaluate が必ず handle を貰えない**状態になっていた ── epoch を控えた後、発行の直前に Workspace が取り込まれて表が捨てられるという順序になる。`currentEpoch()` 側で先に通すよう直してある。
+
+#### 口は Variables に相乗りさせない
+
+`requestEvaluate` を `DebugSessionVariablesChannel` へ足さず、`DebugSessionEvaluateChannel` を別に切ってある。「Variables を読む口」が「式を評価する口」を兼ねると、§20.9 の「口は機能ごとに分かれている」が Main の内側で崩れる ── 6-6 の口に書いてある「送れるのは scopes / variables の2つだけ」という説明も、相乗りさせた時点で意味を失う。
+
+#### evaluate context を閉じた集合にする
+
+DAP の `EvaluateArguments.context` は `watch` / `repl` / `hover` / `clipboard` / `variables` と**任意の文字列**を許すが、Renderer から渡せるのは2つだけにした。
+
+| 通す    | 意味                                                              |
+| ------- | ----------------------------------------------------------------- |
+| `repl`  | 利用者が式を打って評価した。副作用のある式もありうる（6-7 の UI） |
+| `watch` | 監視式として評価した。adapter は副作用を避け、表示も簡潔にする    |
+
+`hover`（Editor の hover 評価は STEP 6 に無い）・`clipboard`（コピーの口が無い）・`variables`（6-6 の `variables` request で足りる）は入れない。**文脈は adapter の振る舞いを変える入力**で、自由記述にすれば「adapter に何を頼めるか」を Renderer が決めることになる。app-domain の名前と DAP の `context` は翻訳表を1つ挟む（`dapEvaluate.ts`）── 今は同じ綴りだが、`stepOver` → `next` と同じく Renderer の言葉をそのまま電文へ流す経路は作らない。
+
+#### 読めなかったことは値で返す
+
+| 結果          | 意味                                                        |
+| ------------- | ----------------------------------------------------------- |
+| `not-stopped` | 止まっている Debug Session が無い                           |
+| `stale`       | frame が今の停止のものでない / 答えが返る前に停止が変わった |
+| `failed`      | adapter が断った / 応答が壊れていた / 要求の形が壊れていた  |
+| `timeout`     | 待てる時間（10 秒）のうちに adapter が答えなかった          |
+
+6-6 の語彙に `timeout` が1つ増えた。**式の評価は利用者のプログラムを走らせうる操作**で、返らないことがありうる（無限ループを呼ぶ式、入力を待つ関数）── 実行制御（§20.13）と同じ 10 秒で切り、遅れて届いた答えは捨てる。DAP に `evaluate` を取り消す手立ては無いので、adapter へ取り消しは送らない。
+
+INVALID_REQUEST になるのは形の壊れた要求だけ ── 式が文字列でない / 空白だけ / 2,000 字を超える / NUL を含む、`frameId` が正の整数でない、`context` が閉じた集合の外。**式は trim も整形もしない**（前後の空白で意味が変わる言語がある）── 空かどうかを見るときだけ trim する。
+
+#### safe domain model（`shared/debug/evaluate.ts`）
+
+```
+DebugEvaluateValue { handle | null, value, type, kind, namedCount, indexedCount }
+```
+
+`DebugVariable` から `name` を落としただけの形にしてある（名前は利用者が打った式そのもので、Renderer が既に持っている）。渡さないもの: `variablesReference` / `memoryReference` / `valueLocationReference` / `presentationHint` の生の値 / adapter が返した失敗の文言。値は 6-6 と同じく**表示するだけの文字列**で、制御文字を空白に置き換えて 1,000 字で切る。
+
+展開できない結果と、**表が一杯で handle を貰えなかった結果**はどちらも `handle: null`（葉として表示）。表が一杯なことを理由に評価そのものを断らないのは、6-6 の `listVariables` と違って「開けそうに見えて開けない行が並ぶ」問題が起きないため。
+
+#### Renderer
+
+Session 6-8 の Debug Console を先取りしない。持つのは**「今の式」と「今の結果」だけ**で、履歴も、`output` event の取り込みも、複数行入力も、Watch の一覧も無い。
+
+- Debug パネルの Call Stack / Variables の下に置き、**同じ選択 frame**を使う（`useCallStack`）
+- tree は 6-6 の `variablesTreeModel` をそのまま使う。入口だけ増やしてある（`flattenVariablesSubtree`）── Scope から始まらないだけで、その下は同じ構造になる
+- 面は snapshot の版 × frame を key に作り直す（6-6 と同じ）。停止 / Workspace / セッションの変化と frame の選択変更は、これで結果ごと捨てられる
+- **要求の通し番号**を持ち、最後に送ったものの答えだけを当てる ── 新しい要求が古い要求を追い越した場合は Renderer にしか分からない（Main から見れば同じ停止の同じ frame への2通はどちらも正当）
+- 新しい式を評価したら、前の式の展開は捨てる
+
+#### 入れていないもの（Session 6-7）
+
+Debug Console（6-8）/ Watch の一覧と永続化 / hover 評価 / `setVariable` / `setExpression` / memory read / write / 履歴 / 補完 / 複数行入力 / 任意の DAP request。

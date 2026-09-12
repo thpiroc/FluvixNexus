@@ -20,6 +20,10 @@ import type {
  *
  * handle は Main が停止ごとに発行した不透明な文字列で、tree の中で重ならない
  * （同じオブジェクトを2箇所で開いても、別々の handle が発行される）。
+ *
+ * Session 6-7 の Evaluate も、結果に handle が付いていれば**この model をそのまま使う**
+ * ── 入口が Scope ではなく1つの値になるだけで、その下は同じ構造になる
+ * （`flattenVariablesSubtree`）。
  */
 
 export type VariablesLoad<T> =
@@ -170,6 +174,30 @@ export function flattenVariablesTree(state: VariablesTreeState): readonly Variab
       appendChildren(state, scope.handle, key, 1, rows)
     }
   })
+
+  return rows
+}
+
+/**
+ * 1つの handle の下だけを並べる（Session 6-7）。
+ *
+ * Evaluate の結果は Scope を持たないが、**その下は Variables とまったく同じ構造**に
+ * なる。`flattenVariablesTree` から `appendChildren` を切り出して共有するのではなく、
+ * 入口だけを増やしてあるのは、6-6 の並べ方（Scope から始まる）を1行も変えないため。
+ *
+ * `rootKey` は結果の行の key で、子の `parentKey` になる。
+ */
+export function flattenVariablesSubtree(
+  state: VariablesTreeState,
+  rootHandle: DebugVariableHandle,
+  rootKey: string
+): readonly VariablesTreeRow[] {
+  if (!state.expanded.has(rootHandle)) {
+    return []
+  }
+
+  const rows: VariablesTreeRow[] = []
+  appendChildren(state, rootHandle, rootKey, 1, rows)
 
   return rows
 }

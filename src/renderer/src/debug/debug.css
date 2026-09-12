@@ -200,3 +200,94 @@
   color: var(--fx-color-text-muted);
   font-family: ui-monospace, Consolas, monospace;
 }
+
+/* Evaluate（Session 6-7） */
+
+.fx-debug-evaluate {
+  display: flex;
+  flex-direction: column;
+  padding: var(--fx-space-2);
+  gap: var(--fx-space-2);
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-debug-evaluate__form {
+  display: flex;
+  gap: var(--fx-space-2);
+  align-items: center;
+}
+
+.fx-debug-evaluate__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: var(--fx-space-1) var(--fx-space-2);
+  color: var(--fx-color-text);
+  background: var(--fx-color-surface-sunken);
+  border: 1px solid var(--fx-color-border);
+  border-radius: 3px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-debug-evaluate__input:focus-visible {
+  outline: 1px solid var(--fx-accent-blue);
+  outline-offset: -1px;
+}
+
+.fx-debug-evaluate__submit {
+  flex: 0 0 auto;
+  padding: var(--fx-space-1) var(--fx-space-3);
+  color: var(--fx-color-text);
+  background: var(--fx-color-surface-raised);
+  border: 1px solid var(--fx-color-border);
+  border-radius: 3px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.fx-debug-evaluate__submit:disabled {
+  color: var(--fx-color-text-faint);
+  cursor: default;
+}
+
+.fx-debug-evaluate__notice {
+  margin: 0;
+  padding: var(--fx-space-2);
+  color: var(--fx-color-text-faint);
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-debug-evaluate__result {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.fx-debug-evaluate__value {
+  display: flex;
+  align-items: center;
+  gap: var(--fx-space-1);
+  min-height: 22px;
+  overflow: hidden;
+  white-space: nowrap;
+  cursor: default;
+  user-select: none;
+}
+
+.fx-debug-evaluate__value[data-expandable='true'] {
+  cursor: pointer;
+}
+
+.fx-debug-evaluate__expression {
+  flex: 0 0 auto;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--fx-color-text);
+  font-family: ui-monospace, Consolas, monospace;
+}
+
+.fx-debug-evaluate__type {
+  flex: 0 0 auto;
+  color: var(--fx-color-text-faint);
+}

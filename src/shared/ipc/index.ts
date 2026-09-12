@@ -98,9 +98,11 @@ export type {
 export type {
   DebugCallStackResponse,
   DebugBreakpointsResponse,
+  DebugEvaluateResponse,
   DebugIpcContract,
   DebugScopesResponse,
   DebugVariablesResponse,
+  EvaluateDebugExpressionRequest,
   ListDebugScopesRequest,
   ListDebugVariablesRequest,
   ToggleDebugBreakpointRequest

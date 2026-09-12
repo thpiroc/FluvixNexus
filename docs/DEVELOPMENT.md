@@ -1936,6 +1936,32 @@ Session 4-5 / 4-7 は**境界を1つも動かしていない**ことを、両ス
 - **Debug パネルを View メニューから出すと、Files と同じ dock のタブになる。** 次の起動では Debug が前面のまま復元されるので、`.fx-file-row__name` を待つと永久に出てこない ── 待つ前に Files のタブを押す。タブは `mousedown` を合成しても切り替わらず、`page.mouse.click` で本物の click を送る必要がある
 - **Workspace を閉じるボタンは Files パネルの root 行にある。** Debug タブが前面だとボタンが DOM に無い（アプリのせいに見える FAIL）
 
+### Session 6-7（Evaluate）
+
+**production build 版 54項目、全項目 PASS。** 6-4 / 6-6 と同じ形で、使い捨ての Workspace 2つと使い捨ての `--user-data-dir` で起動し、`npm run build` 後の `out/main/index.js` 末尾へ `FLUVIX_VERIFY_DEBUG=1` で開く数行を確認のあいだだけ足して mock adapter（DAP を話す小さな Node スクリプト。variant で振る舞いを変える）を立てた。確認の後は `npm run build` で out/ を作り直している（ソースにも out/ にも何も残らない）。
+
+通した流れは **Breakpoint → start → stopped → Call Stack → frame 選択 → Variables → Evaluate**。境界の確認は Renderer の `window.fluvix.debug.*` から、画面の確認は Debug パネルから通した。
+
+- 面 / 境界: `debug` の関数が14個（13 + `evaluate`）、start / attach / 生の request / `setVariable` / memory が無い、`require` / `process` / `electron` / `Buffer` / `module` / `global` の非露出、**CSP が source の index.html と1文字も違わない**
+- 流れ: 起動前に置いた breakpoint → stopped → Call Stack 2 frame（Workspace 内は相対位置、外は開けない表示）→ Scope 2つ → Variables 展開 → Evaluate
+- Evaluate: adapter へ届くのが `{ expression, frameId, context }` の3欄だけであること、`repl` / `watch` がそのまま文脈として届くこと、Workspace 外の frame でも評価できること
+- handle: 展開できる結果に **6-6 と同じ表の handle**（`dv-N`）が付き、Scope の handle と重ならないこと、`listVariables` で2段展開できること、adapter が `variables { variablesReference: 4001 }` を受けていること
+- 漏らさない: 応答に生の `variablesReference` / `memoryReference` / `valueLocationReference` / `presentationHint.attributes` / 絶対パス / adapter の文言が1つも載らないこと
+- 断る: 形の壊れた要求 10 通り（式が無い・空白・2,001字・NUL・数値、`frameId` が 0 / 負 / 文字列、`context` が `hover` / `setVariable` / 無し）がすべて INVALID_REQUEST、今の Call Stack に無い frame は `stale` で **adapter へは1通も届かない**
+- 押し込み: 要求に `command` / `variablesReference` / `threadId` / `adapter` を載せても Main へは渡らず、adapter が受けた `evaluate` の引数は常に3欄のまま
+- 画面: Debug パネルの入力から評価でき、結果が文字列として出て、押すと Variables の行として展開されること
+- stale / lifecycle: Continue 直後は `not-stopped`、新しい停止で前の handle は `stale`、その停止で評価し直せること、Step Over 後も Call Stack が読み直されること、**Workspace 切り替えでセッションが idle になり adapter のプロセスが消え**評価が断られること
+- 異常: adapter の失敗は `failed`（文言は Renderer に出ない）、`result` の無い応答は `failed`、答えない adapter は **10.0 秒で `timeout`**（届いてはいる）
+- 回帰: Session 6-3 Breakpoint（起動前に置いて verified が返る）/ 6-4 Execution Control（Continue / Step Over）/ 6-5 Call Stack / 6-6 Variables
+- 片付け: Workspace に1バイトも書かれない、console エラー / CSP 違反 0件、アプリ終了後に adapter のプロセスが残らない
+
+#### 確認スクリプトを書くときに踏んだこと（Session 6-7）
+
+- **メニューの項目を英語の文言で探さない。** このマシンのアプリは日本語で起動するため、`Open Folder…` を探すと当たらず「項目が無い」に見える（アプリは正しい）。上部バーの Workspace メニューは並びが固定（開く → 閉じる）なので**番号で選ぶ**。`View` / `Debug` のように両言語で同じ文言のものだけが、文字列で探して安全になる
+- **`app.evaluate` の中に `require` は無い。** Main 側で子プロセスを数えようとすると `ReferenceError: require is not defined` になる ── プロセスを数えるのはドライバの node 側でやる
+- **Workspace を切り替える入口は、上部バーの Workspace メニューを使う。** Files パネルの「フォルダを開く」は Debug タブが前面だと DOM に無い（6-6 で記録した罠と同じ根）。上部バーはどの dock タブが前面でも必ず在る
+- **timeout の確認には 10 秒かかる。** mock adapter に「答えない」variant を持たせ、経過時間まで測ると「すぐ返った（＝上限を見ていない）」と「永久に返らない」の両方を1つの項目で切り分けられる
+
 ---
 
 ## 5. 進め方

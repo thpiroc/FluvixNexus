@@ -27,6 +27,7 @@ describe('debug preload api', () => {
     expect(Object.keys(debugApi).sort()).toEqual(
       [
         'continue',
+        'evaluate',
         'listBreakpoints',
         'listCallStack',
         'listScopes',
@@ -80,10 +81,33 @@ describe('debug preload api', () => {
     expect(invoke).toHaveBeenNthCalledWith(2, 'debug:list-variables', { handle: 'dv-1' })
   })
 
+  it('evaluate forwards only expression / frameId / context (Session 6-7)', async () => {
+    await debugApi.evaluate({
+      expression: 'user.name',
+      frameId: 11,
+      context: 'repl',
+      command: 'evaluate',
+      variablesReference: 1000,
+      threadId: 1,
+      adapter: 'C:\\evil.exe'
+    } as never)
+
+    expect(invoke).toHaveBeenCalledWith('debug:evaluate', {
+      expression: 'user.name',
+      frameId: 11,
+      context: 'repl'
+    })
+  })
+
+  /**
+   * `evaluate` は Session 6-7 で **app-domain の口**として入った。DAP の request 名と
+   * 綴りが同じなのは `continue` / `pause` と同じ事情で、渡せるのは式・frame・
+   * 閉じた集合の文脈の3つだけになる（method 名を渡す欄は無い）。
+   */
   it('has no function that takes a DAP method, adapter, or process', () => {
     for (const name of Object.keys(debugApi)) {
       expect(name).not.toMatch(
-        /request|command|method|adapter|spawn|exec|process|attach|evaluate|setVariable|memory/i
+        /request|command|method|adapter|spawn|exec|process|attach|setVariable|memory/i
       )
     }
   })

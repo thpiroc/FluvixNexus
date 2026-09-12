@@ -1,5 +1,6 @@
 import type { DebugBreakpoint } from '../../debug/breakpoint'
 import type { DebugCallStackSnapshot } from '../../debug/callStack'
+import type { DebugEvaluateContext, DebugEvaluateResult } from '../../debug/evaluate'
 import type { DebugControlOutcome } from '../../debug/session'
 import type {
   DebugScopesResult,
@@ -118,6 +119,32 @@ export interface DebugVariablesResponse {
   readonly result: DebugVariablesResult
 }
 
+/**
+ * 選んでいる frame の文脈で式を1つ評価する（Session 6-7）。
+ *
+ * 欄は3つだけで、**DAP の request 名も raw frameId も raw `variablesReference` も
+ * 載る場所が無い**。`frameId` は Session 6-6 と同じく Call Stack snapshot に
+ * 載っていた値で、Main は今の停止・今の Workspace の frame しか通さない。
+ *
+ * `context` は閉じた集合（`repl` / `watch`）── 任意の文字列を渡せる形にすると、
+ * 「adapter に何を頼めるか」を Renderer が決めることになる（shared/debug/evaluate.ts）。
+ *
+ * **frame を省いた評価（global evaluate）は無い。** frame の欄を省略可能にすると
+ * 「止まっていなくても評価できる口」に見えるが、Main はどちらにせよ stopped でなければ
+ * 断る ── 見え方と振る舞いを食い違わせないため、欄を必須にしてある。
+ */
+export interface EvaluateDebugExpressionRequest {
+  /** 利用者が打った式。Main は意味を変えない（trim も整形もしない）。長さの上限あり。 */
+  readonly expression: string
+  /** Call Stack snapshot に載っていた frame の id。 */
+  readonly frameId: number
+  readonly context: DebugEvaluateContext
+}
+
+export interface DebugEvaluateResponse {
+  readonly result: DebugEvaluateResult
+}
+
 export interface DebugIpcContract {
   /**
    * 今の Workspace の breakpoint を読む。
@@ -170,6 +197,21 @@ export interface DebugIpcContract {
   'debug:list-variables': {
     request: ListDebugVariablesRequest
     response: DebugVariablesResponse
+  }
+  /**
+   * 選んでいる frame の文脈で式を評価する（Session 6-7）。
+   *
+   * 止まっていない・古い frame・adapter が断った・答えが返らなかったは、どれも
+   * IPC の失敗ではなく `unavailable` として値で返る（Session 6-6 と同じ形）。
+   * INVALID_REQUEST になるのは**形が壊れている要求だけ** ── 式が文字列でない・
+   * 空白しかない・長すぎる・`context` が閉じた集合の外・`frameId` が正の整数でない。
+   *
+   * 評価できた値が展開できる構造なら、応答の `handle` を `debug:list-variables` へ
+   * そのまま渡せる（Session 6-6 と**同じ handle 表**に載る）。
+   */
+  'debug:evaluate': {
+    request: EvaluateDebugExpressionRequest
+    response: DebugEvaluateResponse
   }
   /** 止まっているプログラムを再開する（stopped のときだけ）。 */
   'debug:continue': {

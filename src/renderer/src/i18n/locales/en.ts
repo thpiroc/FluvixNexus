@@ -1212,6 +1212,20 @@ export const enMessages = {
       stale: 'These variables are no longer current.',
       failed: 'The debug adapter could not provide these variables.',
       limit: 'Too many variables are expanded for this pause.'
+    },
+    evaluate: {
+      aria: 'Evaluate result',
+      title: 'Evaluate',
+      label: 'Expression to evaluate',
+      placeholder: 'Evaluate an expression…',
+      submit: 'Evaluate',
+      evaluating: 'Evaluating…',
+      empty: 'Enter an expression to evaluate it in the selected stack frame.',
+      notStopped: 'Expressions are evaluated while the program is paused.',
+      noFrame: 'Select a stack frame to evaluate an expression.',
+      stale: 'This result is no longer current.',
+      failed: 'The debug adapter could not evaluate this expression.',
+      timeout: 'The debug adapter did not answer in time.'
     }
   },
   workspace: {

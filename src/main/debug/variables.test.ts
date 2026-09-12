@@ -604,3 +604,97 @@ describe('debug variables store — lifecycle', () => {
     expect(await harness.store.listScopes(11)).toEqual({ status: 'unavailable', reason: 'stale' })
   })
 })
+
+/**
+ * evaluate（Session 6-7）が同じ表へ載せる口。
+ *
+ * **呼び出し側の確認を信じない**ことをここで固定する ── 表に載せてよいかを決めるのは
+ * 表の持ち主で、素性が今と食い違えば handle は発行されない。
+ */
+describe('debug variables handle table — the evaluate entry point (Session 6-7)', () => {
+  function scopeOf(harness: ReturnType<typeof createHarness>) {
+    return {
+      workspaceId: WORKSPACE.id,
+      sessionGeneration: 1,
+      stopGeneration: 1,
+      epoch: harness.store.currentEpoch()
+    }
+  }
+
+  it('issues a handle from the same table and the same numbering', async () => {
+    const harness = createHarness()
+    const scopes = okScopes(await harness.store.listScopes(11))
+    const handle = harness.store.registerEvaluateResult(scopeOf(harness), 4001)
+
+    expect(handle).not.toBeNull()
+    expect(handle).not.toBe(scopes[0]?.handle)
+    expect(harness.store.handleCount()).toBe(3)
+  })
+
+  it('is readable through listVariables, like any other handle', async () => {
+    const harness = createHarness()
+    harness.store.currentEpoch()
+    const handle = harness.store.registerEvaluateResult(scopeOf(harness), 1000)
+
+    expect(handle).not.toBeNull()
+    expect(await harness.store.listVariables(handle)).toMatchObject({ status: 'ok' })
+    expect(harness.requestVariables).toHaveBeenCalledWith({ variablesReference: 1000 })
+  })
+
+  it('issues nothing for a non-expandable reference', () => {
+    const harness = createHarness()
+
+    expect(harness.store.registerEvaluateResult(scopeOf(harness), 0)).toBeNull()
+    expect(harness.store.registerEvaluateResult(scopeOf(harness), -1)).toBeNull()
+    expect(harness.store.handleCount()).toBe(0)
+  })
+
+  it.each([
+    ['a stale epoch', { epoch: -1 }],
+    ['another workspace', { workspaceId: OTHER_WORKSPACE.id }],
+    ['another session', { sessionGeneration: 2 }],
+    ['another stop', { stopGeneration: 2 }]
+  ])('issues nothing for %s', (_name, override) => {
+    const harness = createHarness()
+
+    expect(
+      harness.store.registerEvaluateResult({ ...scopeOf(harness), ...override }, 4001)
+    ).toBeNull()
+    expect(harness.store.handleCount()).toBe(0)
+  })
+
+  it('issues nothing once the program is no longer stopped', () => {
+    const harness = createHarness()
+    const scope = scopeOf(harness)
+    harness.setState('running')
+
+    expect(harness.store.registerEvaluateResult(scope, 4001)).toBeNull()
+    expect(harness.store.handleCount()).toBe(0)
+  })
+
+  /**
+   * 停止は変わらないが表だけを捨てた（Call Stack の読み直し）。**epoch だけ**で
+   * 断れることを見る ── 世代も Workspace も動いていない。
+   */
+  it('advances the epoch when the table is dropped within the same stop', () => {
+    const harness = createHarness()
+    const before = harness.store.currentEpoch()
+
+    harness.callStackChanged()
+
+    const after = scopeOf(harness)
+
+    expect(after.epoch).not.toBe(before)
+    expect(after.stopGeneration).toBe(1)
+    expect(harness.store.registerEvaluateResult({ ...after, epoch: before }, 4001)).toBeNull()
+    expect(harness.store.registerEvaluateResult(after, 4001)).not.toBeNull()
+  })
+
+  it('respects the per-stop handle limit', async () => {
+    const harness = createHarness({ maxHandles: 2 })
+    await harness.store.listScopes(11)
+
+    expect(harness.store.handleCount()).toBe(2)
+    expect(harness.store.registerEvaluateResult(scopeOf(harness), 4001)).toBeNull()
+  })
+})

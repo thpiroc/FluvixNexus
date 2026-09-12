@@ -13,6 +13,7 @@ import {
 } from './adapterProcess'
 import type { DapRequestOutcome } from './dapConnection'
 import type { DapSetBreakpointsArguments } from './dapBreakpoints'
+import type { DapEvaluateArguments } from './dapEvaluate'
 import type { DapStackTraceArguments } from './dapStackTrace'
 import {
   readSupportsVariablePaging,
@@ -144,7 +145,8 @@ export interface DebugSessionCallStackChannel {
  *
  * Call Stack の口と同じく、取得した時点の session generation / stop generation を
  * 閉じ込め、送る時点でまだ同じ停止かを確かめる。送れるのはこの2つだけで、
- * `evaluate` / `setVariable` / `readMemory` を送る口は作らない。
+ * `setVariable` / `readMemory` を送る口は作らない（`evaluate` は Session 6-7 で
+ * **別の口**として足した ── 下記）。
  */
 export interface DebugSessionVariablesChannel {
   readonly sessionId: string
@@ -154,6 +156,26 @@ export interface DebugSessionVariablesChannel {
   readonly supportsVariablePaging: boolean
   readonly requestScopes: (args: DapScopesArguments) => Promise<DapRequestOutcome>
   readonly requestVariables: (args: DapVariablesArguments) => Promise<DapRequestOutcome>
+}
+
+/**
+ * 止まっているセッションへ `evaluate` を送る口（Session 6-7）。
+ *
+ * **Variables の口に相乗りさせない。** `requestEvaluate` を
+ * `DebugSessionVariablesChannel` へ足せば1行で済むが、そうすると
+ * 「Variables を読む口」が「式を評価する口」も兼ねることになる ── 機能が増えるたびに
+ * その機能の名前の付いた口を足す、という決め（§20.9）は Main の内側でも保つ。
+ * Session 6-6 の口が「送れるのは scopes / variables の2つだけ」と書いてある意味も、
+ * 相乗りさせた時点で消える。
+ *
+ * `supportsEvaluateForHovers` は読まない ── 6-7 に hover 評価は無く、
+ * `repl` / `watch` の evaluate はどの adapter も必須で備える（DAP の仕様）。
+ */
+export interface DebugSessionEvaluateChannel {
+  readonly sessionId: string
+  readonly generation: number
+  readonly stopGeneration: number
+  readonly requestEvaluate: (args: DapEvaluateArguments) => Promise<DapRequestOutcome>
 }
 
 /**
@@ -260,6 +282,8 @@ export interface DebugSessionManager {
   readonly getCallStackChannel: () => DebugSessionCallStackChannel | null
   /** `scopes` / `variables` を送る口（Session 6-6）。**stopped のときだけ返る。** */
   readonly getVariablesChannel: () => DebugSessionVariablesChannel | null
+  /** `evaluate` を送る口（Session 6-7）。**stopped のときだけ返る。** */
+  readonly getEvaluateChannel: () => DebugSessionEvaluateChannel | null
   /**
    * 実行制御（Session 6-4）。Continue / Pause / Step Over / Step Into / Step Out。
    *
@@ -633,6 +657,28 @@ export function createDebugSessionManager(
     }
 
     return createVariablesChannel(current)
+  }
+
+  function getEvaluateChannel(): DebugSessionEvaluateChannel | null {
+    if (current === null || current.state !== 'stopped') {
+      return null
+    }
+
+    const record = current
+    const stopGeneration = record.stopEpoch
+
+    return {
+      sessionId: record.sessionId,
+      generation: record.generation,
+      stopGeneration,
+      requestEvaluate: (args) =>
+        isCurrentStopped(record, stopGeneration)
+          ? request(record, 'evaluate', args)
+          : Promise.resolve({
+              status: 'closed' as const,
+              reason: 'the stopped debug session has already moved on.'
+            })
+    }
   }
 
   function handleAdapterEvent(generation: number, event: string, body: unknown): void {
@@ -1171,6 +1217,7 @@ export function createDebugSessionManager(
     getBreakpointChannel,
     getCallStackChannel,
     getVariablesChannel,
+    getEvaluateChannel,
     control,
     requestStop
   }
@@ -1246,6 +1293,11 @@ export function getDebugSessionCallStackChannel(): DebugSessionCallStackChannel 
 /** `scopes` / `variables` を送る口（Session 6-6）。stopped でなければ null。 */
 export function getDebugSessionVariablesChannel(): DebugSessionVariablesChannel | null {
   return defaultManager.getVariablesChannel()
+}
+
+/** `evaluate` を送る口（Session 6-7）。stopped でなければ null。 */
+export function getDebugSessionEvaluateChannel(): DebugSessionEvaluateChannel | null {
+  return defaultManager.getEvaluateChannel()
 }
 
 /** 実行制御（Session 6-4）。呼ぶのは main/ipc/handlers/debug.ts だけになる。 */

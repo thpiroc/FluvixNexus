@@ -1,10 +1,17 @@
-import { isDebugVariableHandleShape, type DebugExecutionControl } from '@shared/debug'
+import {
+  isDebugEvaluateContext,
+  isDebugEvaluateExpressionShape,
+  isDebugVariableHandleShape,
+  type DebugExecutionControl
+} from '@shared/debug'
 import {
   IPC_CHANNELS,
   type DebugCallStackResponse,
   type DebugBreakpointsResponse,
+  type DebugEvaluateResponse,
   type DebugScopesResponse,
   type DebugVariablesResponse,
+  type EvaluateDebugExpressionRequest,
   type IpcChannel,
   type ListDebugScopesRequest,
   type ListDebugVariablesRequest,
@@ -13,6 +20,7 @@ import {
 import { listDebugBreakpoints, toggleDebugBreakpoint } from '../../debug/breakpoints'
 import { listDebugCallStack } from '../../debug/callStack'
 import { controlDebugSession, requestDebugSessionStop } from '../../debug/debugSessionManager'
+import { evaluateDebugExpression } from '../../debug/evaluate'
 import { listDebugScopes, listDebugVariables } from '../../debug/variables'
 import { IpcError, invalidRequest } from '../errors'
 import { handleIpc } from '../registry'
@@ -52,6 +60,9 @@ const EXECUTION_CONTROL_CHANNELS: ReadonlyArray<
  * 相対位置 … Workspace の中を指しているか（main/debug/breakpointSource.ts）
  * 行       … 1起点の整数で、上限の中か（shared/debug/breakpoint.ts）
  * ```
+ *
+ * Session 6-6 / 6-7 で増えたのも同じ性格のもの（`frameId` / `handle` / 式 / 文脈の**形**）で、
+ * 「今の停止のものか」は main/debug/ の側が決め、値（`unavailable`）で返る。
  *
  * 実行制御（Session 6-4）は要求そのものが `void` で、確かめる値が1つも無い。
  *
@@ -109,6 +120,38 @@ export function registerDebugHandlers(): void {
       }
 
       return { result: await listDebugVariables(handle) }
+    }
+  )
+
+  /*
+    Evaluate（Session 6-7）。ここでも見るのは**形だけ**で、frame が今の停止のものかは
+    main/debug/evaluate.ts が決める。断るのは3つ ── 式が「文字列で、空白だけでなく、
+    上限以内で、NUL を含まない」を満たさない／`frameId` が正の整数でない／
+    `context` が閉じた集合の外。
+
+    **式を trim も整形もしない。** 利用者が打った文字列がそのまま adapter へ渡る
+    （空白の有無で意味が変わる言語がある）── 空かどうかを見るときだけ trim する。
+  */
+  handleIpc(
+    IPC_CHANNELS.DEBUG_EVALUATE,
+    async (request: EvaluateDebugExpressionRequest): Promise<DebugEvaluateResponse> => {
+      const expression: unknown = request?.expression
+      const frameId: unknown = request?.frameId
+      const context: unknown = request?.context
+
+      if (!isDebugEvaluateExpressionShape(expression)) {
+        throw invalidRequest('the expression must be a non-empty string within the length limit.')
+      }
+
+      if (typeof frameId !== 'number' || !Number.isSafeInteger(frameId) || frameId <= 0) {
+        throw invalidRequest('the frame id must be a positive integer.')
+      }
+
+      if (!isDebugEvaluateContext(context)) {
+        throw invalidRequest('the evaluate context is not one of the supported contexts.')
+      }
+
+      return { result: await evaluateDebugExpression(expression, frameId, context) }
     }
   )
 

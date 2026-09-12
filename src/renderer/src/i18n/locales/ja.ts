@@ -1173,6 +1173,20 @@ export const jaMessages = {
       stale: 'この Variables はもう最新ではありません。',
       failed: 'Debug adapter から Variables を取得できませんでした。',
       limit: 'この停止で展開できる Variables の上限に達しました。'
+    },
+    evaluate: {
+      aria: 'Evaluate の結果',
+      title: 'Evaluate',
+      label: '評価する式',
+      placeholder: '式を入力して評価します…',
+      submit: '評価',
+      evaluating: '評価しています…',
+      empty: '選んでいる Stack frame の文脈で式を評価します。',
+      notStopped: '式の評価はプログラムが停止している間に行えます。',
+      noFrame: 'Stack frame を選ぶと式を評価できます。',
+      stale: 'この結果はもう最新ではありません。',
+      failed: 'Debug adapter がこの式を評価できませんでした。',
+      timeout: 'Debug adapter から時間内に応答がありませんでした。'
     }
   },
   workspace: {
