@@ -56,6 +56,16 @@ const getDebugSessionStatus = vi.hoisted(() => vi.fn((): unknown => 'unavailable
 
 vi.mock('../../debug/sessionStatus', () => ({ getDebugSessionStatus }))
 
+const profiles = vi.hoisted(() => ({
+  listDebugProfiles: vi.fn((): unknown[] => []),
+  createDebugProfile: vi.fn((): unknown => ({ status: 'rejected', reason: 'no-workspace' })),
+  updateDebugProfile: vi.fn((): unknown => ({ status: 'rejected', reason: 'no-workspace' })),
+  deleteDebugProfile: vi.fn((): unknown => ({ status: 'rejected', reason: 'no-workspace' })),
+  startDebugProfile: vi.fn((): unknown => ({ status: 'failed', reason: 'adapter-unavailable' }))
+}))
+
+vi.mock('../../debug/debugProfiles', () => profiles)
+
 vi.mock('electron', () => ({
   app: { isPackaged: false },
   BrowserWindow: { getAllWindows: () => [] }
@@ -251,4 +261,114 @@ describe('debug IPC handlers — status (Session 6-9)', () => {
       expect(getDebugSessionStatus).toHaveBeenCalledWith()
     }
   )
+})
+
+/**
+ * Debug Profile と起動（Session 6-10）。
+ *
+ * ここで見るのは要求の形だけ ── `profileId` が Main の発番した形か、`profile` が object か。
+ * 起動に渡るのは `profileId` だけで、`adapter` / `cwd` / `program` は Main の処理へ届かない。
+ */
+describe('debug IPC handlers — profiles and start (Session 6-10)', () => {
+  const id = 'dp-00000000-0000-4000-8000-000000000001'
+  const draft = {
+    name: 'Run',
+    language: 'node',
+    programRelativePath: 'app.js',
+    programArgs: [],
+    env: {},
+    stopOnEntry: false
+  }
+
+  beforeEach(() => {
+    for (const mock of Object.values(profiles)) {
+      mock.mockClear()
+    }
+  })
+
+  it('registers the five channels', () => {
+    for (const channel of [
+      'debug:list-profiles',
+      'debug:create-profile',
+      'debug:update-profile',
+      'debug:delete-profile',
+      'debug:start'
+    ]) {
+      expect(handlers.has(channel)).toBe(true)
+    }
+  })
+
+  it('lists without reading the request', async () => {
+    expect(handler('debug:list-profiles')({ workspace: 'D:\\other', rootPath: 'C:\\' })).toEqual({
+      profiles: []
+    })
+    expect(profiles.listDebugProfiles).toHaveBeenCalledWith()
+  })
+
+  it('start passes only the profile id, whatever else the request carries', async () => {
+    expect(
+      handler('debug:start')({
+        profileId: id,
+        adapter: 'C:\\evil.exe',
+        adapterArgs: ['--x'],
+        cwd: 'C:\\Windows',
+        program: 'C:\\evil.js',
+        command: 'launch'
+      })
+    ).toEqual({ status: 'failed', reason: 'adapter-unavailable' })
+
+    expect(profiles.startDebugProfile).toHaveBeenCalledWith(id)
+  })
+
+  it('create / update / delete pass the id and the draft object', async () => {
+    await handler('debug:create-profile')({ profile: draft, profileId: id })
+    await handler('debug:update-profile')({ profileId: id, profile: draft })
+    await handler('debug:delete-profile')({ profileId: id })
+
+    expect(profiles.createDebugProfile).toHaveBeenCalledWith(draft)
+    expect(profiles.updateDebugProfile).toHaveBeenCalledWith(id, draft)
+    expect(profiles.deleteDebugProfile).toHaveBeenCalledWith(id)
+  })
+
+  it.each([
+    ['no request', undefined],
+    ['no id', {}],
+    ['a renderer-made id', { profileId: 'my-profile' }],
+    ['an id with a path', { profileId: 'dp-..\\..\\x' }],
+    ['a numeric id', { profileId: 1 }],
+    ['an upper-case uuid', { profileId: 'dp-00000000-0000-4000-8000-00000000000A' }]
+  ])('rejects a malformed id for start / update / delete (%s)', async (_name, request) => {
+    for (const channel of ['debug:start', 'debug:delete-profile']) {
+      await expectInvalid(
+        (async () => {
+          await handler(channel)(request)
+        })()
+      )
+    }
+
+    await expectInvalid(
+      (async () => {
+        await handler('debug:update-profile')({ ...(request ?? {}), profile: draft })
+      })()
+    )
+
+    expect(profiles.startDebugProfile).not.toHaveBeenCalled()
+    expect(profiles.deleteDebugProfile).not.toHaveBeenCalled()
+    expect(profiles.updateDebugProfile).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['no request', undefined],
+    ['no profile', {}],
+    ['a string profile', { profile: 'node app.js' }],
+    ['an array profile', { profile: ['node', 'app.js'] }],
+    ['a null profile', { profile: null }]
+  ])('rejects a create whose profile is not an object (%s)', async (_name, request) => {
+    await expectInvalid(
+      (async () => {
+        await handler('debug:create-profile')(request)
+      })()
+    )
+    expect(profiles.createDebugProfile).not.toHaveBeenCalled()
+  })
 })

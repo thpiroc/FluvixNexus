@@ -7315,7 +7315,7 @@ Session 5-13 で実際に測った範囲は次のとおり。
 
 ## 20. Debug（DAP。STEP 6）
 
-Session 6-0 で設計を確定し、Session 6-1 で Main 内の最下層（DAP message / connection、adapter process、adapter catalog）を実装し、Session 6-2 で Main-owned Debug Session lifecycle / state machine を追加し、Session 6-3 で Breakpoint（Monaco の glyph margin・保存・`setBreakpoints`）を入れ（§20.12）、Session 6-4 で実行制御（Continue / Pause / Step Over / Step Into / Step Out / Stop）を入れ（§20.13）、Session 6-5 で Call Stack（`threads` / `stackTrace` と safe source normalization）を入れた（§20.14）。Session 6-9 で Debug の状態（ステータスバー）を入れた（§20.17）。ここに書いていない口・欄・経路を実装側で足すときは、足す前にこの節へ戻ること。
+Session 6-0 で設計を確定し、Session 6-1 で Main 内の最下層（DAP message / connection、adapter process、adapter catalog）を実装し、Session 6-2 で Main-owned Debug Session lifecycle / state machine を追加し、Session 6-3 で Breakpoint（Monaco の glyph margin・保存・`setBreakpoints`）を入れ（§20.12）、Session 6-4 で実行制御（Continue / Pause / Step Over / Step Into / Step Out / Stop）を入れ（§20.13）、Session 6-5 で Call Stack（`threads` / `stackTrace` と safe source normalization）を入れた（§20.14）。Session 6-9 で Debug の状態（ステータスバー）を入れた（§20.17）。Session 6-10 で Debug Profile の保存と `debug:start`（Profile → ResolvedLaunchConfiguration → Debug Session）を入れた（§20.18）。ここに書いていない口・欄・経路を実装側で足すときは、足す前にこの節へ戻ること。
 
 DESIGN.md §5 の11機能（Breakpoint / Continue / Pause / Step Over / Step Into / Step Out / Stop / Variables / Call Stack / Debug Console / エラー位置へのジャンプ）を、Terminal（§13）と LSP（§19）が固めた「**Main が長命な子プロセスを持ち、Renderer は app-domain の言葉だけで話す**」形の上に載せる。
 
@@ -7594,6 +7594,8 @@ Session 6-6 で `getScopes` / `getVariables` を実際の名前 `debug:list-scop
 Session 6-7 で `evaluate` を `debug:evaluate` / `evaluate` として入れた。要求に載るのは `{ expression, frameId, context }` の3欄で、`context` は閉じた集合（`repl` / `watch`）── **DAP の request 名も raw `variablesReference` も載る場所が無い**。予定の数（18）は動いていない（§20.16）。名前が DAP の `evaluate` と同じ綴りなのは `continue` / `pause` と同じ事情で、**口の名前で操作が決まる**形は変わらない。
 
 Session 6-9 で `getState` / `onStateChanged` を実際の名前 `debug:get-status` / `getStatus`・`debug:status-changed` / `onStatusChanged` として入れた。**名前を state から status に変えたのは、返すのが遷移表の状態そのものではなく、adapter の有無を重ねた画面用の1語だから**で、`lsp:get-status` / `lsp:status-changed` と揃えてある。要求は `void`、応答も通知も `{ status }` の1欄だけ。予定の数（要求18 / 購読5 ── 6-8 の `onConsoleEntry` は `onOutput` の枠）は動いていない（§20.17）。
+
+Session 6-10 で `listProfiles` / `createProfile` / `updateProfile` / `deleteProfile` / `start` を `debug:list-profiles` / `debug:create-profile` / `debug:update-profile` / `debug:delete-profile` / `debug:start` として入れた。**これで予定の要求18本がすべて揃った**（数は動いていない）。profile の変化通知は足していない ── 変えるのは Renderer 自身の要求だけで、応答に保存後の全件が載る（§20.18）。
 
 **プロセスを操作する口は1つも無い**（§19.2 と同じ）。`start` に載るのは `profileId` だけで、`stop` は `void` になる。
 
@@ -8204,4 +8206,99 @@ Session 6-9 は予定では「Debug Profile の編集 UI と Settings / Status�
 
 #### 入れていないもの（Session 6-9）
 
-Debug Profile の保存 / 編集 UI / `debug:start` / Debug の Settings section / 起動失敗の状態 / ステータスバーからの操作 / 言語ごとの adapter の有無の内訳 / PATH の探索。
+~~Debug Profile の保存~~（**Session 6-10 で入れた**。§20.18）/ 編集 UI / ~~`debug:start`~~（同）/ Debug の Settings section / 起動失敗の状態 / ステータスバーからの操作 / 言語ごとの adapter の有無の内訳 / PATH の探索。
+
+### 20.18 Debug Profile と `debug:start`（Session 6-10）
+
+§20.2 の図の左上 ── **Renderer が profile を作り、id 1つで起動を頼む**── を実装した。画面（編集 UI・起動ボタン）は入れていない。入ったのは保存・検証・解決・起動の Main 側と、typed IPC の5本だけになる。
+
+#### 責務の分け方
+
+```
+Renderer                                   Main
+────────                                   ────
+window.fluvix.debug.createProfile({ profile })
+      │ debug:create-profile { profile }   ← 6欄。id の欄は無い
+      ▼
+                                           ipc/handlers/debug.ts      profile が object か・id の形か（だけ）
+                                           debug/debugProfiles.ts     正本・id の発番・保存・起動の噛み合わせ
+                                             ├ profileValidation.ts   欄の形（6欄から作り直す）
+                                             │   └ environmentPolicy.ts  環境変数の名前（保存時）
+                                             ├ programPath.ts         相対位置の2段（保存時は在るものだけ実体を見る）
+                                             └ store/debugProfiles*.ts   userData/debug-profiles.json
+      ◀── DebugProfileSaveOutcome（saved / invalid / rejected）
+
+window.fluvix.debug.start({ profileId })
+      │ debug:start { profileId }          ← 載るのはこれだけ
+      ▼
+                                           debug/debugProfiles.ts
+                                             ├ profileResolver.ts     Profile → ResolvedLaunchConfiguration（純粋）
+                                             │   ├ profileValidation.ts + environmentPolicy.ts（解決時にもう一度）
+                                             │   ├ programPath.ts     両段 + 実在するファイル → realpath
+                                             │   ├ adapterCatalog.ts  integrated の行 → PATH を辿った絶対パス
+                                             │   └ environmentPolicy.ts  adapter のプロセスの環境
+                                             └ debugSessionManager.ts start()（6-2 のまま）
+      ◀── DebugStartOutcome（started / rejected / failed ＋ 理由の分類だけ）
+```
+
+#### id は Main が発番する
+
+`dp-<uuid>`（`crypto.randomUUID`）。作成の要求に id の欄は無く、draft に `profileId` が載っていても検証が6欄から作り直すので読まれない。更新 / 削除 / 起動で渡せる id は**形**（`isDebugProfileIdShape`）を IPC で確かめ、今の Workspace に実在しなければ値（`profile-not-found`）で返る ── 別の Workspace の id を渡しても触れない。
+
+#### 欄の検証は値で返し、要求の形の壊れは IPC の失敗にする
+
+| 何が起きたか                                                      | 返し方                                               |
+| ----------------------------------------------------------------- | ---------------------------------------------------- |
+| `profile` が object でない・id が発番の形でない                   | INVALID_REQUEST（Main の処理へ届かない）             |
+| 欄が通らない（空・長すぎる・`..`・絶対パス・`PATH` など）         | `{ status: 'invalid', field, reason }`（閉じた集合） |
+| Workspace が無い・id が無い・上限（1 Workspace 50件）             | `{ status: 'rejected', reason }`                     |
+| 起動できない（adapter が無い・program が無い / 外・spawn の失敗） | `{ status: 'failed', reason }`（`debug:start`）      |
+
+フォームに打った値への答えは利用者の操作への普通の答えで、例外ではない（§20.13 の実行制御と同じ）。**入力した値そのもの・解決した絶対パス・adapter の実行ファイル・spawn の文言は応答に載せない**（Main のログにだけ残す）。
+
+#### program の相対位置: 保存時と起動時で2段目の厳しさが違う
+
+| 時点   | 1段目（文字列） | 2段目（realpath）                                                    |
+| ------ | --------------- | -------------------------------------------------------------------- |
+| 保存時 | 必ず通す        | **在るものだけ**見る。在って外を指していれば `outside-workspace`     |
+| 起動時 | 必ず通す        | 必ず通す。在ること・ファイルであること・実体が root の realpath の中 |
+
+profile はプログラムを書く前に作ることがあるので、保存時に「在ること」は求めない。起動時は必ず両段を通すので、保存の後に symlink / ジャンクションへ差し替えられても起動はしない。**Breakpoint（§20.12）と違って realpath を取る**のは、program が実際に起動されるものだから（`readWorkspaceFile.ts` が対象そのものの realpath を見るのと同じ理由）。起動に渡すのは検証した realpath 側で、cwd も root の realpath にしてある ── 確かめたものと起動するものを同じ手順から出す。
+
+#### 環境変数（`environmentPolicy.ts`）
+
+- 名前は `^[A-Za-z_][A-Za-z0-9_]*$`・§20.9 の10個は**大文字小文字を区別せずに**断る（Windows では `Path` も PATH）・大文字小文字だけが違う2つも断る（`duplicate-name`）
+- 断る場所は保存時（`profileValidation.ts`）・起動時（`profileResolver.ts`）・保存ファイルの読み込み時（`store/debugProfilesDocument.ts`）の3つ。どれも同じ関数を通る
+- **profile の env は launch request の `env` にだけ入り、adapter のプロセスへは渡さない。** adapter のプロセスの環境は親の環境から `ELECTRON_RUN_AS_NODE` / `NODE_OPTIONS` を落としたもの（`languageServerEnvironment.ts` と同じ判断）で、利用者の書いた値で adapter 自身が変わる経路は無い
+- 表はここで確定した10個のまま増やしていない。増やすときは §20.9 へ戻る
+
+#### 保存（§20.5 の実装）
+
+- key は **Workspace root の realpath**（取れなければ開いたときのパス）。ジャンクション越しに同じフォルダを開いても profile が分かれない
+- 読み込みは**最初の1回だけ**で、以降は Main の控えが正本。jsonStore の書き込みは 400ms 間引かれるため、書いた直後にディスクを読み直すと古い内容が返りうる
+- 読み込んだ中身も境界の外から来た値として、**保存時と同じ検証を1件ずつ**通す（絶対パス・`..`・禁じた環境変数・発番の形でない id を持つ1件だけを落とす）。Workspace は50個まで、溢れたら今の Workspace 以外で最も古いものから落とす（breakpoint と同じ）
+- 変化通知（`debug:profiles-changed`）は足していない。profile を変えるのは Renderer 自身の要求だけで、応答に保存後の全件が載る。Workspace の切り替えでは Renderer が `listProfiles` を読み直せば足りる
+
+#### ResolvedLaunchConfiguration（`main/debug/resolvedLaunch.ts`）
+
+adapter の `name` / 絶対パス / adapter の引数 / cwd / 環境（`adapterCommand`）と、launch request の引数（`name` / `type` / `request: 'launch'` / `program` の絶対パス / `args` / `cwd` / `env` / `stopOnEntry` / `console: 'internalConsole'`）を持つ。`shared/` から import できない場所に置いてあり、作るのは `profileResolver.ts`、使うのは `debugProfiles.ts` だけになる。
+
+- **`programArgs` は adapter のコマンドラインに一語も現れない**（`launchArguments.args` にだけ入る。§20.4 をテストで固定）
+- `console` は `internalConsole` 固定（`integratedTerminal` にすると `runInTerminal` を頼まれる経路になる）
+- launch の `type` と `initialize` の `adapterID` は言語ごとの表（`node: pwa-node` / `python: debugpy` / `csharp: coreclr`）。**どれも実 adapter では確かめていない**値で、実 adapter を繋ぐ Session が確定させる
+
+#### Adapter catalog は `not-integrated` のまま
+
+catalog の行は起動するもの（`adapter: { executable, args }`。拡張子を除いた名前と adapter の引数）を持てる形にし、`resolveDebugAdapterExecutable` を足した。規則は `languageServerCatalog.ts` と同一（PATH を辿った絶対パス・相対の PATH 項目は飛ばす・`.cmd` は `%SystemRoot%` の `cmd.exe /c` で包む・表の名前に区切りや `:` があれば解かない）。
+
+**どの行もまだ `integrated` にしていない。** したがって出荷状態の `debug:start` は、profile と program が正しくても必ず `adapter-unavailable` で返る（ステータスバーも「利用不可」のまま）。成功経路は production build の確認で catalog の行を mock adapter に差し替えて通した（DEVELOPMENT.md §4）。
+
+実 adapter を繋ぐときに確かめること（申し送り）:
+
+- **adapter のプロセスの cwd は Workspace root**（§20.2 の決め・LSP と同じ）。`python -m debugpy.adapter` のように cwd からモジュールを探す起動では、Workspace の中の同名パッケージが adapter として読み込まれうる ── debugpy を繋ぐ Session で、cwd を Workspace の外にするか、`-I` / `-P` のような隔離を付けるかを決める
+- vscode-js-debug は transport（stdio / TCP）が未確定のまま（§20.7）
+- launch の `type` / 追加で要る欄（`justMyCode` など）は、言語の枝に欄を足すのではなく `profileResolver.ts` の表で閉じるのが既定（§20.10）
+
+#### 入れていないもの（Session 6-10）
+
+Debug Profile の編集 UI / 起動ボタン / Debug Toolbar / 実 adapter の統合（catalog の行はすべて `not-integrated`）/ Node adapter の調査 / profile の変化通知 / 起動失敗の状態（§20.17 のまま、失敗は起動の応答でだけ返る）/ `launch.json` の読み込み / attach / 変数展開 / `cwd` の指定。

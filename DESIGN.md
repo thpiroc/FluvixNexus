@@ -1896,6 +1896,34 @@ Call Stack の frame から **Scopes → Variables → 入れ子の Variables** 
 | Settings | Debug の設定を置く                           | **section を作らない。** 候補（adapter パス・stopOnEntry の既定・親スイッチ・待ち時間・Console 行数など）はどれも §20.9 に反するか、他に持ち主があるか、効く対象が無かった |
 | 口の名前 | `getState` / `onStateChanged`                | `debug:get-status` / `debug:status-changed`。返すのが遷移表の状態ではなく、adapter の有無を重ねた画面用の1語だから（`lsp:get-status` と揃えた）                            |
 
+### Session 6-10（完了）— Debug Profile + `debug:start`
+
+Renderer が **アプリの言葉だけで書かれた Debug Profile** を保存し、**`profileId` 1つ**で Debug Session を起動できる経路を Main 側に入れた。画面（編集 UI・起動ボタン）はまだ無い（[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §20.18）。
+
+入れたもの:
+
+| ファイル                                                       | 役割                                                                                     |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `shared/debug/profile.ts` / `profileDocument.ts`               | 7欄の Profile（`language` 判別の union）・保存 / 起動の結末の閉じた集合・保存形式        |
+| `main/debug/profileValidation.ts`                              | 欄の検証。**6欄から作り直す**ので `cwd` / `runtimeExecutable` / `adapter` は届かない     |
+| `main/debug/environmentPolicy.ts`                              | 環境変数の名前の方針（保存時・読み込み時・起動時）と adapter のプロセスの環境            |
+| `main/debug/programPath.ts`                                    | `programRelativePath` の2段（文字列 → realpath）                                         |
+| `main/debug/profileResolver.ts` / `resolvedLaunch.ts`          | Profile → ResolvedLaunchConfiguration（純粋・Main 限定の型）                             |
+| `main/debug/adapterCatalog.ts`                                 | 行が起動するものを持てる形と、PATH を辿った絶対パスへの解決（行は `not-integrated`）     |
+| `main/debug/debugProfiles.ts` / `main/store/debugProfiles*.ts` | 正本・id の発番・`userData/debug-profiles.json`・起動                                    |
+| typed IPC 5本                                                  | `debug:list-profiles` / `create-profile` / `update-profile` / `delete-profile` / `start` |
+
+決めたこと:
+
+- **id は Main が発番**（`dp-<uuid>`）。Renderer が渡せる id は一覧で受け取ったものだけで、形が違えば INVALID_REQUEST、今の Workspace に無ければ値で `profile-not-found`
+- **欄の不備は値で返す**（`invalid` + 欄 + 理由）。IPC の失敗になるのは要求そのものの形の壊れだけ
+- **program の2段目は保存時は在るものだけ、起動時は必ず**。まだ書いていないプログラムの profile は作れるが、外を指すリンクは保存時にも断る
+- **profile の env は launch request にだけ入り、adapter のプロセスへは入らない**
+- **起動の応答は理由の分類だけ**（絶対パス・adapter の実行ファイル・spawn の文言は Main のログ）
+- 実 adapter は未統合のままなので、**出荷状態の `debug:start` は常に `adapter-unavailable`**。成功経路は production build で catalog を mock adapter に差し替えて確認した
+
+申し送り: adapter のプロセスの cwd は Workspace root（§20.2 の決め）。`python -m debugpy.adapter` を繋ぐ Session では、Workspace の中の同名パッケージが読み込まれない形（cwd を外す / 隔離オプション）を決めること。
+
 ### Session 6-7 〜 6-13（予定）— 実装
 
 | Session | 入れるもの                                                         | 推奨 Agent   |
@@ -1908,7 +1936,7 @@ Call Stack の frame から **Scopes → Variables → 入れ子の Variables** 
 | 6-12    | Command / Keybinding（F5 / F9 / F10 / F11 / Shift+F11 / Shift+F5） | Codex        |
 | 6-13    | STEP 6 Closing（production build での横断確認とドキュメント追従）  | Claude Code  |
 
-> **実際の割り当ては表からずれている（Session 6-9 時点）。** 6-7 = Evaluate、6-8 = Debug Console、6-9 = Debug Status（Settings section なし）で実装された。表にあった **Debug Toolbar** と **Debug Profile の編集 UI / `debug:start`** は、まだどの Session にも割り当てられていない。
+> **実際の割り当ては表からずれている（Session 6-9 時点）。** 6-7 = Evaluate、6-8 = Debug Console、6-9 = Debug Status（Settings section なし）で実装された。表にあった **Debug Toolbar** と **Debug Profile の編集 UI / `debug:start`** は、まだどの Session にも割り当てられていない。**Session 6-10 で Debug Profile の保存と `debug:start`（Main 側と typed IPC）が入った**。編集 UI・Toolbar・実 adapter は再整理後の 6-11 以降に残っている。
 
 最初に繋ぐのは **Node**（この PC で実機確認できる唯一の言語。Python / .NET SDK は STEP 5 Closing 時点と同じく未導入）。ただし Node の adapter だけは**入手経路と stdio 対応が未確定**で、6-1 の最初の仕事がその確認になる（[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §20.7）。
 

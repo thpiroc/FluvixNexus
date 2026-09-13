@@ -31,8 +31,10 @@ import { subscribeIpcEvent } from '../ipc/subscribe'
  * `getStatus` / `onStatusChanged`（Session 6-9）は `lsp.getStatus` と同じ**読むだけの口**で、
  * 引数を1つも取らない。返るのは閉じた集合の1語だけになる。
  *
- * **Debug Session を起動する口はここに無い**（Debug Profile を入れる Session まで。
- * Session 6-9 で増えたのは状態を読む口だけ）。
+ * Debug Profile と `start`（Session 6-10）も同じ形で、**載せる欄を関数ごとに決めて送る**。
+ * `start` が送るのは `profileId` だけ、作成が送るのは `profile` だけで、要求に
+ * `adapter` / `cwd` / `runtimeExecutable` が載っていても Main へは渡らない
+ * （`profile` の中の余計な欄は Main の検証が6欄から作り直して捨てる）。
  */
 export const debugApi: DebugApi = {
   listBreakpoints: () => invokeIpc(IPC_CHANNELS.DEBUG_LIST_BREAKPOINTS),
@@ -69,5 +71,16 @@ export const debugApi: DebugApi = {
     subscribeIpcEvent(IPC_EVENT_CHANNELS.DEBUG_CALL_STACK_CHANGED, listener),
   onConsoleEntry: (listener) => subscribeIpcEvent(IPC_EVENT_CHANNELS.DEBUG_CONSOLE_ENTRY, listener),
   onStatusChanged: (listener) =>
-    subscribeIpcEvent(IPC_EVENT_CHANNELS.DEBUG_STATUS_CHANGED, listener)
+    subscribeIpcEvent(IPC_EVENT_CHANNELS.DEBUG_STATUS_CHANGED, listener),
+  listProfiles: () => invokeIpc(IPC_CHANNELS.DEBUG_LIST_PROFILES),
+  createProfile: (request) =>
+    invokeIpc(IPC_CHANNELS.DEBUG_CREATE_PROFILE, { profile: request?.profile }),
+  updateProfile: (request) =>
+    invokeIpc(IPC_CHANNELS.DEBUG_UPDATE_PROFILE, {
+      profileId: request?.profileId,
+      profile: request?.profile
+    }),
+  deleteProfile: (request) =>
+    invokeIpc(IPC_CHANNELS.DEBUG_DELETE_PROFILE, { profileId: request?.profileId }),
+  start: (request) => invokeIpc(IPC_CHANNELS.DEBUG_START, { profileId: request?.profileId })
 }

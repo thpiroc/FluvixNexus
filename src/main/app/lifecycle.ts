@@ -17,6 +17,7 @@ import { createLogger } from '../logger'
 import { isMacOS } from '../platform'
 import { applySessionSecurityPolicy, applyWebContentsSecurityPolicy } from '../security'
 import { flushDebugBreakpointsDocument } from '../store/debugBreakpoints'
+import { flushDebugProfilesDocument } from '../store/debugProfiles'
 import { flushSettingsDocument } from '../store/settings'
 import { flushWorkspaceFolderDocument } from '../store/workspaceFolder'
 import { flushWorkspaceLayoutDocument } from '../store/workspaceLayout'
@@ -208,6 +209,8 @@ export function bootstrapApp(): void {
     flushSettingsDocument()
     // 印を付けた直後に終了しても、次回起動で戻ってくるようにする（Session 6-3）。
     flushDebugBreakpointsDocument()
+    // Debug Profile を作った直後に終了しても残るようにする（Session 6-10）。
+    flushDebugProfilesDocument()
   })
 
   app.on('window-all-closed', () => {

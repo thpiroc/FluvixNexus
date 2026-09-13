@@ -4,7 +4,9 @@ import {
   getDebugAdapterCatalogEntry,
   hasIntegratedDebugAdapter,
   isDebugAdapterLanguageId,
-  listDebugAdapterCatalogEntries
+  listDebugAdapterCatalogEntries,
+  resolveDebugAdapterExecutable,
+  type DebugAdapterCatalogEntry
 } from './adapterCatalog'
 
 describe('Debug Adapter catalog foundation', () => {
@@ -45,5 +47,99 @@ describe('Debug Adapter catalog foundation', () => {
         ...entries.slice(2)
       ])
     ).toBe(true)
+  })
+})
+
+/** 行の adapter を絶対パスへ解く（Session 6-10。§20.7 は languageServerCatalog と同一の規則）。 */
+describe('resolveDebugAdapterExecutable', () => {
+  const integrated: DebugAdapterCatalogEntry = {
+    language: 'python',
+    name: 'debugpy',
+    integrationStatus: 'integrated',
+    adapter: { executable: 'python', args: ['-m', 'debugpy.adapter'] }
+  }
+
+  const windowsEnv = { PATH: 'C:\\Python312;.;tools', SystemRoot: 'C:\\Windows' }
+
+  it('does not resolve any shipped row (all are not-integrated in this version)', () => {
+    for (const entry of listDebugAdapterCatalogEntries()) {
+      expect(resolveDebugAdapterExecutable(entry, 'win32', windowsEnv, () => true)).toBeNull()
+    }
+  })
+
+  it('does not resolve an integrated row that has nothing to start', () => {
+    expect(
+      resolveDebugAdapterExecutable(
+        { language: 'python', name: 'debugpy', integrationStatus: 'integrated' },
+        'win32',
+        windowsEnv,
+        () => true
+      )
+    ).toBeNull()
+  })
+
+  it('resolves a native executable on PATH to its absolute path with the table arguments', () => {
+    expect(
+      resolveDebugAdapterExecutable(
+        integrated,
+        'win32',
+        windowsEnv,
+        (path) => path === 'C:\\Python312\\python.exe'
+      )
+    ).toEqual({ file: 'C:\\Python312\\python.exe', args: ['-m', 'debugpy.adapter'] })
+  })
+
+  it('wraps a .cmd with cmd.exe built from %SystemRoot%', () => {
+    expect(
+      resolveDebugAdapterExecutable(
+        integrated,
+        'win32',
+        windowsEnv,
+        (path) => path === 'C:\\Python312\\python.cmd'
+      )
+    ).toEqual({
+      file: 'C:\\Windows\\System32\\cmd.exe',
+      args: ['/c', 'C:\\Python312\\python.cmd', '-m', 'debugpy.adapter']
+    })
+  })
+
+  it('does not fall back to a bare cmd.exe when %SystemRoot% is missing', () => {
+    expect(
+      resolveDebugAdapterExecutable(integrated, 'win32', { PATH: 'C:\\Python312' }, (path) =>
+        path.endsWith('.cmd')
+      )
+    ).toBeNull()
+  })
+
+  /** 相対の PATH 項目（cwd ＝ Workspace を起点に解決される）は辿らない。 */
+  it('never finds an executable through a relative PATH entry', () => {
+    expect(
+      resolveDebugAdapterExecutable(integrated, 'win32', { PATH: '.;tools' }, () => true)
+    ).toBeNull()
+  })
+
+  it.each(['..\\python', 'C:\\evil\\python', 'bin/python', ''])(
+    'refuses a table executable that is not a bare name (%j)',
+    (executable) => {
+      expect(
+        resolveDebugAdapterExecutable(
+          { ...integrated, adapter: { executable, args: [] } },
+          'win32',
+          windowsEnv,
+          () => true
+        )
+      ).toBeNull()
+    }
+  )
+
+  it('resolves on POSIX without extensions', () => {
+    expect(
+      resolveDebugAdapterExecutable(
+        integrated,
+        'linux',
+        { PATH: '/usr/bin:bin' },
+        (path) => path === '/usr/bin/python'
+      )
+    ).toEqual({ file: '/usr/bin/python', args: ['-m', 'debugpy.adapter'] })
   })
 })

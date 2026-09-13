@@ -101,3 +101,43 @@ export type {
   StoredDebugBreakpointEntry,
   StoredDebugBreakpointWorkspace
 } from './breakpointDocument'
+
+/* Debug Profile と起動（Session 6-10）。解決済みの launch 構成はここに現れない。 */
+export {
+  DEBUG_PROFILE_ENV_MAX_COUNT,
+  DEBUG_PROFILE_ENV_NAME_MAX_LENGTH,
+  DEBUG_PROFILE_ENV_VALUE_MAX_LENGTH,
+  DEBUG_PROFILE_LANGUAGES,
+  DEBUG_PROFILE_NAME_MAX_LENGTH,
+  DEBUG_PROFILE_PROGRAM_ARG_MAX_LENGTH,
+  DEBUG_PROFILE_PROGRAM_ARGS_MAX_COUNT,
+  DEBUG_PROFILES_MAX_PER_WORKSPACE,
+  isDebugProfileIdShape,
+  isDebugProfileLanguage
+} from './profile'
+
+export type {
+  CsharpDebugProfileDraft,
+  DebugProfile,
+  DebugProfileDeleteOutcome,
+  DebugProfileDraft,
+  DebugProfileField,
+  DebugProfileId,
+  DebugProfileInvalidReason,
+  DebugProfileLanguage,
+  DebugProfileSaveOutcome,
+  DebugProfileSaveRejection,
+  DebugStartFailure,
+  DebugStartOutcome,
+  DebugStartRejection,
+  NodeDebugProfileDraft,
+  PythonDebugProfileDraft
+} from './profile'
+
+export {
+  DEBUG_PROFILES_DOCUMENT_MAX_BYTES,
+  DEBUG_PROFILES_MAX_WORKSPACES,
+  DEBUG_PROFILES_SCHEMA_VERSION
+} from './profileDocument'
+
+export type { DebugProfilesDocument, StoredDebugProfileWorkspace } from './profileDocument'

@@ -1,25 +1,42 @@
 import {
   isDebugEvaluateContext,
   isDebugEvaluateExpressionShape,
+  isDebugProfileIdShape,
   isDebugVariableHandleShape,
-  type DebugExecutionControl
+  type DebugExecutionControl,
+  type DebugProfileDeleteOutcome,
+  type DebugProfileId,
+  type DebugProfileSaveOutcome,
+  type DebugStartOutcome
 } from '@shared/debug'
 import {
   IPC_CHANNELS,
+  type CreateDebugProfileRequest,
   type DebugCallStackResponse,
   type DebugBreakpointsResponse,
   type DebugEvaluateResponse,
+  type DebugProfilesResponse,
   type DebugScopesResponse,
   type DebugStatusResponse,
   type DebugVariablesResponse,
+  type DeleteDebugProfileRequest,
   type EvaluateDebugExpressionRequest,
   type IpcChannel,
   type ListDebugScopesRequest,
   type ListDebugVariablesRequest,
-  type ToggleDebugBreakpointRequest
+  type StartDebugRequest,
+  type ToggleDebugBreakpointRequest,
+  type UpdateDebugProfileRequest
 } from '@shared/ipc'
 import { listDebugBreakpoints, toggleDebugBreakpoint } from '../../debug/breakpoints'
 import { listDebugCallStack } from '../../debug/callStack'
+import {
+  createDebugProfile,
+  deleteDebugProfile,
+  listDebugProfiles,
+  startDebugProfile,
+  updateDebugProfile
+} from '../../debug/debugProfiles'
 import { controlDebugSession, requestDebugSessionStop } from '../../debug/debugSessionManager'
 import { evaluateDebugExpression } from '../../debug/evaluate'
 import { getDebugSessionStatus } from '../../debug/sessionStatus'
@@ -211,6 +228,65 @@ export function registerDebugHandlers(): void {
     idle へ戻り終えてから答える（main/debug/debugSessionManager.ts）。
   */
   handleIpc(IPC_CHANNELS.DEBUG_STOP, () => requestDebugSessionStop())
+
+  /*
+    Debug Profile と起動（Session 6-10）。ここで見るのは**要求の形だけ** ──
+    `profile` が object か、`profileId` が Main の発番した形か。欄の中身
+    （相対位置の2段・環境変数の方針・上限）は main/debug/debugProfiles.ts が見て、
+    通らなければ値（`invalid` / `rejected` / `failed`）で返る。
+
+    **要求から読む欄を固定してある。** 起動に使うのは `profileId` だけで、
+    要求に `adapter` / `cwd` / `program` が載っていても読む箇所が無い。
+  */
+  handleIpc(IPC_CHANNELS.DEBUG_LIST_PROFILES, (): DebugProfilesResponse => {
+    return { profiles: listDebugProfiles() }
+  })
+
+  handleIpc(
+    IPC_CHANNELS.DEBUG_CREATE_PROFILE,
+    (request: CreateDebugProfileRequest): DebugProfileSaveOutcome => {
+      return createDebugProfile(readProfileDraft(request?.profile))
+    }
+  )
+
+  handleIpc(
+    IPC_CHANNELS.DEBUG_UPDATE_PROFILE,
+    (request: UpdateDebugProfileRequest): DebugProfileSaveOutcome => {
+      return updateDebugProfile(
+        readProfileId(request?.profileId),
+        readProfileDraft(request?.profile)
+      )
+    }
+  )
+
+  handleIpc(
+    IPC_CHANNELS.DEBUG_DELETE_PROFILE,
+    (request: DeleteDebugProfileRequest): DebugProfileDeleteOutcome => {
+      return deleteDebugProfile(readProfileId(request?.profileId))
+    }
+  )
+
+  handleIpc(IPC_CHANNELS.DEBUG_START, (request: StartDebugRequest): DebugStartOutcome => {
+    return startDebugProfile(readProfileId(request?.profileId))
+  })
+}
+
+/** Main が発番した id の形でなければ INVALID_REQUEST（実在するかは値で返る）。 */
+function readProfileId(value: unknown): DebugProfileId {
+  if (!isDebugProfileIdShape(value)) {
+    throw invalidRequest('the debug profile id must be an id issued by the main process.')
+  }
+
+  return value
+}
+
+/** 作成 / 更新の `profile`。object でなければ INVALID_REQUEST（欄の検証は値で返る）。 */
+function readProfileDraft(value: unknown): object {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw invalidRequest('the debug profile must be an object.')
+  }
+
+  return value
 }
 
 /**

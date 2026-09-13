@@ -52,7 +52,9 @@ Session 6-6 で **Variables / Scopes** が入った。Call Stack で選んだ fr
 
 Session 6-9 で **Debug の状態**がステータスバーに出るようになった（`debug:get-status` / `debug:status-changed`。docs/ARCHITECTURE.md §20.17）。実 adapter がまだ統合されていないので、**実機では常に「デバッグ: 利用不可」**になる ── starting / running / 一時停止中 / 終了中 が見えるのは mock adapter を Main から立てた確認だけ。Debug の Settings section は作っていない。
 
-Debug Profile 保存、Debug Session の起動 UI、Debug Toolbar、実 adapter 統合はまだ無い。
+Session 6-10 で **Debug Profile の保存と `debug:start`** が入った（`debug:list-profiles` / `create-profile` / `update-profile` / `delete-profile` / `start`。docs/ARCHITECTURE.md §20.18）。保存先は `userData/debug-profiles.json`（Workspace root の realpath で引く）。Renderer が渡せるのは6欄と Main が発番した `profileId` だけで、解決した program の絶対パス・adapter の実行ファイル / 引数・cwd は Main の中（`ResolvedLaunchConfiguration`）で閉じる。**catalog の行はすべて `not-integrated` のままなので、実機の `debug:start` は常に `adapter-unavailable`** ── 起動が通るのは catalog を mock adapter に差し替えた確認だけ（§4）。
+
+Debug Profile の編集 UI、起動ボタン、Debug Toolbar、実 adapter 統合はまだ無い。
 
 ---
 
@@ -620,6 +622,19 @@ DAP の周りは 6-1 / 6-2 と同じ分け方で、**Electron も子プロセス
 - `src/preload/api/debug.test.ts` — 17関数になったこと、`getStatus` が何を渡されてもチャンネル名だけを送ること
 - `src/renderer/src/debug/debugStatusLabels.test.ts` — 6語すべてに日英の言葉があること・言い回しが重ならないこと・**`stopped` を Paused / 一時停止中 と書き、Stopped / 停止中 と書かないこと**
 - `src/renderer/src/debug/DebugStatusItem.dom.test.ts` — 最初の1回を読む・通知で置き換わる・**先に届いた通知が遅れた読み込みに勝つ**・読めなければ何も出さない（既定の語を作らない）・**閉じた集合の外の語やパスを描かない**・押せない・表示言語の切り替えに追従する・外すと購読も外れる
+
+#### Debug Profile / `debug:start`（Session 6-10）
+
+- `src/shared/debug/profile.test.ts` — 言語が閉じた集合であること、id は Main の発番の形（`dp-<小文字の uuid>`）だけを通すこと
+- `src/main/debug/environmentPolicy.test.ts` — §20.9 の10個を**大文字小文字を問わず**断ること（`Path` / `node_options`）・名前の形・大文字小文字だけ違う重複・値の NUL / 長さ / 件数・`__proto__` が prototype を変えないこと・adapter のプロセスの環境から `ELECTRON_RUN_AS_NODE` / `NODE_OPTIONS` を落とすこと
+- `src/main/debug/profileValidation.test.ts` — **6欄から作り直す**こと（`cwd` / `runtimeExecutable` / `adapter` / `console` / `preLaunchTask` / `processId` が消える）・値を trim しないこと・欄ごとの理由（絶対パス / UNC / `..` / ドライブ相対 / file URI / NUL / root そのもの・禁じた環境変数・言語の集合）
+- `src/main/debug/programPath.test.ts` — **実ディスク**で2段を確かめる（Workspace 内のファイル → realpath・外を指すジャンクションは保存時も起動時も `outside-workspace`・中を指すリンクは通る・無いファイルは保存時は通り起動時は `not-found`・root が消えたとき・文字列の段で断ったら realpath を呼ばないこと）
+- `src/main/debug/profileResolver.test.ts` — 解決済みの形全体・**`programArgs` が adapter のコマンドラインに一語も現れないこと**（§20.4）・profile の env が adapter のプロセスへ入らないこと・profile に付いた余計な欄が効かないこと・解決時にもう一度断ること（禁じた環境変数 / 絶対パス / 外を指す実体 / 無いファイル）・出荷状態の catalog（`not-integrated`）と PATH に無い adapter と相対の PATH 項目で `adapter-unavailable`
+- `src/main/debug/adapterCatalog.test.ts` — `resolveDebugAdapterExecutable`（出荷状態の行は解かない・`.exe` を直接・`.cmd` を `%SystemRoot%` の cmd.exe で包む・`%SystemRoot%` が無ければ名前だけの cmd.exe に落とさない・相対の PATH 項目を辿らない・表の名前が区切りを含めば解かない）
+- `src/main/debug/debugProfiles.test.ts` — id を Main が発番し draft の id / 余計な欄を使わないこと・今の Workspace の分だけを返し key を載せないこと・書いた直後の一覧が控えから読めること・保存時の検証（外を指すリンクを含む）・上限・別の Workspace の id を更新 / 削除 / 起動できないこと・起動に解決済みの形が渡り応答が `started` だけであること・動いている間は解決せずに断ること・起動時の再検証・spawn の文言を応答に載せないこと
+- `src/main/store/debugProfilesDocument.test.ts` — エンベロープが壊れていれば文書ごと捨てる・**保存時と同じ検証で1件だけを落とす**（発番の形でない id / 絶対パス / `..` / 禁じた環境変数）・余計な欄を落とす・id の重複・Workspace の上限
+- `src/main/ipc/handlers/debug.test.ts` — 5本の登録・`debug:start` が `profileId` 以外を読まないこと・形の壊れた id / object でない `profile` は INVALID_REQUEST で Main の処理へ届かないこと
+- `src/preload/api/debug.test.ts` — 22関数になったこと・`start` が `profileId` だけ、編集が `profile` / `profileId` だけを送ること
 
 ### 整形
 
@@ -1993,6 +2008,26 @@ Session 4-5 / 4-7 は**境界を1つも動かしていない**ことを、両ス
 - **状態の通知は Renderer 側でもう1本購読して payload ごと積む。** ステータスバーの `data-debug-status` を待つだけでは、途中の語（starting / terminating）が一瞬で過ぎて見えない ── 通知の列を読めば、まとめ方と重複の有無まで1項目で測れる
 - **mock adapter の `configurationDone` は 120ms 後に止まる**ので、起動直後の running は画面ではほぼ見えない。running を見たいときは画面ではなく通知の列で見る
 - **VS Code / Claude Code 自体も electron.exe で動いている。** 前回の残りを片付けるときに名前だけで kill しない ── `ExecutablePath` が `Fluvix Nexus\node_modules` のものだけに絞る
+
+### Session 6-10（Debug Profile + `debug:start`）
+
+**production build 版 105項目、全項目 PASS。** 使い捨ての Workspace 2つ（ws1 / ws2）・Workspace の外のフォルダ・使い捨ての `--user-data-dir` で起動し、`npm run build` 後の `out/main/index.js` 末尾へ `FLUVIX_VERIFY_DEBUG=1` で開く数行（**catalog の `node` 行を mock adapter の行へ差し替える関数**を globalThis に置くだけ）を確認のあいだだけ足した。6-9 までと違い**セッションは Main から立てていない** ── 起動は Renderer の `window.fluvix.debug.start({ profileId })` から通した。確認の後は `npm run build` で out/ を作り直している（hook の残りが 0 件であることを grep で確認）。1回の node プロセスで2回起動し、2回目は hook を開かずに（出荷状態の catalog で）起動した。
+
+- 面 / 境界: `debug` の関数が22個（17 + 5）、adapter / spawn / exec / process / attach / command / request / launch / runtime / cwd を名乗る関数が無い、`require` / `process` / `electron` / `Buffer` の非露出
+- 出荷状態: ステータスが「利用不可」、node 行が `not-integrated`、`start` は `{ status: 'failed', reason: 'adapter-unavailable' }` の2欄だけで adapter のプロセスは立たない（要求に `adapter` / `cwd` / `program` を載せても同じ）、未知の id は `profile-not-found`
+- 作成 / 検証: id が `dp-<uuid>` で発番され、相対位置は `src/app.js` に正規化され、応答は7欄だけで Workspace のパスも adapter の名残も無い／要求と draft に `profileId` / `cwd` / `runtimeExecutable`（cmd.exe）/ `adapter` / `adapterArgs` / `console` / `preLaunchTask` / `request: attach` / `processId` を載せても7欄だけが保存され、id は Main のもの／値で断る17通り（`PATH` / `Path` / `NODE_OPTIONS` / `ELECTRON_RUN_AS_NODE` / `pythonpath` / `DOTNET_STARTUP_HOOKS` / `LD_PRELOAD` / 名前の形 / 大文字小文字違いの重複 / `..` / 絶対パス（cmd.exe・Workspace 内を指す絶対パス）/ file URI / UNC / **Workspace 外を指すジャンクション経由** / `pwa-node` / 文字列の programArgs）で何も保存されない／形の壊れた要求6通りが INVALID_REQUEST／更新で id が変わらない・削除・消した id の再削除は `profile-not-found`
+- 起動（catalog を mock に差し替え）: ステータスが「待機中」へ移る／まだ無い program の profile は保存でき、起動は `program-not-found`／**保存時には無かったフォルダを後から外向きのジャンクションにすると、起動は `program-outside-workspace`**／どちらも adapter は立たない／起動は `{ status: 'started' }` の1欄、通知は starting → running → stopped、stopped 中の2回目は `already-running`
+- adapter 側で見えたもの: argv が `[node.exe の絶対パス, mock, ログ]` の3つだけで programArgs は1語も無い、cwd は Workspace root の realpath、環境に `ELECTRON_RUN_AS_NODE` / `NODE_OPTIONS` が無く **profile の env（`APP_MODE`）も無い**、`initialize` は `adapterID: pwa-node` / `supportsRunInTerminalRequest: false`、順序は initialize → launch → configurationDone、launch の欄は9つ（program は realpath・args は `&&` / `|` / `%PATH%` / 前後の空白を含めてそのまま・cwd は root・env は profile の2つ・`console: internalConsole`）
+- debuggee: mock が launch の欄どおりに走らせたプログラムが argv / cwd / `APP_MODE` をそのまま受け取った、Debug Console に出力が届いた、終了で idle へ戻り adapter のプロセスが消えた
+- Workspace 切り替え: stopped のまま ws2 へ切り替えると idle・adapter のプロセスが 0、ws2 の一覧は空、ws1 の id は ws2 から起動 / 更新できず `profile-not-found`、ws2 で作ったものは ws1 に戻ると見えない
+- 保存: `userData/debug-profiles.json` が Workspace root の realpath 2つで引かれている、再起動で ws1 の3件が戻る、**手で書き足した4件のうち `Path` を持つもの・絶対パスのもの・発番の形でない id のものが落ち**、余計な欄（`cwd` / `runtimeExecutable`）を持つものは7欄に畳まれて残る、再起動後は hook も無く `adapter-unavailable`
+- Workspace に1バイトも書かれない（`.vscode` / `.fluvix` / profile のファイルが無い）、mock adapter のプロセスが残らない、console エラー / CSP 違反 0件（2回とも）
+
+#### 確認スクリプトを書くときに踏んだこと（Session 6-10）
+
+- **scratchpad の `package.json` が `"type": "module"` だと、Workspace に置いた `.js` の題材まで ES module として読まれる**（`require is not defined` で exit 1）。アプリは正しい program / args / cwd / env を渡しているのに、「debuggee が引数を受け取っていない」ように見える FAIL が4つ出た。Workspace の**外**（使い捨てディレクトリの直下）に `{"type":"commonjs"}` を置けば、Workspace の中身を増やさずに済む
+- **起動時の再検証（保存の後にリンクへ差し替え）を画面側から作るには、保存時にまだ無いフォルダを profile に書いておき、保存の後でそのフォルダ名のジャンクションを作る。** 既に在るリンクは保存時に断られるので、この順でしか起動時の段を通せない
+- catalog の差し替えは bundle の `DEBUG_ADAPTER_CATALOG` を名前で書き換えるだけで効く（`getDebugAdapterCatalogEntry` / `hasIntegratedDebugAdapter` は呼ばれるたびに表を読む）。ステータスの `unavailable` → `idle` も同じ差し替えで動く
 
 ---
 

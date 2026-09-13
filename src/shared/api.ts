@@ -22,10 +22,14 @@ import type {
   WriteWorkspaceFileRequest
 } from './ipc/contracts/files'
 import type {
+  CreateDebugProfileRequest,
+  DeleteDebugProfileRequest,
   EvaluateDebugExpressionRequest,
   ListDebugScopesRequest,
   ListDebugVariablesRequest,
-  ToggleDebugBreakpointRequest
+  StartDebugRequest,
+  ToggleDebugBreakpointRequest,
+  UpdateDebugProfileRequest
 } from './ipc/contracts/debug'
 import type { IpcInvokeResult } from './ipc/contract'
 import type {
@@ -1089,7 +1093,8 @@ export interface LspApi {
  *                                  frameId は Scope を読むときだけ載る（今の停止の frame しか通らない）
  * variablesReference            … 無い（渡すのは Main が発行した handle。Session 6-6）
  * evaluate / setVariable        … 無い（evaluate は Session 6-7。値の書き換えは入れない）
- * Debug Session を起動          … 無い（Debug Profile の Session 6-9 まで）
+ * 起動するものを指定する欄      … 無い（Session 6-10 の `start` に載るのは profileId だけ。
+ *                                  実行ファイル・引数・cwd は Profile にも要求にも無い）
  * breakpoint の一覧を書き込む口 … 無い（1件ずつの入れ替えだけ。§20.12）
  * ```
  *
@@ -1190,6 +1195,31 @@ export interface DebugApi {
   readonly onStatusChanged: (
     listener: IpcEventListener<'debug:status-changed'>
   ) => IpcEventUnsubscribe
+  /**
+   * 今の Workspace の Debug Profile を読む（Session 6-10）。引数を取らない ──
+   * どの Workspace の分かは Main が決める。
+   */
+  readonly listProfiles: () => IpcInvokeResult<'debug:list-profiles'>
+  /**
+   * Debug Profile を作る（Session 6-10）。渡せるのは6欄（name / language /
+   * programRelativePath / programArgs / env / stopOnEntry）だけで、id は Main が発番する。
+   */
+  readonly createProfile: (
+    request: CreateDebugProfileRequest
+  ) => IpcInvokeResult<'debug:create-profile'>
+  readonly updateProfile: (
+    request: UpdateDebugProfileRequest
+  ) => IpcInvokeResult<'debug:update-profile'>
+  readonly deleteProfile: (
+    request: DeleteDebugProfileRequest
+  ) => IpcInvokeResult<'debug:delete-profile'>
+  /**
+   * その Debug Profile で Debug Session を始める（Session 6-10）。
+   *
+   * **渡すのは `profileId` だけ。** 何を・どこで・どの adapter で動かすかは Main が
+   * 保存された profile と自分の表から決め、その解決結果は返ってこない。
+   */
+  readonly start: (request: StartDebugRequest) => IpcInvokeResult<'debug:start'>
 }
 
 /**

@@ -96,8 +96,13 @@ export type {
   SaveLspDocumentRequest
 } from './contracts/lsp'
 export type {
+  CreateDebugProfileRequest,
   DebugCallStackResponse,
   DebugBreakpointsResponse,
+  DebugProfilesResponse,
+  DeleteDebugProfileRequest,
+  StartDebugRequest,
+  UpdateDebugProfileRequest,
   DebugEvaluateResponse,
   DebugIpcContract,
   DebugScopesResponse,

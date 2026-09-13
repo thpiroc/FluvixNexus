@@ -1,6 +1,14 @@
 import type { DebugBreakpoint } from '../../debug/breakpoint'
 import type { DebugCallStackSnapshot } from '../../debug/callStack'
 import type { DebugEvaluateContext, DebugEvaluateResult } from '../../debug/evaluate'
+import type {
+  DebugProfile,
+  DebugProfileDeleteOutcome,
+  DebugProfileDraft,
+  DebugProfileId,
+  DebugProfileSaveOutcome,
+  DebugStartOutcome
+} from '../../debug/profile'
 import type { DebugControlOutcome } from '../../debug/session'
 import type { DebugSessionStatus } from '../../debug/status'
 import type {
@@ -56,10 +64,20 @@ import type {
  * 応答は結末（`DebugControlOutcome`）で、**断ったことも値で返す**。「stopped でないので
  * Step できない」は利用者の操作への普通の答えで、IPC の失敗ではない。
  *
- * ## 実行を始める口はまだ無い
+ * ## 実行を始める口は `profileId` 1つだけ（Session 6-10）
  *
- * `debug:start` は Debug Profile（Session 6-9）が入るまで現れない。起動を頼めない以上、
- * Session 6-4 の口が相手にするのは Main が立てたセッションだけになる。
+ * ```
+ * debug:list-profiles   debug:create-profile   debug:update-profile   debug:delete-profile
+ * debug:start
+ * ```
+ *
+ * Renderer が書けるのは Debug Profile の6欄（shared/debug/profile.ts）だけで、
+ * `debug:start` に載るのは **`profileId` だけ**になる。そこから先 ── program の絶対パス、
+ * adapter の実行ファイル / 引数、cwd、環境、launch request ── は Main の中
+ * （main/debug/profileResolver.ts）で閉じ、応答にも載らない（docs/ARCHITECTURE.md §20.2 / §20.6）。
+ *
+ * **実行ファイル・引数・cwd を指す欄はどの要求にも無い。** draft に `cwd` や
+ * `runtimeExecutable` を載せても、Main の検証が6欄から作り直すので保存にも起動にも届かない。
  */
 
 /**
@@ -263,6 +281,76 @@ export interface DebugIpcContract {
     request: void
     response: DebugStatusResponse
   }
+  /**
+   * 今の Workspace の Debug Profile を読む（Session 6-10）。
+   *
+   * **要求に欄が1つも無い。** どの Workspace の分かを Renderer は言わず、返るのは常に
+   * 今開いている Workspace の分になる（§20.5）。Workspace が無ければ空。
+   */
+  'debug:list-profiles': {
+    request: void
+    response: DebugProfilesResponse
+  }
+  /**
+   * Debug Profile を作る（Session 6-10）。id は Main が発番して応答に載せる。
+   *
+   * 欄が通らなかったこと・上限・Workspace が無いことは値で返る。
+   * INVALID_REQUEST になるのは `profile` が object でないときだけ。
+   */
+  'debug:create-profile': {
+    request: CreateDebugProfileRequest
+    response: DebugProfileSaveOutcome
+  }
+  /** Debug Profile を書き換える（Session 6-10）。id は変わらない。 */
+  'debug:update-profile': {
+    request: UpdateDebugProfileRequest
+    response: DebugProfileSaveOutcome
+  }
+  /** Debug Profile を消す（Session 6-10）。 */
+  'debug:delete-profile': {
+    request: DeleteDebugProfileRequest
+    response: DebugProfileDeleteOutcome
+  }
+  /**
+   * その Debug Profile で Debug Session を始める（Session 6-10）。
+   *
+   * **載るのは `profileId` だけ。** 答えるのは adapter のプロセスを立てた時点で、
+   * その後の starting → running は `debug:status-changed` で届く。断りと失敗は値で返り、
+   * 理由の分類だけが載る（解決した絶対パスも adapter の文言も載らない）。
+   */
+  'debug:start': {
+    request: StartDebugRequest
+    response: DebugStartOutcome
+  }
+}
+
+/** 今の Workspace の Debug Profile（Session 6-10）。 */
+export interface DebugProfilesResponse {
+  readonly profiles: readonly DebugProfile[]
+}
+
+/**
+ * 作成の要求（Session 6-10）。**id の欄は無い**（Main が発番する）。
+ *
+ * `profile` の中は6欄だけが読まれ、それ以外（`profileId` / `cwd` / `adapter` …）は捨てられる。
+ */
+export interface CreateDebugProfileRequest {
+  readonly profile: DebugProfileDraft
+}
+
+export interface UpdateDebugProfileRequest {
+  /** 一覧で受け取った id（Main が発番したもの）。 */
+  readonly profileId: DebugProfileId
+  readonly profile: DebugProfileDraft
+}
+
+export interface DeleteDebugProfileRequest {
+  readonly profileId: DebugProfileId
+}
+
+/** 起動の要求（Session 6-10）。**欄は `profileId` の1つだけ。** */
+export interface StartDebugRequest {
+  readonly profileId: DebugProfileId
 }
 
 /** Debug の状態（Session 6-9）。載るのは閉じた集合の1語だけ（shared/debug/status.ts）。 */

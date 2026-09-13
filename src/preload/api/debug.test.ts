@@ -27,10 +27,13 @@ describe('debug preload api', () => {
     expect(Object.keys(debugApi).sort()).toEqual(
       [
         'continue',
+        'createProfile',
+        'deleteProfile',
         'evaluate',
         'getStatus',
         'listBreakpoints',
         'listCallStack',
+        'listProfiles',
         'listScopes',
         'listVariables',
         'onBreakpointsChanged',
@@ -38,11 +41,13 @@ describe('debug preload api', () => {
         'onConsoleEntry',
         'onStatusChanged',
         'pause',
+        'start',
         'stepInto',
         'stepOut',
         'stepOver',
         'stop',
-        'toggleBreakpoint'
+        'toggleBreakpoint',
+        'updateProfile'
       ].sort()
     )
   })
@@ -55,7 +60,9 @@ describe('debug preload api', () => {
     ['stepOut', 'debug:step-out'],
     ['stop', 'debug:stop'],
     /* Session 6-9。読むだけの口も、何を渡されてもチャンネル名だけを送る。 */
-    ['getStatus', 'debug:get-status']
+    ['getStatus', 'debug:get-status'],
+    /* Session 6-10。どの Workspace の分かを渡す欄が無い。 */
+    ['listProfiles', 'debug:list-profiles']
   ] as const)(
     '%s invokes %s with no payload, whatever the caller passes',
     async (name, channel) => {
@@ -102,6 +109,36 @@ describe('debug preload api', () => {
       frameId: 11,
       context: 'repl'
     })
+  })
+
+  it('start forwards only the profile id (Session 6-10)', async () => {
+    await debugApi.start({
+      profileId: 'dp-00000000-0000-4000-8000-000000000001',
+      adapter: 'C:\\evil.exe',
+      adapterArgs: ['--x'],
+      cwd: 'C:\\Windows',
+      program: 'C:\\evil.js',
+      runtimeExecutable: 'C:\\evil.exe'
+    } as never)
+
+    expect(invoke).toHaveBeenCalledWith('debug:start', {
+      profileId: 'dp-00000000-0000-4000-8000-000000000001'
+    })
+  })
+
+  it('profile edits forward only profile / profileId (Session 6-10)', async () => {
+    const profile = { name: 'Run', language: 'node' }
+
+    await debugApi.createProfile({ profile, profileId: 'dp-x', cwd: 'C:\\' } as never)
+    await debugApi.updateProfile({ profileId: 'dp-y', profile, adapter: 'x' } as never)
+    await debugApi.deleteProfile({ profileId: 'dp-z', rootPath: 'D:\\other' } as never)
+
+    expect(invoke).toHaveBeenNthCalledWith(1, 'debug:create-profile', { profile })
+    expect(invoke).toHaveBeenNthCalledWith(2, 'debug:update-profile', {
+      profileId: 'dp-y',
+      profile
+    })
+    expect(invoke).toHaveBeenNthCalledWith(3, 'debug:delete-profile', { profileId: 'dp-z' })
   })
 
   /**
