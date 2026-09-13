@@ -48,6 +48,9 @@ const integratedNode: DebugAdapterCatalogEntry = {
   adapter: { executable: 'node', args: ['C:\\tools\\mock-adapter.js'] }
 }
 
+/** adapter のプロセスの cwd（Main が持つ Workspace の外のフォルダ。Session 6-12）。 */
+const ADAPTER_CWD = 'C:\\Users\\me\\AppData\\Roaming\\Fluvix Nexus'
+
 function harness(overrides: Partial<DebugProfileServiceDependencies> = {}) {
   let workspace: WorkspaceFolder | null = workspaceA
   let counter = 0
@@ -90,6 +93,7 @@ function harness(overrides: Partial<DebugProfileServiceDependencies> = {}) {
     getParentEnv: () => ({ PATH: 'C:\\nodejs', SystemRoot: 'C:\\Windows' }),
     exists: (path) => path === 'C:\\nodejs\\node.exe',
     getCatalogEntry: () => integratedNode,
+    getAdapterWorkingDirectory: () => ADAPTER_CWD,
     getSessionState: () => 'idle',
     startSession: (options) => {
       started.push(options)
@@ -346,7 +350,7 @@ describe('debug profiles — start', () => {
           name: 'Mock Adapter',
           file: 'C:\\nodejs\\node.exe',
           args: ['C:\\tools\\mock-adapter.js'],
-          cwd: 'D:\\proj',
+          cwd: ADAPTER_CWD,
           env: { PATH: 'C:\\nodejs', SystemRoot: 'C:\\Windows' }
         },
         launchArguments: {

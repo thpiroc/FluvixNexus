@@ -27,7 +27,7 @@ import type { DebugAdapterCommand } from './adapterCatalog'
  * adapter の実行ファイル・引数はここに無い ── それは `spawn()` の引数（`adapterCommand`）で、
  * `programArgs` は adapter のコマンドラインに一語も現れない（§20.4）。
  */
-export interface DebugLaunchRequestArguments {
+export interface DebugLaunchRequestArguments extends DebugLaunchLanguageOptions {
   /** 表示用の名前（profile の `name`）。 */
   readonly name: string
   /** adapter が launch 構成を見分ける種類（言語ごとの表。profileResolver.ts）。 */
@@ -47,6 +47,21 @@ export interface DebugLaunchRequestArguments {
    * adapter が `runInTerminal` を頼んでくる経路になる（§20.9 で拒否している）。
    */
   readonly console: 'internalConsole'
+}
+
+/**
+ * 言語ごとに launch request へ足す固定の欄（Session 6-12）。
+ *
+ * **profile の欄からは作らない。** 利用者が変える値ではなく、この版が adapter をどう使うかの
+ * 決めで、値は profileResolver.ts の閉じた表だけが持つ。
+ */
+export interface DebugLaunchLanguageOptions {
+  /**
+   * debugpy の子プロセスへの注入。**常に false**（§20.20）。既定の true では、debuggee が
+   * 起こした子プロセスが `debugpyAttach` に応えて2本目のセッションが張られるまで待たされる
+   * ── v1 は同時セッション1本なので応える手段が無く、`subprocess.run(...)` が返らなくなる。
+   */
+  readonly subProcess?: false
 }
 
 export interface ResolvedLaunchConfiguration {

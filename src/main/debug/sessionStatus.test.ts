@@ -175,10 +175,13 @@ describe('sessionStatus module', () => {
     )
   })
 
-  /** この版では catalog のどの行も統合されていないので、既定の状態は unavailable。 */
-  it('既定の状態は、catalog の事実どおり unavailable から始まる', async () => {
+  /**
+   * Session 6-12 で python の行が統合されたので、既定の状態は idle。
+   * PATH に python があるかまでは見ない（§20.17。無ければ起動の応答が `adapter-unavailable`）。
+   */
+  it('既定の状態は、catalog の事実どおり idle から始まる', async () => {
     const { getDebugSessionStatus } = await import('./sessionStatus')
 
-    expect(getDebugSessionStatus()).toBe('unavailable')
+    expect(getDebugSessionStatus()).toBe('idle')
   })
 })

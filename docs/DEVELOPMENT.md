@@ -1,6 +1,6 @@
 # 開発ガイド
 
-> 対象: Session 5-13（STEP 5 LSP Closing）完了時点 ＋ Session 6-11（STEP 6 DAP Debug Toolbar / Profile editor）
+> 対象: Session 5-13（STEP 5 LSP Closing）完了時点 ＋ Session 6-12（STEP 6 DAP Python / debugpy）
 > 最終更新: 2026-09-13
 
 ---
@@ -33,8 +33,10 @@ Language Server と同じく**アプリの開発・テスト・ビルドには�
 | 言語    | Debug Adapter 候補                       | 入手経路              | 状態                                         |
 | ------- | ---------------------------------------- | --------------------- | -------------------------------------------- |
 | Node.js | vscode-js-debug の DAP server            | **未確定**            | Session 6-1 では catalog 上 `not-integrated` |
-| Python  | `debugpy`（`python -m debugpy.adapter`） | `pip install debugpy` | Session 6-1 では catalog 上 `not-integrated` |
+| Python  | `debugpy`（`python -m debugpy.adapter`） | `pip install debugpy` | **Session 6-12 で `integrated`**             |
 | C#      | `netcoredbg --interpreter=vscode`        | 配布バイナリ          | Session 6-1 では catalog 上 `not-integrated` |
+
+Python は **PATH の `python` で `import debugpy` できること**が条件（Workspace の中・相対の PATH 項目は探さない）。debuggee も同じ interpreter で動く。
 
 **vsdbg は使わない**（ライセンス上 Visual Studio / VS Code 以外から利用できない）。C# は netcoredbg を前提にする。
 
@@ -55,6 +57,8 @@ Session 6-9 で **Debug の状態**がステータスバーに出るようにな
 Session 6-10 で **Debug Profile の保存と `debug:start`** が入った（`debug:list-profiles` / `create-profile` / `update-profile` / `delete-profile` / `start`。docs/ARCHITECTURE.md §20.18）。保存先は `userData/debug-profiles.json`（Workspace root の realpath で引く）。Renderer が渡せるのは6欄と Main が発番した `profileId` だけで、解決した program の絶対パス・adapter の実行ファイル / 引数・cwd は Main の中（`ResolvedLaunchConfiguration`）で閉じる。**catalog の行はすべて `not-integrated` のままなので、実機の `debug:start` は常に `adapter-unavailable`** ── 起動が通るのは catalog を mock adapter に差し替えた確認だけ（§4）。
 
 Session 6-11 で **Debug Toolbar と Debug Profile editor** が Debug Panel の中に入った（docs/ARCHITECTURE.md §20.19）。Toolbar は `DebugSessionStatus` だけから Start / Continue / Pause / Step / Stop の活性を決め、同じ条件で `debug.*` command を登録する。Profile editor は Session 6-10 の6欄だけを編集し、Start は選択済み `profileId` だけを `debug:start` へ渡す。Settings section は作っていない。実 adapter 統合はまだ無い。
+
+Session 6-12 で **Python（debugpy）が最初の実 adapter** になった（docs/ARCHITECTURE.md §20.20）。catalog の python 行が `integrated` になったので、**出荷状態のステータスは「待機中」**になり、PATH の `python` に debugpy が入っていれば Debug Profile → Start → breakpoint → Continue / Pause / Step → Call Stack / Variables / Debug Console → Stop が実機で通る。adapter のプロセスの cwd は userData（Workspace の外）、launch には `subProcess: false` が固定で載る。python が PATH に無ければ Start は `adapter-unavailable`、debugpy の無い python では starting から idle へ戻るだけになる。Node / C# は未統合のまま。
 
 ---
 
@@ -616,8 +620,8 @@ DAP の周りは 6-1 / 6-2 と同じ分け方で、**Electron も子プロセス
 #### Debug Status（Session 6-9）
 
 - `src/shared/debug/status.test.ts` — セッションの状態 × adapter の有無の重ね方（動いていれば adapter を見ない・`unavailable` は idle の上だけ）、閉じた集合が6語だけで `failed` / `paused` のような別名を持たないこと
-- `src/main/debug/sessionStatus.test.ts` — 起動時は配らないこと・**payload が1語だけ**であること・同じ tick の変化を1本にまとめてその時点の状態を送ること・同じ語を続けて送らないこと・公開するのが読む関数と配り始める関数だけであること・既定が `unavailable`
-- `src/main/debug/adapterCatalog.test.ts` — `hasIntegratedDebugAdapter`（統合された行が無ければ false、1行でもあれば true）
+- `src/main/debug/sessionStatus.test.ts` — 起動時は配らないこと・**payload が1語だけ**であること・同じ tick の変化を1本にまとめてその時点の状態を送ること・同じ語を続けて送らないこと・公開するのが読む関数と配り始める関数だけであること・既定が `idle`（Session 6-12 で python 行が統合されたため。6-9〜6-11 は `unavailable`）
+- `src/main/debug/adapterCatalog.test.ts` — `hasIntegratedDebugAdapter`（統合された行が無ければ false、1行でもあれば true。出荷状態は python が統合されているので true）
 - `src/main/ipc/handlers/debug.test.ts` — `debug:get-status` が要求に何が載っていても読まず、`{ status }` だけを返すこと
 - `src/preload/api/debug.test.ts` — 17関数になったこと、`getStatus` が何を渡されてもチャンネル名だけを送ること
 - `src/renderer/src/debug/debugStatusLabels.test.ts` — 6語すべてに日英の言葉があること・言い回しが重ならないこと・**`stopped` を Paused / 一時停止中 と書き、Stopped / 停止中 と書かないこと**
@@ -629,9 +633,9 @@ DAP の周りは 6-1 / 6-2 と同じ分け方で、**Electron も子プロセス
 - `src/main/debug/environmentPolicy.test.ts` — §20.9 の10個を**大文字小文字を問わず**断ること（`Path` / `node_options`）・名前の形・大文字小文字だけ違う重複・値の NUL / 長さ / 件数・`__proto__` が prototype を変えないこと・adapter のプロセスの環境から `ELECTRON_RUN_AS_NODE` / `NODE_OPTIONS` を落とすこと
 - `src/main/debug/profileValidation.test.ts` — **6欄から作り直す**こと（`cwd` / `runtimeExecutable` / `adapter` / `console` / `preLaunchTask` / `processId` が消える）・値を trim しないこと・欄ごとの理由（絶対パス / UNC / `..` / ドライブ相対 / file URI / NUL / root そのもの・禁じた環境変数・言語の集合）
 - `src/main/debug/programPath.test.ts` — **実ディスク**で2段を確かめる（Workspace 内のファイル → realpath・外を指すジャンクションは保存時も起動時も `outside-workspace`・中を指すリンクは通る・無いファイルは保存時は通り起動時は `not-found`・root が消えたとき・文字列の段で断ったら realpath を呼ばないこと）
-- `src/main/debug/profileResolver.test.ts` — 解決済みの形全体・**`programArgs` が adapter のコマンドラインに一語も現れないこと**（§20.4）・profile の env が adapter のプロセスへ入らないこと・profile に付いた余計な欄が効かないこと・解決時にもう一度断ること（禁じた環境変数 / 絶対パス / 外を指す実体 / 無いファイル）・出荷状態の catalog（`not-integrated`）と PATH に無い adapter と相対の PATH 項目で `adapter-unavailable`
-- `src/main/debug/adapterCatalog.test.ts` — `resolveDebugAdapterExecutable`（出荷状態の行は解かない・`.exe` を直接・`.cmd` を `%SystemRoot%` の cmd.exe で包む・`%SystemRoot%` が無ければ名前だけの cmd.exe に落とさない・相対の PATH 項目を辿らない・表の名前が区切りを含めば解かない）
-- `src/main/debug/debugProfiles.test.ts` — id を Main が発番し draft の id / 余計な欄を使わないこと・今の Workspace の分だけを返し key を載せないこと・書いた直後の一覧が控えから読めること・保存時の検証（外を指すリンクを含む）・上限・別の Workspace の id を更新 / 削除 / 起動できないこと・起動に解決済みの形が渡り応答が `started` だけであること・動いている間は解決せずに断ること・起動時の再検証・spawn の文言を応答に載せないこと
+- `src/main/debug/profileResolver.test.ts` — 解決済みの形全体・**`programArgs` が adapter のコマンドラインに一語も現れないこと**（§20.4）・profile の env が adapter のプロセスへ入らないこと・profile に付いた余計な欄が効かないこと・解決時にもう一度断ること（禁じた環境変数 / 絶対パス / 外を指す実体 / 無いファイル）・`not-integrated` の行と PATH に無い adapter と相対の PATH 項目で `adapter-unavailable`・**adapter のプロセスの cwd が Workspace の外で、プログラムの cwd は Workspace root のままであること**（cwd が Workspace root / 大小違いの realpath / Workspace の中 / 相対 / 空なら `adapter-unavailable`。Session 6-12）・**出荷状態の python 行が `python -m debugpy.adapter` と `type: debugpy` / `subProcess: false` に解けること**・profile に `python` / `subProcess` / `justMyCode` を載せても launch に届かないこと・python 以外の言語に `subProcess` が載らないこと
+- `src/main/debug/adapterCatalog.test.ts` — `resolveDebugAdapterExecutable`（出荷状態の node / csharp 行は解かない・python 行は PATH の `python.exe` へ解ける（Session 6-12）・`.exe` を直接・`.cmd` を `%SystemRoot%` の cmd.exe で包む・`%SystemRoot%` が無ければ名前だけの cmd.exe に落とさない・相対の PATH 項目を辿らない・表の名前が区切りを含めば解かない）
+- `src/main/debug/debugProfiles.test.ts` — id を Main が発番し draft の id / 余計な欄を使わないこと・今の Workspace の分だけを返し key を載せないこと・書いた直後の一覧が控えから読めること・保存時の検証（外を指すリンクを含む）・上限・別の Workspace の id を更新 / 削除 / 起動できないこと・起動に解決済みの形（adapter の cwd は Main が渡す Workspace の外のフォルダ）が渡り応答が `started` だけであること・動いている間は解決せずに断ること・起動時の再検証・spawn の文言を応答に載せないこと
 - `src/main/store/debugProfilesDocument.test.ts` — エンベロープが壊れていれば文書ごと捨てる・**保存時と同じ検証で1件だけを落とす**（発番の形でない id / 絶対パス / `..` / 禁じた環境変数）・余計な欄を落とす・id の重複・Workspace の上限
 - `src/main/ipc/handlers/debug.test.ts` — 5本の登録・`debug:start` が `profileId` 以外を読まないこと・形の壊れた id / object でない `profile` は INVALID_REQUEST で Main の処理へ届かないこと
 - `src/preload/api/debug.test.ts` — 22関数になったこと・`start` が `profileId` だけ、編集が `profile` / `profileId` だけを送ること
@@ -2045,6 +2049,36 @@ Session 4-5 / 4-7 は**境界を1つも動かしていない**ことを、両ス
 - Profile editor: Add Profile で Debug Panel 内に editor が開く、6欄（name / language / programRelativePath / programArgs / env / stopOnEntry）が揃う、`input[type=file]` は無く native file dialog に依存しない
 - セキュリティ: `window.fluvix.debug` は公開されるが、`window.process` / `window.electron` は出ない。debug API は Session 6-10 の22関数のまま
 - 片付け: 検証用 profile は保存しない。adapter は起動しない
+
+### Session 6-12（Python / debugpy）
+
+**production build 版 85項目、全項目 PASS。実 debugpy（1.8.21 / CPython 3.14.7）で、hook も mock adapter も catalog の差し替えも使っていない**（`npm run build` の `out/` をそのまま起動）。この PC には Python が無いので、uv が置いた CPython から scratchpad に venv を作って `pip install debugpy` し、**起動する Electron の `PATH` の先頭にだけ** `Scripts` を足した。使い捨ての Workspace 2つ（ws1 / ws2）と使い捨ての `--user-data-dir` で、同じ node プロセスから3回起動した（A: debugpy 入りの python / B: debugpy の無い python / C: PATH に python が無い）。ws1 には **`debugpy/__init__.py`（読み込まれたら印のファイルを書いて exit 3）を置いた**。
+
+- 面 / 境界: `debug` の関数が22個のまま、adapter / spawn / exec / process / command / launch / runtime / cwd / python / interpreter / terminal を名乗る関数が無い、`require` / `process` / `electron` / `Buffer` の非露出、CSP meta があり違反 0件（A / B）、Renderer の console エラー 0件
+- 出荷状態: ステータスバーと `getStatus` が「待機中」（python 行が統合された）、Toolbar は idle で Start だけが押せる
+- Profile: Debug Panel の editor から python の profile を2つ作成（`main.py` に args 2行 + `FX_MODE=verify`、`loop.py` に stopOnEntry）。args は1行1語のまま、一覧に絶対パス / adapter の名残が無い
+- 起動と停止: breakpoint（main.py:11）→ Start で starting → running → stopped、**debugpy が `verified: true` を返し**、Toolbar は Continue / Step ×3 / Stop だけが押せる
+- Call Stack: 最上段が `main`（main.py:11・Workspace 内の相対）、その下に `<module>`、応答に Workspace の絶対パス / venv / site-packages / file URI が無い、画面にも両方が出る、frame を押すと main.py がエディタに開く
+- Variables: Locals に `items = [1, 2, 3]` と `info`（dict）、`info` を開くと `'name': 'fluvix'`、生の `variablesReference`（`'4'`）は handle として通らない、画面に items / info
+- Debug Console / Evaluate: 入力欄で `len(items) * 10` → `30`、typed API で `info["name"].upper()` → `FLUVIX`、未定義の名前も答えが返り stopped のまま
+- Step: Step Into で helper.py:2 の `add`、Step Over で helper.py:3（`doubled` が `2`）、Step Out で main.py の `main` へ戻る
+- 完走: Continue で idle へ戻り、stdout に `child said 42`（**`subprocess.run` が返った ＝ `subProcess: false`**）・`args ['alpha beta', '--flag'] mode verify cwd ws1`（プログラムの cwd は Workspace root）・`result 4`、Call Stack が空になり python のプロセスが 0
+- stopOnEntry / Pause / Stop: loop.py の入口で止まる → Continue で running（Pause / Stop だけ押せる）→ Pause で loop.py の中に止まり `count > 0` が `True` → Stop で idle、python のプロセスが 0
+- 起動の要求に余計な欄: `start({ profileId, executable: calc.exe, cwd, args, adapter })` の応答は `{ status: 'started' }` だけ、動いたのは `python -m debugpy.adapter`（コマンドラインに calc が無い）
+- Workspace 切り替え: running のまま ws2 へ → idle・python のプロセス 0、ws2 の一覧は空、ws1 の id は ws2 から `profile-not-found`、ws1 へ戻ると2件が残っている
+- アプリ終了: running のまま `app.close()` が返り、python のプロセスが 0
+- **Workspace の `debugpy/` は一度も読み込まれなかった**（印のファイルが無い）。Workspace に増えたのは CPython が `import helper` で書いた `__pycache__/helper.cpython-314.pyc` だけ
+- B（debugpy の無い python）: 起動の応答は `started`、状態は starting → idle、python のプロセス 0、アプリは応答し続ける。続けて **userData に `debugpy/__init__.py` を置くとそちらが読み込まれた ── adapter のプロセスの cwd が userData であることの裏付け**（確認後に削除）
+- C（PATH に python が無い）: 状態は idle のまま、Start の応答は `{ status: 'failed', reason: 'adapter-unavailable' }` だけで python のプロセスは立たない、Toolbar の文言に絶対パス / 実行ファイル名が無い
+
+気づいたこと（直していない）: debugpy の `telemetry` output（`ptvsd` / `debugpy`）が Debug Console に `system` の2行として出る（Session 6-8 の畳み方のまま）。
+
+#### 確認スクリプトを書くときに踏んだこと（Session 6-12）
+
+- **応答の形を取り違えると、アプリが正しいのに FAIL が出る。** `listCallStack` は `data.callStack`、`listScopes` / `listVariables` / `evaluate` は `data.result`、`onConsoleEntry` の payload は `{ workspaceId, entry }`
+- **debugpy は `print("a", b)` を複数の output event に分けて送る**（`child said` と ` 42\n…`）。entry ごとに探すと見つからない ── stdout の text をつないでから探す
+- **venv の `python.exe` はリダイレクタで base の python を子に起こす。** adapter / launcher / debuggee で python が6プロセスに見える。数えるときは CommandLine の venv / uv のパスで絞る
+- `process.env` を展開して `PATH` を足すと、Windows では `Path` と `PATH` の2つのキーになる ── 大小どちらも消してから `PATH` を1本だけ入れる
 
 ---
 

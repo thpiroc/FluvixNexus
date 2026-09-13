@@ -14,8 +14,10 @@ import {
  *
  * Session 6-10 で、行が**起動するもの**（実行ファイルの名前と adapter の引数）を持てる形にし、
  * それを PATH から絶対パスへ解く `resolveDebugAdapterExecutable` を足した。
- * **どの行もまだ `not-integrated` のまま**で、実 adapter の行を埋めるのは後続の Session になる
- * （Node adapter の入手経路と transport は未調査。docs/ARCHITECTURE.md §20.7）。
+ *
+ * Session 6-12 で **python の行を `integrated` にした**（最初の実 adapter。`python -m debugpy.adapter`）。
+ * node / csharp は `not-integrated` のまま（Node adapter の入手経路と transport は未調査。
+ * docs/ARCHITECTURE.md §20.7 / §20.20）。
  */
 
 /*
@@ -70,10 +72,17 @@ const DEBUG_ADAPTER_CATALOG: Record<DebugAdapterLanguageId, DebugAdapterCatalogE
     name: 'Node.js Debug Adapter',
     integrationStatus: 'not-integrated'
   },
+  /*
+    Session 6-12。PATH の `python` で debugpy の adapter を stdio で立てる（`pip install debugpy`）。
+    debuggee も同じ interpreter で動く（launch に `python` の欄を載せないため、adapter が
+    自分の `sys.executable` を使う）。`-m` は cwd を sys.path の先頭に置くので、
+    adapter のプロセスの cwd は Workspace の外にする（profileResolver.ts）。
+  */
   python: {
     language: 'python',
     name: 'debugpy',
-    integrationStatus: 'not-integrated'
+    integrationStatus: 'integrated',
+    adapter: { executable: 'python', args: ['-m', 'debugpy.adapter'] }
   },
   csharp: {
     language: 'csharp',

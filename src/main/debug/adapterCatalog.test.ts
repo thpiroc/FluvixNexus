@@ -16,10 +16,15 @@ describe('Debug Adapter catalog foundation', () => {
     expect(isDebugAdapterLanguageId('ruby')).toBe(false)
   })
 
-  it('Session 6-1 では実 adapter 統合をまだ持たない', () => {
+  it('Session 6-12 では python（debugpy）の行だけが統合されている', () => {
     expect(listDebugAdapterCatalogEntries()).toEqual([
       { language: 'node', name: 'Node.js Debug Adapter', integrationStatus: 'not-integrated' },
-      { language: 'python', name: 'debugpy', integrationStatus: 'not-integrated' },
+      {
+        language: 'python',
+        name: 'debugpy',
+        integrationStatus: 'integrated',
+        adapter: { executable: 'python', args: ['-m', 'debugpy.adapter'] }
+      },
       { language: 'csharp', name: 'netcoredbg', integrationStatus: 'not-integrated' }
     ])
   })
@@ -28,25 +33,24 @@ describe('Debug Adapter catalog foundation', () => {
     expect(getDebugAdapterCatalogEntry('python')).toEqual({
       language: 'python',
       name: 'debugpy',
-      integrationStatus: 'not-integrated'
+      integrationStatus: 'integrated',
+      adapter: { executable: 'python', args: ['-m', 'debugpy.adapter'] }
     })
   })
 
   /** Debug の状態の `unavailable` の根拠（Session 6-9）。 */
-  it('統合された行が1つも無い間は、起動できる adapter が無い', () => {
-    expect(hasIntegratedDebugAdapter()).toBe(false)
+  it('統合された行が1つも無ければ、起動できる adapter が無い', () => {
+    const entries = listDebugAdapterCatalogEntries().map((entry): DebugAdapterCatalogEntry => ({
+      language: entry.language,
+      name: entry.name,
+      integrationStatus: 'not-integrated'
+    }))
+
+    expect(hasIntegratedDebugAdapter(entries)).toBe(false)
   })
 
-  it('1行でも統合されていれば、起動できる adapter がある', () => {
-    const entries = listDebugAdapterCatalogEntries()
-
-    expect(
-      hasIntegratedDebugAdapter([
-        ...entries.slice(0, 1),
-        { ...entries[1], integrationStatus: 'integrated' },
-        ...entries.slice(2)
-      ])
-    ).toBe(true)
+  it('1行でも統合されていれば、起動できる adapter がある（出荷状態は python）', () => {
+    expect(hasIntegratedDebugAdapter()).toBe(true)
   })
 })
 
@@ -61,10 +65,28 @@ describe('resolveDebugAdapterExecutable', () => {
 
   const windowsEnv = { PATH: 'C:\\Python312;.;tools', SystemRoot: 'C:\\Windows' }
 
-  it('does not resolve any shipped row (all are not-integrated in this version)', () => {
-    for (const entry of listDebugAdapterCatalogEntries()) {
-      expect(resolveDebugAdapterExecutable(entry, 'win32', windowsEnv, () => true)).toBeNull()
+  it('does not resolve the shipped rows that are not integrated (node / csharp)', () => {
+    for (const language of ['node', 'csharp'] as const) {
+      expect(
+        resolveDebugAdapterExecutable(
+          getDebugAdapterCatalogEntry(language),
+          'win32',
+          windowsEnv,
+          () => true
+        )
+      ).toBeNull()
     }
+  })
+
+  it('resolves the shipped python row through PATH (Session 6-12)', () => {
+    expect(
+      resolveDebugAdapterExecutable(
+        getDebugAdapterCatalogEntry('python'),
+        'win32',
+        windowsEnv,
+        (path) => path === 'C:\\Python312\\python.exe'
+      )
+    ).toEqual({ file: 'C:\\Python312\\python.exe', args: ['-m', 'debugpy.adapter'] })
   })
 
   it('does not resolve an integrated row that has nothing to start', () => {

@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { DebugProfile } from '@shared/debug'
-import type { DebugAdapterCatalogEntry } from './adapterCatalog'
+import { getDebugAdapterCatalogEntry, type DebugAdapterCatalogEntry } from './adapterCatalog'
 import type { DebugProgramFileSystem } from './programPath'
 import {
+  DEBUG_LAUNCH_LANGUAGE_OPTIONS,
   DEBUG_LAUNCH_TYPES,
   resolveDebugProfile,
   type DebugProfileResolverContext
@@ -21,6 +22,8 @@ import {
 
 const ROOT = 'D:\\proj'
 const REAL_ROOT = 'D:\\Proj'
+/** adapter のプロセスの cwd（Main が持つ Workspace の外のフォルダ。Session 6-12）。 */
+const ADAPTER_CWD = 'C:\\Users\\me\\AppData\\Roaming\\Fluvix Nexus'
 
 const profile: DebugProfile = {
   profileId: 'dp-00000000-0000-4000-8000-000000000001',
@@ -76,6 +79,7 @@ function context(
     exists: (path) => path === 'C:\\Program Files\\nodejs\\node.exe',
     fileSystem,
     getCatalogEntry: () => integratedNode,
+    adapterWorkingDirectory: ADAPTER_CWD,
     ...overrides
   }
 }
@@ -94,7 +98,7 @@ describe('resolveDebugProfile', () => {
           name: 'Mock Adapter',
           file: 'C:\\Program Files\\nodejs\\node.exe',
           args: ['C:\\tools\\mock-adapter.js', '--stdio'],
-          cwd: REAL_ROOT,
+          cwd: ADAPTER_CWD,
           env: { PATH: 'C:\\Program Files\\nodejs;.;relative\\bin', SystemRoot: 'C:\\Windows' }
         },
         launchArguments: {
@@ -164,6 +168,120 @@ describe('resolveDebugProfile', () => {
 
   it('has a launch type for every language', () => {
     expect(Object.keys(DEBUG_LAUNCH_TYPES).sort()).toEqual(['csharp', 'node', 'python'])
+    expect(Object.keys(DEBUG_LAUNCH_LANGUAGE_OPTIONS).sort()).toEqual(['csharp', 'node', 'python'])
+  })
+
+  /**
+   * Session 6-12 ── adapter のプロセスの cwd は Workspace の外。
+   * `python -m` は cwd を sys.path の先頭に置くため、Workspace の `debugpy/` が adapter になりうる。
+   */
+  describe('adapter working directory', () => {
+    it('starts the adapter outside the workspace while the program runs in the workspace root', () => {
+      const resolution = resolveDebugProfile(profile, context())
+
+      expect(resolution.status === 'resolved' && resolution.configuration.adapterCommand.cwd).toBe(
+        ADAPTER_CWD
+      )
+      expect(resolution.status === 'resolved' && resolution.configuration.launchArguments.cwd).toBe(
+        REAL_ROOT
+      )
+    })
+
+    it.each([
+      ['the workspace root', 'D:\\proj'],
+      ['the real workspace root in another case', 'd:\\PROJ'],
+      ['a folder inside the workspace', 'D:\\Proj\\.venv\\Scripts'],
+      ['a relative path', 'user-data'],
+      ['an empty string', '']
+    ])('is adapter-unavailable when it is %s', (_label, adapterWorkingDirectory) => {
+      expect(resolveDebugProfile(profile, context({ adapterWorkingDirectory }))).toEqual({
+        status: 'failed',
+        reason: 'adapter-unavailable'
+      })
+    })
+  })
+
+  /** Session 6-12 ── 最初の実 adapter。値は実 debugpy（1.8.21）で確かめたもの。 */
+  describe('python (debugpy)', () => {
+    const pythonProfile: DebugProfile = { ...profile, language: 'python' }
+    const pythonContext = context({
+      parentEnv: { PATH: 'C:\\Python312;.;relative\\bin', SystemRoot: 'C:\\Windows' },
+      exists: (path) => path === 'C:\\Python312\\python.exe',
+      getCatalogEntry: getDebugAdapterCatalogEntry
+    })
+
+    it('resolves the shipped python row to python -m debugpy.adapter outside the workspace', () => {
+      const resolution = resolveDebugProfile(pythonProfile, pythonContext)
+
+      expect(resolution).toEqual({
+        status: 'resolved',
+        configuration: {
+          profileId: profile.profileId,
+          language: 'python',
+          adapterId: 'debugpy',
+          adapterCommand: {
+            name: 'debugpy',
+            file: 'C:\\Python312\\python.exe',
+            args: ['-m', 'debugpy.adapter'],
+            cwd: ADAPTER_CWD,
+            env: { PATH: 'C:\\Python312;.;relative\\bin', SystemRoot: 'C:\\Windows' }
+          },
+          launchArguments: {
+            subProcess: false,
+            name: 'Run app',
+            type: 'debugpy',
+            request: 'launch',
+            program: `${REAL_ROOT}\\src\\app.js`,
+            args: ['--port', '3000', '&&', 'calc.exe'],
+            cwd: REAL_ROOT,
+            env: { APP_MODE: 'debug' },
+            stopOnEntry: true,
+            console: 'internalConsole'
+          }
+        }
+      })
+    })
+
+    it('never carries an interpreter or adapter choice from the profile', () => {
+      const polluted = {
+        ...pythonProfile,
+        python: 'C:\\evil\\python.exe',
+        pythonPath: 'C:\\evil\\python.exe',
+        subProcess: true,
+        justMyCode: false,
+        debugAdapterPath: 'C:\\evil\\adapter'
+      } as DebugProfile
+
+      const resolution = resolveDebugProfile(polluted, pythonContext)
+
+      expect(resolution.status).toBe('resolved')
+
+      if (resolution.status === 'resolved') {
+        const { adapterCommand, launchArguments } = resolution.configuration
+
+        expect(adapterCommand.file).toBe('C:\\Python312\\python.exe')
+        expect(adapterCommand.args).toEqual(['-m', 'debugpy.adapter'])
+        expect(launchArguments.subProcess).toBe(false)
+        expect(launchArguments).not.toHaveProperty('python')
+        expect(launchArguments).not.toHaveProperty('pythonPath')
+        expect(launchArguments).not.toHaveProperty('justMyCode')
+        expect(launchArguments).not.toHaveProperty('debugAdapterPath')
+      }
+    })
+
+    it('is adapter-unavailable when python is not on PATH', () => {
+      expect(resolveDebugProfile(pythonProfile, { ...pythonContext, exists: () => false })).toEqual(
+        { status: 'failed', reason: 'adapter-unavailable' }
+      )
+    })
+
+    it('does not add python-only fields to other languages', () => {
+      const resolution = resolveDebugProfile(profile, context())
+
+      expect(
+        resolution.status === 'resolved' && resolution.configuration.launchArguments
+      ).not.toHaveProperty('subProcess')
+    })
   })
 
   describe('rejects again at resolve time', () => {

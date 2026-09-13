@@ -7452,6 +7452,8 @@ Workspace の絶対パスが key として保存ファイルに載るが、**こ
 
 Session 6-1 では catalog の基盤だけを置き、`node` / `python` / `csharp` の固定行を `not-integrated` として持つ。`debugpy` / `vscode-js-debug` / `netcoredbg` の実 adapter 統合は後続 Session で行う。Renderer から任意 adapter、実行ファイル、引数、cwd を指定する口は作っていない。
 
+**Session 6-12 で python 行を `integrated` にした**（§20.20）。node / csharp は `not-integrated` のまま。
+
 繋ぐ相手（**入手経路と stdio 対応は Session 6-1 で実機確認する**）:
 
 | 言語    | Debug Adapter 候補                       | 入手経路              | 6-1 で確かめること            |
@@ -7462,7 +7464,7 @@ Session 6-1 では catalog の基盤だけを置き、`node` / `python` / `cshar
 
 **vsdbg（Visual Studio の debugger）はライセンス上 Visual Studio / VS Code 以外から使えない。** C# は netcoredbg を前提とし、入手できない PC では「未インストール」に留める（LSP の csharp-ls と同じ扱い。§19.6 の状態表がそのまま使える）。
 
-この PC の現状: **Node のみ利用可能**（Python / .NET SDK は未導入。STEP 5 Closing 時点と同じ）。Python / C# の実機確認は STEP 5 と同じく一時ディレクトリ + 起動する Electron の `env` にだけ PATH を足す形で行う（DEVELOPMENT.md §4）。
+この PC の現状: **Node のみ利用可能**（Python / .NET SDK は未導入。STEP 5 Closing 時点と同じ）。Python / C# の実機確認は STEP 5 と同じく一時ディレクトリ + 起動する Electron の `env` にだけ PATH を足す形で行う（DEVELOPMENT.md §4）。Session 6-12 の debugpy は、uv が置いた CPython 3.14.7 から一時ディレクトリに venv を作り、その `Scripts` を起動する Electron の PATH の先頭にだけ足して確かめた。
 
 #### framing と transport を分ける
 
@@ -8295,7 +8297,7 @@ catalog の行は起動するもの（`adapter: { executable, args }`。拡張�
 
 実 adapter を繋ぐときに確かめること（申し送り）:
 
-- **adapter のプロセスの cwd は Workspace root**（§20.2 の決め・LSP と同じ）。`python -m debugpy.adapter` のように cwd からモジュールを探す起動では、Workspace の中の同名パッケージが adapter として読み込まれうる ── debugpy を繋ぐ Session で、cwd を Workspace の外にするか、`-I` / `-P` のような隔離を付けるかを決める
+- **adapter のプロセスの cwd は Workspace root**（§20.2 の決め・LSP と同じ）。`python -m debugpy.adapter` のように cwd からモジュールを探す起動では、Workspace の中の同名パッケージが adapter として読み込まれうる ── debugpy を繋ぐ Session で、cwd を Workspace の外にするか、`-I` / `-P` のような隔離を付けるかを決める → **Session 6-12 で cwd を Workspace の外（userData）にすると決めた**（§20.20。読み込まれうるのは実機で再現した）
 - vscode-js-debug は transport（stdio / TCP）が未確定のまま（§20.7）
 - launch の `type` / 追加で要る欄（`justMyCode` など）は、言語の枝に欄を足すのではなく `profileResolver.ts` の表で閉じるのが既定（§20.10）
 
@@ -8361,3 +8363,67 @@ Session 6-11 で次の command を追加した。正式な F5 / Shift+F5 / F10 /
 #### 入れていないもの（Session 6-11）
 
 実 adapter の統合（Node / Python / C#）/ Node adapter の調査 / Debug keybinding の正式割り当て / profile の変化通知 / Settings section / native file dialog から絶対パスを Renderer へ返す導線 / arbitrary DAP method / raw launch configuration / `launch.json` の読み込み / attach / `cwd` の指定。
+
+### 20.20 Python（debugpy）── 最初の実 adapter（Session 6-12）
+
+catalog の python 行を `integrated` にし、`python -m debugpy.adapter` を stdio で立てる。**変えたのは Main の中の3ファイル（`adapterCatalog.ts` / `profileResolver.ts`・`resolvedLaunch.ts` / `debugProfiles.ts`）だけ**で、Renderer・preload・IPC の口（要求18・購読5）・Session Manager の lifecycle（§20.8）は変えていない。
+
+#### 先に実 debugpy で確かめたこと
+
+実装の前に、debugpy 1.8.21（CPython 3.14.7）へ Main と同じ順序で DAP を直接送った。
+
+```
+initialize        → 応答（supportsConfigurationDoneRequest / supportsTerminateRequest / supportsTerminateDebuggee ほか）
+launch            → 応答はまだ来ない
+initialized       ← launch を受けた後に届く
+setBreakpoints    → verified: true
+configurationDone → 応答、続けて launch の応答
+process / thread / stopped(reason: breakpoint)
+threads / stackTrace / scopes / variables / evaluate / stepIn / next / stepOut / continue
+exited → terminated
+```
+
+- **§20.8 の順序（`launch` を待たずに `initialized` を待つ）がそのまま必要だった。** `launch` の応答を待つ実装なら、ここで固まる
+- `stackTrace` の `source.path` は絶対パスで、**大文字小文字を書き換えて返す**（`d--DEV…` が `D--DEV…` になった）。Workspace の包含判定は Windows で大文字小文字を区別しない（`files/workspacePath.ts`）ので、Workspace 内の frame として正しく相対化される
+- DAP 標準外の event（`debugpySockets` / `process` / `module`）が届く。Manager は既定どおりログにだけ残す。`output` の `telemetry` は Debug Console の `system` に畳まれる（§20.9 の例外のまま）
+- `disconnect` に答えた後も **adapter は自分からは閉じない**。Manager は答えを受けた時点で kill する（Session 6-4 の実装のまま）。adapter を kill すると、debugpy の launcher / debuggee も adapter との接続が切れて終わった（孤児プロセス 0）
+
+#### adapter のプロセスの cwd は Workspace の外
+
+| 起動のしかた                            | Workspace に置いた `debugpy/__init__.py`           |
+| --------------------------------------- | -------------------------------------------------- |
+| cwd = Workspace root（6-10 までの決め） | **実行された**（本物の adapter は起動せず exit 3） |
+| cwd = Workspace の外                    | 実行されない                                       |
+
+`python -m <module>` は cwd を `sys.path` の先頭に置く。**Workspace を開いて Start を押しただけで、そのフォルダの中の同名パッケージが adapter として動く**ことになり、§20.1 の線（何のプログラムが動くかは Main が決める）を越える。
+
+- 採った形: **adapter のプロセスの cwd = `app.getPath('userData')`**（Main が作って持つフォルダ）。`profileResolver.ts` は、渡された cwd が空・相対・Workspace root の中（realpath / 元の表記の両方）なら `adapter-unavailable` で断る
+- 採らなかった形: `-I`（isolated mode）は user site-packages と `PYTHONPATH` も捨てるので `pip install --user debugpy` が見えなくなる。`-P` は Python 3.11 以降にしか無い
+- **cwd の決めは catalog のすべての行に効く**（行ごとの切り替えは作っていない）。node / csharp はまだ `not-integrated` で、今の実行ファイルは PATH を辿った絶対パスなので cwd には依存しない
+- **プログラムの cwd（launch の `cwd`）は Workspace root のまま**（§20.3）。変わったのは adapter のプロセスだけ
+
+userData に同名パッケージを置けば同じことが起きる（確認で再現した）。userData は Main の設定ファイルを置く場所で、そこへ書ける者は既に設定を書き換えられる ── 新しい境界を開けてはいない。
+
+#### launch に固定で足す欄（`DEBUG_LAUNCH_LANGUAGE_OPTIONS`）
+
+§20.10 の既定どおり、言語の枝に欄を足さず `profileResolver.ts` の閉じた表に置いた。**profile の欄からは作らない**（Profile に `subProcess` / `justMyCode` / `python` を載せても launch に届かないことをテストで固定）。
+
+| 言語   | 欄                  | 理由                                                                                                                                                         |
+| ------ | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| python | `subProcess: false` | 既定の true では、debuggee の子プロセスが `debugpyAttach` に応える2本目のセッションを待って止まる（`subprocess.run` が返らなかった）。v1 は同時セッション1本 |
+| node   | なし                | 未統合                                                                                                                                                       |
+| csharp | なし                | 未統合                                                                                                                                                       |
+
+載せていないもの: `python`（interpreter。adapter と同じ `sys.executable` で debuggee が動く）/ `justMyCode`（既定の true）/ `redirectOutput`（`internalConsole` での既定が true）。
+
+#### interpreter の選び方
+
+**PATH の `python` だけ**（`resolveDebugAdapterExecutable`。§20.7 の規則のまま、相対の PATH 項目と Workspace の中は探さない）。Profile に interpreter の欄は作らない（§20.9「interpreter / runtime の実行ファイル」）。
+
+- Microsoft Store へ誘導する `%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe`（App Execution Alias）は、Node の `statSync` が ENOENT を返すので選ばれない。python の無い PC では Start が `adapter-unavailable`
+- **debugpy が入っていない python が先に見つかると、adapter がすぐ終わって starting → idle に戻る**。起動の応答は `started` で、理由（`No module named debugpy`）は Main のログにだけ残る。起動後の失敗を Renderer へ出す経路は 6-10 から無い（残課題）
+- ステータスは catalog の事実だけで `idle` になる（§20.17。PATH を辿るのは Start のときだけ）
+
+#### 入れていないもの（Session 6-12）
+
+仮想環境 / interpreter の選択 / `justMyCode` の切り替え / 子プロセスのデバッグ（`subProcess`）/ 起動後の失敗理由の表示 / 条件付き breakpoint・logpoint（debugpy は名乗るが §20.11 のまま）/ attach / Node・C# adapter / 正式 keybinding。

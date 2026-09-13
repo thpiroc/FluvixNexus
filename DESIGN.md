@@ -1959,6 +1959,35 @@ button state:
 
 今回入れていないもの: Node / Python / C# adapter 統合、Node adapter の調査、F5 / Shift+F5 / F10 / F11 / Shift+F11 の正式 keybinding、Settings section、native file dialog から絶対パスを Renderer へ返す導線、`launch.json` 読み込み、attach、`cwd` 指定。
 
+### Session 6-12（完了）— Python（debugpy）— 最初の実 adapter
+
+catalog の python 行を `integrated` にし、**実際の debugpy（`python -m debugpy.adapter`。stdio）を Debug Profile → Start から起動できる**ようにした。Renderer / preload / IPC の口と Session Manager の lifecycle は変えていない（[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §20.20）。
+
+変えたもの:
+
+| ファイル                                              | 変更                                                                                                  |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `main/debug/adapterCatalog.ts`                        | python 行を `integrated`、起動するものを `python` + `-m debugpy.adapter`                              |
+| `main/debug/profileResolver.ts` / `resolvedLaunch.ts` | adapter のプロセスの cwd を **Workspace の外**へ・言語ごとの固定欄の表（python: `subProcess: false`） |
+| `main/debug/debugProfiles.ts`                         | adapter の cwd に `app.getPath('userData')` を渡す                                                    |
+
+決めたこと（実装の前に、実 debugpy 1.8.21 へ直接 DAP を送って確かめた）:
+
+- **adapter のプロセスの cwd は Workspace の外（userData）**。Session 6-10 の申し送りへの答え。`python -m` は cwd を `sys.path` の先頭に置くため、cwd が Workspace root だと **Workspace に置いた `debugpy/__init__.py` が本物の adapter の代わりに実行された**（実機で再現）。`-I` は user site-packages と `PYTHONPATH` も捨てる（`pip install --user debugpy` が見えなくなる）、`-P` は Python 3.11 以降にしか無い ── cwd を外す方を採った。userData が Workspace の中を指していれば起動を断る。**プログラムの cwd（launch の `cwd`）は Workspace root のまま**
+- **`subProcess: false` を固定で載せる。** debugpy の既定（true）では、debuggee が起こした子プロセスが `debugpyAttach` に応える2本目のセッションを待って止まり、`subprocess.run(...)` が返らなかった（実機で再現）。v1 は同時セッション1本（§20.11）
+- **interpreter は PATH の `python`**。launch に `python` の欄を載せず、adapter と同じ interpreter で debuggee が動く。Profile に interpreter の欄は作っていない
+- `type` / `adapterID` の `debugpy` はそのまま通った。`launch` の応答は `configurationDone` の後に届く ── §20.8 の「`launch` の応答を開始の合図にしない」が実 adapter でもそのまま必要だった
+- 状態は出荷状態で `unavailable` → `idle` に移る。**PATH に python があるかは状態に反映しない**（§20.17 の決めのまま）── 無ければ Start の応答が `adapter-unavailable`。Microsoft Store へ誘導する WindowsApps の `python.exe` は `statSync` が ENOENT を返すため選ばれない
+
+残したもの:
+
+- **debugpy が入っていない python では、adapter がすぐ終わって starting → idle に戻るだけ**になる（起動の応答は `started`、理由は Main のログだけ）。起動後の失敗を画面へ出す経路は 6-10 から無いまま
+- 仮想環境の選択（PATH の `python` 以外を使う）・`justMyCode` の切り替え（既定の true のまま）・子プロセスのデバッグ・attach
+- debugpy の `telemetry` output（`ptvsd` / `debugpy`）が Debug Console に `system` の2行として出る（Session 6-8 の畳み方のまま）
+- Node / C# adapter は未統合のまま
+
+production build + 実 debugpy での確認は [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) §4。
+
 ### Session 6-7 〜 6-13（予定）— 実装
 
 | Session | 入れるもの                                                         | 推奨 Agent   |
@@ -1971,7 +2000,7 @@ button state:
 | 6-12    | Command / Keybinding（F5 / F9 / F10 / F11 / Shift+F11 / Shift+F5） | Codex        |
 | 6-13    | STEP 6 Closing（production build での横断確認とドキュメント追従）  | Claude Code  |
 
-> **実際の割り当ては表からずれている（Session 6-11 時点）。** 6-7 = Evaluate、6-8 = Debug Console、6-9 = Debug Status（Settings section なし）、6-10 = Debug Profile 保存 + `debug:start`、6-11 = Debug Toolbar + Profile editor。実 adapter と正式 keybinding はまだ残っている。
+> **実際の割り当ては表からずれている（Session 6-12 時点）。** 6-7 = Evaluate、6-8 = Debug Console、6-9 = Debug Status（Settings section なし）、6-10 = Debug Profile 保存 + `debug:start`、6-11 = Debug Toolbar + Profile editor、6-12 = Python（debugpy）。Node / C# adapter と正式 keybinding はまだ残っている。
 
 最初に繋ぐのは **Node**（この PC で実機確認できる唯一の言語。Python / .NET SDK は STEP 5 Closing 時点と同じく未導入）。ただし Node の adapter だけは**入手経路と stdio 対応が未確定**で、6-1 の最初の仕事がその確認になる（[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §20.7）。
 

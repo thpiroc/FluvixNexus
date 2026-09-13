@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto'
+import { app } from 'electron'
 import { realpathSync, statSync } from 'fs'
 import type { PlatformId } from '@shared/api'
 import {
@@ -81,6 +82,8 @@ export interface DebugProfileServiceDependencies {
   readonly getParentEnv: () => Readonly<Record<string, string | undefined>>
   readonly exists: FileExistsCheck
   readonly getCatalogEntry: (language: DebugAdapterLanguageId) => DebugAdapterCatalogEntry
+  /** adapter のプロセスの cwd。Main が持つ Workspace の外のフォルダ（Session 6-12）。 */
+  readonly getAdapterWorkingDirectory: () => string
   readonly getSessionState: () => DebugSessionState
   readonly startSession: (options: DebugSessionStartOptions) => StartDebugSessionOutcome
   readonly log?: (level: 'info' | 'warn', message: string) => void
@@ -302,7 +305,8 @@ export function createDebugProfileService(
       parentEnv: dependencies.getParentEnv(),
       exists: dependencies.exists,
       fileSystem: dependencies.fileSystem,
-      getCatalogEntry: dependencies.getCatalogEntry
+      getCatalogEntry: dependencies.getCatalogEntry,
+      adapterWorkingDirectory: dependencies.getAdapterWorkingDirectory()
     })
 
     if (resolution.status === 'failed') {
@@ -410,6 +414,12 @@ const defaultService = createDebugProfileService({
   getParentEnv: () => process.env,
   exists: isFile,
   getCatalogEntry: getDebugAdapterCatalogEntry,
+  /*
+    adapter のプロセスの cwd（Session 6-12。docs/ARCHITECTURE.md §20.20）。userData は
+    Main が作って持つフォルダで、Python のモジュールを置く場所ではない。Workspace の中を
+    指していれば profileResolver.ts が起動を断る。
+  */
+  getAdapterWorkingDirectory: () => app.getPath('userData'),
   getSessionState: getDebugSessionState,
   startSession: startDebugSession,
   log: (level, message) => {

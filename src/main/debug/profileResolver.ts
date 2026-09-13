@@ -1,11 +1,13 @@
+import { isAbsolute } from 'path'
 import type { PlatformId } from '@shared/api'
 import type { DebugProfile, DebugProfileLanguage, DebugStartFailure } from '@shared/debug'
+import { isInsideWorkspace } from '../files/workspacePath'
 import type { FileExistsCheck } from '../platform/executablePath'
 import { resolveDebugAdapterExecutable, type DebugAdapterCatalogEntry } from './adapterCatalog'
 import { createDebugAdapterProcessEnvironment } from './environmentPolicy'
 import { resolveDebugProgramPath, type DebugProgramFileSystem } from './programPath'
 import { validateDebugProfileDraft } from './profileValidation'
-import type { ResolvedLaunchConfiguration } from './resolvedLaunch'
+import type { DebugLaunchLanguageOptions, ResolvedLaunchConfiguration } from './resolvedLaunch'
 
 /**
  * Debug Profile → ResolvedLaunchConfiguration（Session 6-10。Electron / fs 非依存・テスト対象）。
@@ -30,9 +32,9 @@ import type { ResolvedLaunchConfiguration } from './resolvedLaunch'
  *
  * ## 言語ごとの違いはここに閉じる
  *
- * 言語ごとの launch 構成の違い（今は `type` だけ）はこのファイルの表にあり、Renderer には
- * 現れない（§20.10）。どの行も実 adapter で確かめていない値で、実 adapter を繋ぐ Session が
- * そこで確定させる ── 表は置き場所を決めるためにある。
+ * 言語ごとの launch 構成の違い（`type` と、固定で足す欄）はこのファイルの表にあり、Renderer には
+ * 現れない（§20.10）。python の行は Session 6-12 で実 debugpy に当てて確定させた。
+ * node / csharp は実 adapter を繋ぐ Session が確定させる。
  */
 
 /**
@@ -47,6 +49,20 @@ export const DEBUG_LAUNCH_TYPES: Readonly<Record<DebugProfileLanguage, string>> 
   csharp: 'coreclr'
 }
 
+/**
+ * 言語ごとに launch request へ足す固定の欄（Session 6-12。閉じた表）。
+ *
+ * python は実 debugpy（1.8.21）で確かめた値。`type: 'debugpy'` もそのまま通った。
+ * node / csharp は実 adapter を繋ぐ Session が決める。
+ */
+export const DEBUG_LAUNCH_LANGUAGE_OPTIONS: Readonly<
+  Record<DebugProfileLanguage, DebugLaunchLanguageOptions>
+> = {
+  node: {},
+  python: { subProcess: false },
+  csharp: {}
+}
+
 export interface DebugProfileResolverContext {
   /** 今の Workspace root（currentWorkspaceFolder の値。realpath は中で取る）。 */
   readonly workspaceRootPath: string
@@ -59,6 +75,11 @@ export interface DebugProfileResolverContext {
   readonly fileSystem: DebugProgramFileSystem
   /** 言語 → catalog の行（既定は adapterCatalog.ts の表）。 */
   readonly getCatalogEntry: (language: DebugProfileLanguage) => DebugAdapterCatalogEntry
+  /**
+   * adapter のプロセスの cwd（Session 6-12）。Main が持つ **Workspace の外**のフォルダ
+   * （既定は userData）。Renderer から来る値ではない。
+   */
+  readonly adapterWorkingDirectory: string
 }
 
 export type DebugProfileResolution =
@@ -122,8 +143,25 @@ export function resolveDebugProfile(
   }
 
   /*
-    4. 組み立て。cwd は常に Workspace root（§20.3）で、検証に使った root の realpath を使う
-       ── 確かめた場所と起動する場所を同じ手順から出す。
+    4. adapter のプロセスの cwd（Session 6-12。§20.20）。**Workspace の外でなければ起動しない。**
+       `python -m debugpy.adapter` は cwd を sys.path の先頭に置くため、cwd が Workspace だと
+       Workspace の中の `debugpy/` が本物の adapter の代わりに読み込まれる（実 debugpy で確認）。
+       プログラムの cwd（launch の `cwd`）はこれとは別で、Workspace root のまま。
+  */
+  const adapterCwd = context.adapterWorkingDirectory
+
+  if (
+    adapterCwd.length === 0 ||
+    !isAbsolute(adapterCwd) ||
+    isInsideWorkspace(program.rootRealPath, adapterCwd) ||
+    isInsideWorkspace(context.workspaceRootPath, adapterCwd)
+  ) {
+    return failed('adapter-unavailable')
+  }
+
+  /*
+    5. 組み立て。プログラムの cwd は常に Workspace root（§20.3）で、検証に使った root の
+       realpath を使う ── 確かめた場所と起動する場所を同じ手順から出す。
   */
   const cwd = program.rootRealPath
   const type = DEBUG_LAUNCH_TYPES[draft.language]
@@ -138,10 +176,11 @@ export function resolveDebugProfile(
         name: entry.name,
         file: executable.file,
         args: executable.args,
-        cwd,
+        cwd: adapterCwd,
         env: createDebugAdapterProcessEnvironment(context.parentEnv)
       },
       launchArguments: {
+        ...DEBUG_LAUNCH_LANGUAGE_OPTIONS[draft.language],
         name: draft.name,
         type,
         request: 'launch',
