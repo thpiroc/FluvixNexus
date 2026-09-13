@@ -5,6 +5,162 @@
   color: var(--fx-color-text);
 }
 
+.fx-debug-toolbar-shell {
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--fx-color-border);
+  background: var(--fx-color-surface);
+}
+
+.fx-debug-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--fx-space-2);
+  padding: var(--fx-space-2);
+}
+
+.fx-debug-toolbar__profile {
+  display: flex;
+  flex: 1 1 220px;
+  min-width: 180px;
+  align-items: center;
+  gap: var(--fx-space-2);
+}
+
+.fx-debug-toolbar__profile-label {
+  flex: 0 0 auto;
+  color: var(--fx-color-text-muted);
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-debug-toolbar__select,
+.fx-debug-profile-editor input,
+.fx-debug-profile-editor select,
+.fx-debug-profile-editor textarea {
+  min-width: 0;
+  color: var(--fx-color-text);
+  background: var(--fx-color-surface-sunken);
+  border: 1px solid var(--fx-color-border);
+  border-radius: 3px;
+  font: inherit;
+}
+
+.fx-debug-toolbar__select {
+  flex: 1 1 auto;
+  height: 26px;
+  padding: 0 var(--fx-space-2);
+}
+
+.fx-debug-toolbar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fx-space-1);
+}
+
+.fx-debug-toolbar__button,
+.fx-debug-profile-editor__actions button {
+  flex: 0 0 auto;
+  min-height: 26px;
+  padding: var(--fx-space-1) var(--fx-space-2);
+  color: var(--fx-color-text);
+  background: var(--fx-color-surface-raised);
+  border: 1px solid var(--fx-color-border);
+  border-radius: 3px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.fx-debug-toolbar__button:disabled,
+.fx-debug-profile-editor__actions button:disabled {
+  color: var(--fx-color-text-faint);
+  cursor: default;
+}
+
+.fx-debug-toolbar__button:focus-visible,
+.fx-debug-toolbar__select:focus-visible,
+.fx-debug-profile-editor button:focus-visible,
+.fx-debug-profile-editor input:focus-visible,
+.fx-debug-profile-editor select:focus-visible,
+.fx-debug-profile-editor textarea:focus-visible {
+  outline: 1px solid var(--fx-accent-blue);
+  outline-offset: -1px;
+}
+
+.fx-debug-toolbar__notice,
+.fx-debug-toolbar__message {
+  margin: 0;
+  padding: 0 var(--fx-space-2) var(--fx-space-2);
+  color: var(--fx-color-text-faint);
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-debug-toolbar__message {
+  color: var(--fx-color-text-muted);
+}
+
+.fx-debug-profile-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-2);
+  padding: var(--fx-space-2);
+  border-top: 1px solid var(--fx-color-border);
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-debug-profile-editor__heading {
+  display: flex;
+  align-items: center;
+}
+
+.fx-debug-profile-editor__title {
+  color: var(--fx-color-text-strong);
+  font-weight: 600;
+}
+
+.fx-debug-profile-editor__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--fx-space-2);
+}
+
+.fx-debug-profile-editor__field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--fx-space-1);
+  color: var(--fx-color-text-muted);
+}
+
+.fx-debug-profile-editor__field--wide {
+  grid-column: 1 / -1;
+}
+
+.fx-debug-profile-editor input,
+.fx-debug-profile-editor select {
+  height: 26px;
+  padding: 0 var(--fx-space-2);
+}
+
+.fx-debug-profile-editor textarea {
+  min-height: 68px;
+  resize: vertical;
+  padding: var(--fx-space-1) var(--fx-space-2);
+  font-family: ui-monospace, Consolas, monospace;
+}
+
+.fx-debug-profile-editor__checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fx-space-2);
+  color: var(--fx-color-text);
+}
+
+.fx-debug-profile-editor__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fx-space-2);
+}
+
 .fx-debug-panel__header {
   flex: 0 0 auto;
   padding: var(--fx-space-2) var(--fx-space-3);

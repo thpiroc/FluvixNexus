@@ -29,7 +29,8 @@ import type { CommandId } from './commandIds'
  * 端末の打鍵は `terminal/terminalDisplay.ts` が `event.key` で受けており、
  * registry へ移すには日本語配列の `=` / `_` の読み替えごと設計し直すことになる）。
  */
-export type CommandCategory = 'workspace' | 'editor' | 'view' | 'settings' | 'git' | 'files'
+export type CommandCategory =
+  'workspace' | 'editor' | 'view' | 'settings' | 'debug' | 'git' | 'files'
 
 /** command が実行されたときに走るもの。引数も戻り値も持たない。 */
 export type CommandHandler = () => void

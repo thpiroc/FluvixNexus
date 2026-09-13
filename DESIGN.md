@@ -1,6 +1,6 @@
 # Fluvix Nexus 設計ドキュメント
 
-> ステータス: STEP 1（基盤構築）完了 / STEP 2（Dockable Workspace 基盤）完了 / STEP 3（各パネルの本機能）完了 / STEP 4（日常使用の土台）完了 / STEP 5（LSP）完了 / **STEP 6（DAP）実装中（Session 6-6）**
+> ステータス: STEP 1（基盤構築）完了 / STEP 2（Dockable Workspace 基盤）完了 / STEP 3（各パネルの本機能）完了 / STEP 4（日常使用の土台）完了 / STEP 5（LSP）完了 / **STEP 6（DAP）実装中（Session 6-11）**
 > 最終更新: 2026-09-11
 
 このドキュメントは**製品としての設計方針**を扱う。実装の構造と開発手順は以下を参照。
@@ -1924,6 +1924,41 @@ Renderer が **アプリの言葉だけで書かれた Debug Profile** を保存
 
 申し送り: adapter のプロセスの cwd は Workspace root（§20.2 の決め）。`python -m debugpy.adapter` を繋ぐ Session では、Workspace の中の同名パッケージが読み込まれない形（cwd を外す / 隔離オプション）を決めること。
 
+### Session 6-11（完了）— Debug Toolbar + Debug Profile editor
+
+Session 6-10 の Main / shared / preload / IPC 基盤を使い、Debug Panel 上部に **Profile selector / Profile editor / Start / Continue / Pause / Step Over / Step Into / Step Out / Stop** を置いた。Profile editor は Settings ではなく Debug Panel の中にある。Profile は Workspace 単位の値で、アプリ全体 Settings に混ぜないため。
+
+入れたもの:
+
+| ファイル                                  | 役割                                                                 |
+| ----------------------------------------- | -------------------------------------------------------------------- |
+| `renderer/src/debug/DebugToolbar.tsx`     | Profile selector / Profile editor / Toolbar / typed Debug API の接続 |
+| `renderer/src/debug/debugToolbarModel.ts` | button state matrix・form 変換・safe message key                     |
+| `renderer/src/debug/debug.css`            | Debug Panel 内の toolbar / editor の見た目                           |
+| Command Registry                          | `debug.*` 10件（keybinding はまだ無し）                              |
+| i18n                                      | Toolbar / Profile editor / operation result / command 名の日英       |
+
+守った境界:
+
+- Start が渡すのは **`profileId` だけ**。executable / adapter path / adapter args / cwd / absolute program path / raw launch config は渡さない
+- Profile selector に出すのは **名前と言語だけ**。program の相対パスは editor を開いたときにだけ表示し、絶対パス・file URI・adapter executable は出さない
+- Continue / Pause / Step / Stop は Session 6-4 の typed Debug API を使い、raw DAP method は公開しない
+- `programArgs` は1行1引数として扱い、shell command 文字列として分割・展開しない
+- `env` は UI で編集できるが、最終境界は Main の `environmentPolicy.ts`
+
+button state:
+
+| status      | 有効な操作                                         |
+| ----------- | -------------------------------------------------- |
+| unavailable | なし                                               |
+| idle        | Start（Profile 選択済みのときだけ）                |
+| starting    | なし                                               |
+| running     | Pause / Stop                                       |
+| stopped     | Continue / Step Over / Step Into / Step Out / Stop |
+| terminating | なし                                               |
+
+今回入れていないもの: Node / Python / C# adapter 統合、Node adapter の調査、F5 / Shift+F5 / F10 / F11 / Shift+F11 の正式 keybinding、Settings section、native file dialog から絶対パスを Renderer へ返す導線、`launch.json` 読み込み、attach、`cwd` 指定。
+
 ### Session 6-7 〜 6-13（予定）— 実装
 
 | Session | 入れるもの                                                         | 推奨 Agent   |
@@ -1936,7 +1971,7 @@ Renderer が **アプリの言葉だけで書かれた Debug Profile** を保存
 | 6-12    | Command / Keybinding（F5 / F9 / F10 / F11 / Shift+F11 / Shift+F5） | Codex        |
 | 6-13    | STEP 6 Closing（production build での横断確認とドキュメント追従）  | Claude Code  |
 
-> **実際の割り当ては表からずれている（Session 6-9 時点）。** 6-7 = Evaluate、6-8 = Debug Console、6-9 = Debug Status（Settings section なし）で実装された。表にあった **Debug Toolbar** と **Debug Profile の編集 UI / `debug:start`** は、まだどの Session にも割り当てられていない。**Session 6-10 で Debug Profile の保存と `debug:start`（Main 側と typed IPC）が入った**。編集 UI・Toolbar・実 adapter は再整理後の 6-11 以降に残っている。
+> **実際の割り当ては表からずれている（Session 6-11 時点）。** 6-7 = Evaluate、6-8 = Debug Console、6-9 = Debug Status（Settings section なし）、6-10 = Debug Profile 保存 + `debug:start`、6-11 = Debug Toolbar + Profile editor。実 adapter と正式 keybinding はまだ残っている。
 
 最初に繋ぐのは **Node**（この PC で実機確認できる唯一の言語。Python / .NET SDK は STEP 5 Closing 時点と同じく未導入）。ただし Node の adapter だけは**入手経路と stdio 対応が未確定**で、6-1 の最初の仕事がその確認になる（[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §20.7）。
 

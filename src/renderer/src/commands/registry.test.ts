@@ -115,6 +115,35 @@ describe('Session 4-7B で足した contribution（git / files）', () => {
   })
 })
 
+describe('Session 6-11 で足した Debug Toolbar の command', () => {
+  const ids = new Set<string>(COMMAND_IDS)
+
+  it('Profile と実行制御の10件が表に載っている', () => {
+    for (const id of [
+      'debug.addProfile',
+      'debug.editProfile',
+      'debug.deleteProfile',
+      'debug.start',
+      'debug.continue',
+      'debug.pause',
+      'debug.stepOver',
+      'debug.stepInto',
+      'debug.stepOut',
+      'debug.stop'
+    ]) {
+      expect(ids.has(id), id).toBe(true)
+    }
+  })
+
+  it('category は id の先頭語のまま（debug が CommandCategory に居る）', () => {
+    for (const command of listCommands()) {
+      if (command.id.startsWith('debug.')) {
+        expect(command.category).toBe('debug')
+      }
+    }
+  })
+})
+
 describe('commandTitle', () => {
   /*
     Session 4-7C で全件が titleKey を持つようになった。

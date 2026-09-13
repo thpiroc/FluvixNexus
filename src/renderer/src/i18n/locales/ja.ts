@@ -54,6 +54,18 @@ export const jaMessages = {
       open: '設定を開く',
       close: '設定を閉じる'
     },
+    debug: {
+      addProfile: 'Debug Profile を追加',
+      editProfile: 'Debug Profile を編集',
+      deleteProfile: 'Debug Profile を削除',
+      start: 'デバッグを開始',
+      continue: 'デバッグを続行',
+      pause: 'デバッグを一時停止',
+      stepOver: 'ステップオーバー',
+      stepInto: 'ステップイン',
+      stepOut: 'ステップアウト',
+      stop: 'デバッグを停止'
+    },
     git: {
       refresh: 'Git の状態を調べ直す',
       commit: 'コミット',
@@ -1102,6 +1114,7 @@ export const jaMessages = {
         editor: 'Editor',
         view: 'View',
         settings: '設定',
+        debug: 'Debug',
         git: 'Git',
         files: 'Files'
       },
@@ -1148,6 +1161,88 @@ export const jaMessages = {
     }
   },
   debug: {
+    toolbar: {
+      aria: 'Debug ツールバー',
+      profileLabel: 'Debug Profile',
+      noProfile: 'Profile なし',
+      addProfile: 'Profile を追加',
+      editProfile: 'Profile を編集',
+      start: '開始',
+      continue: '続行',
+      pause: '一時停止',
+      stepOver: 'Step Over',
+      stepInto: 'Step Into',
+      stepOut: 'Step Out',
+      stop: '停止',
+      unavailable: 'この環境では Debug adapter を利用できません。',
+      noWorkspace: 'Debug Profile の作成・開始には Workspace を開いてください。',
+      noSelectedProfile: '先に Debug Profile を選んでください。',
+      loadingProfiles: 'Profile を読み込んでいます…'
+    },
+    profile: {
+      editorTitleAdd: 'Debug Profile を追加',
+      editorTitleEdit: 'Debug Profile を編集',
+      name: '名前',
+      language: '言語',
+      programRelativePath: 'プログラムのパス',
+      programRelativePathPlaceholder: 'src/main.ts',
+      programArgs: 'プログラム引数',
+      programArgsPlaceholder: '1行に1つの引数',
+      env: '環境変数',
+      envPlaceholder: 'NAME=value',
+      stopOnEntry: '入口で停止',
+      save: 'Profile を保存',
+      create: 'Profile を作成',
+      delete: 'Profile を削除',
+      cancel: 'キャンセル',
+      confirmDelete: 'この Profile を削除しますか？',
+      empty: 'この Workspace には Debug Profile がありません。',
+      languageName: {
+        node: 'Node.js',
+        python: 'Python',
+        csharp: 'C#'
+      },
+      invalidEnvLine: '環境変数は NAME=value の形で、1行に1つずつ入力してください。',
+      saved: 'Profile を保存しました。',
+      deleted: 'Profile を削除しました。',
+      validation: {
+        name: 'Profile の名前を確認してください。',
+        language: '対応している言語を選んでください。',
+        programRelativePath: 'Workspace からの相対パスを入力してください。',
+        programArgs: 'プログラム引数を確認してください。',
+        env: '環境変数を確認してください。',
+        stopOnEntry: '入口で停止の値を確認してください。'
+      },
+      rejection: {
+        noWorkspace: 'Profile を保存するには Workspace を開いてください。',
+        profileNotFound: 'この Profile はもう利用できません。',
+        limitReached: 'この Workspace の Profile 数が上限に達しています。'
+      }
+    },
+    operation: {
+      started: 'Debug Session を開始しました。',
+      accepted: 'Debug 操作を受け付けました。',
+      rejected: {
+        noWorkspace: '先に Workspace を開いてください。',
+        profileNotFound: 'この Profile はもう利用できません。',
+        alreadyRunning: 'Debug Session は既に動いています。',
+        noSession: 'Debug Session は動いていません。',
+        invalidState: '今はこの Debug 操作を実行できません。',
+        busy: '前の Debug 操作がまだ完了していません。'
+      },
+      failed: {
+        invalidProfile: '保存済みの Profile が正しくありません。',
+        programNotFound: 'プログラムのファイルが見つかりません。',
+        programOutsideWorkspace: 'プログラムは Workspace の中にある必要があります。',
+        adapterUnavailable: 'Debug adapter はまだ利用できません。',
+        spawnFailed: 'Debug adapter を起動できませんでした。',
+        adapterRejected: 'Debug adapter がこの操作を拒否しました。',
+        sessionEnded: '操作の完了前に Debug Session が終了しました。',
+        noThread: 'この操作に使える Debug thread がありません。',
+        timeout: 'Debug adapter から時間内に応答がありませんでした。'
+      },
+      ipcFailed: 'Debug の通信に失敗しました。もう一度お試しください。'
+    },
     callStack: {
       aria: 'Call Stack',
       title: 'Call Stack',

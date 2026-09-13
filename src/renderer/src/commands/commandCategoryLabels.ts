@@ -31,6 +31,7 @@ const COMMAND_CATEGORY_TITLE_KEYS: Readonly<Record<CommandCategory, TranslationK
   editor: 'settings.keyboard.categories.editor',
   view: 'settings.keyboard.categories.view',
   settings: 'settings.keyboard.categories.settings',
+  debug: 'settings.keyboard.categories.debug',
   git: 'settings.keyboard.categories.git',
   files: 'settings.keyboard.categories.files'
 }
@@ -48,6 +49,7 @@ export const COMMAND_CATEGORY_ORDER: readonly CommandCategory[] = [
   'editor',
   'view',
   'settings',
+  'debug',
   'git',
   'files'
 ]

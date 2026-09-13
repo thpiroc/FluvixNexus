@@ -66,6 +66,18 @@ export const enMessages = {
       open: 'Open Settings',
       close: 'Close Settings'
     },
+    debug: {
+      addProfile: 'Add Debug Profile',
+      editProfile: 'Edit Debug Profile',
+      deleteProfile: 'Delete Debug Profile',
+      start: 'Start Debugging',
+      continue: 'Continue Debugging',
+      pause: 'Pause Debugging',
+      stepOver: 'Step Over',
+      stepInto: 'Step Into',
+      stepOut: 'Step Out',
+      stop: 'Stop Debugging'
+    },
     git: {
       refresh: 'Refresh Git Status',
       commit: 'Commit',
@@ -1124,6 +1136,7 @@ export const enMessages = {
         editor: 'Editor',
         view: 'View',
         settings: 'Settings',
+        debug: 'Debug',
         git: 'Git',
         files: 'Files'
       },
@@ -1187,6 +1200,88 @@ export const enMessages = {
     }
   },
   debug: {
+    toolbar: {
+      aria: 'Debug toolbar',
+      profileLabel: 'Debug Profile',
+      noProfile: 'No profiles',
+      addProfile: 'Add Profile',
+      editProfile: 'Edit Profile',
+      start: 'Start',
+      continue: 'Continue',
+      pause: 'Pause',
+      stepOver: 'Step Over',
+      stepInto: 'Step Into',
+      stepOut: 'Step Out',
+      stop: 'Stop',
+      unavailable: 'No debug adapter is available on this machine.',
+      noWorkspace: 'Open a Workspace before creating or starting a debug profile.',
+      noSelectedProfile: 'Select a debug profile first.',
+      loadingProfiles: 'Loading profiles…'
+    },
+    profile: {
+      editorTitleAdd: 'Add Debug Profile',
+      editorTitleEdit: 'Edit Debug Profile',
+      name: 'Name',
+      language: 'Language',
+      programRelativePath: 'Program path',
+      programRelativePathPlaceholder: 'src/main.ts',
+      programArgs: 'Program arguments',
+      programArgsPlaceholder: 'One argument per line',
+      env: 'Environment',
+      envPlaceholder: 'NAME=value',
+      stopOnEntry: 'Stop on entry',
+      save: 'Save Profile',
+      create: 'Create Profile',
+      delete: 'Delete Profile',
+      cancel: 'Cancel',
+      confirmDelete: 'Delete this profile?',
+      empty: 'No debug profiles in this Workspace.',
+      languageName: {
+        node: 'Node.js',
+        python: 'Python',
+        csharp: 'C#'
+      },
+      invalidEnvLine: 'Environment entries must use NAME=value, one per line.',
+      saved: 'Profile saved.',
+      deleted: 'Profile deleted.',
+      validation: {
+        name: 'Check the profile name.',
+        language: 'Choose a supported language.',
+        programRelativePath: 'Enter a Workspace-relative program path.',
+        programArgs: 'Check the program arguments.',
+        env: 'Check the environment variables.',
+        stopOnEntry: 'Check the stop-on-entry value.'
+      },
+      rejection: {
+        noWorkspace: 'Open a Workspace before saving a profile.',
+        profileNotFound: 'This profile is no longer available.',
+        limitReached: 'This Workspace already has the maximum number of profiles.'
+      }
+    },
+    operation: {
+      started: 'Debug session started.',
+      accepted: 'Debug command accepted.',
+      rejected: {
+        noWorkspace: 'Open a Workspace first.',
+        profileNotFound: 'This profile is no longer available.',
+        alreadyRunning: 'A debug session is already running.',
+        noSession: 'No debug session is running.',
+        invalidState: 'That debug command is not available right now.',
+        busy: 'Another debug command is still in progress.'
+      },
+      failed: {
+        invalidProfile: 'The saved profile is no longer valid.',
+        programNotFound: 'The program file could not be found.',
+        programOutsideWorkspace: 'The program must stay inside the Workspace.',
+        adapterUnavailable: 'The debug adapter is not available yet.',
+        spawnFailed: 'The debug adapter could not be started.',
+        adapterRejected: 'The debug adapter rejected the command.',
+        sessionEnded: 'The debug session ended before the command completed.',
+        noThread: 'No debug thread is available for that command.',
+        timeout: 'The debug adapter did not answer in time.'
+      },
+      ipcFailed: 'Debug communication failed. Try again.'
+    },
     callStack: {
       aria: 'Call Stack',
       title: 'Call Stack',

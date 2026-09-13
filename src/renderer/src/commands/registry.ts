@@ -173,6 +173,66 @@ const COMMAND_REGISTRY: Readonly<Record<CommandId, CommandDescriptor>> = {
     title: 'Close Settings',
     titleKey: 'command.settings.close'
   },
+  'debug.addProfile': {
+    id: 'debug.addProfile',
+    category: 'debug',
+    title: 'Add Debug Profile',
+    titleKey: 'command.debug.addProfile'
+  },
+  'debug.editProfile': {
+    id: 'debug.editProfile',
+    category: 'debug',
+    title: 'Edit Debug Profile',
+    titleKey: 'command.debug.editProfile'
+  },
+  'debug.deleteProfile': {
+    id: 'debug.deleteProfile',
+    category: 'debug',
+    title: 'Delete Debug Profile',
+    titleKey: 'command.debug.deleteProfile'
+  },
+  'debug.start': {
+    id: 'debug.start',
+    category: 'debug',
+    title: 'Start Debugging',
+    titleKey: 'command.debug.start'
+  },
+  'debug.continue': {
+    id: 'debug.continue',
+    category: 'debug',
+    title: 'Continue Debugging',
+    titleKey: 'command.debug.continue'
+  },
+  'debug.pause': {
+    id: 'debug.pause',
+    category: 'debug',
+    title: 'Pause Debugging',
+    titleKey: 'command.debug.pause'
+  },
+  'debug.stepOver': {
+    id: 'debug.stepOver',
+    category: 'debug',
+    title: 'Step Over',
+    titleKey: 'command.debug.stepOver'
+  },
+  'debug.stepInto': {
+    id: 'debug.stepInto',
+    category: 'debug',
+    title: 'Step Into',
+    titleKey: 'command.debug.stepInto'
+  },
+  'debug.stepOut': {
+    id: 'debug.stepOut',
+    category: 'debug',
+    title: 'Step Out',
+    titleKey: 'command.debug.stepOut'
+  },
+  'debug.stop': {
+    id: 'debug.stop',
+    category: 'debug',
+    title: 'Stop Debugging',
+    titleKey: 'command.debug.stop'
+  },
   'git.refresh': {
     id: 'git.refresh',
     category: 'git',

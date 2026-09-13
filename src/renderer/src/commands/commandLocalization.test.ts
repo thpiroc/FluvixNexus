@@ -30,6 +30,7 @@ const CATEGORY_PREFIXES: Readonly<Record<CommandCategory, string>> = {
   editor: 'editor.',
   view: 'view.',
   settings: 'settings.',
+  debug: 'debug.',
   git: 'git.',
   files: 'files.'
 }
@@ -41,10 +42,10 @@ describe('command の titleKey', () => {
     expect(withKey).toHaveLength(COMMAND_IDS.length)
     /*
       実数も押さえる（表に足したのに翻訳を忘れた、を `COMMAND_IDS.length` との
-      比較だけに任せない）。Session 4-7C の 21件に、Session 5-12 の
-      Language Server の6操作と Session 6-5 の Debug panel が加わって 28件。
+      比較だけに任せない）。Session 6-11 の Debug Toolbar / Profile 操作を
+      加えて 38件。
     */
-    expect(COMMAND_IDS).toHaveLength(28)
+    expect(COMMAND_IDS).toHaveLength(38)
   })
 
   /*

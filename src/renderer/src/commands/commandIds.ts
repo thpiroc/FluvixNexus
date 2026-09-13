@@ -121,6 +121,21 @@ export const COMMAND_IDS = [
   'settings.open',
   'settings.close',
   /*
+    Debug Toolbar（Session 6-11）。所有者は DebugPanel の上部 toolbar で、
+    ボタンが押せるときだけ同じ command が登録される。正式な F5 / F10 などの
+    keybinding は Session 6-15 に残すため、ここでは command と toolbar の接続だけ。
+  */
+  'debug.addProfile',
+  'debug.editProfile',
+  'debug.deleteProfile',
+  'debug.start',
+  'debug.continue',
+  'debug.pause',
+  'debug.stepOver',
+  'debug.stepInto',
+  'debug.stepOut',
+  'debug.stop',
+  /*
     Git（Session 4-7B）。所有者は GitView の中の GitCommands で、
     **リポジトリが使える状態のときだけ**登録される（git/GitCommands.tsx）。
 

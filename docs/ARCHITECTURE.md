@@ -1,7 +1,7 @@
 # アーキテクチャ
 
-> 対象: Session 5-13（STEP 5 LSP Closing）完了時点の実装 ＋ Session 6-5（STEP 6 DAP Call Stack）
-> 最終更新: 2026-09-11
+> 対象: Session 5-13（STEP 5 LSP Closing）完了時点の実装 ＋ Session 6-11（STEP 6 DAP Debug Toolbar / Profile editor）
+> 最終更新: 2026-09-13
 
 製品としての方向性は [DESIGN.md](../DESIGN.md) を参照。このドキュメントは「現在のコードがどう組まれているか」と「機能を足すときにどこへ書くか」を扱う。
 
@@ -7315,7 +7315,7 @@ Session 5-13 で実際に測った範囲は次のとおり。
 
 ## 20. Debug（DAP。STEP 6）
 
-Session 6-0 で設計を確定し、Session 6-1 で Main 内の最下層（DAP message / connection、adapter process、adapter catalog）を実装し、Session 6-2 で Main-owned Debug Session lifecycle / state machine を追加し、Session 6-3 で Breakpoint（Monaco の glyph margin・保存・`setBreakpoints`）を入れ（§20.12）、Session 6-4 で実行制御（Continue / Pause / Step Over / Step Into / Step Out / Stop）を入れ（§20.13）、Session 6-5 で Call Stack（`threads` / `stackTrace` と safe source normalization）を入れた（§20.14）。Session 6-9 で Debug の状態（ステータスバー）を入れた（§20.17）。Session 6-10 で Debug Profile の保存と `debug:start`（Profile → ResolvedLaunchConfiguration → Debug Session）を入れた（§20.18）。ここに書いていない口・欄・経路を実装側で足すときは、足す前にこの節へ戻ること。
+Session 6-0 で設計を確定し、Session 6-1 で Main 内の最下層（DAP message / connection、adapter process、adapter catalog）を実装し、Session 6-2 で Main-owned Debug Session lifecycle / state machine を追加し、Session 6-3 で Breakpoint（Monaco の glyph margin・保存・`setBreakpoints`）を入れ（§20.12）、Session 6-4 で実行制御（Continue / Pause / Step Over / Step Into / Step Out / Stop）を入れ（§20.13）、Session 6-5 で Call Stack（`threads` / `stackTrace` と safe source normalization）を入れた（§20.14）。Session 6-9 で Debug の状態（ステータスバー）を入れた（§20.17）。Session 6-10 で Debug Profile の保存と `debug:start`（Profile → ResolvedLaunchConfiguration → Debug Session）を入れた（§20.18）。Session 6-11 で Debug Panel 上部の Toolbar と Profile editor を Renderer に入れた（§20.19）。ここに書いていない口・欄・経路を実装側で足すときは、足す前にこの節へ戻ること。
 
 DESIGN.md §5 の11機能（Breakpoint / Continue / Pause / Step Over / Step Into / Step Out / Stop / Variables / Call Stack / Debug Console / エラー位置へのジャンプ）を、Terminal（§13）と LSP（§19）が固めた「**Main が長命な子プロセスを持ち、Renderer は app-domain の言葉だけで話す**」形の上に載せる。
 
@@ -7357,7 +7357,7 @@ Debug Profile を作る / 選ぶ
                                  dapConnection     Content-Length フレーミング
                                  debugSession      状態機械（initialize → … → running）
       ▲
-      │ debug:state-changed / stopped / output / breakpoints-changed（§3.3 の経路）
+      │ debug:status-changed / stopped / output / breakpoints-changed（§3.3 の経路）
       │
    画面を描く
 ```
@@ -8302,3 +8302,62 @@ catalog の行は起動するもの（`adapter: { executable, args }`。拡張�
 #### 入れていないもの（Session 6-10）
 
 Debug Profile の編集 UI / 起動ボタン / Debug Toolbar / 実 adapter の統合（catalog の行はすべて `not-integrated`）/ Node adapter の調査 / profile の変化通知 / 起動失敗の状態（§20.17 のまま、失敗は起動の応答でだけ返る）/ `launch.json` の読み込み / attach / 変数展開 / `cwd` の指定。
+
+### 20.19 Debug Toolbar / Profile editor（Session 6-11）
+
+Session 6-10 の typed IPC を使って、Debug Panel の上部に **Profile selector / Profile editor / Start / Continue / Pause / Step Over / Step Into / Step Out / Stop** を置いた。Settings には入れていない。Profile は Workspace 単位の値であり、編集する場所も Debug Panel の中になる。
+
+#### Toolbar の状態
+
+状態の正本は Session 6-9 の `DebugSessionStatus` で、Renderer 側に別の state machine は作っていない。Toolbar は届いた1語から押せるものだけを決める。
+
+| status        | 有効な操作                                         |
+| ------------- | -------------------------------------------------- |
+| `unavailable` | なし                                               |
+| `idle`        | Start（Profile 選択済みのときだけ）                |
+| `starting`    | なし                                               |
+| `running`     | Pause / Stop                                       |
+| `stopped`     | Continue / Step Over / Step Into / Step Out / Stop |
+| `terminating` | なし                                               |
+
+この判定は `debugToolbarModel.ts` の純粋関数に置き、Toolbar のボタンと Command Registry の登録条件が同じ値を使う。押せない command は登録しない（Git / Files contribution と同じ形）。
+
+#### Profile selector / editor
+
+Selector に出すのは **Profile 名と言語だけ**。`programRelativePath` は editor を開いたときにだけ Workspace 相対パスとして表示し、絶対パス・file URI・adapter executable・adapter args・cwd・runtime executable は Renderer へも画面にも出さない。
+
+Profile editor が編集する欄は Session 6-10 の schema と同じ6欄だけ:
+
+- `name`
+- `language`
+- `programRelativePath`
+- `programArgs`
+- `env`
+- `stopOnEntry`
+
+`programArgs` は UI では1行1引数として編集するが、shell command 文字列としては扱わない。`&&` や `|` は1つの引数内の文字列のまま `DebugProfileDraft.programArgs` に入る。`env` は `NAME=value` の行へ変換し、最終的な許可 / 拒否は Main の `environmentPolicy.ts` が行う。
+
+#### Start / control
+
+Start ボタンと `debug.start` command が渡すのは、選択済みの `profileId` だけになる。Renderer から executable / adapter path / adapter args / cwd / absolute program path / arbitrary launch config / arbitrary DAP request を渡す経路は無い。
+
+Continue / Pause / Step / Stop は Session 6-4 の typed Debug API（`debug:continue` など）をそのまま使う。今回も raw DAP method を Renderer へ公開していない。
+
+#### Command Registry
+
+Session 6-11 で次の command を追加した。正式な F5 / Shift+F5 / F10 / F11 / Shift+F11 の keybinding はまだ追加していない（後続 Session の担当）。
+
+- `debug.addProfile`
+- `debug.editProfile`
+- `debug.deleteProfile`
+- `debug.start`
+- `debug.continue`
+- `debug.pause`
+- `debug.stepOver`
+- `debug.stepInto`
+- `debug.stepOut`
+- `debug.stop`
+
+#### 入れていないもの（Session 6-11）
+
+実 adapter の統合（Node / Python / C#）/ Node adapter の調査 / Debug keybinding の正式割り当て / profile の変化通知 / Settings section / native file dialog から絶対パスを Renderer へ返す導線 / arbitrary DAP method / raw launch configuration / `launch.json` の読み込み / attach / `cwd` の指定。

@@ -1,7 +1,7 @@
 # 開発ガイド
 
-> 対象: Session 5-13（STEP 5 LSP Closing）完了時点 ＋ Session 6-6（STEP 6 DAP Variables）
-> 最終更新: 2026-09-11
+> 対象: Session 5-13（STEP 5 LSP Closing）完了時点 ＋ Session 6-11（STEP 6 DAP Debug Toolbar / Profile editor）
+> 最終更新: 2026-09-13
 
 ---
 
@@ -54,7 +54,7 @@ Session 6-9 で **Debug の状態**がステータスバーに出るようにな
 
 Session 6-10 で **Debug Profile の保存と `debug:start`** が入った（`debug:list-profiles` / `create-profile` / `update-profile` / `delete-profile` / `start`。docs/ARCHITECTURE.md §20.18）。保存先は `userData/debug-profiles.json`（Workspace root の realpath で引く）。Renderer が渡せるのは6欄と Main が発番した `profileId` だけで、解決した program の絶対パス・adapter の実行ファイル / 引数・cwd は Main の中（`ResolvedLaunchConfiguration`）で閉じる。**catalog の行はすべて `not-integrated` のままなので、実機の `debug:start` は常に `adapter-unavailable`** ── 起動が通るのは catalog を mock adapter に差し替えた確認だけ（§4）。
 
-Debug Profile の編集 UI、起動ボタン、Debug Toolbar、実 adapter 統合はまだ無い。
+Session 6-11 で **Debug Toolbar と Debug Profile editor** が Debug Panel の中に入った（docs/ARCHITECTURE.md §20.19）。Toolbar は `DebugSessionStatus` だけから Start / Continue / Pause / Step / Stop の活性を決め、同じ条件で `debug.*` command を登録する。Profile editor は Session 6-10 の6欄だけを編集し、Start は選択済み `profileId` だけを `debug:start` へ渡す。Settings section は作っていない。実 adapter 統合はまだ無い。
 
 ---
 
@@ -635,6 +635,13 @@ DAP の周りは 6-1 / 6-2 と同じ分け方で、**Electron も子プロセス
 - `src/main/store/debugProfilesDocument.test.ts` — エンベロープが壊れていれば文書ごと捨てる・**保存時と同じ検証で1件だけを落とす**（発番の形でない id / 絶対パス / `..` / 禁じた環境変数）・余計な欄を落とす・id の重複・Workspace の上限
 - `src/main/ipc/handlers/debug.test.ts` — 5本の登録・`debug:start` が `profileId` 以外を読まないこと・形の壊れた id / object でない `profile` は INVALID_REQUEST で Main の処理へ届かないこと
 - `src/preload/api/debug.test.ts` — 22関数になったこと・`start` が `profileId` だけ、編集が `profile` / `profileId` だけを送ること
+
+#### Debug Toolbar / Profile editor（Session 6-11）
+
+- `src/renderer/src/debug/debugToolbarModel.test.ts` — status ごとの Toolbar button matrix・Profile form ↔ draft の変換・`programArgs` を shell 文字列として扱わないこと・safe な message key への変換
+- `src/renderer/src/debug/DebugToolbar.dom.test.ts` — Profile selector が名前と言語だけを表示すること・raw path / adapter 情報を描画しないこと・Start が `profileId` だけを渡すこと・create / update / delete・validation failure・unavailable・accessibility・Command Registry の登録条件
+- `src/renderer/src/commands/registry.test.ts` / `commandLocalization.test.ts` — `debug.*` command 10件と debug category の登録・日英の command 名
+- `src/renderer/src/settings/KeyboardShortcuts.dom.test.ts` — Debug command が Keyboard Shortcuts 一覧に未割り当てとして並ぶこと
 
 ### 整形
 
@@ -2028,6 +2035,16 @@ Session 4-5 / 4-7 は**境界を1つも動かしていない**ことを、両ス
 - **scratchpad の `package.json` が `"type": "module"` だと、Workspace に置いた `.js` の題材まで ES module として読まれる**（`require is not defined` で exit 1）。アプリは正しい program / args / cwd / env を渡しているのに、「debuggee が引数を受け取っていない」ように見える FAIL が4つ出た。Workspace の**外**（使い捨てディレクトリの直下）に `{"type":"commonjs"}` を置けば、Workspace の中身を増やさずに済む
 - **起動時の再検証（保存の後にリンクへ差し替え）を画面側から作るには、保存時にまだ無いフォルダを profile に書いておき、保存の後でそのフォルダ名のジャンクションを作る。** 既に在るリンクは保存時に断られるので、この順でしか起動時の段を通せない
 - catalog の差し替えは bundle の `DEBUG_ADAPTER_CATALOG` を名前で書き換えるだけで効く（`getDebugAdapterCatalogEntry` / `hasIntegratedDebugAdapter` は呼ばれるたびに表を読む）。ステータスの `unavailable` → `idle` も同じ差し替えで動く
+
+### Session 6-11（Debug Toolbar + Profile editor）
+
+**production build 版の簡易スモーク PASS。** `npm run build` 後の `out/main/index.js` をそのまま Electron で起動し、CDP から View → Debug を開いて確認した。hook / mock adapter / catalog 差し替えは使っていない。既存 userData の Workspace 復元が働いた状態で、Profile の保存と Debug Session の起動は行っていない。
+
+- Debug Panel: View メニューから `debug` パネルを開ける、Call Stack / Variables / Debug Console と同じ面に Toolbar が出る
+- Toolbar: `role="toolbar"` と localized label を持つ、Profile selector が「Profile なし」を出す、Profile 未選択では Start / Pause / Stop が disabled
+- Profile editor: Add Profile で Debug Panel 内に editor が開く、6欄（name / language / programRelativePath / programArgs / env / stopOnEntry）が揃う、`input[type=file]` は無く native file dialog に依存しない
+- セキュリティ: `window.fluvix.debug` は公開されるが、`window.process` / `window.electron` は出ない。debug API は Session 6-10 の22関数のまま
+- 片付け: 検証用 profile は保存しない。adapter は起動しない
 
 ---
 
