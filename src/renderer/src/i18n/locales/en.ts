@@ -1293,7 +1293,25 @@ export const enMessages = {
       stopped: 'stopped',
       openFrame: 'Open stack frame',
       sourceUnavailable: 'Source is outside the Workspace or unavailable.',
-      invalidLocation: 'The stack frame location is not available.'
+      invalidLocation: 'The stack frame location is not available.',
+      currentFrame: 'Current'
+    },
+    stopReason: {
+      aria: 'Why the program is paused',
+      breakpoint: 'Paused at breakpoint',
+      step: 'Paused after step',
+      pause: 'Paused manually',
+      entry: 'Paused on entry',
+      exception: 'Paused on exception',
+      unknown: 'Paused',
+      breakModeUnhandled: 'Uncaught',
+      breakModeUserUnhandled: 'Uncaught in user code',
+      breakModeAlways: 'Raised',
+      noExceptionDetails: 'Exception details are not available.'
+    },
+    executionLine: {
+      current: 'Current execution location',
+      selected: 'Selected stack frame'
     },
     variables: {
       aria: 'Variables',

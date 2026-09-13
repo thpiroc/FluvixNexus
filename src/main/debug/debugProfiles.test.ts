@@ -363,7 +363,8 @@ describe('debug profiles — start', () => {
           env: { APP_MODE: 'debug' },
           stopOnEntry: false,
           console: 'internalConsole'
-        }
+        },
+        exceptionBreakpointFilters: []
       }
     ])
   })

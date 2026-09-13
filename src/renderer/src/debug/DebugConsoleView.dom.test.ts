@@ -56,6 +56,7 @@ const OTHER_WORKSPACE: WorkspaceFolder = {
 const STOPPED: DebugCallStackSnapshot = {
   status: 'stopped',
   activeThreadId: 1,
+  stop: { sequence: 1, reason: 'breakpoint', exception: null },
   threads: [
     {
       id: 1,

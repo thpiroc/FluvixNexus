@@ -72,4 +72,11 @@ export interface ResolvedLaunchConfiguration {
   /** adapter のプロセスをどう立てるか（絶対パス・adapter の引数・cwd・環境）。 */
   readonly adapterCommand: DebugAdapterCommand
   readonly launchArguments: DebugLaunchRequestArguments
+  /**
+   * `setExceptionBreakpoints` で頼みたい filter の id（Session 6-13。言語ごとの閉じた表）。
+   *
+   * 送るのは adapter が `initialize` で名乗ったものとの積だけ（main/debug/dapExceptionBreakpoints.ts）。
+   * profile の欄からは作らない。
+   */
+  readonly exceptionBreakpointFilters: readonly string[]
 }

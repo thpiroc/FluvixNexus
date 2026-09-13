@@ -40,7 +40,11 @@ function success(body: unknown): DapRequestOutcome {
   return { status: 'success', body }
 }
 
-function createHarness() {
+type ExceptionInfoChannelGetter = NonNullable<
+  DebugCallStackStoreDependencies['getExceptionInfoChannel']
+>
+
+function createHarness(getExceptionInfoChannel?: ExceptionInfoChannelGetter) {
   let workspace: WorkspaceFolder | null = WORKSPACE
   let state: DebugSessionState = 'idle'
   let generation = 1
@@ -59,6 +63,7 @@ function createHarness() {
     getDebugGeneration: () => generation,
     getDebugStopGeneration: () => stopGeneration,
     getChannel: () => channel,
+    ...(getExceptionInfoChannel === undefined ? {} : { getExceptionInfoChannel }),
     onDebugStateChange: (listener) => {
       stateListeners.push(listener)
       return () => {}
@@ -110,7 +115,8 @@ function createHarness() {
       generation,
       stopGeneration,
       stoppedThreadId: nextChannel.stoppedThreadId,
-      allThreadsStopped: true
+      allThreadsStopped: true,
+      stop: nextChannel.stop ?? { reason: 'unknown', description: null, text: null }
     }
 
     for (const listener of stoppedListeners) {
@@ -155,6 +161,7 @@ function channel(
     generation: 1,
     stopGeneration: 1,
     stoppedThreadId: 1,
+    stop: { reason: 'breakpoint', description: null, text: null },
     requestThreads: vi.fn(async () => success({ threads: [{ id: 1, name: 'main' }] })),
     requestStackTrace: vi.fn(async () =>
       success({
@@ -205,7 +212,8 @@ describe('debug call stack store', () => {
             }
           ]
         }
-      ]
+      ],
+      stop: { sequence: 1, reason: 'breakpoint', exception: null }
     })
     expect(harness.store.getFrameHandle(11)).toEqual({
       workspaceId: 'workspace-1',
@@ -273,7 +281,8 @@ describe('debug call stack store', () => {
     expect(threadsHarness.store.list()).toEqual({
       status: 'stopped',
       activeThreadId: null,
-      threads: []
+      threads: [],
+      stop: { sequence: 1, reason: 'breakpoint', exception: null }
     })
     expect(threadsHarness.logs).toContain('warn: ignored a malformed threads response.')
 
@@ -304,7 +313,8 @@ describe('debug call stack store', () => {
     expect(sessionHarness.store.list()).toEqual({
       status: 'loading',
       activeThreadId: 1,
-      threads: []
+      threads: [],
+      stop: { sequence: 1, reason: 'breakpoint', exception: null }
     })
     expect(sessionHarness.store.getFrameHandle(11)).toBeNull()
 
@@ -325,7 +335,12 @@ describe('debug call stack store', () => {
     })
     await settle()
 
-    expect(stopHarness.store.list()).toEqual({ status: 'loading', activeThreadId: 1, threads: [] })
+    expect(stopHarness.store.list()).toEqual({
+      status: 'loading',
+      activeThreadId: 1,
+      threads: [],
+      stop: { sequence: 1, reason: 'breakpoint', exception: null }
+    })
     expect(stopHarness.store.getFrameHandle(11)).toBeNull()
   })
 
@@ -337,7 +352,12 @@ describe('debug call stack store', () => {
 
     for (const state of ['running', 'terminating', 'idle'] as const) {
       harness.setState(state)
-      expect(harness.store.list()).toEqual({ status: 'idle', activeThreadId: null, threads: [] })
+      expect(harness.store.list()).toEqual({
+        status: 'idle',
+        activeThreadId: null,
+        threads: [],
+        stop: null
+      })
     }
 
     harness.fireStopped(channel({ stopGeneration: 2 }))
@@ -345,7 +365,12 @@ describe('debug call stack store', () => {
     expect(harness.store.list().status).toBe('stopped')
 
     harness.setWorkspace(null)
-    expect(harness.store.list()).toEqual({ status: 'idle', activeThreadId: null, threads: [] })
+    expect(harness.store.list()).toEqual({
+      status: 'idle',
+      activeThreadId: null,
+      threads: [],
+      stop: null
+    })
     expect(harness.store.getFrameHandle(11)).toBeNull()
   })
 
@@ -359,5 +384,290 @@ describe('debug call stack store', () => {
     await settle()
 
     expect(activeChannel.requestThreads).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('debug call stack store: stop reason and exceptions (Session 6-13)', () => {
+  const EXCEPTION_STOP = {
+    reason: 'exception' as const,
+    description: 'bad value 42',
+    text: 'ValueError'
+  }
+
+  function exceptionChannel(
+    requestExceptionInfo: (args: { readonly threadId: number }) => Promise<DapRequestOutcome>,
+    overrides: { readonly generation?: number; readonly stopGeneration?: number } = {}
+  ) {
+    return {
+      sessionId: 'debug-session-1',
+      generation: overrides.generation ?? 1,
+      stopGeneration: overrides.stopGeneration ?? 1,
+      requestExceptionInfo: vi.fn(requestExceptionInfo)
+    }
+  }
+
+  it.each(['breakpoint', 'step', 'pause', 'entry', 'unknown'] as const)(
+    'publishes the %s reason with loading and stopped, and never asks for exceptionInfo',
+    async (reason) => {
+      const info = exceptionChannel(async () => success({}))
+      const harness = createHarness(() => info)
+
+      harness.fireStopped(channel({ stop: { reason, description: null, text: null } }))
+      expect(harness.store.list()).toMatchObject({
+        status: 'loading',
+        stop: { sequence: 1, reason, exception: null }
+      })
+      await settle()
+
+      expect(harness.store.list()).toMatchObject({
+        status: 'stopped',
+        stop: { sequence: 1, reason, exception: null }
+      })
+      expect(info.requestExceptionInfo).not.toHaveBeenCalled()
+    }
+  )
+
+  it('reads exceptionInfo once for the stopped thread and publishes only type, message and mode', async () => {
+    const order: string[] = []
+    const info = exceptionChannel(async (args) => {
+      order.push(`exceptionInfo:${String(args.threadId)}`)
+      return success({
+        exceptionId: 'ValueError',
+        breakMode: 'unhandled',
+        description: 'bad value 42',
+        details: {
+          message: 'bad value 42 in D:\\proj\\src\\app.ts',
+          typeName: 'ValueError',
+          stackTrace: '  File "D:\\proj\\src\\app.ts", line 7\n  File "C:\\Python\\lib\\x.py"',
+          source: 'D:\\proj\\src\\app.ts'
+        }
+      })
+    })
+    const harness = createHarness(() => info)
+    const activeChannel = channel({
+      stop: EXCEPTION_STOP,
+      requestStackTrace: vi.fn(async () => {
+        order.push('stackTrace')
+        return success({
+          stackFrames: [
+            { id: 11, name: 'boom', source: { path: 'D:\\proj\\src\\app.ts' }, line: 2 }
+          ]
+        })
+      })
+    })
+
+    harness.fireStopped(activeChannel)
+    expect(harness.store.list().stop).toEqual({
+      sequence: 1,
+      reason: 'exception',
+      exception: { typeName: 'ValueError', message: 'bad value 42', breakMode: null }
+    })
+    await settle()
+
+    expect(order).toEqual(['stackTrace', 'exceptionInfo:1'])
+    expect(harness.store.list().stop).toEqual({
+      sequence: 1,
+      reason: 'exception',
+      exception: {
+        typeName: 'ValueError',
+        message: 'bad value 42 in src/app.ts',
+        breakMode: 'unhandled'
+      }
+    })
+
+    const published = JSON.stringify(harness.emitted.at(-1))
+
+    expect(published).not.toContain('D:\\\\')
+    expect(published).not.toContain('Python')
+    expect(published).not.toContain('stackTrace')
+    expect(published).not.toContain('file:')
+  })
+
+  it('falls back to the stopped event when the adapter does not support exceptionInfo', async () => {
+    const harness = createHarness(() => null)
+
+    harness.fireStopped(channel({ stop: EXCEPTION_STOP }))
+    await settle()
+
+    expect(harness.store.list()).toMatchObject({
+      status: 'stopped',
+      stop: {
+        reason: 'exception',
+        exception: { typeName: 'ValueError', message: 'bad value 42', breakMode: null }
+      }
+    })
+
+    const withoutDependency = createHarness()
+    withoutDependency.fireStopped(channel({ stop: EXCEPTION_STOP }))
+    await settle()
+
+    expect(withoutDependency.store.list().stop?.exception?.typeName).toBe('ValueError')
+  })
+
+  it('falls back and logs without adapter text for malformed or rejected exceptionInfo', async () => {
+    const malformed = exceptionChannel(async () => success({ exceptionId: 42 }))
+    const malformedHarness = createHarness(() => malformed)
+
+    malformedHarness.fireStopped(channel({ stop: EXCEPTION_STOP }))
+    await settle()
+
+    expect(malformedHarness.store.list().stop?.exception).toEqual({
+      typeName: 'ValueError',
+      message: 'bad value 42',
+      breakMode: null
+    })
+    expect(malformedHarness.logs).toContain('warn: ignored a malformed exceptionInfo response.')
+
+    const rejected = exceptionChannel(async () => ({
+      status: 'failure',
+      message: 'cannot read C:\\secret\\adapter.py',
+      body: undefined
+    }))
+    const rejectedHarness = createHarness(() => rejected)
+
+    rejectedHarness.fireStopped(channel({ stop: EXCEPTION_STOP }))
+    await settle()
+
+    expect(rejectedHarness.store.list().status).toBe('stopped')
+    expect(rejectedHarness.store.list().stop?.exception?.message).toBe('bad value 42')
+    expect(rejectedHarness.logs.join('\n')).not.toContain('secret')
+  })
+
+  it('ignores exception channels that belong to another stop', async () => {
+    const other = exceptionChannel(async () => success({ exceptionId: 'Old' }), {
+      stopGeneration: 9
+    })
+    const harness = createHarness(() => other)
+
+    harness.fireStopped(channel({ stop: EXCEPTION_STOP }))
+    await settle()
+
+    expect(other.requestExceptionInfo).not.toHaveBeenCalled()
+    expect(harness.store.list().stop?.exception?.typeName).toBe('ValueError')
+  })
+
+  it('does not publish a stale exceptionInfo answer after the stop moved on', async () => {
+    const waiting = deferred<DapRequestOutcome>()
+    const info = exceptionChannel(() => waiting.promise)
+    const harness = createHarness(() => info)
+
+    harness.fireStopped(channel({ stop: EXCEPTION_STOP }))
+    await settle()
+    expect(harness.store.list().status).toBe('loading')
+
+    harness.replaceStop(2)
+    waiting.resolve(success({ exceptionId: 'OldError', details: { message: 'old' } }))
+    await settle()
+
+    expect(harness.store.list().status).toBe('loading')
+    expect(JSON.stringify(harness.emitted)).not.toContain('OldError')
+    expect(harness.store.getFrameHandle(11)).toBeNull()
+  })
+
+  it('keeps the sequence and does not ask again when a thread event re-reads the same stop', async () => {
+    const info = exceptionChannel(async () =>
+      success({ exceptionId: 'ValueError', breakMode: 'unhandled', details: { message: 'm' } })
+    )
+    const harness = createHarness(() => info)
+    const activeChannel = channel({ stop: EXCEPTION_STOP })
+
+    harness.fireStopped(activeChannel)
+    await settle()
+    harness.fireThread()
+    await settle()
+
+    expect(activeChannel.requestThreads).toHaveBeenCalledTimes(2)
+    expect(info.requestExceptionInfo).toHaveBeenCalledTimes(1)
+    expect(harness.store.list().stop).toEqual({
+      sequence: 1,
+      reason: 'exception',
+      exception: { typeName: 'ValueError', message: 'm', breakMode: 'unhandled' }
+    })
+  })
+
+  it('issues a new sequence for every new stop and clears the reason when execution resumes', async () => {
+    const harness = createHarness()
+
+    harness.fireStopped(channel({ stop: { reason: 'breakpoint', description: null, text: null } }))
+    await settle()
+    expect(harness.store.list().stop?.sequence).toBe(1)
+
+    harness.setState('running')
+    expect(harness.store.list().stop).toBeNull()
+
+    harness.fireStopped(
+      channel({ stopGeneration: 2, stop: { reason: 'step', description: null, text: null } })
+    )
+    await settle()
+    expect(harness.store.list().stop).toEqual({ sequence: 2, reason: 'step', exception: null })
+
+    harness.fireStopped(
+      channel({ stopGeneration: 3, stop: { reason: 'step', description: null, text: null } })
+    )
+    await settle()
+    expect(harness.store.list().stop?.sequence).toBe(3)
+  })
+
+  it.each(['running', 'terminating', 'idle'] as const)(
+    'clears the exception reason on %s (continue / stop / terminated / exited / adapter error)',
+    async (state) => {
+      const harness = createHarness(() => null)
+
+      harness.fireStopped(channel({ stop: EXCEPTION_STOP }))
+      await settle()
+      expect(harness.store.list().stop?.reason).toBe('exception')
+
+      harness.setState(state)
+
+      expect(harness.store.list()).toEqual({
+        status: 'idle',
+        activeThreadId: null,
+        threads: [],
+        stop: null
+      })
+      expect(harness.emitted.at(-1)?.snapshot).toEqual(harness.store.list())
+    }
+  )
+
+  it('clears the reason on workspace switch and does not reuse the old stop for the new workspace', async () => {
+    const harness = createHarness(() => null)
+
+    harness.fireStopped(channel({ stop: EXCEPTION_STOP }))
+    await settle()
+    harness.setWorkspace({ ...WORKSPACE, id: 'workspace-2', rootPath: 'D:\\other' })
+
+    expect(harness.store.list().stop).toBeNull()
+    expect(harness.emitted.at(-1)).toEqual({
+      workspaceId: 'workspace-2',
+      snapshot: { status: 'idle', activeThreadId: null, threads: [], stop: null }
+    })
+  })
+
+  it('keeps the reason even when the top frame is outside the workspace', async () => {
+    const harness = createHarness(() => null)
+
+    harness.fireStopped(
+      channel({
+        stop: EXCEPTION_STOP,
+        requestStackTrace: vi.fn(async () =>
+          success({
+            stackFrames: [
+              { id: 11, name: 'run', source: { path: 'C:\\Python\\Lib\\threading.py' }, line: 9 }
+            ]
+          })
+        )
+      })
+    )
+    await settle()
+
+    const snapshot = harness.store.list()
+
+    expect(snapshot.stop?.reason).toBe('exception')
+    expect(snapshot.threads[0]?.frames[0]?.source).toEqual({
+      kind: 'unavailable',
+      reason: 'outside-workspace',
+      name: 'Unknown source'
+    })
+    expect(JSON.stringify(snapshot)).not.toContain('Python')
   })
 })

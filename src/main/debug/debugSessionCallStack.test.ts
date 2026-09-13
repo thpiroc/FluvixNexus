@@ -139,7 +139,8 @@ describe('debug session call stack channel', () => {
         generation: 1,
         stopGeneration: 1,
         stoppedThreadId: 3,
-        allThreadsStopped: true
+        allThreadsStopped: true,
+        stop: { reason: 'breakpoint', description: null, text: null }
       }
     ])
 
@@ -278,7 +279,12 @@ describe('real stdio mock adapter with call stack store', () => {
       expect(JSON.stringify(snapshot)).not.toContain('D:\\secret')
 
       await expect(manager.control('continue')).resolves.toMatchObject({ status: 'accepted' })
-      expect(store.list()).toEqual({ status: 'idle', activeThreadId: null, threads: [] })
+      expect(store.list()).toEqual({
+        status: 'idle',
+        activeThreadId: null,
+        threads: [],
+        stop: null
+      })
       expect(emitted.length).toBeGreaterThan(0)
 
       await expect(manager.requestStop()).resolves.toMatchObject({ state: 'idle' })

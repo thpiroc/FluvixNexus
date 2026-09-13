@@ -59,6 +59,7 @@ describe('CallStackView', () => {
     const openFileAt = render({
       status: 'stopped',
       activeThreadId: 1,
+      stop: { sequence: 1, reason: 'breakpoint', exception: null },
       threads: [
         {
           id: 1,
@@ -101,6 +102,7 @@ describe('CallStackView', () => {
       {
         status: 'stopped',
         activeThreadId: 1,
+        stop: { sequence: 1, reason: 'breakpoint', exception: null },
         threads: [
           {
             id: 1,
@@ -154,6 +156,7 @@ describe('CallStackView', () => {
       {
         status: 'stopped',
         activeThreadId: 1,
+        stop: { sequence: 1, reason: 'breakpoint', exception: null },
         threads: [
           { id: 1, name: 'main', stopped: true, frames: [frame(10, 'top'), frame(11, 'caller')] }
         ]
@@ -172,5 +175,39 @@ describe('CallStackView', () => {
     })
 
     expect(selectFrame).toHaveBeenCalledWith(10)
+  })
+
+  it('marks the actual execution frame separately from the selected frame (Session 6-13)', () => {
+    const frame = (id: number, name: string) => ({
+      id,
+      name,
+      source: { kind: 'workspace' as const, relativePath: 'src/app.ts', name: 'app.ts' },
+      line: id,
+      column: 1
+    })
+
+    render(
+      {
+        status: 'stopped',
+        activeThreadId: 2,
+        stop: { sequence: 3, reason: 'step', exception: null },
+        threads: [
+          { id: 1, name: 'worker', stopped: false, frames: [] },
+          { id: 2, name: 'main', stopped: true, frames: [frame(10, 'top'), frame(11, 'caller')] }
+        ]
+      },
+      vi.fn(),
+      vi.fn(),
+      11
+    )
+
+    const buttons = [...container.querySelectorAll('button.fx-debug-call-stack__frame')]
+
+    expect(buttons.map((button) => button.getAttribute('data-current'))).toEqual(['true', 'false'])
+    expect(buttons.map((button) => button.getAttribute('data-selected'))).toEqual(['false', 'true'])
+    expect(buttons[0]?.querySelector('.fx-debug-call-stack__frame-badge')?.textContent).toBe(
+      'Current'
+    )
+    expect(buttons[1]?.querySelector('.fx-debug-call-stack__frame-badge')).toBeNull()
   })
 })

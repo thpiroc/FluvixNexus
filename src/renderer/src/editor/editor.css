@@ -473,3 +473,83 @@
   background: var(--fx-debug-breakpoint-unverified);
   opacity: 0.5;
 }
+
+/* 現在の実行位置（Session 6-13） */
+
+/**
+ * 止まっている行の帯と、glyph margin の矢印。
+ *
+ * **色は新しく持たない。** 識別色（`--fx-accent-*`）を `color-mix` で薄めて帯にする ──
+ * theme.css に色を足さずに Dark / Light の両方で揃う（Theme を切り替えても置き直さない）。
+ * VS Code と同じく、今止まっている行は暖色、Call Stack で選んだ別の frame は緑にして
+ * 「実際に止まっている場所」と「見に行っている場所」を取り違えないようにする。
+ *
+ * 帯は行全体（`isWholeLine`）の view overlay に出るので、LSP の波線（inline）とも
+ * Monaco のカーソル行の枠とも重ならない。
+ */
+.fx-debug-execution-line--current {
+  background: color-mix(in srgb, var(--fx-accent-orange) 24%, transparent);
+}
+
+.fx-debug-execution-line--selected {
+  background: color-mix(in srgb, var(--fx-accent-green) 20%, transparent);
+}
+
+/**
+ * 矢印は `::after` に描く。
+ *
+ * Monaco は同じ行・同じ lane・同じ zIndex の glyph decoration を**1つの要素にクラスを
+ * 並べて**描く（glyphMargin.js）。breakpoint の丸は `::before` なので、同じ行に印がある
+ * ときも矢印が丸の上に重なって両方見える。
+ */
+.fx-debug-execution-glyph {
+  position: relative;
+}
+
+.fx-debug-execution-glyph::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 10px;
+  height: 12px;
+  transform: translate(-40%, -50%);
+  clip-path: polygon(0 18%, 45% 18%, 45% 0, 100% 50%, 45% 100%, 45% 82%, 0 82%);
+  content: '';
+}
+
+.fx-debug-execution-glyph--current::after {
+  background: var(--fx-accent-orange);
+}
+
+.fx-debug-execution-glyph--selected::after {
+  background: var(--fx-accent-green);
+}
+
+/**
+ * breakpoint と同じ行で止まったとき。
+ *
+ * 塗りの丸に矢印を重ねると、色の近い2つが1つの塊に見えた（Session 6-13 の production 確認の
+ * スクリーンショット）。この行だけ丸を輪にして、矢印をその内側に小さく描く。輪の色は
+ * breakpoint の状態（pending / verified / unverified / disabled）のまま。
+ */
+.fx-breakpoint.fx-debug-execution-glyph::before {
+  width: 14px;
+  height: 14px;
+  box-sizing: border-box;
+  background: transparent;
+  border: 2px solid var(--fx-debug-breakpoint-verified);
+}
+
+.fx-breakpoint--pending.fx-debug-execution-glyph::before {
+  border-color: var(--fx-debug-breakpoint);
+}
+
+.fx-breakpoint--unverified.fx-debug-execution-glyph::before,
+.fx-breakpoint--disabled.fx-debug-execution-glyph::before {
+  border-color: var(--fx-debug-breakpoint-unverified);
+}
+
+.fx-breakpoint.fx-debug-execution-glyph::after {
+  width: 7px;
+  height: 8px;
+}

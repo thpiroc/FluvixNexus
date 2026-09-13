@@ -268,6 +268,67 @@
   color: var(--fx-color-text-muted);
 }
 
+/* 今止まっている frame（Session 6-13）。選んでいる frame とは別の印にする。 */
+.fx-debug-call-stack__frame[data-current='true'] {
+  box-shadow: inset 2px 0 0 var(--fx-accent-orange);
+}
+
+.fx-debug-call-stack__frame-badge {
+  margin-left: var(--fx-space-2);
+  color: var(--fx-accent-orange);
+  font-size: var(--fx-font-size-sm);
+}
+
+/* 停止理由（Session 6-13） */
+
+.fx-debug-stop-reason {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-1);
+  padding: var(--fx-space-2) var(--fx-space-3);
+  border-bottom: 1px solid var(--fx-color-border);
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-debug-stop-reason__title {
+  margin: 0;
+  color: var(--fx-color-text-strong);
+  font-weight: 600;
+}
+
+.fx-debug-stop-reason[data-reason='exception'] .fx-debug-stop-reason__title {
+  color: var(--fx-color-danger);
+}
+
+.fx-debug-stop-reason__exception {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--fx-space-1) var(--fx-space-2);
+  min-width: 0;
+  margin: 0;
+}
+
+.fx-debug-stop-reason__type {
+  color: var(--fx-color-text);
+  font-family: ui-monospace, Consolas, monospace;
+  font-weight: 600;
+}
+
+.fx-debug-stop-reason__message {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fx-color-text-muted);
+  font-family: ui-monospace, Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fx-debug-stop-reason__mode,
+.fx-debug-stop-reason__notice {
+  color: var(--fx-color-text-faint);
+}
+
 /* Variables（Session 6-6） */
 
 .fx-debug-panel__header--section {

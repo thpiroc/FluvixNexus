@@ -37,6 +37,22 @@ export type {
 
 export { EMPTY_DEBUG_CALL_STACK } from './callStack'
 
+/* 停止理由と例外（Session 6-13）。DAP の stopped event / exceptionInfo はここに現れない。 */
+export type {
+  DebugExceptionBreakMode,
+  DebugExceptionStop,
+  DebugStopInfo,
+  DebugStopReason
+} from './stop'
+
+export {
+  DEBUG_EXCEPTION_BREAK_MODES,
+  DEBUG_STOP_REASONS,
+  DEBUG_STOP_TEXT_MAX_LENGTH,
+  isDebugExceptionBreakMode,
+  isDebugStopReason
+} from './stop'
+
 export type {
   DebugEvaluateContext,
   DebugEvaluateResult,

@@ -328,7 +328,8 @@ export function createDebugProfileService(
     const outcome = dependencies.startSession({
       adapterId: configuration.adapterId,
       adapterCommand: configuration.adapterCommand,
-      launchArguments: configuration.launchArguments
+      launchArguments: configuration.launchArguments,
+      exceptionBreakpointFilters: configuration.exceptionBreakpointFilters
     })
 
     switch (outcome.status) {

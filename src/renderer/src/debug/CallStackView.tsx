@@ -4,12 +4,15 @@ import { useEditorContext } from '../editor/context'
 import { useI18n } from '../i18n/context'
 import { useCallStack } from './callStackContext'
 import { openCallStackFrame } from './callStackNavigation'
+import { findCurrentExecutionFrame } from './executionLocation'
 import './debug.css'
 
 export function CallStackView(): JSX.Element {
   const { snapshot, selectedFrameId, selectFrame } = useCallStack()
   const editor = useEditorContext()
   const { t } = useI18n()
+  /* 実際に止まっている frame（Session 6-13）。選んでいる frame とは別に印を付ける。 */
+  const currentFrameId = findCurrentExecutionFrame(snapshot)?.id ?? null
 
   if (snapshot.status === 'loading') {
     return <div className="fx-debug-call-stack__notice">{t('debug.callStack.loading')}</div>
@@ -45,6 +48,7 @@ export function CallStackView(): JSX.Element {
                 <li className="fx-debug-call-stack__frame-item" key={frame.id}>
                   <FrameButton
                     frame={frame}
+                    current={frame.id === currentFrameId}
                     selected={frame.id === selectedFrameId}
                     activate={() => {
                       /*
@@ -68,10 +72,13 @@ export function CallStackView(): JSX.Element {
 
 function FrameButton({
   frame,
+  current,
   selected,
   activate
 }: {
   readonly frame: DebugCallStackFrame
+  /** 実際に止まっている frame か（Session 6-13）。 */
+  readonly current: boolean
   readonly selected: boolean
   readonly activate: () => void
 }): JSX.Element {
@@ -83,6 +90,7 @@ function FrameButton({
       type="button"
       className="fx-debug-call-stack__frame"
       data-openable={canOpen}
+      data-current={current}
       data-selected={selected}
       aria-current={selected ? 'true' : undefined}
       onClick={activate}
@@ -94,7 +102,14 @@ function FrameButton({
             : t('debug.callStack.sourceUnavailable')
       }
     >
-      <span className="fx-debug-call-stack__frame-name">{frame.name}</span>
+      <span className="fx-debug-call-stack__frame-name">
+        {frame.name}
+        {current && (
+          <span className="fx-debug-call-stack__frame-badge">
+            {t('debug.callStack.currentFrame')}
+          </span>
+        )}
+      </span>
       <span className="fx-debug-call-stack__frame-location">
         {frame.source.kind === 'workspace'
           ? `${frame.source.relativePath}:${String(frame.line ?? 1)}`

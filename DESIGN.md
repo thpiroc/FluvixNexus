@@ -1988,6 +1988,45 @@ catalog の python 行を `integrated` にし、**実際の debugpy（`python -m
 
 production build + 実 debugpy での確認は [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) §4。
 
+### Session 6-13（完了）— Exception Stop + Current Execution Location
+
+**「どこで止まったか」と「なぜ止まったか」を画面に出した。** 新しい IPC チャンネルは足していない ── Main が配る Call Stack snapshot に停止理由（`stop`）を載せ、Renderer はそこから Editor の印と Debug パネルの表示を導く（[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §20.21）。
+
+入れたもの:
+
+| ファイル                                | 役割                                                                                                        |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `shared/debug/stop.ts`                  | 停止理由（breakpoint / step / pause / entry / exception / unknown）・例外の型名 / メッセージ / breakMode    |
+| `main/debug/stopInfo.ts`                | `stopped` event / `exceptionInfo` の読み取りと、パスを伏せた表示用の形への変換                              |
+| `main/debug/dapExceptionBreakpoints.ts` | 言語ごとの表と adapter が名乗った filter の積を `setExceptionBreakpoints` にする                            |
+| `main/debug/debugSessionManager.ts`     | 停止理由の控え・`exceptionInfo` の口・設定の窓（`initialized` → `configurationDone`）での例外 filter の送信 |
+| `main/debug/callStack.ts`               | snapshot に `stop` を載せ、例外のときだけ `stackTrace` の後に `exceptionInfo` を1回読む                     |
+| `renderer/src/debug/`                   | 停止理由の表示・停止ごとに1回 Editor を開く器・Call Stack の「実行位置」                                    |
+| `renderer/src/editor/debug/`            | 現在の実行位置 / 選択中の frame の decoration（Monaco を import しない）                                    |
+
+決めたこと（実装の前に、実 debugpy 1.8.21 へ直接 DAP を送って確かめた）:
+
+- **例外で止まる条件は「捕まえられなかった例外」の1通り**（python は `uncaught`）。設定の欄は作っていない。`raised` は `try` で捕まえた例外でも止まり、捕まえられなかった例外では呼び出しを遡りながら2回止まった。`userUnhandled` は型名に adapter の注記が混ざった
+- **`setExceptionBreakpoints` を送らなければ debugpy は uncaught でも止まらない**（`default: true` は client への提案でしかない）。6-12 までのアプリは例外でそのまま exit 1 していた
+- `exceptionInfo` は `supportsExceptionInfoRequest` を名乗る adapter にだけ送る。`details.stackTrace` / `details.source` は絶対パスを含むので読まない。型名とメッセージは Main が絶対パス・file URI を伏せ（Workspace の中は相対位置へ直す）、1行に畳んでから載せる
+- 止まったら最上段の frame を Editor で開く（**停止ごとに1回**）。Call Stack で下の段を選ぶと、Variables / Evaluate はその frame を読み、Editor には別の色の印を出す ── 最上段の「実行位置」の印は残す
+- 印は snapshot から導くだけで、消すための経路を別に持たない（Continue / Step / Stop / `terminated` / `exited` / adapter の異常 / Workspace 切り替え / 終了で Main が snapshot を空にする）
+- 色は `--fx-accent-orange` / `--fx-accent-green` を `color-mix` で薄めて使い、theme.css に色を足していない。breakpoint と同じ行では丸を輪にして矢印を内側に描く
+
+production 確認で見つけて直したもの:
+
+- Python の `FileNotFoundError` のメッセージはパスを repr で入れるので区切りが二重になり、UNC の規則が先に当たって `'C:<path>'` になっていた（ドライブ文字だけが残り、Workspace の中のパスが相対位置に直らない）。ドライブ文字の規則を先に当てるよう直した
+- breakpoint と同じ行で止まると、塗りの丸と矢印が1つの塊に見えた。その行だけ丸を輪にした
+
+残したもの:
+
+- 例外で止まる条件の切り替え（raised / 止まらない）と例外設定の UI
+- 停止で Editor を開くのは既存の `openFileAt` を通るので、カーソルとフォーカスもその位置へ移る
+- Variables の値と Debug Console の出力は加工しない（§20.9 の例外のまま）── パスを伏せるのは例外の型名 / メッセージの欄だけ
+- Node / C# の例外 filter の id（adapter が未統合）
+
+production build + 実 debugpy での確認は [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) §4。
+
 ### Session 6-7 〜 6-13（予定）— 実装
 
 | Session | 入れるもの                                                         | 推奨 Agent   |
@@ -2000,7 +2039,7 @@ production build + 実 debugpy での確認は [docs/DEVELOPMENT.md](docs/DEVELO
 | 6-12    | Command / Keybinding（F5 / F9 / F10 / F11 / Shift+F11 / Shift+F5） | Codex        |
 | 6-13    | STEP 6 Closing（production build での横断確認とドキュメント追従）  | Claude Code  |
 
-> **実際の割り当ては表からずれている（Session 6-12 時点）。** 6-7 = Evaluate、6-8 = Debug Console、6-9 = Debug Status（Settings section なし）、6-10 = Debug Profile 保存 + `debug:start`、6-11 = Debug Toolbar + Profile editor、6-12 = Python（debugpy）。Node / C# adapter と正式 keybinding はまだ残っている。
+> **実際の割り当ては表からずれている（Session 6-13 時点）。** 6-7 = Evaluate、6-8 = Debug Console、6-9 = Debug Status（Settings section なし）、6-10 = Debug Profile 保存 + `debug:start`、6-11 = Debug Toolbar + Profile editor、6-12 = Python（debugpy）、6-13 = Exception Stop + Current Execution Location。Node / C# adapter と正式 keybinding はまだ残っている。
 
 最初に繋ぐのは **Node**（この PC で実機確認できる唯一の言語。Python / .NET SDK は STEP 5 Closing 時点と同じく未導入）。ただし Node の adapter だけは**入手経路と stdio 対応が未確定**で、6-1 の最初の仕事がその確認になる（[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §20.7）。
 

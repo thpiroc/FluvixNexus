@@ -19,6 +19,7 @@ function frame(id: number) {
 const SNAPSHOT: DebugCallStackSnapshot = {
   status: 'stopped',
   activeThreadId: 2,
+  stop: { sequence: 1, reason: 'breakpoint', exception: null },
   threads: [
     { id: 1, name: 'worker', stopped: false, frames: [] },
     { id: 2, name: 'main', stopped: true, frames: [frame(20), frame(21)] }
@@ -35,7 +36,7 @@ describe('call stack frame selection', () => {
     expect(selectDefaultFrameId(EMPTY_DEBUG_CALL_STACK)).toBeNull()
     expect(selectDefaultFrameId({ ...SNAPSHOT, status: 'loading' })).toBeNull()
     expect(
-      selectDefaultFrameId({ status: 'stopped', activeThreadId: null, threads: [] })
+      selectDefaultFrameId({ status: 'stopped', activeThreadId: null, threads: [], stop: null })
     ).toBeNull()
   })
 

@@ -647,6 +647,17 @@ DAP の周りは 6-1 / 6-2 と同じ分け方で、**Electron も子プロセス
 - `src/renderer/src/commands/registry.test.ts` / `commandLocalization.test.ts` — `debug.*` command 10件と debug category の登録・日英の command 名
 - `src/renderer/src/settings/KeyboardShortcuts.dom.test.ts` — Debug command が Keyboard Shortcuts 一覧に未割り当てとして並ぶこと
 
+#### Exception Stop / Current Execution Location（Session 6-13）
+
+- `src/main/debug/stopInfo.test.ts` — `stopped` の reason を閉じた集合へ畳むこと（breakpoint / step / pause / entry / exception・breakpoint の種類違い・unknown・壊れた body）・`exceptionInfo` の読み取り（実 debugpy の形・壊れた応答・知らない breakMode）・`details.stackTrace` / `source` を読まないこと・読めないときに stopped event の `text` / `description` へ落ちること・**絶対パス / file URI / UNC / POSIX のパスを伏せ、Workspace の中は相対位置へ直すこと**（Python の repr の二重区切りを含む）・1行への畳みと上限
+- `src/main/debug/dapExceptionBreakpoints.test.ts` — adapter が名乗った filter との積だけを送ること・`default: true` を当てにしないこと・名乗らない / 表が空なら送らないこと
+- `src/main/debug/debugSessionExceptions.test.ts` — `setExceptionBreakpoints` が `setBreakpoints` の後・`configurationDone` の前であること・filter が無ければ 6-12 の順序が変わらないこと・断られても running まで進むこと・待っている間の Stop で `configurationDone` を送らないこと・stopped listener と Call Stack の口に理由が載ること（壊れた body は unknown）・`exceptionInfo` の口が名乗る adapter の stopped 中だけ開き、次の停止 / `continued` / `exited` で閉じること
+- `src/main/debug/callStack.test.ts` — loading / stopped の snapshot に理由が載ること・例外のときだけ `stackTrace` の後に `exceptionInfo` を1回読むこと・未対応 / 壊れた / 断られた応答で stopped event の値へ落ちること・別の停止の口を使わないこと・**古い停止の答えを publish しないこと**・`thread` event の読み直しで通し番号を進めず再要求しないこと・新しい停止で通し番号が進むこと・running / terminating / idle / Workspace 切り替えで理由が消えること・Workspace 外の最上段でも理由が残ること・配る snapshot に絶対パスが載らないこと
+- `src/main/debug/profileResolver.test.ts` / `debugProfiles.test.ts` — python の表が `['uncaught']` で起動へ渡ること・profile に載せた filter が効かないこと
+- `src/renderer/src/debug/executionLocation.test.ts` — 実行位置が止まった thread の最上段であること・停止ごとに1回だけ追うこと（同じ停止の読み直し / loading / idle / Workspace 外）
+- `src/renderer/src/editor/debug/executionLineDecorations.test.ts` / `executionLineGlyphs.test.ts` — current / selected の印・ファイルごとの出し分け・同じ行に重ねないこと・loading / idle で空になること・色を持たないこと・breakpoint とは別の decorations collection を持つこと・同じ内容なら Monaco に触れないこと・ファイル切替で当て直すこと・dispose で残らないこと
+- `src/renderer/src/debug/DebugStopReasonView.dom.test.ts` / `debugStopReasonLabels.test.ts` / `ExecutionLocationFollower.dom.test.ts` / `CallStackView.dom.test.ts` — 理由ごとの日英の言葉（Paused / 一時停止中。Stopped と書かない）・例外の型名 / メッセージ / breakMode・文字列として描くこと・停止ごとに1回だけ `openFileAt` を呼び、下の段を選んでも引き戻さないこと・Call Stack の「実行位置」と選択の区別
+
 ### 整形
 
 Prettier（`.prettierrc.json`）。設定は既存のコードスタイル（セミコロンなし・シングルクォート・100 桁）に合わせてあり、導入時のコード変更は整形のみ。エディタ側にも同じ設定が効くよう `.editorconfig` を置いている。
@@ -2079,6 +2090,36 @@ Session 4-5 / 4-7 は**境界を1つも動かしていない**ことを、両ス
 - **debugpy は `print("a", b)` を複数の output event に分けて送る**（`child said` と ` 42\n…`）。entry ごとに探すと見つからない ── stdout の text をつないでから探す
 - **venv の `python.exe` はリダイレクタで base の python を子に起こす。** adapter / launcher / debuggee で python が6プロセスに見える。数えるときは CommandLine の venv / uv のパスで絞る
 - `process.env` を展開して `PATH` を足すと、Windows では `Path` と `PATH` の2つのキーになる ── 大小どちらも消してから `PATH` を1本だけ入れる
+
+### Session 6-13（Exception Stop + Current Execution Location）
+
+**production build 版 68項目、全項目 PASS。実 debugpy（1.8.21 / CPython 3.14.7）で、hook も mock adapter も使っていない**（`npm run build` の `out/` をそのまま起動）。6-12 と同じく uv の CPython から scratchpad に venv を作って `pip install debugpy` し、起動する Electron の `PATH` の先頭にだけ `Scripts` を足した。使い捨ての Workspace 2つ（ws1 / ws2）と使い捨ての `--user-data-dir` で起動し、Workspace は `dialog.showOpenDialog` を差し替えて上部バーの Workspace メニューから開いた。
+
+実装の前に、実 debugpy へ Content-Length フレーミングの DAP を直接送る probe で、`exceptionBreakpointFilters`（`raised` / `uncaught` / `userUnhandled`）・`supportsExceptionInfoRequest: true`・stopped の reason（`breakpoint` / `step` / `pause` / `entry` / `exception`）・`exceptionInfo` の形（`details.stackTrace` / `source` が絶対パス）・filter ごとの止まり方・**`setExceptionBreakpoints` を送らないと uncaught でも止まらないこと**を確かめた。
+
+- 面 / 境界: `debug` の関数が22個のまま（exception / request / dap / command を名乗る関数が無い）、build の CSP が source と同じ、CSP 違反 0件、Renderer の console エラー 0件
+- Profile: Debug Panel の editor から python の profile を3つ作成（main.py / loop.py / exc.py）
+- breakpoint（main.py:6）→ Start: reason `breakpoint`、**Editor が main.py を自分で開き**、6行目に実行位置の帯、glyph は breakpoint と同じ要素に並び丸が輪（2px）になって矢印と両方描かれる、「Breakpoint で一時停止中」（`role="status"`）、Call Stack の「実行位置」は1つだけ
+- Theme: 実行位置の帯と矢印の色が Dark / Light で変わり、どちらも透明でない
+- 回帰: Variables に `items`、Evaluate `len(items)` → `3`、Debug Console に `total` の出力
+- Step Into → helper.py:2（Editor が追う・「Step の後で一時停止中」）→ Call Stack で下の段（main）を選ぶ → main.py:6 に**選択中の印**が出て main.py には実行位置の印が出ない、1秒待っても Editor は引き戻されない、Call Stack は実行位置 = add・選択 = main → Step Over → helper.py:3 へ移り選択が最上段へ戻る → Step Out → main.py へ戻り印が最上段の行に一致 → Continue で完走し、印と停止理由が消え python のプロセスが 0
+- loop.py: Pause → reason `pause`・「手動で一時停止中」・ループの中の行に印 → Continue（running のまま）で印と停止理由が消える → Pause で新しい通し番号とともに戻る → Stop で消え python のプロセスが 0
+- exc.py（`try` で捕まえる KeyError の後に、捕まえない FileNotFoundError）: **止まったのは FileNotFoundError の1回だけ**（exc.py:13 `boom`）、「例外で一時停止中」「FileNotFoundError」「捕捉されていない例外」（`breakMode: unhandled`）、メッセージの中のパスは `no_such_dir/data.txt`（Workspace 相対）、call-stack の通知と停止理由 / Call Stack の画面に絶対パス / file URI が無い → Continue で exit、印が消え python のプロセスが 0 → もう一度起動して例外で止まったまま Stop → 消える
+- Workspace 切り替え: breakpoint で止まったまま ws2 へ → idle、印と停止理由が消え、空の snapshot（`stop: null`）が届き、python のプロセスが 0
+- アプリ終了: ws1 に戻って breakpoint で止まったまま `app.close()` → python のプロセスが 0
+- Workspace に増えたのは CPython が書いた `__pycache__` だけ
+
+#### 確認で見つけて直したもの（Session 6-13）
+
+- **例外メッセージのパスが相対位置に直らなかった。** Python の FileNotFoundError はパスを repr で入れるため区切りが `\\` と二重になり、UNC の規則が先に当たって `'C:<path>'` になった（ドライブ文字だけが残る）。unit test では区切りを1つで書いていたので出ず、**実 debugpy のメッセージで初めて見えた**。ドライブ文字の規則を先に当てるよう直し、二重区切りの unit test を足した
+- **breakpoint と同じ行で止まると、塗りの丸と矢印が1つの塊に見えた**（スクリーンショットで確認）。その行だけ丸を輪にして矢印を内側に描くよう CSS を直した
+
+#### 確認スクリプトを書くときに踏んだこと（Session 6-13）
+
+- **Variables の値にはプログラム自身のパスが出る**（`missing = os.path.join(os.getcwd(), …)`）。画面全体を絶対パスで走査すると、§20.9 / §20.15 の設計どおりの表示を「漏れ」と数えて FAIL になる ── 走査は面ごとに分け、今回の境界（停止理由 / Call Stack / call-stack の通知）だけを判定にする
+- 停止ごとの位置は Renderer 側で `onCallStackChanged` をもう1本購読し、`stop.sequence` が進むのを待つ。画面の文言だけを待つと、Step の前後で同じ「Step の後で一時停止中」が続き、前の停止のまま次の確認へ進む
+- decoration の行は、`.view-overlays` の要素の縦位置を Monaco 自身の `.line-numbers` の縦位置と突き合わせて読む（6-3 と同じ）
+- `webContents.setZoomFactor(3)` で glyph を拡大しようとすると、要素が見つからないまま locator が 30 秒待って確認全体が止まった。見た目の補助は `page.$()`（待たない）と `try / finally` で包み、判定には使わない
 
 ---
 

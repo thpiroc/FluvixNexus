@@ -111,7 +111,8 @@ describe('resolveDebugProfile', () => {
           env: { APP_MODE: 'debug' },
           stopOnEntry: true,
           console: 'internalConsole'
-        }
+        },
+        exceptionBreakpointFilters: []
       }
     })
   })
@@ -237,9 +238,28 @@ describe('resolveDebugProfile', () => {
             env: { APP_MODE: 'debug' },
             stopOnEntry: true,
             console: 'internalConsole'
-          }
+          },
+          exceptionBreakpointFilters: ['uncaught']
         }
       })
+    })
+
+    it('takes exception filters from the closed table, never from the profile (Session 6-13)', () => {
+      const polluted = {
+        ...pythonProfile,
+        exceptionBreakpointFilters: ['raised', 'userUnhandled'],
+        filters: ['raised'],
+        exceptionOptions: [{ breakMode: 'always' }]
+      } as DebugProfile
+
+      const resolution = resolveDebugProfile(polluted, pythonContext)
+
+      expect(
+        resolution.status === 'resolved' && resolution.configuration.exceptionBreakpointFilters
+      ).toEqual(['uncaught'])
+      expect(
+        resolution.status === 'resolved' && resolution.configuration.launchArguments
+      ).not.toHaveProperty('exceptionBreakpointFilters')
     })
 
     it('never carries an interpreter or adapter choice from the profile', () => {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
 import type { FileEncoding, FileLineEnding, FileRevision } from '@shared/files'
 import { useBreakpointGlyphs } from '../debug/useBreakpointGlyphs'
+import { useExecutionLineDecorations } from '../debug/useExecutionLineDecorations'
 import type { EditorRevealRequest } from '../editorReveal'
 import { useEditorActionCommands } from '../lsp/useEditorActionCommands'
 import type { EditorDocumentSource, EditorDocumentStore } from './documentStore'
@@ -368,6 +369,12 @@ export function MonacoEditor({
     monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN,
     relativePath
   )
+
+  /*
+    現在の実行位置（Session 6-13）。breakpoint の印と同じ理由でこの位置（Model を載せる effect の
+    後）に置く。判断はすべて渡した先が持つ（editor/debug/useExecutionLineDecorations.ts）。
+  */
+  useExecutionLineDecorations(editorInstance, relativePath)
 
   return (
     <div

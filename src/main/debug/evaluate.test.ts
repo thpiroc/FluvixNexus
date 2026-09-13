@@ -123,7 +123,8 @@ function createHarness(options: HarnessOptions = {}) {
           generation,
           stopGeneration,
           stoppedThreadId: 1,
-          allThreadsStopped: true
+          allThreadsStopped: true,
+          stop: { reason: 'breakpoint', description: null, text: null }
         })
       })
       return () => {}

@@ -7315,7 +7315,7 @@ Session 5-13 で実際に測った範囲は次のとおり。
 
 ## 20. Debug（DAP。STEP 6）
 
-Session 6-0 で設計を確定し、Session 6-1 で Main 内の最下層（DAP message / connection、adapter process、adapter catalog）を実装し、Session 6-2 で Main-owned Debug Session lifecycle / state machine を追加し、Session 6-3 で Breakpoint（Monaco の glyph margin・保存・`setBreakpoints`）を入れ（§20.12）、Session 6-4 で実行制御（Continue / Pause / Step Over / Step Into / Step Out / Stop）を入れ（§20.13）、Session 6-5 で Call Stack（`threads` / `stackTrace` と safe source normalization）を入れた（§20.14）。Session 6-9 で Debug の状態（ステータスバー）を入れた（§20.17）。Session 6-10 で Debug Profile の保存と `debug:start`（Profile → ResolvedLaunchConfiguration → Debug Session）を入れた（§20.18）。Session 6-11 で Debug Panel 上部の Toolbar と Profile editor を Renderer に入れた（§20.19）。ここに書いていない口・欄・経路を実装側で足すときは、足す前にこの節へ戻ること。
+Session 6-0 で設計を確定し、Session 6-1 で Main 内の最下層（DAP message / connection、adapter process、adapter catalog）を実装し、Session 6-2 で Main-owned Debug Session lifecycle / state machine を追加し、Session 6-3 で Breakpoint（Monaco の glyph margin・保存・`setBreakpoints`）を入れ（§20.12）、Session 6-4 で実行制御（Continue / Pause / Step Over / Step Into / Step Out / Stop）を入れ（§20.13）、Session 6-5 で Call Stack（`threads` / `stackTrace` と safe source normalization）を入れた（§20.14）。Session 6-9 で Debug の状態（ステータスバー）を入れた（§20.17）。Session 6-10 で Debug Profile の保存と `debug:start`（Profile → ResolvedLaunchConfiguration → Debug Session）を入れた（§20.18）。Session 6-11 で Debug Panel 上部の Toolbar と Profile editor を Renderer に入れた（§20.19）。Session 6-12 で python 行を実 debugpy に繋いだ（§20.20）。Session 6-13 で例外停止と現在の実行位置を入れた（§20.21）。ここに書いていない口・欄・経路を実装側で足すときは、足す前にこの節へ戻ること。
 
 DESIGN.md §5 の11機能（Breakpoint / Continue / Pause / Step Over / Step Into / Step Out / Stop / Variables / Call Stack / Debug Console / エラー位置へのジャンプ）を、Terminal（§13）と LSP（§19）が固めた「**Main が長命な子プロセスを持ち、Renderer は app-domain の言葉だけで話す**」形の上に載せる。
 
@@ -7484,6 +7484,8 @@ main/debug/callStack.ts            stopped event から safe Call Stack snapshot
 main/debug/dapThreads.ts           threads response の検証（Session 6-5）
 main/debug/dapStackTrace.ts        stackTrace response の検証（Session 6-5）
 main/debug/stackFrameSource.ts     stack frame の source を Workspace 相対 / unavailable へ畳む（Session 6-5）
+main/debug/stopInfo.ts             stopped event / exceptionInfo を停止理由へ畳み、パスを伏せる（Session 6-13）
+main/debug/dapExceptionBreakpoints.ts  setExceptionBreakpoints の filter を表と adapter の積にする（Session 6-13）
 ```
 
 `jsonRpcConnection.ts`（§19.2）が子プロセスの stdio に直接結びついているのに対し、**`dapConnection.ts` は stream を受け取る形にする**。TCP の adapter が来たときに層を作り直さずに済む唯一の分け方になる。
@@ -7532,21 +7534,23 @@ Session 6-5 で `frameId` 用にもう1段足した。`frameId` は同じ sessio
 
 §19.8 の表をそのまま引き継ぎ、DAP 固有の3行を足す。
 
-| 渡さないもの                          | どう閉じているか                                                                   |
-| ------------------------------------- | ---------------------------------------------------------------------------------- |
-| 絶対パス                              | Profile も応答も **workspace-relative path** だけ。変換は Main の中                |
-| file URI                              | 組み立てるのも解くのも Main の中だけ                                               |
-| adapter の実行ファイル / 引数 / cwd   | catalog が持つ。Profile にも IPC にも欄が無い（§20.4）                             |
-| interpreter / runtime の実行ファイル  | PATH から Main が解決する。Profile に欄が無い                                      |
-| 任意の DAP request 名                 | 口は機能ごとに分かれている。method 名を渡す口が無い                                |
-| 任意の adapter 選択                   | 行き先は `language`（3つの閉じた集合）だけで決まる                                 |
-| 任意の Workspace の profile           | `debug:list-profiles` の要求は `void`。key を渡す口が無い（§20.5）                 |
-| **`runInTerminal`（逆方向要求）**     | **拒否する。** `initialize` で `supportsRunInTerminalRequest: false` を名乗る      |
-| **Workspace 外の program**            | `programRelativePath` を Files と同じ2段（パス文字列 → realpath）で検証して断る    |
-| **adapter が返す stack frame source** | Main が Workspace 相対へ正規化し、Workspace 外 / missing / malformed は開けない    |
-| **`variablesReference`**              | Main の handle 表に控え、Renderer へは Main が発行した handle だけを渡す（§20.15） |
-| **evaluate の文脈**                   | 閉じた集合（`repl` / `watch`）だけ。任意の文字列を渡す欄が無い（§20.16）           |
-| **実行を差し替える環境変数**          | 下記                                                                               |
+| 渡さないもの                          | どう閉じているか                                                                    |
+| ------------------------------------- | ----------------------------------------------------------------------------------- |
+| 絶対パス                              | Profile も応答も **workspace-relative path** だけ。変換は Main の中                 |
+| file URI                              | 組み立てるのも解くのも Main の中だけ                                                |
+| adapter の実行ファイル / 引数 / cwd   | catalog が持つ。Profile にも IPC にも欄が無い（§20.4）                              |
+| interpreter / runtime の実行ファイル  | PATH から Main が解決する。Profile に欄が無い                                       |
+| 任意の DAP request 名                 | 口は機能ごとに分かれている。method 名を渡す口が無い                                 |
+| 任意の adapter 選択                   | 行き先は `language`（3つの閉じた集合）だけで決まる                                  |
+| 任意の Workspace の profile           | `debug:list-profiles` の要求は `void`。key を渡す口が無い（§20.5）                  |
+| **`runInTerminal`（逆方向要求）**     | **拒否する。** `initialize` で `supportsRunInTerminalRequest: false` を名乗る       |
+| **Workspace 外の program**            | `programRelativePath` を Files と同じ2段（パス文字列 → realpath）で検証して断る     |
+| **adapter が返す stack frame source** | Main が Workspace 相対へ正規化し、Workspace 外 / missing / malformed は開けない     |
+| **`variablesReference`**              | Main の handle 表に控え、Renderer へは Main が発行した handle だけを渡す（§20.15）  |
+| **evaluate の文脈**                   | 閉じた集合（`repl` / `watch`）だけ。任意の文字列を渡す欄が無い（§20.16）            |
+| **stopped event / exceptionInfo**     | 閉じた集合の理由と、パスを伏せた型名 / メッセージだけを snapshot に載せる（§20.21） |
+| **例外で止まる条件（filter）**        | Main の表と adapter が名乗った filter の積。Renderer に欄が無い（§20.21）           |
+| **実行を差し替える環境変数**          | 下記                                                                                |
 
 #### `runInTerminal` を拒否する
 
@@ -7598,6 +7602,8 @@ Session 6-7 で `evaluate` を `debug:evaluate` / `evaluate` として入れた�
 Session 6-9 で `getState` / `onStateChanged` を実際の名前 `debug:get-status` / `getStatus`・`debug:status-changed` / `onStatusChanged` として入れた。**名前を state から status に変えたのは、返すのが遷移表の状態そのものではなく、adapter の有無を重ねた画面用の1語だから**で、`lsp:get-status` / `lsp:status-changed` と揃えてある。要求は `void`、応答も通知も `{ status }` の1欄だけ。予定の数（要求18 / 購読5 ── 6-8 の `onConsoleEntry` は `onOutput` の枠）は動いていない（§20.17）。
 
 Session 6-10 で `listProfiles` / `createProfile` / `updateProfile` / `deleteProfile` / `start` を `debug:list-profiles` / `debug:create-profile` / `debug:update-profile` / `debug:delete-profile` / `debug:start` として入れた。**これで予定の要求18本がすべて揃った**（数は動いていない）。profile の変化通知は足していない ── 変えるのは Renderer 自身の要求だけで、応答に保存後の全件が載る（§20.18）。
+
+Session 6-13 は**口を1本も足していない**。停止理由と例外は `debug:call-stack-changed` / `debug:list-call-stack` の snapshot に `stop` を1欄足して運ぶ（§20.21）。例外で止まる条件（`setExceptionBreakpoints`）も Main の表で決まり、Renderer から渡す欄は無い。
 
 **プロセスを操作する口は1つも無い**（§19.2 と同じ）。`start` に載るのは `profileId` だけで、`stop` は `void` になる。
 
@@ -8058,7 +8064,7 @@ DebugVariable { handle | null, name, value, type, kind, namedCount, indexedCount
 
 #### 入れていないもの（Session 6-6）
 
-~~evaluate~~（**Session 6-7 で入れた**。§20.16）/ Debug Console / Watch / `setVariable` / `setExpression` / memory read / write / data breakpoint / 任意の DAP request。**停止行（止まった行を Editor に示す）** は 6-4 → 6-5 へ送ったが 6-5 でも入っておらず、担当 Session は未確定のまま（6-6 にも 6-7 にも含めていない）。
+~~evaluate~~（**Session 6-7 で入れた**。§20.16）/ Debug Console / Watch / `setVariable` / `setExpression` / memory read / write / data breakpoint / 任意の DAP request。**停止行（止まった行を Editor に示す）** は 6-4 → 6-5 へ送ったが 6-5 でも入っておらず、6-6 にも 6-7 にも含めていない → **Session 6-13 で入れた**（§20.21）。
 
 ### 20.16 Evaluate（Session 6-7）
 
@@ -8427,3 +8433,87 @@ userData に同名パッケージを置けば同じことが起きる（確認�
 #### 入れていないもの（Session 6-12）
 
 仮想環境 / interpreter の選択 / `justMyCode` の切り替え / 子プロセスのデバッグ（`subProcess`）/ 起動後の失敗理由の表示 / 条件付き breakpoint・logpoint（debugpy は名乗るが §20.11 のまま）/ attach / Node・C# adapter / 正式 keybinding。
+
+### 20.21 Exception Stop / Current Execution Location（Session 6-13）
+
+「どこで止まったか」（最上段の frame の位置）と「なぜ止まったか」（停止理由と例外）を画面に出す。**新しい IPC チャンネルは作っていない。** `debug:call-stack-changed` / `debug:list-call-stack` の snapshot に `stop` を1欄足しただけで、要求18・購読5は動いていない。
+
+```
+Adapter                        Main                                        Renderer
+───────                        ────                                        ────────
+stopped { reason, text,   ──▶  debugSessionManager
+          description }          parseDapStoppedEvent → lastStop（Main の中の形）
+                                 stop generation を進める
+                               debug/callStack.ts
+                                 threads → stackTrace
+                                 exception かつ exceptionInfo の口がある
+                                   → exceptionInfo { threadId }（1停止につき1回）
+                                 toDebugStopInfo（パスを伏せる）
+                                 snapshot { …, stop: { sequence, reason, exception } }
+       debug:call-stack-changed ◀──────────────────────────────────────── CallStackProvider
+                                                                            ├ DebugStopReasonView
+                                                                            ├ ExecutionLocationFollower（停止ごとに1回 openFileAt）
+                                                                            ├ CallStackView（「実行位置」）
+                                                                            └ MonacoEditor → useExecutionLineDecorations
+```
+
+#### 停止理由（`shared/debug/stop.ts`）
+
+| DAP の `reason`                                                                     | `DebugStopReason` | 英語                 | 日本語                       |
+| ----------------------------------------------------------------------------------- | ----------------- | -------------------- | ---------------------------- |
+| `breakpoint` / `function breakpoint` / `data breakpoint` / `instruction breakpoint` | `breakpoint`      | Paused at breakpoint | Breakpoint で一時停止中      |
+| `step`                                                                              | `step`            | Paused after step    | Step の後で一時停止中        |
+| `pause`                                                                             | `pause`           | Paused manually      | 手動で一時停止中             |
+| `entry`                                                                             | `entry`           | Paused on entry      | プログラムの入口で一時停止中 |
+| `exception`                                                                         | `exception`       | Paused on exception  | 例外で一時停止中             |
+| `goto` / 任意の文字列 / 壊れた body                                                 | `unknown`         | Paused               | 一時停止中                   |
+
+- **Renderer へ出すのは閉じた集合の語と、例外の型名 / メッセージ / breakMode だけ。** stopped event の `description` / `text` の生の値・`threadId`（snapshot の `activeThreadId` が既に運ぶ）・`hitBreakpointIds`・`preserveFocusHint` は載せない。画面の文字は Renderer が翻訳キーを選んで作る
+- `sequence` は Main（`callStack.ts`）が停止ごとに発行する通し番号で、DAP の値ではない。同じ停止の読み直し（`thread` event）では進まない
+- 言い回しは §20.17 に揃え、「Stopped / 停止中」を使わない
+
+#### 例外情報
+
+- `exceptionInfo` は **`supportsExceptionInfoRequest` を名乗る adapter の、stopped の間だけ**送れる（`getExceptionInfoChannel()`）。Call Stack の口に相乗りさせず口を1つ足した（§20.9「口は機能ごとに分かれている」）。口は取得時の session / stop generation を閉じ込め、停止が変われば `closed` を返す
+- 読むのは `exceptionId` / `description` / `breakMode` / `details.typeName` / `details.message` だけ。**`details.stackTrace` と `details.source` は実 debugpy で絶対パスだった**ので読まない。`evaluateName` / `fullTypeName` / `innerException` も読まない
+- 型名は `details.typeName` → `exceptionId` → stopped の `text`、メッセージは `details.message` → `description` → stopped の `description` の順に採る。名乗らない adapter でも stopped event だけで型名とメッセージが出る
+- 未対応 / 断られた / 壊れた応答は IPC の失敗にしない（stopped event の値のまま出る）。答えを待つ間に停止が変わったら publish しない
+
+#### パスを伏せる（`main/debug/stopInfo.ts` の `redactDebugPaths`）
+
+例外のメッセージは利用者のプログラムが作った文字列で、`FileNotFoundError` のように絶対パスを含む。Debug Console の出力と Variables の値は §20.9 の例外のとおり加工しないが、**この欄は Main が組み立てた構造化データとして Renderer へ渡るので伏せる**。
+
+- file URI・ドライブ文字のパス・UNC・POSIX の絶対パスを探し、Workspace の中なら相対位置、外なら `<path>` に置き換える。区切りの後の空白は、その先にもう1段の区切りが続く間はパスの一部として読む（`C:\Program Files\…` を途中で切らない）。伏せすぎは許し、伏せ漏れは許さない側へ倒してある
+- **ドライブ文字の規則を UNC より先に当てる。** Python の repr は区切りを二重にする（`'C:\\Users\\…'`）ので、UNC を先に当てると `\\Users\\…` を UNC と読み `C:` が残った（production 確認で発見。DEVELOPMENT.md §4）
+- 伏せた後に制御文字と空白を1つに畳み、500字で切る
+
+#### 例外で止まる条件（`setExceptionBreakpoints`）
+
+| 決めたこと    | 内容                                                                                                     |
+| ------------- | -------------------------------------------------------------------------------------------------------- |
+| 何を送るか    | 言語ごとの閉じた表（`DEBUG_EXCEPTION_BREAKPOINT_FILTERS`）∩ `initialize` の `exceptionBreakpointFilters` |
+| 表            | python: `uncaught` / node: なし / csharp: なし（未統合）                                                 |
+| いつ送るか    | `initialized` の後、breakpoint の仕込みの後、`configurationDone` の前                                    |
+| 送らない場合  | 積が空（表が空・adapter が名乗らない）なら `await` も踏まない ── 6-12 までの lifecycle は変わらない      |
+| 断られたら    | Main のログに残し、Debug Session は続ける                                                                |
+| Renderer の欄 | 無い（Profile にも IPC にも）                                                                            |
+
+v1 に切り替えの設定は無い。実 debugpy で3つの filter を比べた結果は `profileResolver.ts` の注記と DESIGN.md §13 にある。**`setExceptionBreakpoints` を送らないと debugpy は uncaught でも止まらなかった**（`default: true` は client への提案でしかない）。
+
+#### 現在の実行位置（Renderer）
+
+- **実行位置 = 止まった thread（`activeThreadId`）の最上段の frame。** Renderer に新しい状態は無く、snapshot から導く（`debug/executionLocation.ts`）
+- Editor の印は2種類: `current`（最上段・暖色の帯と矢印）と `selected`（Call Stack で選んだ最上段以外の frame・緑）。下の段を選んでも `current` は消さず、同じファイルの同じ行なら `current` だけを出す
+- Monaco への当て方は breakpoint の印（§20.12）と同じ構造的部分型で、**別の decorations collection** を持つ。行全体の帯（`isWholeLine`）は view overlay に出るので LSP の波線（inline）と重ならない。glyph は breakpoint と同じ lane・同じ zIndex なので Monaco が1つの要素にクラスを並べる ── 丸は `::before`、矢印は `::after` に描き、同じ行では丸を輪にする
+- 色は識別色（`--fx-accent-orange` / `--fx-accent-green`）を `color-mix` で薄めたもの。theme.css に色を足していない
+- **停止ごとに1回だけ Editor を開く**（`ExecutionLocationFollower`。App の CallStackProvider の内側に1つ置き、Debug パネルを閉じていても働く）。見るのは `stop.sequence` で snapshot の版ではない ── 同じ停止の読み直しでも、下の段を選んで Editor が動いた後でも引き戻さない。開く口は Call Stack の frame を押したときと同じ `openCallStackFrame` → `EditorContext.openFileAt`（§20.14）で、Workspace 外 / 位置の無い frame は開かない
+- Call Stack では最上段に「実行位置」の印（`data-current`）を付け、選択（`data-selected` / `aria-current`）と分けた
+- Debug パネルの Toolbar の下に停止理由（`role="status"`）。例外では型名・メッセージ（1行。長ければ省略し title に全文）・breakMode の言葉を出し、スタックトレースは出さない
+
+#### clear
+
+印も停止理由も snapshot から導くだけなので、**消す経路を別に持たない**。Main が snapshot を空にする条件（§20.14 の clear 条件 ── Continue / Step で running・`continued`・Stop・`terminated` / `exited`・adapter の異常 / 終了・Workspace switch・cleanup）で `stop: null` が届き、印も消える。停止理由の控え（`sequence` と例外情報）も同じ時点で捨てる。
+
+#### 入れていないもの（Session 6-13）
+
+例外で止まる条件の切り替え / 例外設定の UI（`exceptionOptions`・filter の条件式）/ 例外のスタックトレースの表示 / `innerException` / 停止で Editor を開くときにフォーカスを移さない選択肢 / Node・C# の例外 filter / 正式 keybinding。

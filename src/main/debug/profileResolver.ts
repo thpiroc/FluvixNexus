@@ -63,6 +63,28 @@ export const DEBUG_LAUNCH_LANGUAGE_OPTIONS: Readonly<
   csharp: {}
 }
 
+/**
+ * 例外で止まる条件（Session 6-13。言語ごとの閉じた表）。
+ *
+ * v1 は **「捕まえられなかった例外でだけ止まる」の1通り**で、設定の欄は作らない。
+ * python は実 debugpy 1.8.21 で3つの filter を比べて `uncaught` だけにした:
+ *
+ * | filter          | 実際の振る舞い                                                                        |
+ * | --------------- | ------------------------------------------------------------------------------------- |
+ * | `uncaught`      | 捕まえられなかった例外の raise の位置で1回だけ止まる。`try` で捕まえた例外では止まらない |
+ * | `raised`        | 捕まえた例外でも止まり、捕まえられなかった例外は呼び出しを遡りながら何度も止まる       |
+ * | `userUnhandled` | 型名に adapter の注記（`(note: full exception trace is shown …)`）が混ざる            |
+ *
+ * node / csharp は未統合なので空（何も送らない）。実 adapter を繋ぐ Session が id を確かめて埋める。
+ */
+export const DEBUG_EXCEPTION_BREAKPOINT_FILTERS: Readonly<
+  Record<DebugProfileLanguage, readonly string[]>
+> = {
+  node: [],
+  python: ['uncaught'],
+  csharp: []
+}
+
 export interface DebugProfileResolverContext {
   /** 今の Workspace root（currentWorkspaceFolder の値。realpath は中で取る）。 */
   readonly workspaceRootPath: string
@@ -190,7 +212,8 @@ export function resolveDebugProfile(
         env: draft.env,
         stopOnEntry: draft.stopOnEntry,
         console: 'internalConsole'
-      }
+      },
+      exceptionBreakpointFilters: DEBUG_EXCEPTION_BREAKPOINT_FILTERS[draft.language]
     }
   }
 }

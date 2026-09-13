@@ -6,6 +6,8 @@
  * この形へ入れる。`sourceReference` は公開しない。
  */
 
+import type { DebugStopInfo } from './stop'
+
 export type DebugCallStackSource =
   | {
       readonly kind: 'workspace'
@@ -50,10 +52,18 @@ export interface DebugCallStackSnapshot {
   readonly status: DebugCallStackStatus
   readonly activeThreadId: number | null
   readonly threads: readonly DebugCallStackThread[]
+  /**
+   * なぜ止まったか（Session 6-13）。`loading` / `stopped` のときに入り、`idle` では null。
+   *
+   * 別の通知にせず snapshot に載せてある ── 「どこで止まったか」（frames）と「なぜ止まったか」が
+   * 同じ版で届き、古い停止の理由だけが残ることが無い。clear の条件も Call Stack と同じになる。
+   */
+  readonly stop: DebugStopInfo | null
 }
 
 export const EMPTY_DEBUG_CALL_STACK: DebugCallStackSnapshot = {
   status: 'idle',
   activeThreadId: null,
-  threads: []
+  threads: [],
+  stop: null
 }

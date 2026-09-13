@@ -14,6 +14,13 @@ import {
 import type { DapRequestOutcome } from './dapConnection'
 import type { DapSetBreakpointsArguments } from './dapBreakpoints'
 import type { DapEvaluateArguments } from './dapEvaluate'
+import { selectDapExceptionBreakpointFilters } from './dapExceptionBreakpoints'
+import {
+  parseDapStoppedEvent,
+  readSupportsExceptionInfoRequest,
+  type DapExceptionInfoArguments,
+  type DapStoppedEventSummary
+} from './stopInfo'
 import type { DapStackTraceArguments } from './dapStackTrace'
 import {
   readSupportsVariablePaging,
@@ -46,6 +53,13 @@ export interface DebugSessionStartOptions {
   readonly clientName?: string
   readonly clientVersion?: string
   readonly processId?: number
+  /**
+   * `setExceptionBreakpoints` で頼みたい filter の id（Session 6-13）。
+   *
+   * 送るのは `initialize` で adapter が名乗ったものとの積だけで、空なら送らない
+   * （送らなければ 6-12 までの lifecycle と1 tick も変わらない）。
+   */
+  readonly exceptionBreakpointFilters?: readonly string[]
 }
 
 export type StartDebugSessionOutcome =
@@ -67,6 +81,8 @@ export interface DebugSessionStoppedEvent {
   readonly stopGeneration: number
   readonly stoppedThreadId: number | null
   readonly allThreadsStopped: boolean | null
+  /** なぜ止まったか（Session 6-13。Main の中だけの形で、文字列はまだパスを伏せていない）。 */
+  readonly stop: DapStoppedEventSummary
 }
 
 export interface DebugSessionThreadEvent {
@@ -143,8 +159,30 @@ export interface DebugSessionCallStackChannel {
   readonly generation: number
   readonly stopGeneration: number
   readonly stoppedThreadId: number | null
+  /**
+   * この停止の `stopped` event から読んだもの（Session 6-13）。
+   *
+   * 同じ停止の中の読み直し（`thread` event）でも理由を失わないよう、口に閉じ込めて渡す。
+   */
+  readonly stop: DapStoppedEventSummary | null
   readonly requestThreads: () => Promise<DapRequestOutcome>
   readonly requestStackTrace: (args: DapStackTraceArguments) => Promise<DapRequestOutcome>
+}
+
+/**
+ * 止まっているセッションへ `exceptionInfo` を送る口（Session 6-13）。
+ *
+ * **adapter が `supportsExceptionInfoRequest` を名乗り、stopped のときだけ返る。** 名乗らない
+ * adapter へは送らない（`Unhandled method` を返させない。`configurationDone` と同じ判断）。
+ *
+ * Call Stack の口に相乗りさせない ── 送れるのは `exceptionInfo` の1つだけで、
+ * 「口は機能ごとに分かれている」（§20.9）を Main の内側でも保つ（Session 6-7 と同じ線）。
+ */
+export interface DebugSessionExceptionInfoChannel {
+  readonly sessionId: string
+  readonly generation: number
+  readonly stopGeneration: number
+  readonly requestExceptionInfo: (args: DapExceptionInfoArguments) => Promise<DapRequestOutcome>
 }
 
 /**
@@ -235,6 +273,13 @@ interface RunningDebugSession {
   supportsVariablePaging: boolean
   /** 最後の `stopped` event が名指したスレッド（無ければ null）。 */
   stoppedThreadId: number | null
+  /** 以下3つは Session 6-13（例外停止）。 */
+  /** 最後の `stopped` event から読んだ理由（まだ止まっていなければ null）。 */
+  lastStop: DapStoppedEventSummary | null
+  /** `initialize` の応答で `supportsExceptionInfoRequest` を名乗ったか。 */
+  supportsExceptionInfoRequest: boolean
+  /** `setExceptionBreakpoints` で頼みたい filter の id（start options のまま）。 */
+  readonly exceptionBreakpointFilters: readonly string[]
   /**
    * `stopped` event を受けた回数。再開の応答を当ててよいかを決めるのに使う ──
    * 応答より先に次の `stopped` が届いていたら、もう running へ戻してはいけない。
@@ -293,6 +338,11 @@ export interface DebugSessionManager {
   /** `evaluate` を送る口（Session 6-7）。**stopped のときだけ返る。** */
   readonly getEvaluateChannel: () => DebugSessionEvaluateChannel | null
   /**
+   * `exceptionInfo` を送る口（Session 6-13）。**stopped で、adapter が
+   * `supportsExceptionInfoRequest` を名乗ったときだけ返る。**
+   */
+  readonly getExceptionInfoChannel: () => DebugSessionExceptionInfoChannel | null
+  /**
    * 実行制御（Session 6-4）。Continue / Pause / Step Over / Step Into / Step Out。
    *
    * 受け取るのは閉じた集合の名前だけで、DAP の command 名は受け取らない
@@ -350,7 +400,8 @@ export function createDebugSessionManager(
       generation: record.generation,
       stopGeneration: record.stopEpoch,
       stoppedThreadId: record.stoppedThreadId,
-      allThreadsStopped: readAllThreadsStopped(body)
+      allThreadsStopped: readAllThreadsStopped(body),
+      stop: record.lastStop ?? parseDapStoppedEvent(body)
     }
 
     for (const listener of stoppedListeners) {
@@ -430,6 +481,9 @@ export function createDebugSessionManager(
       stopCapabilities: NO_DEBUG_ADAPTER_STOP_CAPABILITIES,
       supportsVariablePaging: false,
       stoppedThreadId: null,
+      lastStop: null,
+      supportsExceptionInfoRequest: false,
+      exceptionBreakpointFilters: startOptions.exceptionBreakpointFilters ?? [],
       stopEpoch: 0,
       pendingControl: null,
       stopPhase: 'none',
@@ -522,8 +576,13 @@ export function createDebugSessionManager(
 
       record.stopCapabilities = readDebugAdapterStopCapabilities(initialize.body)
       record.supportsVariablePaging = readSupportsVariablePaging(initialize.body)
+      record.supportsExceptionInfoRequest = readSupportsExceptionInfoRequest(initialize.body)
 
       const supportsConfigurationDone = supportsConfigurationDoneRequest(initialize.body)
+      const exceptionBreakpoints = selectDapExceptionBreakpointFilters(
+        initialize.body,
+        record.exceptionBreakpointFilters
+      )
 
       const launch = request(record, 'launch', record.launchArguments)
       void launch.then((outcome) => {
@@ -558,6 +617,29 @@ export function createDebugSessionManager(
 
         if (!isActive(record)) {
           return
+        }
+      }
+
+      /*
+        例外で止まる条件を送る（Session 6-13）。breakpoint と同じ「設定を送ってよい窓」の中。
+
+        送るのは言語ごとの表と adapter が名乗った filter の積だけ
+        （main/dapExceptionBreakpoints.ts）で、積が空なら `await` そのものを踏まない
+        ── 6-12 までの lifecycle を、例外 filter を持たない adapter で1 tick も変えない。
+        断られても Debug Session は続ける（例外で止まらないだけで、走らせることはできる）。
+      */
+      if (exceptionBreakpoints !== null) {
+        const outcome = await request(record, 'setExceptionBreakpoints', exceptionBreakpoints)
+
+        if (!isActive(record)) {
+          return
+        }
+
+        if (outcome.status !== 'success') {
+          log(
+            'warn',
+            `${record.adapterCommand.name}: setExceptionBreakpoints was not applied: ${describeRequestFailure('setExceptionBreakpoints', outcome)}`
+          )
         }
       }
 
@@ -631,6 +713,7 @@ export function createDebugSessionManager(
       generation: record.generation,
       stopGeneration,
       stoppedThreadId: record.stoppedThreadId,
+      stop: record.lastStop,
       requestThreads: () =>
         isCurrentStopped(record, stopGeneration)
           ? request(record, 'threads')
@@ -706,6 +789,28 @@ export function createDebugSessionManager(
     }
   }
 
+  function getExceptionInfoChannel(): DebugSessionExceptionInfoChannel | null {
+    if (current === null || current.state !== 'stopped' || !current.supportsExceptionInfoRequest) {
+      return null
+    }
+
+    const record = current
+    const stopGeneration = record.stopEpoch
+
+    return {
+      sessionId: record.sessionId,
+      generation: record.generation,
+      stopGeneration,
+      requestExceptionInfo: (args) =>
+        isCurrentStopped(record, stopGeneration)
+          ? request(record, 'exceptionInfo', args)
+          : Promise.resolve({
+              status: 'closed' as const,
+              reason: 'the stopped debug session has already moved on.'
+            })
+    }
+  }
+
   function handleAdapterEvent(generation: number, event: string, body: unknown): void {
     const record = current
 
@@ -727,6 +832,8 @@ export function createDebugSessionManager(
         */
         record.stopEpoch += 1
         record.stoppedThreadId = readStoppedThreadId(body)
+        /* なぜ止まったか（Session 6-13）。壊れた body は `unknown` に畳む。 */
+        record.lastStop = parseDapStoppedEvent(body)
 
         if (record.state === 'running') {
           transition(record, 'stopped')
@@ -1254,6 +1361,7 @@ export function createDebugSessionManager(
     getCallStackChannel,
     getVariablesChannel,
     getEvaluateChannel,
+    getExceptionInfoChannel,
     control,
     requestStop
   }
@@ -1338,6 +1446,14 @@ export function getDebugSessionVariablesChannel(): DebugSessionVariablesChannel 
 /** `evaluate` を送る口（Session 6-7）。stopped でなければ null。 */
 export function getDebugSessionEvaluateChannel(): DebugSessionEvaluateChannel | null {
   return defaultManager.getEvaluateChannel()
+}
+
+/**
+ * `exceptionInfo` を送る口（Session 6-13）。stopped で、adapter が
+ * `supportsExceptionInfoRequest` を名乗ったときだけ返る。呼ぶのは main/debug/callStack.ts だけ。
+ */
+export function getDebugSessionExceptionInfoChannel(): DebugSessionExceptionInfoChannel | null {
+  return defaultManager.getExceptionInfoChannel()
 }
 
 /** 実行制御（Session 6-4）。呼ぶのは main/ipc/handlers/debug.ts だけになる。 */

@@ -2,6 +2,7 @@ import type { JSX } from 'react'
 import { CommandProvider } from './commands/CommandProvider'
 import { BreakpointProvider } from './debug/BreakpointProvider'
 import { CallStackProvider } from './debug/CallStackProvider'
+import { ExecutionLocationFollower } from './debug/ExecutionLocationFollower'
 import { EditorProvider } from './editor/EditorProvider'
 import { FilesViewProvider } from './files/FilesViewProvider'
 import { LanguageProvider } from './i18n/LanguageProvider'
@@ -107,6 +108,11 @@ function App(): JSX.Element {
                       */}
                       <BreakpointProvider>
                         <CallStackProvider>
+                          {/*
+                            止まったら、その位置を Editor で開く（Session 6-13）。Debug パネルを
+                            閉じていても働くよう、パネルではなくここに1つだけ置く。
+                          */}
+                          <ExecutionLocationFollower />
                           <KeybindingProvider>
                             <WorkspaceShell />
                           </KeybindingProvider>

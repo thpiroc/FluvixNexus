@@ -2,7 +2,8 @@ import {
   EMPTY_DEBUG_CALL_STACK,
   type DebugCallStackFrame,
   type DebugCallStackSnapshot,
-  type DebugCallStackThread
+  type DebugCallStackThread,
+  type DebugStopInfo
 } from '@shared/debug'
 import { IPC_EVENT_CHANNELS } from '@shared/ipc'
 import type { WorkspaceFolder } from '@shared/workspace'
@@ -13,6 +14,7 @@ import { createStackTraceArguments, parseStackTraceResponse } from './dapStackTr
 import { parseThreadsResponse, type DapThread } from './dapThreads'
 import {
   getDebugSessionCallStackChannel,
+  getDebugSessionExceptionInfoChannel,
   getDebugSessionGeneration,
   getDebugSessionState,
   getDebugSessionStopGeneration,
@@ -20,11 +22,19 @@ import {
   onDebugSessionStopped,
   onDebugSessionThread,
   type DebugSessionCallStackChannel,
+  type DebugSessionExceptionInfoChannel,
   type DebugSessionState,
   type DebugSessionStoppedEvent,
   type DebugSessionStoppedListener,
   type DebugSessionThreadListener
 } from './debugSessionManager'
+import {
+  UNKNOWN_DAP_STOPPED_EVENT,
+  createExceptionInfoArguments,
+  parseDapExceptionInfoResponse,
+  toDebugStopInfo,
+  type DapExceptionInfoSummary
+} from './stopInfo'
 
 export interface DebugCallStackFrameHandle {
   readonly workspaceId: string
@@ -55,6 +65,11 @@ export interface DebugCallStackStoreDependencies {
   readonly getDebugGeneration: () => number
   readonly getDebugStopGeneration: () => number
   readonly getChannel: () => DebugSessionCallStackChannel | null
+  /**
+   * `exceptionInfo` の口（Session 6-13）。adapter が名乗らなければ null が返る。
+   * 省略すると一度も送らない（stopped event の `text` / `description` だけで例外を出す）。
+   */
+  readonly getExceptionInfoChannel?: () => DebugSessionExceptionInfoChannel | null
   readonly onDebugStateChange: (listener: (state: DebugSessionState) => void) => () => void
   readonly onDebugStopped: (listener: DebugSessionStoppedListener) => () => void
   readonly onDebugThread: (listener: DebugSessionThreadListener) => () => void
@@ -63,11 +78,29 @@ export interface DebugCallStackStoreDependencies {
 }
 
 /**
+ * この停止について作った「なぜ止まったか」の控え（Session 6-13）。
+ *
+ * 同じ停止の中の読み直し（`thread` event）で `sequence` を進めないため、そして
+ * `exceptionInfo` を1つの停止につき1回しか送らないために持つ。
+ */
+interface StopRecord {
+  readonly workspaceId: string
+  readonly generation: number
+  readonly stopGeneration: number
+  readonly info: DebugStopInfo
+  /** `exceptionInfo` を読みに行き終えたか（成功でも失敗でも、送らない場合も true）。 */
+  readonly settled: boolean
+}
+
+/**
  * Call Stack の正本（Session 6-5）。
  *
  * DAP の `threads` / `stackTrace` は Main が取り、Renderer には safe snapshot だけを
  * 渡す。frame id は次の停止で再利用されうるため、現在の session generation /
  * stop generation / Workspace に属するものだけを後続機能（Session 6-6）へ渡す。
+ *
+ * Session 6-13 で「なぜ止まったか」（`snapshot.stop`）も同じ snapshot に載せた。
+ * 例外で止まったときだけ、stackTrace の後に `exceptionInfo` を1回読む。
  */
 export function createDebugCallStackStore(
   dependencies: DebugCallStackStoreDependencies
@@ -75,6 +108,9 @@ export function createDebugCallStackStore(
   let workspace: WorkspaceFolder | null = null
   let snapshot: DebugCallStackSnapshot = EMPTY_DEBUG_CALL_STACK
   let frames = new Map<number, DebugCallStackFrameHandle>()
+  let stopRecord: StopRecord | null = null
+  /** 停止ごとに進む通し番号（`DebugStopInfo.sequence`）。戻さない。 */
+  let stopSequence = 0
   const changeListeners = new Set<() => void>()
 
   function list(): DebugCallStackSnapshot {
@@ -169,7 +205,14 @@ export function createDebugCallStackStore(
       return
     }
 
-    snapshot = { status: 'loading', activeThreadId: channel.stoppedThreadId, threads: [] }
+    const stop = recordStop(channel, current)
+
+    snapshot = {
+      status: 'loading',
+      activeThreadId: channel.stoppedThreadId,
+      threads: [],
+      stop: stop.info
+    }
     frames = new Map()
     notify()
 
@@ -181,7 +224,7 @@ export function createDebugCallStackStore(
 
     if (threadsOutcome.status !== 'success') {
       log('warn', `threads request failed: ${describeRequestOutcome(threadsOutcome)}`)
-      snapshot = { status: 'stopped', activeThreadId: null, threads: [] }
+      snapshot = { status: 'stopped', activeThreadId: null, threads: [], stop: stop.info }
       frames = new Map()
       notify()
       return
@@ -191,7 +234,7 @@ export function createDebugCallStackStore(
 
     if (threads === null) {
       log('warn', 'ignored a malformed threads response.')
-      snapshot = { status: 'stopped', activeThreadId: null, threads: [] }
+      snapshot = { status: 'stopped', activeThreadId: null, threads: [], stop: stop.info }
       frames = new Map()
       notify()
       return
@@ -200,7 +243,12 @@ export function createDebugCallStackStore(
     const activeThreadId = selectActiveThreadId(threads, channel.stoppedThreadId)
 
     if (activeThreadId === null) {
-      snapshot = { status: 'stopped', activeThreadId: null, threads: toSnapshotThreads(threads) }
+      snapshot = {
+        status: 'stopped',
+        activeThreadId: null,
+        threads: toSnapshotThreads(threads),
+        stop: stop.info
+      }
       frames = new Map()
       notify()
       return
@@ -226,15 +274,129 @@ export function createDebugCallStackStore(
       )
     }
 
+    const settledStop = await settleExceptionInfo(channel, current, activeThreadId)
+
+    if (settledStop === null) {
+      return
+    }
+
     const parsedFrames = stackFrames ?? []
 
     snapshot = {
       status: 'stopped',
       activeThreadId,
-      threads: toSnapshotThreads(threads, activeThreadId, parsedFrames)
+      threads: toSnapshotThreads(threads, activeThreadId, parsedFrames),
+      stop: settledStop.info
     }
     frames = collectFrameHandles(current.id, channel, activeThreadId, parsedFrames)
     notify()
+  }
+
+  /**
+   * この停止の「なぜ止まったか」を控えから取り出すか、新しく作る（Session 6-13）。
+   *
+   * 同じ Workspace・同じ session / stop generation なら控えをそのまま使う ──
+   * `thread` event による読み直しで `sequence` が進むと、Renderer が「新しく止まった」と
+   * 読んで Editor を動かし直すことになる。
+   */
+  function recordStop(channel: DebugSessionCallStackChannel, current: WorkspaceFolder): StopRecord {
+    if (
+      stopRecord !== null &&
+      stopRecord.workspaceId === current.id &&
+      stopRecord.generation === channel.generation &&
+      stopRecord.stopGeneration === channel.stopGeneration
+    ) {
+      return stopRecord
+    }
+
+    stopSequence += 1
+
+    const stopped = channel.stop ?? UNKNOWN_DAP_STOPPED_EVENT
+
+    stopRecord = {
+      workspaceId: current.id,
+      generation: channel.generation,
+      stopGeneration: channel.stopGeneration,
+      info: toDebugStopInfo({
+        rootPath: current.rootPath,
+        sequence: stopSequence,
+        stopped,
+        exceptionInfo: null
+      }),
+      /* 例外で止まったのでなければ、読みに行くものは無い。 */
+      settled: stopped.reason !== 'exception'
+    }
+
+    return stopRecord
+  }
+
+  /**
+   * 例外で止まったときだけ `exceptionInfo` を1回読む（Session 6-13）。
+   *
+   * adapter が名乗らない・口が別の停止のもの・断られた・壊れていた、のどれでも
+   * stopped event の `text` / `description` から作った形のまま進む（読みに行ったことは控える）。
+   * 答えを待つ間に停止が変わっていたら null ── 古い停止の snapshot を publish しない。
+   */
+  async function settleExceptionInfo(
+    channel: DebugSessionCallStackChannel,
+    current: WorkspaceFolder,
+    threadId: number
+  ): Promise<StopRecord | null> {
+    const record = recordStop(channel, current)
+
+    if (record.settled) {
+      return record
+    }
+
+    const exceptionChannel = dependencies.getExceptionInfoChannel?.() ?? null
+    let exceptionInfo: DapExceptionInfoSummary | null = null
+
+    if (
+      exceptionChannel !== null &&
+      exceptionChannel.generation === channel.generation &&
+      exceptionChannel.stopGeneration === channel.stopGeneration
+    ) {
+      const outcome = await exceptionChannel.requestExceptionInfo(
+        createExceptionInfoArguments(threadId)
+      )
+
+      if (!isCurrentStop(channel, current.id)) {
+        return null
+      }
+
+      exceptionInfo =
+        outcome.status === 'success' ? parseDapExceptionInfoResponse(outcome.body) : null
+
+      if (exceptionInfo === null) {
+        log(
+          'warn',
+          outcome.status === 'success'
+            ? 'ignored a malformed exceptionInfo response.'
+            : `exceptionInfo request failed: ${describeRequestOutcome(outcome)}`
+        )
+      }
+    }
+
+    /*
+      読みに行っている間に、同じ停止の読み直しが先に控えを確定させていることがある。
+      その場合は先に確定したほうを使う（`sequence` はどちらも同じ）。
+    */
+    if (stopRecord !== record) {
+      return stopRecord !== null && stopRecord.settled ? stopRecord : record
+    }
+
+    stopRecord = {
+      ...record,
+      info: toDebugStopInfo({
+        rootPath: current.rootPath,
+        sequence: record.info.sequence,
+        stopped: channel.stop ?? UNKNOWN_DAP_STOPPED_EVENT,
+        exceptionInfo
+      }),
+      settled: true
+    }
+
+    return stopRecord
   }
 
   function isCurrentStop(channel: DebugSessionCallStackChannel, workspaceId: string): boolean {
@@ -260,6 +422,7 @@ export function createDebugCallStackStore(
   function clearSnapshot(): void {
     snapshot = EMPTY_DEBUG_CALL_STACK
     frames = new Map()
+    stopRecord = null
   }
 
   function notify(): void {
@@ -297,6 +460,7 @@ const defaultStore = createDebugCallStackStore({
   getDebugGeneration: getDebugSessionGeneration,
   getDebugStopGeneration: getDebugSessionStopGeneration,
   getChannel: getDebugSessionCallStackChannel,
+  getExceptionInfoChannel: getDebugSessionExceptionInfoChannel,
   onDebugStateChange: onDebugSessionStateChange,
   onDebugStopped: onDebugSessionStopped,
   onDebugThread: onDebugSessionThread,

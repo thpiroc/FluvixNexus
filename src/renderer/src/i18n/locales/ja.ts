@@ -1254,7 +1254,25 @@ export const jaMessages = {
       stopped: '停止中',
       openFrame: 'Stack frame を開く',
       sourceUnavailable: 'Source は Workspace 外、または利用できません。',
-      invalidLocation: 'この Stack frame の位置は開けません。'
+      invalidLocation: 'この Stack frame の位置は開けません。',
+      currentFrame: '実行位置'
+    },
+    stopReason: {
+      aria: 'プログラムが一時停止している理由',
+      breakpoint: 'Breakpoint で一時停止中',
+      step: 'Step の後で一時停止中',
+      pause: '手動で一時停止中',
+      entry: 'プログラムの入口で一時停止中',
+      exception: '例外で一時停止中',
+      unknown: '一時停止中',
+      breakModeUnhandled: '捕捉されていない例外',
+      breakModeUserUnhandled: 'ユーザーコードで捕捉されていない例外',
+      breakModeAlways: '送出された例外',
+      noExceptionDetails: '例外の詳細を取得できませんでした。'
+    },
+    executionLine: {
+      current: '現在の実行位置',
+      selected: '選択中の Stack frame'
     },
     variables: {
       aria: 'Variables',
