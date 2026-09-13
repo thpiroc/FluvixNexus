@@ -10,6 +10,7 @@ import {
   type DebugBreakpointsResponse,
   type DebugEvaluateResponse,
   type DebugScopesResponse,
+  type DebugStatusResponse,
   type DebugVariablesResponse,
   type EvaluateDebugExpressionRequest,
   type IpcChannel,
@@ -21,6 +22,7 @@ import { listDebugBreakpoints, toggleDebugBreakpoint } from '../../debug/breakpo
 import { listDebugCallStack } from '../../debug/callStack'
 import { controlDebugSession, requestDebugSessionStop } from '../../debug/debugSessionManager'
 import { evaluateDebugExpression } from '../../debug/evaluate'
+import { getDebugSessionStatus } from '../../debug/sessionStatus'
 import { listDebugScopes, listDebugVariables } from '../../debug/variables'
 import { IpcError, invalidRequest } from '../errors'
 import { handleIpc } from '../registry'
@@ -89,6 +91,15 @@ export function registerDebugHandlers(): void {
 
   handleIpc(IPC_CHANNELS.DEBUG_LIST_CALL_STACK, (): DebugCallStackResponse => {
     return { callStack: listDebugCallStack() }
+  })
+
+  /*
+    Debug の状態（Session 6-9）。**要求を読まない** ── `void` の契約に何が載って届いても、
+    それをセッションや adapter を指す値として使う経路は無い。返すのは閉じた集合の1語だけ
+    （`lsp:get-status` と同じ形）。
+  */
+  handleIpc(IPC_CHANNELS.DEBUG_GET_STATUS, (): DebugStatusResponse => {
+    return { status: getDebugSessionStatus() }
   })
 
   /*

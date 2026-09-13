@@ -1866,6 +1866,36 @@ Call Stack の frame から **Scopes → Variables → 入れ子の Variables** 
 - **frame の「選ぶ」と「開く」を分けた。** Workspace 外 / 位置の無い frame も選べる（Variables を読むため）が、開かない。6-5 では押せない（disabled）形だったのを、押せるが開かない形に変えた
 - 渡さないもの: `variablesReference` / `memoryReference` / `evaluateName`（evaluate は 6-7）/ `declarationLocationReference` / `valueLocationReference` / `Scope.source`・`line`・`column` / `presentationHint` の生の値 / adapter の文言
 
+### Session 6-9（完了）— Debug Status
+
+ステータスバーに **Debug が今どうなっているか** を1語で出した。LSP Status（Session 5-4）と同じ形で、Main はセッションの状態と adapter catalog の事実を重ねて配るだけ ── **新しい状態の持ち主は作っていない**（[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §20.17）。
+
+入れたもの:
+
+| ファイル                                         | 役割                                                                                        |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| `shared/debug/status.ts`                         | `DebugSessionStatus`（5状態 + `unavailable`）と、重ね方・閉じた集合の検査                   |
+| `main/debug/sessionStatus.ts`                    | 同じ tick の変化を1本にまとめて `debug:status-changed` を配る。`debug:get-status` の答え    |
+| `main/debug/adapterCatalog.ts`                   | `hasIntegratedDebugAdapter`（`unavailable` の根拠。PATH は探さない）                        |
+| `ipc/handlers/debug.ts` / `preload/api/debug.ts` | `debug:get-status`（要求 `void`）と `debug:status-changed`。どちらも `{ status }` の1欄だけ |
+| `renderer/src/debug/`                            | `useDebugSessionStatus` / `debugStatusLabels` / `DebugStatusItem`（LSP の隣。押せない）     |
+
+決めたこと:
+
+- **内部の `stopped` は「一時停止中 / Paused」と書く。** 「停止中 / Stopped」と書くと idle と取り違える（idle 側も「待機中」にした）
+- **状態機械に語を足さない。** `unavailable` は `idle` の上にだけ乗る表示用の派生で、**起動失敗（`failed`）は状態にしない** ── 失敗したセッションは idle へ戻る事実だけを出す
+- **payload は1語だけ・`workspaceId` を載せない**（セッションはアプリ全体で1本で、Workspace 切替では必ず終わってその終わりが届く）
+- **Renderer は実行制御の応答の `state` を正本にしない。** 通知だけを見る
+- 実 adapter が未統合なので、**実機の既定は「デバッグ: 利用不可」**。6-10 / 6-11 が catalog の行を `integrated` にすれば Idle へ移る
+
+設計から動いたもの:
+
+| 論点     | Session 6-0 の予定                           | Session 6-9 の実装                                                                                                                                                         |
+| -------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 範囲     | Debug Profile の編集 UI と Settings / Status | **Status だけ。** Debug Profile（`debug:start` を含む）は入れていない                                                                                                      |
+| Settings | Debug の設定を置く                           | **section を作らない。** 候補（adapter パス・stopOnEntry の既定・親スイッチ・待ち時間・Console 行数など）はどれも §20.9 に反するか、他に持ち主があるか、効く対象が無かった |
+| 口の名前 | `getState` / `onStateChanged`                | `debug:get-status` / `debug:status-changed`。返すのが遷移表の状態ではなく、adapter の有無を重ねた画面用の1語だから（`lsp:get-status` と揃えた）                            |
+
 ### Session 6-7 〜 6-13（予定）— 実装
 
 | Session | 入れるもの                                                         | 推奨 Agent   |
@@ -1877,6 +1907,8 @@ Call Stack の frame から **Scopes → Variables → 入れ子の Variables** 
 | 6-11    | C#（netcoredbg）                                                   | どちらでも可 |
 | 6-12    | Command / Keybinding（F5 / F9 / F10 / F11 / Shift+F11 / Shift+F5） | Codex        |
 | 6-13    | STEP 6 Closing（production build での横断確認とドキュメント追従）  | Claude Code  |
+
+> **実際の割り当ては表からずれている（Session 6-9 時点）。** 6-7 = Evaluate、6-8 = Debug Console、6-9 = Debug Status（Settings section なし）で実装された。表にあった **Debug Toolbar** と **Debug Profile の編集 UI / `debug:start`** は、まだどの Session にも割り当てられていない。
 
 最初に繋ぐのは **Node**（この PC で実機確認できる唯一の言語。Python / .NET SDK は STEP 5 Closing 時点と同じく未導入）。ただし Node の adapter だけは**入手経路と stdio 対応が未確定**で、6-1 の最初の仕事がその確認になる（[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §20.7）。
 

@@ -52,6 +52,10 @@ export type {
 
 export { DEBUG_CONSOLE_TEXT_MAX_LENGTH } from './console'
 
+export type { DebugSessionStatus } from './status'
+
+export { DEBUG_SESSION_STATUSES, isDebugSessionStatus, resolveDebugSessionStatus } from './status'
+
 export {
   DEBUG_EVALUATE_CONTEXTS,
   DEBUG_EVALUATE_EXPRESSION_MAX_LENGTH,

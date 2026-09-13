@@ -1175,6 +1175,21 @@ export interface DebugApi {
   readonly onConsoleEntry: (
     listener: IpcEventListener<'debug:console-entry'>
   ) => IpcEventUnsubscribe
+  /**
+   * Debug が今どうなっているか（Session 6-9）。
+   *
+   * 画面を開いた時点で1度読む。以降は `onStatusChanged` が届くが、**変わったときにしか
+   * 流れない**ので最初の1回はこちらが要る（`lsp.getStatus` と同じ形）。
+   *
+   * 返るのは閉じた集合の1語だけで、sessionId・adapter の名前や実行ファイル・
+   * 失敗の文言は載らない（shared/debug/status.ts）。**読むだけの口**で、
+   * ここからセッションを起こす / 止めることはできない。
+   */
+  readonly getStatus: () => IpcInvokeResult<'debug:get-status'>
+  /** Debug の状態が変わった（Session 6-9）。同じ tick の変化は1本にまとめて届く。 */
+  readonly onStatusChanged: (
+    listener: IpcEventListener<'debug:status-changed'>
+  ) => IpcEventUnsubscribe
 }
 
 /**

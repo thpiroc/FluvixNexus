@@ -2,6 +2,7 @@ import type { DebugBreakpoint } from '../../debug/breakpoint'
 import type { DebugCallStackSnapshot } from '../../debug/callStack'
 import type { DebugEvaluateContext, DebugEvaluateResult } from '../../debug/evaluate'
 import type { DebugControlOutcome } from '../../debug/session'
+import type { DebugSessionStatus } from '../../debug/status'
 import type {
   DebugScopesResult,
   DebugVariableHandle,
@@ -248,4 +249,23 @@ export interface DebugIpcContract {
     request: void
     response: DebugControlOutcome
   }
+  /**
+   * Debug が今どうなっているか（Session 6-9）。
+   *
+   * §20.9 の予定表で `getState` として数えていた口にあたる。**名前を `get-status` にしたのは、
+   * 返すのが遷移表の状態（`DebugSessionState`）そのものではなく、adapter の有無を重ねた
+   * 画面用の1語（`DebugSessionStatus`）だから**で、`lsp:get-status` と揃えてある。
+   *
+   * 要求は `void`、応答は閉じた集合の1語だけ。セッションを指す欄も、adapter を指す欄も無い
+   * ── 読むだけの口で、ここから何かを起こす経路は無い。
+   */
+  'debug:get-status': {
+    request: void
+    response: DebugStatusResponse
+  }
+}
+
+/** Debug の状態（Session 6-9）。載るのは閉じた集合の1語だけ（shared/debug/status.ts）。 */
+export interface DebugStatusResponse {
+  readonly status: DebugSessionStatus
 }

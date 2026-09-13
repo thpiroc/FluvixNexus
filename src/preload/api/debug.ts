@@ -28,7 +28,11 @@ import { subscribeIpcEvent } from '../ipc/subscribe'
  * DAP の request 名を渡す欄はここにも契約にも無い（`stepOver` が `next` になるのと
  * 同じ線 ── 翻訳は Main の中）。
  *
- * **Debug Session を起動する口はここに無い**（Debug Profile の Session 6-9 まで）。
+ * `getStatus` / `onStatusChanged`（Session 6-9）は `lsp.getStatus` と同じ**読むだけの口**で、
+ * 引数を1つも取らない。返るのは閉じた集合の1語だけになる。
+ *
+ * **Debug Session を起動する口はここに無い**（Debug Profile を入れる Session まで。
+ * Session 6-9 で増えたのは状態を読む口だけ）。
  */
 export const debugApi: DebugApi = {
   listBreakpoints: () => invokeIpc(IPC_CHANNELS.DEBUG_LIST_BREAKPOINTS),
@@ -58,9 +62,12 @@ export const debugApi: DebugApi = {
   stepInto: () => invokeIpc(IPC_CHANNELS.DEBUG_STEP_INTO),
   stepOut: () => invokeIpc(IPC_CHANNELS.DEBUG_STEP_OUT),
   stop: () => invokeIpc(IPC_CHANNELS.DEBUG_STOP),
+  getStatus: () => invokeIpc(IPC_CHANNELS.DEBUG_GET_STATUS),
   onBreakpointsChanged: (listener) =>
     subscribeIpcEvent(IPC_EVENT_CHANNELS.DEBUG_BREAKPOINTS_CHANGED, listener),
   onCallStackChanged: (listener) =>
     subscribeIpcEvent(IPC_EVENT_CHANNELS.DEBUG_CALL_STACK_CHANGED, listener),
-  onConsoleEntry: (listener) => subscribeIpcEvent(IPC_EVENT_CHANNELS.DEBUG_CONSOLE_ENTRY, listener)
+  onConsoleEntry: (listener) => subscribeIpcEvent(IPC_EVENT_CHANNELS.DEBUG_CONSOLE_ENTRY, listener),
+  onStatusChanged: (listener) =>
+    subscribeIpcEvent(IPC_EVENT_CHANNELS.DEBUG_STATUS_CHANGED, listener)
 }

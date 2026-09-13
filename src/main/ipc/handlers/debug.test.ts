@@ -52,6 +52,10 @@ vi.mock('../../debug/variables', () => ({ listDebugScopes, listDebugVariables })
 
 vi.mock('../../debug/evaluate', () => ({ evaluateDebugExpression }))
 
+const getDebugSessionStatus = vi.hoisted(() => vi.fn((): unknown => 'unavailable'))
+
+vi.mock('../../debug/sessionStatus', () => ({ getDebugSessionStatus }))
+
 vi.mock('electron', () => ({
   app: { isPackaged: false },
   BrowserWindow: { getAllWindows: () => [] }
@@ -222,4 +226,29 @@ describe('debug IPC handlers — evaluate (Session 6-7)', () => {
 
     expect(evaluateDebugExpression).toHaveBeenCalledTimes(1)
   })
+})
+
+describe('debug IPC handlers — status (Session 6-9)', () => {
+  beforeEach(() => {
+    getDebugSessionStatus.mockClear()
+  })
+
+  it('registers the status channel', () => {
+    expect(handlers.has('debug:get-status')).toBe(true)
+  })
+
+  it.each([
+    ['no request', undefined],
+    ['a DAP command', { command: 'launch', adapter: 'C:\\evil.exe', args: ['--x'], cwd: 'C:\\' }],
+    ['a session id', { sessionId: 'ds-1', generation: 3 }]
+  ])(
+    'ignores whatever the request carries (%s) and returns a single word',
+    async (_name, request) => {
+      const response = await handler('debug:get-status')(request)
+
+      expect(response).toEqual({ status: 'unavailable' })
+      expect(Object.keys(response as object)).toEqual(['status'])
+      expect(getDebugSessionStatus).toHaveBeenCalledWith()
+    }
+  )
 })

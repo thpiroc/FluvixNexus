@@ -1240,6 +1240,28 @@ export const enMessages = {
       stale: 'This result is no longer current.',
       failed: 'The debug adapter could not evaluate this expression.',
       timeout: 'The debug adapter did not answer in time.'
+    },
+    /*
+      ステータスバーの Debug の状態（Session 6-9）。
+
+      内部の `stopped` は「一時停止中」で、`Stopped` と書くと idle と取り違える
+      ── キーは shared の語のまま、言い回しの側で Paused と書く。
+    */
+    status: {
+      unavailable: 'Debug: Unavailable',
+      idle: 'Debug: Idle',
+      starting: 'Debug: Starting…',
+      running: 'Debug: Running',
+      stopped: 'Debug: Paused',
+      terminating: 'Debug: Stopping…'
+    },
+    statusDetail: {
+      unavailable: 'No debug adapter is available.',
+      idle: 'No debug session is running.',
+      starting: 'The debug adapter is starting.',
+      running: 'The program is running.',
+      stopped: 'The program is paused.',
+      terminating: 'The debug session is ending.'
     }
   },
   workspace: {

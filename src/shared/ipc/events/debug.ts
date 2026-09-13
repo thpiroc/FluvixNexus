@@ -1,6 +1,7 @@
 import type { DebugBreakpoint } from '../../debug/breakpoint'
 import type { DebugCallStackSnapshot } from '../../debug/callStack'
 import type { DebugConsoleEntry } from '../../debug/console'
+import type { DebugSessionStatus } from '../../debug/status'
 
 /**
  * debug ドメインの Main → Renderer イベント（Session 6-3）。
@@ -73,8 +74,29 @@ export interface DebugConsoleEntryEvent {
   readonly entry: DebugConsoleEntry
 }
 
+/**
+ * Debug の状態が変わった（Session 6-9）。
+ *
+ * ## 1語だけを送る
+ *
+ * sessionId・generation・adapter の名前や実行ファイル・失敗の文言は載らない。
+ * 載るのは閉じた集合の1語（shared/debug/status.ts）だけで、同じ tick の変化は
+ * Main が1本にまとめる（main/debug/sessionStatus.ts）。
+ *
+ * ## `workspaceId` を載せない
+ *
+ * 他の3つと違い、この通知は Workspace に紐づかない。Debug Session は**アプリ全体で
+ * 同時に1本**で、Workspace の切り替えでは必ず終わって idle へ戻り、その終わりが
+ * この通知として届く ── 行き違っても最後の1本が今の状態になる
+ * （`lsp:status-changed` が載せないのと同じ理由）。
+ */
+export interface DebugStatusChangedEvent {
+  readonly status: DebugSessionStatus
+}
+
 export interface DebugIpcEventContract {
   'debug:breakpoints-changed': DebugBreakpointsChangedEvent
   'debug:call-stack-changed': DebugCallStackChangedEvent
   'debug:console-entry': DebugConsoleEntryEvent
+  'debug:status-changed': DebugStatusChangedEvent
 }

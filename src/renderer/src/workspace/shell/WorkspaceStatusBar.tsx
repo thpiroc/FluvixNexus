@@ -1,6 +1,7 @@
 import { useEffect, useState, type JSX } from 'react'
 import type { AppInfoResponse } from '@shared/ipc'
 import { fluvix } from '../../api/fluvix'
+import { DebugStatusItem } from '../../debug/DebugStatusItem'
 import { useI18n } from '../../i18n/context'
 import { LanguageServerStatusItem } from '../../lsp/LanguageServerStatusItem'
 import { useWorkspaceFolder } from '../../workspaceFolder/context'
@@ -23,10 +24,11 @@ import { useWorkspaceFolder } from '../../workspaceFolder/context'
  * 何を出すかは持ち込んだ部品の側にある。ステータスバーに載るものが増えるたびに
  * ここが太らないようにするためで、Git のブランチ名も同じ形で入る想定になる。
  *
+ * Session 6-9 で Debug の状態が同じ形で載った（debug/DebugStatusItem.tsx）。
+ *
  * 後続セッションでここに載るもの:
  *   - Git のブランチ名 / 変更件数
  *   - カーソル位置・文字コード・改行コード
- *   - DAP の状態
  */
 export function WorkspaceStatusBar(): JSX.Element {
   const { platform, versions } = fluvix.env
@@ -69,6 +71,11 @@ export function WorkspaceStatusBar(): JSX.Element {
         （右端）とは性格が違う。
       */}
       <LanguageServerStatusItem />
+      {/*
+        Debug の状態（Session 6-9）。LSP の隣 ── どちらも「言語の道具が今どうなっているか」で、
+        置き方（押せない・1語・内訳は title）も揃えてある。
+      */}
+      <DebugStatusItem />
       <span className="fx-statusbar__spacer" />
       <span className="fx-statusbar__item">
         {platform} / Electron {versions.electron} / Chromium {versions.chrome} / Node{' '}

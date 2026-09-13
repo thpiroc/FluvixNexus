@@ -7315,7 +7315,7 @@ Session 5-13 で実際に測った範囲は次のとおり。
 
 ## 20. Debug（DAP。STEP 6）
 
-Session 6-0 で設計を確定し、Session 6-1 で Main 内の最下層（DAP message / connection、adapter process、adapter catalog）を実装し、Session 6-2 で Main-owned Debug Session lifecycle / state machine を追加し、Session 6-3 で Breakpoint（Monaco の glyph margin・保存・`setBreakpoints`）を入れ（§20.12）、Session 6-4 で実行制御（Continue / Pause / Step Over / Step Into / Step Out / Stop）を入れ（§20.13）、Session 6-5 で Call Stack（`threads` / `stackTrace` と safe source normalization）を入れた（§20.14）。ここに書いていない口・欄・経路を実装側で足すときは、足す前にこの節へ戻ること。
+Session 6-0 で設計を確定し、Session 6-1 で Main 内の最下層（DAP message / connection、adapter process、adapter catalog）を実装し、Session 6-2 で Main-owned Debug Session lifecycle / state machine を追加し、Session 6-3 で Breakpoint（Monaco の glyph margin・保存・`setBreakpoints`）を入れ（§20.12）、Session 6-4 で実行制御（Continue / Pause / Step Over / Step Into / Step Out / Stop）を入れ（§20.13）、Session 6-5 で Call Stack（`threads` / `stackTrace` と safe source normalization）を入れた（§20.14）。Session 6-9 で Debug の状態（ステータスバー）を入れた（§20.17）。ここに書いていない口・欄・経路を実装側で足すときは、足す前にこの節へ戻ること。
 
 DESIGN.md §5 の11機能（Breakpoint / Continue / Pause / Step Over / Step Into / Step Out / Stop / Variables / Call Stack / Debug Console / エラー位置へのジャンプ）を、Terminal（§13）と LSP（§19）が固めた「**Main が長命な子プロセスを持ち、Renderer は app-domain の言葉だけで話す**」形の上に載せる。
 
@@ -7592,6 +7592,8 @@ Session 6-5 で `getStack` は実際の名前を `debug:list-call-stack` / `list
 Session 6-6 で `getScopes` / `getVariables` を実際の名前 `debug:list-scopes` / `listScopes`・`debug:list-variables` / `listVariables` として入れた（6-5 の `list-call-stack` と揃えた）。要求に載るのは `{ frameId }` / `{ handle }` の1欄だけで、予定の数（18）は動いていない（§20.15）。
 
 Session 6-7 で `evaluate` を `debug:evaluate` / `evaluate` として入れた。要求に載るのは `{ expression, frameId, context }` の3欄で、`context` は閉じた集合（`repl` / `watch`）── **DAP の request 名も raw `variablesReference` も載る場所が無い**。予定の数（18）は動いていない（§20.16）。名前が DAP の `evaluate` と同じ綴りなのは `continue` / `pause` と同じ事情で、**口の名前で操作が決まる**形は変わらない。
+
+Session 6-9 で `getState` / `onStateChanged` を実際の名前 `debug:get-status` / `getStatus`・`debug:status-changed` / `onStatusChanged` として入れた。**名前を state から status に変えたのは、返すのが遷移表の状態そのものではなく、adapter の有無を重ねた画面用の1語だから**で、`lsp:get-status` / `lsp:status-changed` と揃えてある。要求は `void`、応答も通知も `{ status }` の1欄だけ。予定の数（要求18 / 購読5 ── 6-8 の `onConsoleEntry` は `onOutput` の枠）は動いていない（§20.17）。
 
 **プロセスを操作する口は1つも無い**（§19.2 と同じ）。`start` に載るのは `profileId` だけで、`stop` は `void` になる。
 
@@ -8145,3 +8147,61 @@ Session 6-8 の Debug Console を先取りしない。持つのは**「今の式
 #### 入れていないもの（Session 6-7）
 
 Debug Console（6-8）/ Watch の一覧と永続化 / hover 評価 / `setVariable` / `setExpression` / memory read / write / 履歴 / 補完 / 複数行入力 / 任意の DAP request。
+
+### 20.17 Debug の状態と Settings（Session 6-9）
+
+ステータスバーに **Debug が今どうなっているか** を1語で出す。Session 5-4 の LSP Status（§19.6）と同じ形で、**新しい状態の持ち主は作っていない**。
+
+```
+main/debug/debugSessionManager.ts   セッションの状態（6-2 の遷移表。変えていない）
+main/debug/adapterCatalog.ts        起動できる adapter があるか（hasIntegratedDebugAdapter）
+   ↓  shared/debug/status.ts の resolveDebugSessionStatus で重ねる
+main/debug/sessionStatus.ts         同じ tick の変化を1本にまとめ、同じ語を続けて送らない
+   ↓  debug:status-changed / debug:get-status   … { status } の1欄だけ
+renderer/src/debug/useDebugSessionStatus.ts   届いた1語を持つ（閉じた集合の外は捨てる）
+renderer/src/debug/DebugStatusItem.tsx        LSP の隣に1つ出す（押せない）
+```
+
+#### 内部の状態と、画面の言葉
+
+| `DebugSessionStatus` | 由来                                 | 英語               | 日本語                   |
+| -------------------- | ------------------------------------ | ------------------ | ------------------------ |
+| `unavailable`        | `idle` かつ統合された adapter が無い | Debug: Unavailable | デバッグ: 利用不可       |
+| `idle`               | `idle`                               | Debug: Idle        | デバッグ: 待機中         |
+| `starting`           | `starting`                           | Debug: Starting…   | デバッグ: 起動中…        |
+| `running`            | `running`                            | Debug: Running     | デバッグ: 実行中         |
+| `stopped`            | `stopped`                            | **Debug: Paused**  | **デバッグ: 一時停止中** |
+| `terminating`        | `terminating`                        | Debug: Stopping…   | デバッグ: 終了中…        |
+
+- **`stopped` を「Stopped / 停止中」と書かない。** 内部の `stopped` は breakpoint / step / pause で止まっている状態で、利用者が「停止中」と読むと idle と取り違える。語は shared のまま、言い回しの側で「一時停止」と書く（idle 側も「停止中」を避けて「待機中」にした）
+- **`unavailable` は `idle` の上にだけ乗る。** セッションが立っていれば adapter はそこに在るので、動いている間は adapter の有無を見ない。受け取った側は `unavailable` を「セッションは無い」と読める
+- **状態機械に語を足していない。** `unavailable` も表示用の派生で、6-2 の遷移表は 6-3 〜 6-8 のすべてが依存しているため触らない
+- **`failed`（起動失敗）を状態にしない。** 失敗したセッションは idle へ戻るのが Main の事実で、ステータスバーはそれだけを出す。「さっき失敗した」を出し続けるには、いつ消えるかを決めた2つめの状態が Main に要る。失敗の理由は起動を頼んだ操作への答えとして返す（起動の口を入れる Session の仕事）
+- この版では catalog のどの行も `not-integrated` なので、実アプリの既定は **Unavailable**。6-10 / 6-11 が行を `integrated` にすれば、状態の側は1行も変わらずに Idle へ移る。**PATH の探索はしない**（それは実 adapter を繋ぐ Session の仕事で、状態を読むたびにファイルシステムへ触らない）
+
+#### 通知の形
+
+- **1語だけ。** sessionId・generation・adapter の名前 / 実行ファイル / 引数 / cwd・失敗の文言は載らない。ステータスバーに出る文字は Renderer が閉じた集合の語から翻訳キーを選んで作る ── **Main から届いた文字列を描く経路が無い**
+- **`workspaceId` を載せない。** Debug Session はアプリ全体で同時に1本で、Workspace の切り替えでは必ず終わり、その終わりが通知として届く（`lsp:status-changed` と同じ理由）。Breakpoint / Call Stack / Console の通知が載せるのは、相対位置が Workspace によって別のファイルを指すため
+- **同じ tick の変化は1本にまとめ、まとめた時点の状態を送る。** Stop の terminating → idle、Step の running → stopped は同じ流れの中で起きうる。まとめた結果が前に送った語と同じなら送らない
+- **実行制御の応答に載る `state`（`DebugControlOutcome.state`）を Renderer は状態の正本にしない。** 入口を2つにすると、どちらが新しいかを Renderer が突き合わせることになる。Main の状態が変われば通知は必ず届くので、通知だけを見れば足りる
+
+#### Settings は増やしていない
+
+Session 6-9 は予定では「Debug Profile の編集 UI と Settings / Status」だったが、**Debug Profile（`debug:start` を含む）は入れず、Settings の section も作っていない。** 候補を全部見て、この版で値を持てるものが1つも残らなかったため。
+
+| 候補                                  | 判断                                                                                                          |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| adapter のパス / 引数 / cwd           | §20.9 で作らない欄。settings.json に `string` を1欄足すと「利用者が指定した実行ファイルが起動する場所」になる |
+| `stopOnEntry` の既定                  | Debug Profile の欄（§20.3）。二重に持たない                                                                   |
+| `debug.enabled`（LSP 風の親スイッチ） | LSP はファイルを開くとサーバが立つので切る対象があったが、Debug は利用者が始めない限り何も立たない            |
+| Workspace 切替時に終わらせるか        | §20.8 の安全要件。設定にしない                                                                                |
+| terminate / 制御の待ち時間            | orphan を残さない上限（§20.13）。公開しない                                                                   |
+| breakpoint の一括無効化               | 設定ではなく操作。保存単位も Workspace（`debug-breakpoints.json`）で settings.json と合わない                 |
+| Debug Console の行数上限              | 6-8 の Console は件数を持たない。上限の設定を足すことは Console の振る舞いを作り直すことになる                |
+
+したがって `SETTINGS_SECTION_IDS` は変えておらず、`settingsCatalog.test.ts` の「`debug` / `dap` カテゴリを先に置かない」も残してある。Debug Profile が入るときは、値の項目ではなく一覧を扱うので `kind: 'shortcuts'` に続く別の `kind` のカテゴリとして足すのが既存の形に沿う（保存先も settings.json ではなく §20.5 の `debug-profiles.json`）。
+
+#### 入れていないもの（Session 6-9）
+
+Debug Profile の保存 / 編集 UI / `debug:start` / Debug の Settings section / 起動失敗の状態 / ステータスバーからの操作 / 言語ごとの adapter の有無の内訳 / PATH の探索。

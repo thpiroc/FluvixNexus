@@ -23,7 +23,8 @@ export const IPC_EVENT_CHANNELS = {
   LSP_STATUS_CHANGED: 'lsp:status-changed',
   DEBUG_BREAKPOINTS_CHANGED: 'debug:breakpoints-changed',
   DEBUG_CALL_STACK_CHANGED: 'debug:call-stack-changed',
-  DEBUG_CONSOLE_ENTRY: 'debug:console-entry'
+  DEBUG_CONSOLE_ENTRY: 'debug:console-entry',
+  DEBUG_STATUS_CHANGED: 'debug:status-changed'
 } as const satisfies Record<string, IpcEventChannel>
 
 /**

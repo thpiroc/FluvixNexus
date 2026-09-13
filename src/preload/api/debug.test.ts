@@ -28,6 +28,7 @@ describe('debug preload api', () => {
       [
         'continue',
         'evaluate',
+        'getStatus',
         'listBreakpoints',
         'listCallStack',
         'listScopes',
@@ -35,6 +36,7 @@ describe('debug preload api', () => {
         'onBreakpointsChanged',
         'onCallStackChanged',
         'onConsoleEntry',
+        'onStatusChanged',
         'pause',
         'stepInto',
         'stepOut',
@@ -51,7 +53,9 @@ describe('debug preload api', () => {
     ['stepOver', 'debug:step-over'],
     ['stepInto', 'debug:step-into'],
     ['stepOut', 'debug:step-out'],
-    ['stop', 'debug:stop']
+    ['stop', 'debug:stop'],
+    /* Session 6-9。読むだけの口も、何を渡されてもチャンネル名だけを送る。 */
+    ['getStatus', 'debug:get-status']
   ] as const)(
     '%s invokes %s with no payload, whatever the caller passes',
     async (name, channel) => {

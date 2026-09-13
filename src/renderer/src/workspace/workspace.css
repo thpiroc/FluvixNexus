@@ -646,3 +646,21 @@
 .fx-statusbar__lsp[data-lsp-status='unavailable'] {
   color: var(--fx-color-text-faint);
 }
+
+/*
+ * Debug の状態（Session 6-9）。
+ *
+ * LSP と同じく色は段を絞る ── セッションがある（読める色）、無い（薄い）。
+ * 途中の状態（starting / terminating）はステータスバー既定の色のまま。
+ * **danger を使う状態が無い**のは、起動失敗を状態にしていないため
+ * （shared/debug/status.ts）。新しい色の変数は増やしていない。
+ */
+.fx-statusbar__debug[data-debug-status='running'],
+.fx-statusbar__debug[data-debug-status='stopped'] {
+  color: var(--fx-color-text);
+}
+
+.fx-statusbar__debug[data-debug-status='idle'],
+.fx-statusbar__debug[data-debug-status='unavailable'] {
+  color: var(--fx-color-text-faint);
+}

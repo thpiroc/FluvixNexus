@@ -6,6 +6,7 @@ import { startDebugBreakpointHosting } from '../debug/breakpoints'
 import { startDebugCallStackHosting } from '../debug/callStack'
 import { startDebugConsoleHosting } from '../debug/console'
 import { disposeDebugSession, startDebugSessionHosting } from '../debug/debugSessionManager'
+import { startDebugSessionStatusReporting } from '../debug/sessionStatus'
 import { startDebugVariablesHosting } from '../debug/variables'
 import { startLanguageServerDiagnostics } from '../lsp/diagnostics'
 import { startLanguageServerDocumentSync } from '../lsp/documentSync'
@@ -150,6 +151,13 @@ export function bootstrapApp(): void {
       Renderer へは Debug Console 専用の通知として届ける。
     */
     startDebugConsoleHosting(onWorkspaceFolderChange)
+
+    /*
+      Debug の状態を画面へ配る側（Session 6-9）。startLanguageServerStatusReporting と
+      同じく**新しい状態は持たない** ── セッションの状態と catalog の事実を重ねて配るだけ。
+      Workspace の切り替えは購読しない（切り替えでセッションが終わり、それが状態の変化として届く）。
+    */
+    startDebugSessionStatusReporting()
 
     /*
       シェルのセッションは Workspace の切り替えに追従しない（Session 3-7-3）。

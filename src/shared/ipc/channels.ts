@@ -97,6 +97,7 @@ export const IPC_CHANNELS = {
   DEBUG_STEP_INTO: 'debug:step-into',
   DEBUG_STEP_OUT: 'debug:step-out',
   DEBUG_STOP: 'debug:stop',
+  DEBUG_GET_STATUS: 'debug:get-status',
   SETTINGS_LOAD: 'settings:load',
   SETTINGS_SAVE_SECTION: 'settings:save-section'
 } as const satisfies Record<string, IpcChannel>

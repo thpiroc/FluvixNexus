@@ -8,7 +8,15 @@
 export const DEBUG_ADAPTER_LANGUAGE_IDS = ['node', 'python', 'csharp'] as const
 
 export type DebugAdapterLanguageId = (typeof DEBUG_ADAPTER_LANGUAGE_IDS)[number]
-export type DebugAdapterIntegrationStatus = 'not-integrated'
+/**
+ * その行の adapter を、この版が起動できるか。
+ *
+ * `integrated` は Session 6-9 で型にだけ足した（どの行もまだ使っていない）。
+ * Debug の状態（shared/debug/status.ts の `unavailable`）がこの事実から導かれるため、
+ * 実 adapter を繋ぐ Session（6-10 / 6-11）が行を書き換えれば、状態の側は1行も変わらずに
+ * `unavailable` から `idle` へ移る。
+ */
+export type DebugAdapterIntegrationStatus = 'integrated' | 'not-integrated'
 
 export interface DebugAdapterCatalogEntry {
   readonly language: DebugAdapterLanguageId
@@ -54,4 +62,17 @@ export function getDebugAdapterCatalogEntry(
 
 export function listDebugAdapterCatalogEntries(): readonly DebugAdapterCatalogEntry[] {
   return DEBUG_ADAPTER_LANGUAGE_IDS.map((language) => DEBUG_ADAPTER_CATALOG[language])
+}
+
+/**
+ * 起動できる adapter が1つでもあるか（Session 6-9。Debug の状態の `unavailable` の根拠）。
+ *
+ * **catalog の行だけを見る。** PATH を探して実行ファイルがあるかまでは見ない ──
+ * それは実 adapter を繋ぐ Session の仕事で、ここで探すと状態を読むたびに
+ * ファイルシステムへ触ることになる。結果は真偽値1つで、名前もパスも外へ出ない。
+ */
+export function hasIntegratedDebugAdapter(
+  entries: readonly DebugAdapterCatalogEntry[] = listDebugAdapterCatalogEntries()
+): boolean {
+  return entries.some((entry) => entry.integrationStatus === 'integrated')
 }

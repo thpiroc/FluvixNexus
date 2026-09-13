@@ -1201,6 +1201,22 @@ export const jaMessages = {
       stale: 'この結果はもう最新ではありません。',
       failed: 'Debug adapter がこの式を評価できませんでした。',
       timeout: 'Debug adapter から時間内に応答がありませんでした。'
+    },
+    status: {
+      unavailable: 'デバッグ: 利用不可',
+      idle: 'デバッグ: 待機中',
+      starting: 'デバッグ: 起動中…',
+      running: 'デバッグ: 実行中',
+      stopped: 'デバッグ: 一時停止中',
+      terminating: 'デバッグ: 終了中…'
+    },
+    statusDetail: {
+      unavailable: 'Debug adapter を利用できません。',
+      idle: 'Debug Session は動いていません。',
+      starting: 'Debug adapter を起動しています。',
+      running: 'プログラムを実行しています。',
+      stopped: 'プログラムは一時停止しています。',
+      terminating: 'Debug Session を終了しています。'
     }
   },
   workspace: {

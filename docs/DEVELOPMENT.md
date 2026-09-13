@@ -50,7 +50,9 @@ Session 6-5 で **Call Stack** が入った。`stopped` event から Main が `t
 
 Session 6-6 で **Variables / Scopes** が入った。Call Stack で選んだ frame の Scope と Variable を lazy に辿る。DAP の `variablesReference` は Main の handle 表に控え、Renderer へは Main が発行した handle だけを渡す（docs/ARCHITECTURE.md §20.15）。Workspace 外の frame も選べる（Variables を読むため）が、開きはしない。
 
-Debug Profile 保存、Debug Session の起動 UI、Debug Console（evaluate）、Debug Toolbar、実 adapter 統合はまだ無い。
+Session 6-9 で **Debug の状態**がステータスバーに出るようになった（`debug:get-status` / `debug:status-changed`。docs/ARCHITECTURE.md §20.17）。実 adapter がまだ統合されていないので、**実機では常に「デバッグ: 利用不可」**になる ── starting / running / 一時停止中 / 終了中 が見えるのは mock adapter を Main から立てた確認だけ。Debug の Settings section は作っていない。
+
+Debug Profile 保存、Debug Session の起動 UI、Debug Toolbar、実 adapter 統合はまだ無い。
 
 ---
 
@@ -608,6 +610,16 @@ DAP の周りは 6-1 / 6-2 と同じ分け方で、**Electron も子プロセス
 - `src/renderer/src/debug/variablesTreeModel.test.ts` — lazy expansion・閉じても控えること・empty / truncated / unavailable・遅れた応答を当てないこと
 - `src/renderer/src/debug/VariablesView.dom.test.ts` — Scope / Variable 表示、入れ子の展開 / 折り畳み、loading / empty / unavailable、snapshot の差し替えで clear・遅れた応答を捨てること、frame 選択への追従、ARIA tree とキーボード
 - `src/renderer/src/debug/CallStackView.dom.test.ts` — 6-5 の「Workspace 外 frame を開かない」を保ったまま、**押せる（選べる）が開かない**形に変えた（6-5 では disabled）。選択中の frame の `aria-current`
+
+#### Debug Status（Session 6-9）
+
+- `src/shared/debug/status.test.ts` — セッションの状態 × adapter の有無の重ね方（動いていれば adapter を見ない・`unavailable` は idle の上だけ）、閉じた集合が6語だけで `failed` / `paused` のような別名を持たないこと
+- `src/main/debug/sessionStatus.test.ts` — 起動時は配らないこと・**payload が1語だけ**であること・同じ tick の変化を1本にまとめてその時点の状態を送ること・同じ語を続けて送らないこと・公開するのが読む関数と配り始める関数だけであること・既定が `unavailable`
+- `src/main/debug/adapterCatalog.test.ts` — `hasIntegratedDebugAdapter`（統合された行が無ければ false、1行でもあれば true）
+- `src/main/ipc/handlers/debug.test.ts` — `debug:get-status` が要求に何が載っていても読まず、`{ status }` だけを返すこと
+- `src/preload/api/debug.test.ts` — 17関数になったこと、`getStatus` が何を渡されてもチャンネル名だけを送ること
+- `src/renderer/src/debug/debugStatusLabels.test.ts` — 6語すべてに日英の言葉があること・言い回しが重ならないこと・**`stopped` を Paused / 一時停止中 と書き、Stopped / 停止中 と書かないこと**
+- `src/renderer/src/debug/DebugStatusItem.dom.test.ts` — 最初の1回を読む・通知で置き換わる・**先に届いた通知が遅れた読み込みに勝つ**・読めなければ何も出さない（既定の語を作らない）・**閉じた集合の外の語やパスを描かない**・押せない・表示言語の切り替えに追従する・外すと購読も外れる
 
 ### 整形
 
@@ -1961,6 +1973,26 @@ Session 4-5 / 4-7 は**境界を1つも動かしていない**ことを、両ス
 - **`app.evaluate` の中に `require` は無い。** Main 側で子プロセスを数えようとすると `ReferenceError: require is not defined` になる ── プロセスを数えるのはドライバの node 側でやる
 - **Workspace を切り替える入口は、上部バーの Workspace メニューを使う。** Files パネルの「フォルダを開く」は Debug タブが前面だと DOM に無い（6-6 で記録した罠と同じ根）。上部バーはどの dock タブが前面でも必ず在る
 - **timeout の確認には 10 秒かかる。** mock adapter に「答えない」variant を持たせ、経過時間まで測ると「すぐ返った（＝上限を見ていない）」と「永久に返らない」の両方を1つの項目で切り分けられる
+
+### Session 6-9（Debug Status）
+
+**production build 版 57項目、全項目 PASS。** 6-7 と同じく、使い捨ての Workspace 2つと使い捨ての `--user-data-dir` で起動し、`npm run build` 後の `out/main/index.js` 末尾へ `FLUVIX_VERIFY_DEBUG=1` で開く数行を確認のあいだだけ足して mock adapter を立てた。確認の後は `npm run build` で out/ を作り直している（hook の残りが 0 件であることを grep で確認）。**1回の node プロセスで2回起動**し、1回目を日本語、2回目を `settings.json` の `general.language: "en"` で英語にした。
+
+- 面 / 境界: `debug` の関数が17個（15 + `getStatus` / `onStatusChanged`）、start / launch / attach / adapter / request / command / profile / setting を名乗る関数が無い、`require` / `process` / `electron` / `Buffer` / `module` / `global` の非露出、**CSP が source の index.html と同じ**
+- 応答の形: `getStatus` が `{ status }` だけを返すこと、**`command` / `adapter`（`cmd.exe` の絶対パス）/ `args` / `cwd` / `sessionId` / `program` を載せて呼んでも1語が返るだけで、セッションは立たない**こと、通知の payload がどれも `{ status }` の既知の1語であること
+- ステータスバー: 既定が「デバッグ: 利用不可」（title「Debug adapter を利用できません。」）、`<span>` で role / tabindex を持たない、LSP の直後に並ぶ、**押しても何も起きない**（セッションも adapter の要求も発生しない）
+- 流れ: 起動 → 通知が **starting → running → stopped の3本**、「デバッグ: 一時停止中」、idle と色が違う、`getStatus` と画面が一致／Continue → running → stopped／Step Over ×3 で running / stopped が交互に並び**同じ語が続かない**／同時の Step Over 2通で2通目が `busy` でも一時停止へ収束／Stop → terminating → unavailable
+- 片付け: Stop 後・**stopped のまま Workspace を切り替えた後**・**一時停止のままアプリを終了した後**のいずれも adapter のプロセスが 0、状態は unavailable へ戻る
+- 英語: 「Debug: Unavailable」「Debug: Paused」（Stopped と出ない）、title「No debug adapter is available.」
+- Settings: `settings:load` にも保存された `settings.json` にも `debug` section が無い
+- 回帰: 6-3 Breakpoint（起動前に置いて verified）/ 6-4 Continue・Step Over・Stop / 6-5 Call Stack 2 frame / 6-6 Scopes / 6-7 Evaluate / 6-8 Debug Console の「セッション終了」entry
+- Workspace に1バイトも書かれない、console エラー / CSP 違反 0件（2回とも）
+
+#### 確認スクリプトを書くときに踏んだこと（Session 6-9）
+
+- **状態の通知は Renderer 側でもう1本購読して payload ごと積む。** ステータスバーの `data-debug-status` を待つだけでは、途中の語（starting / terminating）が一瞬で過ぎて見えない ── 通知の列を読めば、まとめ方と重複の有無まで1項目で測れる
+- **mock adapter の `configurationDone` は 120ms 後に止まる**ので、起動直後の running は画面ではほぼ見えない。running を見たいときは画面ではなく通知の列で見る
+- **VS Code / Claude Code 自体も electron.exe で動いている。** 前回の残りを片付けるときに名前だけで kill しない ── `ExecutablePath` が `Fluvix Nexus\node_modules` のものだけに絞る
 
 ---
 

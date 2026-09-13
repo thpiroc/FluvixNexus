@@ -101,6 +101,7 @@ export type {
   DebugEvaluateResponse,
   DebugIpcContract,
   DebugScopesResponse,
+  DebugStatusResponse,
   DebugVariablesResponse,
   EvaluateDebugExpressionRequest,
   ListDebugScopesRequest,
@@ -175,7 +176,8 @@ export type {
   DebugBreakpointsChangedEvent,
   DebugCallStackChangedEvent,
   DebugConsoleEntryEvent,
-  DebugIpcEventContract
+  DebugIpcEventContract,
+  DebugStatusChangedEvent
 } from './events/debug'
 export type { GitChangedEvent, GitIpcEventContract } from './events/git'
 export type {
