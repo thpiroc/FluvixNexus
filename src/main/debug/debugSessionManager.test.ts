@@ -257,6 +257,39 @@ describe('debug session manager', () => {
     expect(adapter.requests.find((request) => request.command === 'launch')).toBeDefined()
   })
 
+  it('can wait for launch response before configuration for adapters that require it', async () => {
+    const harness = createHarness()
+
+    expect(
+      harness.manager.start({
+        ...createStartOptions(),
+        waitForLaunchResponseBeforeConfiguration: true
+      }).status
+    ).toBe('started')
+    const adapter = harness.adapters[0]
+
+    await adapter.resolve('initialize', {
+      status: 'success',
+      body: { supportsConfigurationDoneRequest: true }
+    })
+    adapter.event('initialized')
+    await Promise.resolve()
+
+    expect(adapter.requests.map((request) => request.command)).toEqual(['initialize', 'launch'])
+
+    await adapter.resolve('launch', { status: 'success', body: {} })
+
+    expect(adapter.requests.map((request) => request.command)).toEqual([
+      'initialize',
+      'launch',
+      'configurationDone'
+    ])
+
+    await adapter.resolve('configurationDone', { status: 'success', body: undefined })
+
+    expect(harness.manager.getState()).toBe('running')
+  })
+
   it('enters stopped and resumes to running from adapter events', async () => {
     const harness = createHarness()
     const adapter = await startRunning(harness)

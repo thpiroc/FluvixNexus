@@ -50,6 +50,14 @@ export interface DebugSessionStartOptions {
   readonly adapterId: string
   readonly adapterCommand: DebugAdapterCommand
   readonly launchArguments?: unknown
+  /**
+   * `launch` 応答を待ってから `setBreakpoints` / `setExceptionBreakpoints` /
+   * `configurationDone` へ進む。
+   *
+   * 既定は false。多くの adapter は `configurationDone` 後まで `launch` 応答を返さないため。
+   * netcoredbg は応答前の仕込みで debuggee が即終了することがあるため、C# だけ true にする。
+   */
+  readonly waitForLaunchResponseBeforeConfiguration?: boolean
   readonly clientName?: string
   readonly clientVersion?: string
   readonly processId?: number
@@ -99,9 +107,16 @@ export interface DebugSessionOutputEvent {
   readonly body: unknown
 }
 
+export interface DebugSessionBreakpointEvent {
+  readonly sessionId: string
+  readonly generation: number
+  readonly body: unknown
+}
+
 export type DebugSessionStoppedListener = (event: DebugSessionStoppedEvent) => void
 export type DebugSessionThreadListener = (event: DebugSessionThreadEvent) => void
 export type DebugSessionOutputListener = (event: DebugSessionOutputEvent) => void
+export type DebugSessionBreakpointListener = (event: DebugSessionBreakpointEvent) => void
 
 export const DEBUG_SESSION_START_TIMEOUT_MS = 60_000
 
@@ -258,6 +273,7 @@ interface RunningDebugSession {
   readonly adapterId: string
   readonly adapterCommand: DebugAdapterCommand
   readonly launchArguments: unknown
+  readonly waitForLaunchResponseBeforeConfiguration: boolean
   readonly initialized: Deferred<void>
   readonly clientName: string
   readonly clientVersion: string
@@ -273,6 +289,8 @@ interface RunningDebugSession {
   supportsVariablePaging: boolean
   /** 最後の `stopped` event が名指したスレッド（無ければ null）。 */
   stoppedThreadId: number | null
+  /** `thread` event か `stopped` event から最後に見えたスレッド。Pause の宛先に使う。 */
+  activeThreadId: number | null
   /** 以下3つは Session 6-13（例外停止）。 */
   /** 最後の `stopped` event から読んだ理由（まだ止まっていなければ null）。 */
   lastStop: DapStoppedEventSummary | null
@@ -308,6 +326,7 @@ export interface DebugSessionManager {
   readonly onStopped: (listener: DebugSessionStoppedListener) => () => void
   readonly onThread: (listener: DebugSessionThreadListener) => () => void
   readonly onOutput: (listener: DebugSessionOutputListener) => () => void
+  readonly onBreakpoint: (listener: DebugSessionBreakpointListener) => () => void
   readonly start: (options: DebugSessionStartOptions) => StartDebugSessionOutcome
   /**
    * **その場で**終わらせる（Session 6-2）。Workspace の切り替え・アプリの終了・
@@ -368,6 +387,7 @@ export function createDebugSessionManager(
   const stoppedListeners = new Set<DebugSessionStoppedListener>()
   const threadListeners = new Set<DebugSessionThreadListener>()
   const outputListeners = new Set<DebugSessionOutputListener>()
+  const breakpointListeners = new Set<DebugSessionBreakpointListener>()
   let generation = 0
   let current: RunningDebugSession | null = null
   let configurationHook: DebugSessionConfigurationHook | null = options.configurationHook ?? null
@@ -447,6 +467,22 @@ export function createDebugSessionManager(
     }
   }
 
+  function notifyBreakpoint(record: RunningDebugSession, body: unknown): void {
+    const event: DebugSessionBreakpointEvent = {
+      sessionId: record.sessionId,
+      generation: record.generation,
+      body
+    }
+
+    for (const listener of breakpointListeners) {
+      try {
+        listener(event)
+      } catch (cause) {
+        log('error', `a debug session breakpoint listener failed: ${describeError(cause)}`)
+      }
+    }
+  }
+
   function transition(record: RunningDebugSession, event: DebugSessionTransition): boolean {
     try {
       record.state = applyDebugSessionTransition(record.state, event)
@@ -470,6 +506,8 @@ export function createDebugSessionManager(
       adapterId: startOptions.adapterId,
       adapterCommand: startOptions.adapterCommand,
       launchArguments: startOptions.launchArguments,
+      waitForLaunchResponseBeforeConfiguration:
+        startOptions.waitForLaunchResponseBeforeConfiguration ?? false,
       initialized: createDeferred(),
       clientName: startOptions.clientName ?? 'Fluvix Nexus',
       clientVersion: startOptions.clientVersion ?? '0.0.1',
@@ -481,6 +519,7 @@ export function createDebugSessionManager(
       stopCapabilities: NO_DEBUG_ADAPTER_STOP_CAPABILITIES,
       supportsVariablePaging: false,
       stoppedThreadId: null,
+      activeThreadId: null,
       lastStop: null,
       supportsExceptionInfoRequest: false,
       exceptionBreakpointFilters: startOptions.exceptionBreakpointFilters ?? [],
@@ -585,15 +624,29 @@ export function createDebugSessionManager(
       )
 
       const launch = request(record, 'launch', record.launchArguments)
-      void launch.then((outcome) => {
-        if (!isCurrent(record) || record.terminationRequested) {
+
+      if (record.waitForLaunchResponseBeforeConfiguration) {
+        const outcome = await launch
+
+        if (!isActive(record)) {
           return
         }
 
         if (outcome.status !== 'success') {
-          failActiveRecord(record, describeRequestFailure('launch', outcome))
+          failStartingRecord(record, describeRequestFailure('launch', outcome))
+          return
         }
-      })
+      } else {
+        void launch.then((outcome) => {
+          if (!isCurrent(record) || record.terminationRequested) {
+            return
+          }
+
+          if (outcome.status !== 'success') {
+            failActiveRecord(record, describeRequestFailure('launch', outcome))
+          }
+        })
+      }
 
       await record.initialized.promise
 
@@ -832,6 +885,9 @@ export function createDebugSessionManager(
         */
         record.stopEpoch += 1
         record.stoppedThreadId = readStoppedThreadId(body)
+        if (record.stoppedThreadId !== null) {
+          record.activeThreadId = record.stoppedThreadId
+        }
         /* なぜ止まったか（Session 6-13）。壊れた body は `unknown` に畳む。 */
         record.lastStop = parseDapStoppedEvent(body)
 
@@ -842,11 +898,16 @@ export function createDebugSessionManager(
         return
 
       case 'thread':
+        updateActiveThread(record, body)
         notifyThread(record, body)
         return
 
       case 'output':
         notifyOutput(record, body)
+        return
+
+      case 'breakpoint':
+        notifyBreakpoint(record, body)
         return
 
       case 'continued':
@@ -1157,9 +1218,31 @@ export function createDebugSessionManager(
       return record.stoppedThreadId
     }
 
+    if (kind === 'pause' && record.activeThreadId !== null) {
+      return record.activeThreadId
+    }
+
     const threads = await request(record, 'threads')
 
     return threads.status === 'success' ? readFirstThreadId(threads.body) : null
+  }
+
+  function updateActiveThread(record: RunningDebugSession, body: unknown): void {
+    const threadId = readThreadEventId(body)
+    const reason = readThreadEventReason(body)
+
+    if (threadId === null || reason === null) {
+      return
+    }
+
+    if (reason === 'started') {
+      record.activeThreadId = threadId
+      return
+    }
+
+    if (record.activeThreadId === threadId) {
+      record.activeThreadId = null
+    }
   }
 
   /**
@@ -1351,6 +1434,13 @@ export function createDebugSessionManager(
         outputListeners.delete(listener)
       }
     },
+    onBreakpoint: (listener) => {
+      breakpointListeners.add(listener)
+
+      return () => {
+        breakpointListeners.delete(listener)
+      }
+    },
     start,
     stop,
     dispose,
@@ -1414,6 +1504,10 @@ export function onDebugSessionThread(listener: DebugSessionThreadListener): () =
 
 export function onDebugSessionOutput(listener: DebugSessionOutputListener): () => void {
   return defaultManager.onOutput(listener)
+}
+
+export function onDebugSessionBreakpoint(listener: DebugSessionBreakpointListener): () => void {
+  return defaultManager.onBreakpoint(listener)
 }
 
 /**

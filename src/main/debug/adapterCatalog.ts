@@ -16,8 +16,8 @@ import {
  * それを PATH から絶対パスへ解く `resolveDebugAdapterExecutable` を足した。
  *
  * Session 6-12 で **python の行を `integrated` にした**（最初の実 adapter。`python -m debugpy.adapter`）。
- * node / csharp は `not-integrated` のまま（Node adapter の入手経路と transport は未調査。
- * docs/ARCHITECTURE.md §20.7 / §20.20）。
+ * Session 6-14 で **csharp の行を `integrated` にした**（`netcoredbg --interpreter=vscode`）。
+ * node は `not-integrated` のまま（Node adapter の入手経路と transport は未調査）。
  */
 
 /*
@@ -87,7 +87,8 @@ const DEBUG_ADAPTER_CATALOG: Record<DebugAdapterLanguageId, DebugAdapterCatalogE
   csharp: {
     language: 'csharp',
     name: 'netcoredbg',
-    integrationStatus: 'not-integrated'
+    integrationStatus: 'integrated',
+    adapter: { executable: 'netcoredbg', args: ['--interpreter=vscode'] }
   }
 }
 

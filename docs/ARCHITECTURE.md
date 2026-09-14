@@ -7452,7 +7452,7 @@ Workspace の絶対パスが key として保存ファイルに載るが、**こ
 
 Session 6-1 では catalog の基盤だけを置き、`node` / `python` / `csharp` の固定行を `not-integrated` として持つ。`debugpy` / `vscode-js-debug` / `netcoredbg` の実 adapter 統合は後続 Session で行う。Renderer から任意 adapter、実行ファイル、引数、cwd を指定する口は作っていない。
 
-**Session 6-12 で python 行を `integrated` にした**（§20.20）。node / csharp は `not-integrated` のまま。
+**Session 6-12 で python 行を `integrated` にした**（§20.20）。**Session 6-14 で csharp 行を `integrated` にした**（§20.22）。node は `not-integrated` のまま。
 
 繋ぐ相手（**入手経路と stdio 対応は Session 6-1 で実機確認する**）:
 
@@ -7464,7 +7464,7 @@ Session 6-1 では catalog の基盤だけを置き、`node` / `python` / `cshar
 
 **vsdbg（Visual Studio の debugger）はライセンス上 Visual Studio / VS Code 以外から使えない。** C# は netcoredbg を前提とし、入手できない PC では「未インストール」に留める（LSP の csharp-ls と同じ扱い。§19.6 の状態表がそのまま使える）。
 
-この PC の現状: **Node のみ利用可能**（Python / .NET SDK は未導入。STEP 5 Closing 時点と同じ）。Python / C# の実機確認は STEP 5 と同じく一時ディレクトリ + 起動する Electron の `env` にだけ PATH を足す形で行う（DEVELOPMENT.md §4）。Session 6-12 の debugpy は、uv が置いた CPython 3.14.7 から一時ディレクトリに venv を作り、その `Scripts` を起動する Electron の PATH の先頭にだけ足して確かめた。
+この PC の現状: **Node のみ利用可能**（Python / .NET SDK / netcoredbg はシステムには未導入。STEP 5 Closing 時点と同じ）。Python / C# の実機確認は STEP 5 と同じく一時ディレクトリ + 起動する Electron の `env` にだけ PATH を足す形で行う（DEVELOPMENT.md §4）。Session 6-12 の debugpy は、uv が置いた CPython 3.14.7 から一時ディレクトリに venv を作り、その `Scripts` を起動する Electron の PATH の先頭にだけ足して確かめた。Session 6-14 の netcoredbg は公式 release zip を一時ディレクトリへ展開し、起動する Electron / probe の PATH にだけ足して確かめた。
 
 #### framing と transport を分ける
 
@@ -8289,27 +8289,27 @@ profile はプログラムを書く前に作ることがあるので、保存時
 
 #### ResolvedLaunchConfiguration（`main/debug/resolvedLaunch.ts`）
 
-adapter の `name` / 絶対パス / adapter の引数 / cwd / 環境（`adapterCommand`）と、launch request の引数（`name` / `type` / `request: 'launch'` / `program` の絶対パス / `args` / `cwd` / `env` / `stopOnEntry` / `console: 'internalConsole'`）を持つ。`shared/` から import できない場所に置いてあり、作るのは `profileResolver.ts`、使うのは `debugProfiles.ts` だけになる。
+adapter の `name` / 絶対パス / adapter の引数 / cwd / 環境（`adapterCommand`）と、launch request の引数（`name` / `type` / `request: 'launch'` / `program` の絶対パス / `args` / `cwd` / `env` / `console: 'internalConsole'`。Python / Node は `stopOnEntry`、C# は代わりに `stopAtEntry` を載せる）、および Main 内の lifecycle 互換フラグ（C# だけ `waitForLaunchResponseBeforeConfiguration: true`）を持つ。`shared/` から import できない場所に置いてあり、作るのは `profileResolver.ts`、使うのは `debugProfiles.ts` だけになる。
 
 - **`programArgs` は adapter のコマンドラインに一語も現れない**（`launchArguments.args` にだけ入る。§20.4 をテストで固定）
 - `console` は `internalConsole` 固定（`integratedTerminal` にすると `runInTerminal` を頼まれる経路になる）
-- launch の `type` と `initialize` の `adapterID` は言語ごとの表（`node: pwa-node` / `python: debugpy` / `csharp: coreclr`）。**どれも実 adapter では確かめていない**値で、実 adapter を繋ぐ Session が確定させる
+- launch の `type` と `initialize` の `adapterID` は言語ごとの表（`node: pwa-node` / `python: debugpy` / `csharp: coreclr`）。python / csharp は実 adapter で確かめた。node は実 adapter を繋ぐ Session が確定させる
 
-#### Adapter catalog は `not-integrated` のまま
+#### Adapter catalog の起動行
 
 catalog の行は起動するもの（`adapter: { executable, args }`。拡張子を除いた名前と adapter の引数）を持てる形にし、`resolveDebugAdapterExecutable` を足した。規則は `languageServerCatalog.ts` と同一（PATH を辿った絶対パス・相対の PATH 項目は飛ばす・`.cmd` は `%SystemRoot%` の `cmd.exe /c` で包む・表の名前に区切りや `:` があれば解かない）。
 
-**どの行もまだ `integrated` にしていない。** したがって出荷状態の `debug:start` は、profile と program が正しくても必ず `adapter-unavailable` で返る（ステータスバーも「利用不可」のまま）。成功経路は production build の確認で catalog の行を mock adapter に差し替えて通した（DEVELOPMENT.md §4）。
+Session 6-12 で python 行を `python -m debugpy.adapter`、Session 6-14 で csharp 行を `netcoredbg --interpreter=vscode` として `integrated` にした。どちらも PATH から実行ファイルが見つからなければ Start は `adapter-unavailable`。成功経路は production build の確認で実 adapter と本物の DAP フレーミングを通した（DEVELOPMENT.md §4）。
 
 実 adapter を繋ぐときに確かめること（申し送り）:
 
-- **adapter のプロセスの cwd は Workspace root**（§20.2 の決め・LSP と同じ）。`python -m debugpy.adapter` のように cwd からモジュールを探す起動では、Workspace の中の同名パッケージが adapter として読み込まれうる ── debugpy を繋ぐ Session で、cwd を Workspace の外にするか、`-I` / `-P` のような隔離を付けるかを決める → **Session 6-12 で cwd を Workspace の外（userData）にすると決めた**（§20.20。読み込まれうるのは実機で再現した）
+- **adapter のプロセスの cwd は Workspace の外**（§20.20）。python は `userData` を使う。C# は Windows 版 netcoredbg の Unicode path 不具合を踏まえ、`userData` が Unicode になりうるため `netcoredbg.exe` のある ASCII-only フォルダを cwd にする。どちらも Workspace root / Workspace 内なら `adapter-unavailable` で断る
 - vscode-js-debug は transport（stdio / TCP）が未確定のまま（§20.7）
-- launch の `type` / 追加で要る欄（`justMyCode` など）は、言語の枝に欄を足すのではなく `profileResolver.ts` の表で閉じるのが既定（§20.10）
+- launch の `type` / 追加で要る欄（C# の `stopAtEntry` など）は、言語の枝に欄を足すのではなく `profileResolver.ts` の表 / 組み立てで閉じるのが既定（§20.10）
 
 #### 入れていないもの（Session 6-10）
 
-Debug Profile の編集 UI / 起動ボタン / Debug Toolbar / 実 adapter の統合（catalog の行はすべて `not-integrated`）/ Node adapter の調査 / profile の変化通知 / 起動失敗の状態（§20.17 のまま、失敗は起動の応答でだけ返る）/ `launch.json` の読み込み / attach / 変数展開 / `cwd` の指定。
+Debug Profile の編集 UI / 起動ボタン / Debug Toolbar / 実 adapter の統合 / Node adapter の調査 / profile の変化通知 / 起動失敗の状態（§20.17 のまま、失敗は起動の応答でだけ返る）/ `launch.json` の読み込み / attach / 変数展開 / `cwd` の指定。
 
 ### 20.19 Debug Toolbar / Profile editor（Session 6-11）
 
@@ -8403,9 +8403,9 @@ exited → terminated
 
 `python -m <module>` は cwd を `sys.path` の先頭に置く。**Workspace を開いて Start を押しただけで、そのフォルダの中の同名パッケージが adapter として動く**ことになり、§20.1 の線（何のプログラムが動くかは Main が決める）を越える。
 
-- 採った形: **adapter のプロセスの cwd = `app.getPath('userData')`**（Main が作って持つフォルダ）。`profileResolver.ts` は、渡された cwd が空・相対・Workspace root の中（realpath / 元の表記の両方）なら `adapter-unavailable` で断る
+- 採った形: **python の adapter プロセスの cwd = `app.getPath('userData')`**（Main が作って持つフォルダ）。`profileResolver.ts` は、渡された cwd が空・相対・Workspace root の中（realpath / 元の表記の両方）なら `adapter-unavailable` で断る。C# は §20.22 の通り、netcoredbg の Unicode path 不具合を避けるため `netcoredbg.exe` のある ASCII-only フォルダを cwd にする
 - 採らなかった形: `-I`（isolated mode）は user site-packages と `PYTHONPATH` も捨てるので `pip install --user debugpy` が見えなくなる。`-P` は Python 3.11 以降にしか無い
-- **cwd の決めは catalog のすべての行に効く**（行ごとの切り替えは作っていない）。node / csharp はまだ `not-integrated` で、今の実行ファイルは PATH を辿った絶対パスなので cwd には依存しない
+- **cwd の決めは adapter ごとの実害で分ける**。python は `-m` の module 探索を避けるため userData、csharp は netcoredbg が Unicode path に弱いため adapter の ASCII-only install dir。node はまだ `not-integrated`
 - **プログラムの cwd（launch の `cwd`）は Workspace root のまま**（§20.3）。変わったのは adapter のプロセスだけ
 
 userData に同名パッケージを置けば同じことが起きる（確認で再現した）。userData は Main の設定ファイルを置く場所で、そこへ書ける者は既に設定を書き換えられる ── 新しい境界を開けてはいない。
@@ -8414,13 +8414,13 @@ userData に同名パッケージを置けば同じことが起きる（確認�
 
 §20.10 の既定どおり、言語の枝に欄を足さず `profileResolver.ts` の閉じた表に置いた。**profile の欄からは作らない**（Profile に `subProcess` / `justMyCode` / `python` を載せても launch に届かないことをテストで固定）。
 
-| 言語   | 欄                  | 理由                                                                                                                                                         |
-| ------ | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| python | `subProcess: false` | 既定の true では、debuggee の子プロセスが `debugpyAttach` に応える2本目のセッションを待って止まる（`subprocess.run` が返らなかった）。v1 は同時セッション1本 |
-| node   | なし                | 未統合                                                                                                                                                       |
-| csharp | なし                | 未統合                                                                                                                                                       |
+| 言語   | 欄                  | 理由                                                                                                                                                              |
+| ------ | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| python | `subProcess: false` | 既定の true では、debuggee の子プロセスが `debugpyAttach` に応える2本目のセッションを待って止まる（`subprocess.run` が返らなかった）。v1 は同時セッション1本      |
+| node   | なし                | 未統合                                                                                                                                                            |
+| csharp | なし                | netcoredbg 3.2.0-1 では固定欄なしで launch / breakpoint / variables / evaluate が通った。entry stop は `stopAtEntry` として profile の `stopOnEntry` から別途写す |
 
-載せていないもの: `python`（interpreter。adapter と同じ `sys.executable` で debuggee が動く）/ `justMyCode`（既定の true）/ `redirectOutput`（`internalConsole` での既定が true）。
+載せていないもの: `python`（interpreter。adapter と同じ `sys.executable` で debuggee が動く）/ `justMyCode`（既定の true）/ `redirectOutput`（`internalConsole` での既定が true）/ C# の `pipeTransport` や `debuggerPath`（adapter は catalog で決まる）。
 
 #### interpreter の選び方
 
@@ -8492,13 +8492,13 @@ stopped { reason, text,   ──▶  debugSessionManager
 | 決めたこと    | 内容                                                                                                     |
 | ------------- | -------------------------------------------------------------------------------------------------------- |
 | 何を送るか    | 言語ごとの閉じた表（`DEBUG_EXCEPTION_BREAKPOINT_FILTERS`）∩ `initialize` の `exceptionBreakpointFilters` |
-| 表            | python: `uncaught` / node: なし / csharp: なし（未統合）                                                 |
+| 表            | python: `uncaught` / csharp: `user-unhandled` / node: なし                                               |
 | いつ送るか    | `initialized` の後、breakpoint の仕込みの後、`configurationDone` の前                                    |
 | 送らない場合  | 積が空（表が空・adapter が名乗らない）なら `await` も踏まない ── 6-12 までの lifecycle は変わらない      |
 | 断られたら    | Main のログに残し、Debug Session は続ける                                                                |
 | Renderer の欄 | 無い（Profile にも IPC にも）                                                                            |
 
-v1 に切り替えの設定は無い。実 debugpy で3つの filter を比べた結果は `profileResolver.ts` の注記と DESIGN.md §13 にある。**`setExceptionBreakpoints` を送らないと debugpy は uncaught でも止まらなかった**（`default: true` は client への提案でしかない）。
+v1 に切り替えの設定は無い。実 debugpy で3つの filter を比べた結果は `profileResolver.ts` の注記と DESIGN.md §13 にある。**`setExceptionBreakpoints` を送らないと debugpy は uncaught でも止まらなかった**（`default: true` は client への提案でしかない）。実 netcoredbg では `initialize` が `all` / `user-unhandled` を名乗り、`user-unhandled` だけで未処理例外の位置に止まり `exceptionInfo` が返ることを Session 6-14 で確かめた。
 
 #### 現在の実行位置（Renderer）
 
@@ -8516,4 +8516,41 @@ v1 に切り替えの設定は無い。実 debugpy で3つの filter を比べ�
 
 #### 入れていないもの（Session 6-13）
 
-例外で止まる条件の切り替え / 例外設定の UI（`exceptionOptions`・filter の条件式）/ 例外のスタックトレースの表示 / `innerException` / 停止で Editor を開くときにフォーカスを移さない選択肢 / Node・C# の例外 filter / 正式 keybinding。
+例外で止まる条件の切り替え / 例外設定の UI（`exceptionOptions`・filter の条件式）/ 例外のスタックトレースの表示 / `innerException` / 停止で Editor を開くときにフォーカスを移さない選択肢 / Node の例外 filter / 正式 keybinding。
+
+### 20.22 C# Debug Adapter / netcoredbg（Session 6-14）
+
+C# は `netcoredbg --interpreter=vscode` を PATH から解決して起動する。入手先は Samsung/netcoredbg の公式 release zip。アプリには同梱しない。PATH に無ければ Start は `adapter-unavailable` で、Workspace 内や相対 PATH 項目は探さない（§20.7）。
+
+#### launch
+
+`profileResolver.ts` の csharp 行は次の形を作る。
+
+- adapter: `netcoredbg --interpreter=vscode`
+- `initialize.adapterID`: `coreclr`
+- `launch.type`: `coreclr`
+- `program`: Main が PATH / 既定 install dir から解いた trusted `dotnet.exe`
+- `args[0]`: Debug Profile の `programRelativePath` を Workspace 内の実在ファイルへ解いた絶対パス（ビルド済み `.dll`）。`programArgs` はこの後ろに足す
+- `cwd`: Workspace root
+- `console`: `internalConsole`
+- `stopAtEntry`: C# / netcoredbg が見る欄。Profile の `stopOnEntry` から Main 内で写す。C# launch には共通欄の `stopOnEntry` は載せない
+- `waitForLaunchResponseBeforeConfiguration`: `true`。netcoredbg は `launch` 応答前に breakpoint / exception filter / `configurationDone` へ進めると debuggee が即終了することがあるため、C# だけ応答を待つ
+
+`justMyCode` / `pipeTransport` / `debuggerPath` / `runtimeExecutable` は Profile に載っていても届かない。adapter と runtime は Main の catalog / resolver で決まるため、VS Code の `launch.json` や `pipeTransport.debuggerPath` を読まない。Workspace 内の任意 `.exe` は起動せず、C# は `dotnet.exe + DLL` だけを使う。
+
+Windows 版 netcoredbg 3.2.0-1092 / 3.1.3-1062 は Unicode path で `configurationDone` が 0x80004005 になり、CLI でも path が `???` に崩れて `COR_E_FILENOTFOUND` になる。ASCII-only path へ置いた同じ .NET 8 Console project では `configurationDone`、breakpoint verified、`stopped` まで通るため、Session 6-14 では netcoredbg が直接触る adapter command / adapter cwd / dotnet / target DLL / Workspace cwd が ASCII-only である場合だけ C# Start を許可する。Workspace 自体を勝手に移動・複製して回避することはしない。
+
+#### 実 adapter で確かめたこと
+
+netcoredbg 3.2.0-1（release tag `3.2.0-1092` の Windows x64 zip）へ、本物の DAP `Content-Length` フレーミングで確認した。
+
+- `initialize` は `supportsConfigurationDoneRequest` / `supportsExceptionInfoRequest` / `supportsSetVariable` / `supportsSetExpression` / `supportsTerminateRequest` / `supportTerminateDebuggee` を名乗る
+- `launch → initialized → setBreakpoints → setExceptionBreakpoints → configurationDone` で、breakpoint 停止、Call Stack、Scopes、Variables、Evaluate、Disconnect が通る
+- `setExceptionBreakpoints { filters: ['user-unhandled'] }` で未処理例外に止まり、`exceptionInfo` が `breakMode: 'unhandled'` と型名 / message を返す
+- PDB の source path と違う場所へビルド成果物だけをコピーして breakpoint を置くと、breakpoint は pending のままになる。確認は source と PDB が同じ Workspace にあるビルド成果物で行う
+- Unicode path では 3.2.0-1092 / 3.1.3-1062 の両方で `configurationDone` が失敗する。`.NET 8` 自体ではなく netcoredbg win64 の path handling が原因範囲
+- netcoredbg は `configurationDone` より前に `launch` を必要とし、さらに Fluvix production 確認では `launch` 応答前の仕込みで debuggee が即終了した。既定 lifecycle は変えず、C# の resolved config だけ `launch` 応答を待つ
+
+#### 入れていないもの（Session 6-14）
+
+.NET SDK / netcoredbg の同梱やインストール支援 / `dotnet build` の preLaunchTask / `.csproj` から出力 DLL を自動推測すること / `launchSettings.json` / attach / `justMyCode` などの C# 固有設定 UI / 条件付き breakpoint・logpoint / 正式 keybinding。

@@ -364,12 +364,13 @@ describe('debug profiles — start', () => {
           stopOnEntry: false,
           console: 'internalConsole'
         },
+        waitForLaunchResponseBeforeConfiguration: false,
         exceptionBreakpointFilters: []
       }
     ])
   })
 
-  it('is adapter-unavailable with the shipped catalog (no integrated row)', () => {
+  it('is adapter-unavailable with a catalog row that is not integrated', () => {
     const { service, started, profileId } = withProfile({
       getCatalogEntry: () => ({
         language: 'node',

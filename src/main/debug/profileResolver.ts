@@ -1,8 +1,12 @@
-import { isAbsolute } from 'path'
+import { isAbsolute, posix as posixPath, win32 as windowsPath } from 'path'
 import type { PlatformId } from '@shared/api'
 import type { DebugProfile, DebugProfileLanguage, DebugStartFailure } from '@shared/debug'
 import { isInsideWorkspace } from '../files/workspacePath'
-import type { FileExistsCheck } from '../platform/executablePath'
+import {
+  findExecutableOnPath,
+  findInDirectory,
+  type FileExistsCheck
+} from '../platform/executablePath'
 import { resolveDebugAdapterExecutable, type DebugAdapterCatalogEntry } from './adapterCatalog'
 import { createDebugAdapterProcessEnvironment } from './environmentPolicy'
 import { resolveDebugProgramPath, type DebugProgramFileSystem } from './programPath'
@@ -34,14 +38,15 @@ import type { DebugLaunchLanguageOptions, ResolvedLaunchConfiguration } from './
  *
  * 言語ごとの launch 構成の違い（`type` と、固定で足す欄）はこのファイルの表にあり、Renderer には
  * 現れない（§20.10）。python の行は Session 6-12 で実 debugpy に当てて確定させた。
- * node / csharp は実 adapter を繋ぐ Session が確定させる。
+ * csharp の行は Session 6-14 で実 netcoredbg に当てて確定させた。
+ * node は実 adapter を繋ぐ Session が確定させる。
  */
 
 /**
  * launch 構成の `type` と `initialize` の `adapterID`（言語ごとの閉じた表）。
  *
  * VS Code の拡張が使う名前に揃えてある（vscode-js-debug は `pwa-node`・debugpy は
- * `debugpy`・netcoredbg は `coreclr`）。どれも**実 adapter ではまだ確かめていない**。
+ * `debugpy`・netcoredbg は `coreclr`）。debugpy と netcoredbg は実 adapter で確かめた。
  */
 export const DEBUG_LAUNCH_TYPES: Readonly<Record<DebugProfileLanguage, string>> = {
   node: 'pwa-node',
@@ -53,7 +58,8 @@ export const DEBUG_LAUNCH_TYPES: Readonly<Record<DebugProfileLanguage, string>> 
  * 言語ごとに launch request へ足す固定の欄（Session 6-12。閉じた表）。
  *
  * python は実 debugpy（1.8.21）で確かめた値。`type: 'debugpy'` もそのまま通った。
- * node / csharp は実 adapter を繋ぐ Session が決める。
+ * csharp は実 netcoredbg（3.2.0-1）で追加の固定欄なしに通った。
+ * node は実 adapter を繋ぐ Session が決める。
  */
 export const DEBUG_LAUNCH_LANGUAGE_OPTIONS: Readonly<
   Record<DebugProfileLanguage, DebugLaunchLanguageOptions>
@@ -75,15 +81,18 @@ export const DEBUG_LAUNCH_LANGUAGE_OPTIONS: Readonly<
  * | `raised`        | 捕まえた例外でも止まり、捕まえられなかった例外は呼び出しを遡りながら何度も止まる       |
  * | `userUnhandled` | 型名に adapter の注記（`(note: full exception trace is shown …)`）が混ざる            |
  *
- * node / csharp は未統合なので空（何も送らない）。実 adapter を繋ぐ Session が id を確かめて埋める。
+ * csharp は実 netcoredbg 3.2.0-1 で `user-unhandled` が未処理例外の raise 位置で止まり、
+ * `exceptionInfo` まで返ることを確かめた。node は未統合なので空（何も送らない）。
  */
 export const DEBUG_EXCEPTION_BREAKPOINT_FILTERS: Readonly<
   Record<DebugProfileLanguage, readonly string[]>
 > = {
   node: [],
   python: ['uncaught'],
-  csharp: []
+  csharp: ['user-unhandled']
 }
+
+const WINDOWS_DOTNET_DIRECTORIES = ['C:\\Program Files\\dotnet', 'C:\\Program Files (x86)\\dotnet']
 
 export interface DebugProfileResolverContext {
   /** 今の Workspace root（currentWorkspaceFolder の値。realpath は中で取る）。 */
@@ -169,15 +178,30 @@ export function resolveDebugProfile(
        `python -m debugpy.adapter` は cwd を sys.path の先頭に置くため、cwd が Workspace だと
        Workspace の中の `debugpy/` が本物の adapter の代わりに読み込まれる（実 debugpy で確認）。
        プログラムの cwd（launch の `cwd`）はこれとは別で、Workspace root のまま。
-  */
-  const adapterCwd = context.adapterWorkingDirectory
 
-  if (
-    adapterCwd.length === 0 ||
-    !isAbsolute(adapterCwd) ||
-    isInsideWorkspace(program.rootRealPath, adapterCwd) ||
-    isInsideWorkspace(context.workspaceRootPath, adapterCwd)
-  ) {
+       C# / netcoredbg は Windows x64 版（3.2.0-1092 / 3.1.3-1062）で Unicode path を渡すと
+       `configurationDone` が 0x80004005 になり、CLI でも path が `???` に崩れることを確認した。
+       Workspace を移したり複製したりはせず、Main が安全に決められる adapter cwd だけを
+       netcoredbg.exe のある ASCII-only のフォルダへ寄せる。
+  */
+  const adapterCwd = resolveAdapterWorkingDirectory(
+    draft.language,
+    executable.file,
+    program.rootRealPath,
+    context
+  )
+
+  if (adapterCwd === null) {
+    return failed('adapter-unavailable')
+  }
+
+  const csharpLaunch = resolveCsharpLaunch(draft.language, program, context, executable)
+
+  if (csharpLaunch.status === 'invalid-profile') {
+    return failed('invalid-profile')
+  }
+
+  if (csharpLaunch.status === 'adapter-unavailable') {
     return failed('adapter-unavailable')
   }
 
@@ -187,6 +211,14 @@ export function resolveDebugProfile(
   */
   const cwd = program.rootRealPath
   const type = DEBUG_LAUNCH_TYPES[draft.language]
+  const stopAtEntry =
+    draft.language === 'csharp' ? ({ stopAtEntry: draft.stopOnEntry } as const) : {}
+  const stopOnEntry =
+    draft.language === 'csharp' ? {} : ({ stopOnEntry: draft.stopOnEntry } as const)
+  const launchProgram =
+    csharpLaunch.status === 'ok' ? csharpLaunch.runtimeExecutable : program.absolutePath
+  const launchArgs =
+    csharpLaunch.status === 'ok' ? [program.absolutePath, ...draft.programArgs] : draft.programArgs
 
   return {
     status: 'resolved',
@@ -203,16 +235,18 @@ export function resolveDebugProfile(
       },
       launchArguments: {
         ...DEBUG_LAUNCH_LANGUAGE_OPTIONS[draft.language],
+        ...stopAtEntry,
         name: draft.name,
         type,
         request: 'launch',
-        program: program.absolutePath,
-        args: draft.programArgs,
+        program: launchProgram,
+        args: launchArgs,
         cwd,
         env: draft.env,
-        stopOnEntry: draft.stopOnEntry,
+        ...stopOnEntry,
         console: 'internalConsole'
       },
+      waitForLaunchResponseBeforeConfiguration: draft.language === 'csharp',
       exceptionBreakpointFilters: DEBUG_EXCEPTION_BREAKPOINT_FILTERS[draft.language]
     }
   }
@@ -220,4 +254,114 @@ export function resolveDebugProfile(
 
 function failed(reason: Exclude<DebugStartFailure, 'spawn-failed'>): DebugProfileResolution {
   return { status: 'failed', reason }
+}
+
+function resolveAdapterWorkingDirectory(
+  language: DebugProfileLanguage,
+  adapterExecutablePath: string,
+  workspaceRootRealPath: string,
+  context: DebugProfileResolverContext
+): string | null {
+  const adapterCwd =
+    language === 'csharp'
+      ? dirnameForPlatform(adapterExecutablePath, context.platform)
+      : context.adapterWorkingDirectory
+
+  if (
+    adapterCwd.length === 0 ||
+    !isAbsolute(adapterCwd) ||
+    isInsideWorkspace(workspaceRootRealPath, adapterCwd) ||
+    isInsideWorkspace(context.workspaceRootPath, adapterCwd)
+  ) {
+    return null
+  }
+
+  if (language === 'csharp' && !isAsciiOnlyPath(adapterCwd)) {
+    return null
+  }
+
+  return adapterCwd
+}
+
+type CsharpLaunchResolution =
+  | { readonly status: 'not-csharp' }
+  | { readonly status: 'ok'; readonly runtimeExecutable: string }
+  | { readonly status: 'invalid-profile' }
+  | { readonly status: 'adapter-unavailable' }
+
+function resolveCsharpLaunch(
+  language: DebugProfileLanguage,
+  program: { readonly absolutePath: string; readonly rootRealPath: string },
+  context: DebugProfileResolverContext,
+  adapterExecutable: { readonly file: string; readonly args: readonly string[] }
+): CsharpLaunchResolution {
+  if (language !== 'csharp') {
+    return { status: 'not-csharp' }
+  }
+
+  if (extensionForPlatform(program.absolutePath, context.platform).toLowerCase() !== '.dll') {
+    return { status: 'invalid-profile' }
+  }
+
+  const runtimeExecutable = resolveDotnetExecutable(
+    context.platform,
+    context.parentEnv,
+    context.exists
+  )
+
+  if (runtimeExecutable === null) {
+    return { status: 'adapter-unavailable' }
+  }
+
+  const netcoredbgVisiblePaths = [
+    adapterExecutable.file,
+    ...adapterExecutable.args,
+    runtimeExecutable,
+    program.absolutePath,
+    program.rootRealPath
+  ]
+
+  if (!netcoredbgVisiblePaths.every(isAsciiOnlyPath)) {
+    return { status: 'adapter-unavailable' }
+  }
+
+  return { status: 'ok', runtimeExecutable }
+}
+
+function resolveDotnetExecutable(
+  platform: PlatformId,
+  env: Readonly<Record<string, string | undefined>>,
+  exists: FileExistsCheck
+): string | null {
+  if (platform !== 'win32') {
+    return findExecutableOnPath(['dotnet'], platform, env, exists)
+  }
+
+  for (const directory of WINDOWS_DOTNET_DIRECTORIES) {
+    const found = findInDirectory(directory, ['dotnet.exe'], platform, exists)
+
+    if (found !== null) {
+      return found
+    }
+  }
+
+  return findExecutableOnPath(['dotnet.exe'], platform, env, exists)
+}
+
+function dirnameForPlatform(path: string, platform: PlatformId): string {
+  return platform === 'win32' ? windowsPath.dirname(path) : posixPath.dirname(path)
+}
+
+function extensionForPlatform(path: string, platform: PlatformId): string {
+  return platform === 'win32' ? windowsPath.extname(path) : posixPath.extname(path)
+}
+
+function isAsciiOnlyPath(path: string): boolean {
+  for (let index = 0; index < path.length; index += 1) {
+    if (path.charCodeAt(index) > 0x7f) {
+      return false
+    }
+  }
+
+  return true
 }

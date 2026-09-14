@@ -115,6 +115,46 @@ export function parseSetBreakpointsResponse(
   return results
 }
 
+export interface DapBreakpointEventSummary {
+  readonly sourcePath: string | null
+  readonly verification: DebugBreakpointVerification
+}
+
+/**
+ * DAP の `breakpoint` event を読む。
+ *
+ * netcoredbg は `setBreakpoints` の応答時点では verified=false を返し、
+ * module load 後の `breakpoint` event で verified=true へ変えることがある。
+ * その後追いだけを Main の中で控えへ当て、Renderer には相対位置と boolean だけを返す。
+ */
+export function parseBreakpointEvent(body: unknown): DapBreakpointEventSummary | null {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    return null
+  }
+
+  const event = body as {
+    readonly reason?: unknown
+    readonly breakpoint?: unknown
+  }
+
+  if (event.reason === 'removed') {
+    return null
+  }
+
+  const breakpoint = parseBreakpoint(event.breakpoint)
+
+  if (breakpoint === null || typeof event.breakpoint !== 'object' || event.breakpoint === null) {
+    return null
+  }
+
+  const record = event.breakpoint as { readonly source?: unknown }
+
+  return {
+    sourcePath: readBreakpointSourcePath(record.source),
+    verification: breakpoint
+  }
+}
+
 function parseBreakpoint(value: unknown): DebugBreakpointVerification | null {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     return null
@@ -138,6 +178,16 @@ function parseBreakpoint(value: unknown): DebugBreakpointVerification | null {
         : null,
     message: typeof record.message === 'string' ? truncateMessage(record.message) : null
   }
+}
+
+function readBreakpointSourcePath(source: unknown): string | null {
+  if (typeof source !== 'object' || source === null || Array.isArray(source)) {
+    return null
+  }
+
+  const path = (source as { readonly path?: unknown }).path
+
+  return typeof path === 'string' && path.length > 0 && !path.includes('\0') ? path : null
 }
 
 function truncateMessage(message: string): string {

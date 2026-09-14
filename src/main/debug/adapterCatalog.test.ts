@@ -16,7 +16,7 @@ describe('Debug Adapter catalog foundation', () => {
     expect(isDebugAdapterLanguageId('ruby')).toBe(false)
   })
 
-  it('Session 6-12 では python（debugpy）の行だけが統合されている', () => {
+  it('Session 6-14 では python（debugpy）と C#（netcoredbg）の行が統合されている', () => {
     expect(listDebugAdapterCatalogEntries()).toEqual([
       { language: 'node', name: 'Node.js Debug Adapter', integrationStatus: 'not-integrated' },
       {
@@ -25,7 +25,12 @@ describe('Debug Adapter catalog foundation', () => {
         integrationStatus: 'integrated',
         adapter: { executable: 'python', args: ['-m', 'debugpy.adapter'] }
       },
-      { language: 'csharp', name: 'netcoredbg', integrationStatus: 'not-integrated' }
+      {
+        language: 'csharp',
+        name: 'netcoredbg',
+        integrationStatus: 'integrated',
+        adapter: { executable: 'netcoredbg', args: ['--interpreter=vscode'] }
+      }
     ])
   })
 
@@ -49,7 +54,7 @@ describe('Debug Adapter catalog foundation', () => {
     expect(hasIntegratedDebugAdapter(entries)).toBe(false)
   })
 
-  it('1行でも統合されていれば、起動できる adapter がある（出荷状態は python）', () => {
+  it('1行でも統合されていれば、起動できる adapter がある（出荷状態は python / C#）', () => {
     expect(hasIntegratedDebugAdapter()).toBe(true)
   })
 })
@@ -65,17 +70,15 @@ describe('resolveDebugAdapterExecutable', () => {
 
   const windowsEnv = { PATH: 'C:\\Python312;.;tools', SystemRoot: 'C:\\Windows' }
 
-  it('does not resolve the shipped rows that are not integrated (node / csharp)', () => {
-    for (const language of ['node', 'csharp'] as const) {
-      expect(
-        resolveDebugAdapterExecutable(
-          getDebugAdapterCatalogEntry(language),
-          'win32',
-          windowsEnv,
-          () => true
-        )
-      ).toBeNull()
-    }
+  it('does not resolve the shipped node row while it is not integrated', () => {
+    expect(
+      resolveDebugAdapterExecutable(
+        getDebugAdapterCatalogEntry('node'),
+        'win32',
+        windowsEnv,
+        () => true
+      )
+    ).toBeNull()
   })
 
   it('resolves the shipped python row through PATH (Session 6-12)', () => {
@@ -87,6 +90,17 @@ describe('resolveDebugAdapterExecutable', () => {
         (path) => path === 'C:\\Python312\\python.exe'
       )
     ).toEqual({ file: 'C:\\Python312\\python.exe', args: ['-m', 'debugpy.adapter'] })
+  })
+
+  it('resolves the shipped C# row through PATH (Session 6-14)', () => {
+    expect(
+      resolveDebugAdapterExecutable(
+        getDebugAdapterCatalogEntry('csharp'),
+        'win32',
+        { PATH: 'C:\\tools\\netcoredbg', SystemRoot: 'C:\\Windows' },
+        (path) => path === 'C:\\tools\\netcoredbg\\netcoredbg.exe'
+      )
+    ).toEqual({ file: 'C:\\tools\\netcoredbg\\netcoredbg.exe', args: ['--interpreter=vscode'] })
   })
 
   it('does not resolve an integrated row that has nothing to start', () => {

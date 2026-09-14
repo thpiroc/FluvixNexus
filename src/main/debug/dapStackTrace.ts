@@ -1,5 +1,5 @@
 import type { DebugCallStackFrame } from '@shared/debug'
-import { isDapHandle, sanitizeLabel } from './dapThreads'
+import { sanitizeLabel } from './dapThreads'
 import { normalizeStackFrameSource } from './stackFrameSource'
 
 /**
@@ -55,7 +55,7 @@ function parseStackFrame(rootPath: string, value: unknown): DebugCallStackFrame 
     readonly source?: unknown
   }
 
-  if (!isDapHandle(record.id)) {
+  if (!isDapStackFrameId(record.id)) {
     return null
   }
 
@@ -70,4 +70,8 @@ function parseStackFrame(rootPath: string, value: unknown): DebugCallStackFrame 
 
 function toPositiveInteger(value: unknown): number | null {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null
+}
+
+function isDapStackFrameId(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
 }

@@ -1,6 +1,6 @@
 # 開発ガイド
 
-> 対象: Session 5-13（STEP 5 LSP Closing）完了時点 ＋ Session 6-12（STEP 6 DAP Python / debugpy）
+> 対象: Session 5-13（STEP 5 LSP Closing）完了時点 ＋ Session 6-14（STEP 6 C# Debug Adapter / netcoredbg）
 > 最終更新: 2026-09-13
 
 ---
@@ -34,13 +34,15 @@ Language Server と同じく**アプリの開発・テスト・ビルドには�
 | ------- | ---------------------------------------- | --------------------- | -------------------------------------------- |
 | Node.js | vscode-js-debug の DAP server            | **未確定**            | Session 6-1 では catalog 上 `not-integrated` |
 | Python  | `debugpy`（`python -m debugpy.adapter`） | `pip install debugpy` | **Session 6-12 で `integrated`**             |
-| C#      | `netcoredbg --interpreter=vscode`        | 配布バイナリ          | Session 6-1 では catalog 上 `not-integrated` |
+| C#      | `netcoredbg --interpreter=vscode`        | 配布バイナリ          | **Session 6-14 で `integrated`**             |
 
 Python は **PATH の `python` で `import debugpy` できること**が条件（Workspace の中・相対の PATH 項目は探さない）。debuggee も同じ interpreter で動く。
 
+C# は **PATH の `netcoredbg` と trusted `dotnet.exe` を解決できること**が条件（Workspace の中・相対の PATH 項目は探さない）。Debug Profile の `programRelativePath` には、あらかじめ build 済みの `.dll` を指定する。Windows 版 netcoredbg（3.2.0-1092 / 3.1.3-1062）は Unicode path で `configurationDone` が 0x80004005 になるため、Session 6-14 では netcoredbg が直接触る adapter / dotnet / target DLL / Workspace cwd が ASCII-only である場合だけ C# Start を許可する。
+
 **vsdbg は使わない**（ライセンス上 Visual Studio / VS Code 以外から利用できない）。C# は netcoredbg を前提にする。
 
-この PC の現状は **Node のみ利用可能**で、Python / .NET SDK は STEP 5 Closing 時点と同じく入っていない。Python / C# を実機で確かめるときは、STEP 5 の C# と同じく一時ディレクトリへ置き、起動する Electron の `env` にだけ PATH を足す（§4）。
+この PC の現状は **Node のみ利用可能**で、Python / .NET SDK / netcoredbg はシステムには入っていない。Python / C# を実機で確かめるときは、STEP 5 の C# と同じく一時ディレクトリへ置き、起動する Electron の `env` にだけ PATH を足す（§4）。
 
 Session 6-1 で `main/debug/` の wire protocol / process foundation が入り、Session 6-2 で Main-owned Debug Session lifecycle / state machine が入った。`initialize` / `launch` / `initialized` / `configurationDone` の lifecycle foundation、単一 session 制限、generation による stale callback rejection、Workspace switch / app quit cleanup は `src/main/debug/debugSessionManager.ts` と unit test で固定している。
 
@@ -58,7 +60,9 @@ Session 6-10 で **Debug Profile の保存と `debug:start`** が入った（`de
 
 Session 6-11 で **Debug Toolbar と Debug Profile editor** が Debug Panel の中に入った（docs/ARCHITECTURE.md §20.19）。Toolbar は `DebugSessionStatus` だけから Start / Continue / Pause / Step / Stop の活性を決め、同じ条件で `debug.*` command を登録する。Profile editor は Session 6-10 の6欄だけを編集し、Start は選択済み `profileId` だけを `debug:start` へ渡す。Settings section は作っていない。実 adapter 統合はまだ無い。
 
-Session 6-12 で **Python（debugpy）が最初の実 adapter** になった（docs/ARCHITECTURE.md §20.20）。catalog の python 行が `integrated` になったので、**出荷状態のステータスは「待機中」**になり、PATH の `python` に debugpy が入っていれば Debug Profile → Start → breakpoint → Continue / Pause / Step → Call Stack / Variables / Debug Console → Stop が実機で通る。adapter のプロセスの cwd は userData（Workspace の外）、launch には `subProcess: false` が固定で載る。python が PATH に無ければ Start は `adapter-unavailable`、debugpy の無い python では starting から idle へ戻るだけになる。Node / C# は未統合のまま。
+Session 6-12 で **Python（debugpy）が最初の実 adapter** になった（docs/ARCHITECTURE.md §20.20）。catalog の python 行が `integrated` になったので、**出荷状態のステータスは「待機中」**になり、PATH の `python` に debugpy が入っていれば Debug Profile → Start → breakpoint → Continue / Pause / Step → Call Stack / Variables / Debug Console → Stop が実機で通る。adapter のプロセスの cwd は userData（Workspace の外）、launch には `subProcess: false` が固定で載る。python が PATH に無ければ Start は `adapter-unavailable`、debugpy の無い python では starting から idle へ戻るだけになる。
+
+Session 6-14 で **C#（netcoredbg）が2つ目の実 adapter** になった（docs/ARCHITECTURE.md §20.22）。catalog の csharp 行は `netcoredbg --interpreter=vscode`、launch type は `coreclr`。C# launch は実証済みの `dotnet.exe + build 済み DLL` に限定し、profile の `programRelativePath` が `.dll` でなければ起動しない。entry stop は profile の `stopOnEntry` から `stopAtEntry` へ写し、C# launch には共通欄の `stopOnEntry` は載せない。netcoredbg では `launch` 応答前に breakpoint 仕込みへ進めると debuggee が即終了することがあるため、C# だけ `launch` 応答を待ってから configuration に入る。Windows 版 netcoredbg の Unicode path 不具合を踏まえ、netcoredbg が触る path が ASCII-only でない場合は Start を `adapter-unavailable` で止める。条件を満たせば breakpoint → Call Stack / Variables / Evaluate → Stop が実機で通り、未処理例外は `user-unhandled` filter で止まる。Node は未統合のまま。
 
 ---
 
@@ -633,8 +637,8 @@ DAP の周りは 6-1 / 6-2 と同じ分け方で、**Electron も子プロセス
 - `src/main/debug/environmentPolicy.test.ts` — §20.9 の10個を**大文字小文字を問わず**断ること（`Path` / `node_options`）・名前の形・大文字小文字だけ違う重複・値の NUL / 長さ / 件数・`__proto__` が prototype を変えないこと・adapter のプロセスの環境から `ELECTRON_RUN_AS_NODE` / `NODE_OPTIONS` を落とすこと
 - `src/main/debug/profileValidation.test.ts` — **6欄から作り直す**こと（`cwd` / `runtimeExecutable` / `adapter` / `console` / `preLaunchTask` / `processId` が消える）・値を trim しないこと・欄ごとの理由（絶対パス / UNC / `..` / ドライブ相対 / file URI / NUL / root そのもの・禁じた環境変数・言語の集合）
 - `src/main/debug/programPath.test.ts` — **実ディスク**で2段を確かめる（Workspace 内のファイル → realpath・外を指すジャンクションは保存時も起動時も `outside-workspace`・中を指すリンクは通る・無いファイルは保存時は通り起動時は `not-found`・root が消えたとき・文字列の段で断ったら realpath を呼ばないこと）
-- `src/main/debug/profileResolver.test.ts` — 解決済みの形全体・**`programArgs` が adapter のコマンドラインに一語も現れないこと**（§20.4）・profile の env が adapter のプロセスへ入らないこと・profile に付いた余計な欄が効かないこと・解決時にもう一度断ること（禁じた環境変数 / 絶対パス / 外を指す実体 / 無いファイル）・`not-integrated` の行と PATH に無い adapter と相対の PATH 項目で `adapter-unavailable`・**adapter のプロセスの cwd が Workspace の外で、プログラムの cwd は Workspace root のままであること**（cwd が Workspace root / 大小違いの realpath / Workspace の中 / 相対 / 空なら `adapter-unavailable`。Session 6-12）・**出荷状態の python 行が `python -m debugpy.adapter` と `type: debugpy` / `subProcess: false` に解けること**・profile に `python` / `subProcess` / `justMyCode` を載せても launch に届かないこと・python 以外の言語に `subProcess` が載らないこと
-- `src/main/debug/adapterCatalog.test.ts` — `resolveDebugAdapterExecutable`（出荷状態の node / csharp 行は解かない・python 行は PATH の `python.exe` へ解ける（Session 6-12）・`.exe` を直接・`.cmd` を `%SystemRoot%` の cmd.exe で包む・`%SystemRoot%` が無ければ名前だけの cmd.exe に落とさない・相対の PATH 項目を辿らない・表の名前が区切りを含めば解かない）
+- `src/main/debug/profileResolver.test.ts` — 解決済みの形全体・**`programArgs` が adapter のコマンドラインに一語も現れないこと**（§20.4）・profile の env が adapter のプロセスへ入らないこと・profile に付いた余計な欄が効かないこと・解決時にもう一度断ること（禁じた環境変数 / 絶対パス / 外を指す実体 / 無いファイル）・`not-integrated` の行と PATH に無い adapter と相対の PATH 項目で `adapter-unavailable`・**adapter のプロセスの cwd が Workspace の外で、プログラムの cwd は Workspace root のままであること**（cwd が Workspace root / 大小違いの realpath / Workspace の中 / 相対 / 空なら `adapter-unavailable`。Session 6-12）・**出荷状態の python 行が `python -m debugpy.adapter` と `type: debugpy` / `subProcess: false` に解けること**・**出荷状態の csharp 行が `netcoredbg --interpreter=vscode` と `type: coreclr` / `stopAtEntry` / `user-unhandled` / `waitForLaunchResponseBeforeConfiguration` に解けること**・profile に `python` / `subProcess` / `justMyCode` / `debuggerPath` / `pipeTransport` を載せても launch に届かないこと・python 以外の言語に `subProcess` が載らないこと
+- `src/main/debug/adapterCatalog.test.ts` — `resolveDebugAdapterExecutable`（出荷状態の node 行は解かない・python 行は PATH の `python.exe` へ解ける（Session 6-12）・csharp 行は PATH の `netcoredbg.exe` へ解ける（Session 6-14）・`.exe` を直接・`.cmd` を `%SystemRoot%` の cmd.exe で包む・`%SystemRoot%` が無ければ名前だけの cmd.exe に落とさない・相対の PATH 項目を辿らない・表の名前が区切りを含めば解かない）
 - `src/main/debug/debugProfiles.test.ts` — id を Main が発番し draft の id / 余計な欄を使わないこと・今の Workspace の分だけを返し key を載せないこと・書いた直後の一覧が控えから読めること・保存時の検証（外を指すリンクを含む）・上限・別の Workspace の id を更新 / 削除 / 起動できないこと・起動に解決済みの形（adapter の cwd は Main が渡す Workspace の外のフォルダ）が渡り応答が `started` だけであること・動いている間は解決せずに断ること・起動時の再検証・spawn の文言を応答に載せないこと
 - `src/main/store/debugProfilesDocument.test.ts` — エンベロープが壊れていれば文書ごと捨てる・**保存時と同じ検証で1件だけを落とす**（発番の形でない id / 絶対パス / `..` / 禁じた環境変数）・余計な欄を落とす・id の重複・Workspace の上限
 - `src/main/ipc/handlers/debug.test.ts` — 5本の登録・`debug:start` が `profileId` 以外を読まないこと・形の壊れた id / object でない `profile` は INVALID_REQUEST で Main の処理へ届かないこと
@@ -653,7 +657,7 @@ DAP の周りは 6-1 / 6-2 と同じ分け方で、**Electron も子プロセス
 - `src/main/debug/dapExceptionBreakpoints.test.ts` — adapter が名乗った filter との積だけを送ること・`default: true` を当てにしないこと・名乗らない / 表が空なら送らないこと
 - `src/main/debug/debugSessionExceptions.test.ts` — `setExceptionBreakpoints` が `setBreakpoints` の後・`configurationDone` の前であること・filter が無ければ 6-12 の順序が変わらないこと・断られても running まで進むこと・待っている間の Stop で `configurationDone` を送らないこと・stopped listener と Call Stack の口に理由が載ること（壊れた body は unknown）・`exceptionInfo` の口が名乗る adapter の stopped 中だけ開き、次の停止 / `continued` / `exited` で閉じること
 - `src/main/debug/callStack.test.ts` — loading / stopped の snapshot に理由が載ること・例外のときだけ `stackTrace` の後に `exceptionInfo` を1回読むこと・未対応 / 壊れた / 断られた応答で stopped event の値へ落ちること・別の停止の口を使わないこと・**古い停止の答えを publish しないこと**・`thread` event の読み直しで通し番号を進めず再要求しないこと・新しい停止で通し番号が進むこと・running / terminating / idle / Workspace 切り替えで理由が消えること・Workspace 外の最上段でも理由が残ること・配る snapshot に絶対パスが載らないこと
-- `src/main/debug/profileResolver.test.ts` / `debugProfiles.test.ts` — python の表が `['uncaught']` で起動へ渡ること・profile に載せた filter が効かないこと
+- `src/main/debug/profileResolver.test.ts` / `debugProfiles.test.ts` — python の表が `['uncaught']`、csharp の表が `['user-unhandled']` で起動へ渡ること・profile に載せた filter が効かないこと
 - `src/renderer/src/debug/executionLocation.test.ts` — 実行位置が止まった thread の最上段であること・停止ごとに1回だけ追うこと（同じ停止の読み直し / loading / idle / Workspace 外）
 - `src/renderer/src/editor/debug/executionLineDecorations.test.ts` / `executionLineGlyphs.test.ts` — current / selected の印・ファイルごとの出し分け・同じ行に重ねないこと・loading / idle で空になること・色を持たないこと・breakpoint とは別の decorations collection を持つこと・同じ内容なら Monaco に触れないこと・ファイル切替で当て直すこと・dispose で残らないこと
 - `src/renderer/src/debug/DebugStopReasonView.dom.test.ts` / `debugStopReasonLabels.test.ts` / `ExecutionLocationFollower.dom.test.ts` / `CallStackView.dom.test.ts` — 理由ごとの日英の言葉（Paused / 一時停止中。Stopped と書かない）・例外の型名 / メッセージ / breakMode・文字列として描くこと・停止ごとに1回だけ `openFileAt` を呼び、下の段を選んでも引き戻さないこと・Call Stack の「実行位置」と選択の区別

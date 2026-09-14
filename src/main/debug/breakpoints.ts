@@ -1,3 +1,5 @@
+import { isAbsolute, relative, resolve } from 'path'
+import { isInsideWorkspace, normalizeWorkspaceRelativePath } from '../files/workspacePath'
 import {
   DEBUG_BREAKPOINTS_MAX_WORKSPACES,
   DEBUG_BREAKPOINTS_SCHEMA_VERSION,
@@ -14,6 +16,7 @@ import {
 } from '../store/debugBreakpoints'
 import { getCurrentWorkspaceFolder } from '../workspaceFolder/currentWorkspaceFolder'
 import {
+  applyDebugBreakpointEventVerification,
   clearDebugBreakpointVerification,
   createDebugBreakpointRecord,
   listDebugBreakpointPaths,
@@ -35,10 +38,13 @@ import {
   getDebugSessionBreakpointChannel,
   getDebugSessionGeneration,
   getDebugSessionState,
+  onDebugSessionBreakpoint,
   onDebugSessionStateChange,
   setDebugSessionConfigurationHook,
+  type DebugSessionBreakpointEvent,
   type DebugSessionBreakpointChannel
 } from './debugSessionManager'
+import { parseBreakpointEvent } from './dapBreakpoints'
 
 /**
  * 今の Workspace の breakpoint の正本（Session 6-3）。
@@ -201,6 +207,10 @@ export function startDebugBreakpointHosting(
 
   setDebugSessionConfigurationHook(async (channel) => {
     await synchronizeAllWithSession(channel)
+  })
+
+  onDebugSessionBreakpoint((event) => {
+    applyBreakpointEvent(event)
   })
 
   /*
@@ -494,4 +504,59 @@ function applyOutcomes(
 
   records = applyDebugBreakpointSyncOutcomes(records, outcomes)
   notify()
+}
+
+function applyBreakpointEvent(event: DebugSessionBreakpointEvent): void {
+  ensureRestored()
+
+  const current = workspace
+  const state = getDebugSessionState()
+
+  if (
+    current === null ||
+    event.generation !== getDebugSessionGeneration() ||
+    state === 'idle' ||
+    state === 'terminating'
+  ) {
+    return
+  }
+
+  const parsed = parseBreakpointEvent(event.body)
+
+  if (parsed === null || parsed.sourcePath === null) {
+    return
+  }
+
+  const relativePath = sourcePathToRelativePath(current.rootPath, parsed.sourcePath)
+
+  if (relativePath === null) {
+    return
+  }
+
+  const applied = applyDebugBreakpointEventVerification(records, relativePath, parsed.verification)
+
+  if (applied === records) {
+    return
+  }
+
+  records = applied
+  notify()
+}
+
+function sourcePathToRelativePath(rootPath: string, sourcePath: string): string | null {
+  if (!isAbsolute(sourcePath) || sourcePath.includes('\0')) {
+    return null
+  }
+
+  const absolutePath = resolve(sourcePath)
+
+  if (!isInsideWorkspace(rootPath, absolutePath)) {
+    return null
+  }
+
+  const relativePath = normalizeWorkspaceRelativePath(
+    relative(resolve(rootPath), absolutePath).replace(/\\/g, '/')
+  )
+
+  return relativePath === null || relativePath === '' ? null : relativePath
 }

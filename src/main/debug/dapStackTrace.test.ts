@@ -91,10 +91,34 @@ describe('DAP stackTrace response', () => {
     ])
   })
 
+  it('keeps a zero stack frame id returned by netcoredbg', () => {
+    expect(
+      parseStackTraceResponse(ROOT, {
+        stackFrames: [
+          {
+            id: 0,
+            name: 'ProbeApp.Program.Main()',
+            source: { path: resolve(ROOT, 'Program.cs') },
+            line: 11,
+            column: 9
+          }
+        ]
+      })
+    ).toEqual([
+      {
+        id: 0,
+        name: 'ProbeApp.Program.Main()',
+        source: { kind: 'workspace', relativePath: 'Program.cs', name: 'Program.cs' },
+        line: 11,
+        column: 9
+      }
+    ])
+  })
+
   it('drops malformed frames and rejects malformed response bodies', () => {
     expect(
       parseStackTraceResponse(ROOT, {
-        stackFrames: [{ id: 1, name: 'ok' }, { id: 0 }, { id: '2' }, null]
+        stackFrames: [{ id: 1, name: 'ok' }, { id: -1 }, { id: '2' }, null]
       })
     ).toHaveLength(1)
 

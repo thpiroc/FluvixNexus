@@ -25,7 +25,8 @@ import type { DebugAdapterCommand } from './adapterCatalog'
  *
  * **プログラムが何をするか**に関わる値だけがここに入る（profile の欄を Main が解いたもの）。
  * adapter の実行ファイル・引数はここに無い ── それは `spawn()` の引数（`adapterCommand`）で、
- * `programArgs` は adapter のコマンドラインに一語も現れない（§20.4）。
+ * `programArgs` は adapter のコマンドラインに一語も現れない（§20.4）。C# だけは
+ * `program` が trusted `dotnet.exe`、`args[0]` が profile の DLL になる（§20.22）。
  */
 export interface DebugLaunchRequestArguments extends DebugLaunchLanguageOptions {
   /** 表示用の名前（profile の `name`）。 */
@@ -33,15 +34,21 @@ export interface DebugLaunchRequestArguments extends DebugLaunchLanguageOptions 
   /** adapter が launch 構成を見分ける種類（言語ごとの表。profileResolver.ts）。 */
   readonly type: string
   readonly request: 'launch'
-  /** 対象のプログラムの絶対パス（realpath まで検証したもの）。 */
+  /** 起動対象の絶対パス。C# では trusted `dotnet.exe`、それ以外は profile の program。 */
   readonly program: string
-  /** プログラムへの引数。shell を通さない。 */
+  /** プログラムへの引数。C# では先頭に検証済み DLL を足す。shell は通さない。 */
   readonly args: readonly string[]
   /** プログラムの作業ディレクトリ。**常に Workspace root**（§20.3）。 */
   readonly cwd: string
   /** プログラムの環境変数（environmentPolicy.ts を通したもの）。 */
   readonly env: Readonly<Record<string, string>>
-  readonly stopOnEntry: boolean
+  readonly stopOnEntry?: boolean
+  /**
+   * C# / netcoredbg が見る entry stop の欄（VS Code C# と同じ名前）。
+   *
+   * Profile の欄は `stopOnEntry` のまま保持し、C# だけ Main 内でこの欄へ写す。
+   */
+  readonly stopAtEntry?: boolean
   /**
    * 出力先。**Debug Console 固定**（§20.3）。`integratedTerminal` / `externalTerminal` にすると
    * adapter が `runInTerminal` を頼んでくる経路になる（§20.9 で拒否している）。
@@ -72,6 +79,13 @@ export interface ResolvedLaunchConfiguration {
   /** adapter のプロセスをどう立てるか（絶対パス・adapter の引数・cwd・環境）。 */
   readonly adapterCommand: DebugAdapterCommand
   readonly launchArguments: DebugLaunchRequestArguments
+  /**
+   * `launch` 応答を待ってから breakpoint / exception filter / `configurationDone` を送るか。
+   *
+   * 既定の DAP lifecycle は待たない。netcoredbg は launch 応答前の仕込みで起動直後に
+   * 終了するため、C# だけ Main 内でこの互換フラグを立てる。
+   */
+  readonly waitForLaunchResponseBeforeConfiguration: boolean
   /**
    * `setExceptionBreakpoints` で頼みたい filter の id（Session 6-13。言語ごとの閉じた表）。
    *

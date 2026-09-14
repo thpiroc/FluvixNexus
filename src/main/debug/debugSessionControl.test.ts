@@ -299,6 +299,22 @@ describe('execution controls', () => {
     expect(harness.manager.getState()).toBe('stopped')
   })
 
+  it('pauses a running session with the thread id learned from a thread event', async () => {
+    const harness = createHarness()
+    const adapter = await startRunning(harness)
+
+    adapter.event('thread', { reason: 'started', threadId: 7 })
+
+    const outcome = harness.manager.control('pause')
+    await settle()
+
+    expect(controlCommands(adapter)).toEqual(['pause'])
+    expect(adapter.argsOf('pause')).toEqual({ threadId: 7 })
+
+    await adapter.respond('pause')
+    await expect(outcome).resolves.toEqual({ status: 'accepted', state: 'running' })
+  })
+
   it('asks the adapter for a thread when the stopped event had none', async () => {
     const harness = createHarness()
     const adapter = await startRunning(harness)
@@ -511,9 +527,8 @@ describe('pending controls', () => {
 
     const pause = harness.manager.control('pause')
     await settle()
-    expect(controlCommands(adapter)).toEqual(['continue', 'threads'])
+    expect(controlCommands(adapter)).toEqual(['continue', 'pause'])
 
-    await adapter.respond('threads', { status: 'success', body: { threads: [{ id: 1 }] } })
     await adapter.respond('pause')
     await expect(pause).resolves.toMatchObject({ status: 'accepted' })
   })
@@ -898,7 +913,6 @@ describe('real stdio mock adapter', () => {
       'stepIn',
       'stepOut',
       'continue',
-      'threads',
       'pause',
       'terminate',
       'disconnect'

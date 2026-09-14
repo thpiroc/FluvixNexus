@@ -329,6 +329,8 @@ export function createDebugProfileService(
       adapterId: configuration.adapterId,
       adapterCommand: configuration.adapterCommand,
       launchArguments: configuration.launchArguments,
+      waitForLaunchResponseBeforeConfiguration:
+        configuration.waitForLaunchResponseBeforeConfiguration,
       exceptionBreakpointFilters: configuration.exceptionBreakpointFilters
     })
 

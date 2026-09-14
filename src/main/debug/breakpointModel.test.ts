@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { DEBUG_BREAKPOINTS_MAX_PER_WORKSPACE } from '@shared/debug'
 import {
+  applyDebugBreakpointEventVerification,
   applyDebugBreakpointVerification,
   clearDebugBreakpointVerification,
   createDebugBreakpointRecord,
@@ -279,5 +280,65 @@ describe('adapter の答え', () => {
   /* 忘れるものが無ければ同じ配列を返す（通知を出さないための判断に使う）。 */
   it('忘れるものが無ければ同じ配列を返す', () => {
     expect(clearDebugBreakpointVerification(current)).toBe(current)
+  })
+})
+
+describe('adapter の breakpoint event', () => {
+  const current = records(['Program.cs', 11], ['Program.cs', 20], ['Other.cs', 11])
+
+  it('source と line で後追いの verified を当てる', () => {
+    const applied = applyDebugBreakpointEventVerification(current, 'Program.cs', {
+      verified: true,
+      line: 11,
+      message: null
+    })
+
+    expect(applied.map((record) => record.verified)).toEqual([true, null, null])
+  })
+
+  it('adapter が動かした行にも当てられる', () => {
+    const moved = applyDebugBreakpointVerification(
+      current,
+      'Program.cs',
+      [11],
+      [{ verified: false, line: 12, message: 'moved' }]
+    )
+
+    const applied = applyDebugBreakpointEventVerification(moved, 'Program.cs', {
+      verified: true,
+      line: 12,
+      message: null
+    })
+
+    expect(applied[0]?.verified).toBe(true)
+    expect(applied[0]?.adapterLine).toBe(12)
+  })
+
+  it('line が無くてもそのファイルに1件だけなら当てる', () => {
+    const one = records(['Program.cs', 11], ['Other.cs', 11])
+    const applied = applyDebugBreakpointEventVerification(one, 'Program.cs', {
+      verified: true,
+      line: null,
+      message: null
+    })
+
+    expect(applied.map((record) => record.verified)).toEqual([true, null])
+  })
+
+  it('曖昧な event は当てない', () => {
+    expect(
+      applyDebugBreakpointEventVerification(current, 'Program.cs', {
+        verified: true,
+        line: null,
+        message: null
+      })
+    ).toBe(current)
+    expect(
+      applyDebugBreakpointEventVerification(current, 'Program.cs', {
+        verified: true,
+        line: 999,
+        message: null
+      })
+    ).toBe(current)
   })
 })

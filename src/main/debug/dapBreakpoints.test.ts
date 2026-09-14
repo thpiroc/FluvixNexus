@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   createSetBreakpointsArguments,
   DAP_BREAKPOINT_MESSAGE_MAX_LENGTH,
+  parseBreakpointEvent,
   parseSetBreakpointsResponse
 } from './dapBreakpoints'
 
@@ -33,6 +34,59 @@ describe('setBreakpoints の要求の形', () => {
   */
   it('sourceModified は常に false', () => {
     expect(createSetBreakpointsArguments(SOURCE, [1]).sourceModified).toBe(false)
+  })
+})
+
+describe('breakpoint event の読み取り', () => {
+  it('後から届く verified と source path を読む', () => {
+    expect(
+      parseBreakpointEvent({
+        reason: 'changed',
+        breakpoint: {
+          verified: true,
+          line: 11,
+          source: { path: 'D:\\proj\\Program.cs', name: 'Program.cs' }
+        }
+      })
+    ).toEqual({
+      sourcePath: 'D:\\proj\\Program.cs',
+      verification: { verified: true, line: 11, message: null }
+    })
+  })
+
+  it('adapter の文言は setBreakpoints 応答と同じ上限で切る', () => {
+    const parsed = parseBreakpointEvent({
+      reason: 'changed',
+      breakpoint: {
+        verified: false,
+        message: 'x'.repeat(2000),
+        source: { path: 'D:\\proj\\Program.cs' }
+      }
+    })
+
+    expect(parsed?.verification.message?.length).toBe(DAP_BREAKPOINT_MESSAGE_MAX_LENGTH + 3)
+  })
+
+  it('removed と壊れた event は読まない', () => {
+    expect(
+      parseBreakpointEvent({
+        reason: 'removed',
+        breakpoint: { verified: true, source: { path: 'D:\\proj\\Program.cs' } }
+      })
+    ).toBeNull()
+    expect(parseBreakpointEvent({ breakpoint: { line: 11 } })).toBeNull()
+  })
+
+  it('source path が無い場合も verification は読める', () => {
+    expect(
+      parseBreakpointEvent({
+        reason: 'changed',
+        breakpoint: { verified: true, line: 11 }
+      })
+    ).toEqual({
+      sourcePath: null,
+      verification: { verified: true, line: 11, message: null }
+    })
   })
 })
 

@@ -377,3 +377,40 @@ describe('送る口', () => {
     expect(second?.generation).toBeGreaterThan(first?.generation ?? 0)
   })
 })
+
+describe('breakpoint event', () => {
+  it('adapter から後で届いた breakpoint event を購読できる', async () => {
+    const { manager, adapters } = createManager()
+    const events: unknown[] = []
+
+    manager.onBreakpoint((event) => {
+      events.push(event)
+    })
+
+    const adapter = await reachRunning(manager, adapters)
+
+    adapter.event('breakpoint', {
+      reason: 'changed',
+      breakpoint: {
+        verified: true,
+        line: 11,
+        source: { path: 'D:\\proj\\Program.cs' }
+      }
+    })
+
+    expect(events).toEqual([
+      {
+        sessionId: 'debug-session-1',
+        generation: 1,
+        body: {
+          reason: 'changed',
+          breakpoint: {
+            verified: true,
+            line: 11,
+            source: { path: 'D:\\proj\\Program.cs' }
+          }
+        }
+      }
+    ])
+  })
+})

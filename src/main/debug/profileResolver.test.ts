@@ -112,6 +112,7 @@ describe('resolveDebugProfile', () => {
           stopOnEntry: true,
           console: 'internalConsole'
         },
+        waitForLaunchResponseBeforeConfiguration: false,
         exceptionBreakpointFilters: []
       }
     })
@@ -239,6 +240,7 @@ describe('resolveDebugProfile', () => {
             stopOnEntry: true,
             console: 'internalConsole'
           },
+          waitForLaunchResponseBeforeConfiguration: false,
           exceptionBreakpointFilters: ['uncaught']
         }
       })
@@ -301,6 +303,159 @@ describe('resolveDebugProfile', () => {
       expect(
         resolution.status === 'resolved' && resolution.configuration.launchArguments
       ).not.toHaveProperty('subProcess')
+    })
+  })
+
+  /** Session 6-14 ── C# の実 adapter。値は実 netcoredbg（3.2.0-1）で確かめたもの。 */
+  describe('csharp (netcoredbg)', () => {
+    const csharpProfile: DebugProfile = {
+      ...profile,
+      language: 'csharp',
+      programRelativePath: 'bin/Debug/net8.0/App.dll'
+    }
+    const csharpFileSystem: DebugProgramFileSystem = {
+      realpath: (path) => {
+        const lower = path.toLowerCase()
+
+        if (lower === 'd:\\proj') {
+          return REAL_ROOT
+        }
+
+        if (lower === 'd:\\proj\\bin\\debug\\net8.0\\app.dll') {
+          return `${REAL_ROOT}\\bin\\Debug\\net8.0\\App.dll`
+        }
+
+        throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+      },
+      isFile: (path) => path.toLowerCase().endsWith('.dll')
+    }
+    const csharpContext = context({
+      parentEnv: { PATH: 'C:\\tools\\netcoredbg;.;relative\\bin', SystemRoot: 'C:\\Windows' },
+      exists: (path) =>
+        path === 'C:\\tools\\netcoredbg\\netcoredbg.exe' ||
+        path === 'C:\\Program Files\\dotnet\\dotnet.exe',
+      fileSystem: csharpFileSystem,
+      getCatalogEntry: getDebugAdapterCatalogEntry
+    })
+
+    it('resolves the shipped C# row to netcoredbg --interpreter=vscode outside the workspace', () => {
+      const resolution = resolveDebugProfile(csharpProfile, csharpContext)
+
+      expect(resolution).toEqual({
+        status: 'resolved',
+        configuration: {
+          profileId: profile.profileId,
+          language: 'csharp',
+          adapterId: 'coreclr',
+          adapterCommand: {
+            name: 'netcoredbg',
+            file: 'C:\\tools\\netcoredbg\\netcoredbg.exe',
+            args: ['--interpreter=vscode'],
+            cwd: 'C:\\tools\\netcoredbg',
+            env: { PATH: 'C:\\tools\\netcoredbg;.;relative\\bin', SystemRoot: 'C:\\Windows' }
+          },
+          launchArguments: {
+            stopAtEntry: true,
+            name: 'Run app',
+            type: 'coreclr',
+            request: 'launch',
+            program: 'C:\\Program Files\\dotnet\\dotnet.exe',
+            args: [`${REAL_ROOT}\\bin\\Debug\\net8.0\\App.dll`, '--port', '3000', '&&', 'calc.exe'],
+            cwd: REAL_ROOT,
+            env: { APP_MODE: 'debug' },
+            console: 'internalConsole'
+          },
+          waitForLaunchResponseBeforeConfiguration: true,
+          exceptionBreakpointFilters: ['user-unhandled']
+        }
+      })
+    })
+
+    it('never carries adapter-specific C# settings from the profile', () => {
+      const polluted = {
+        ...csharpProfile,
+        pipeTransport: { debuggerPath: 'C:\\evil\\netcoredbg.exe' },
+        debuggerPath: 'C:\\evil\\netcoredbg.exe',
+        justMyCode: false,
+        stopAtEntry: false,
+        exceptionBreakpointFilters: ['all']
+      } as DebugProfile
+
+      const resolution = resolveDebugProfile(polluted, csharpContext)
+
+      expect(resolution.status).toBe('resolved')
+
+      if (resolution.status === 'resolved') {
+        const { adapterCommand, launchArguments } = resolution.configuration
+
+        expect(adapterCommand.file).toBe('C:\\tools\\netcoredbg\\netcoredbg.exe')
+        expect(adapterCommand.args).toEqual(['--interpreter=vscode'])
+        expect(launchArguments.stopAtEntry).toBe(true)
+        expect(launchArguments.program).toBe('C:\\Program Files\\dotnet\\dotnet.exe')
+        expect(launchArguments.args[0]).toBe(`${REAL_ROOT}\\bin\\Debug\\net8.0\\App.dll`)
+        expect(launchArguments).not.toHaveProperty('pipeTransport')
+        expect(launchArguments).not.toHaveProperty('debuggerPath')
+        expect(launchArguments).not.toHaveProperty('justMyCode')
+      }
+    })
+
+    it('is adapter-unavailable when netcoredbg is not on PATH', () => {
+      expect(resolveDebugProfile(csharpProfile, { ...csharpContext, exists: () => false })).toEqual(
+        { status: 'failed', reason: 'adapter-unavailable' }
+      )
+    })
+
+    it('is invalid-profile when the C# target is not a built DLL', () => {
+      const exeFileSystem: DebugProgramFileSystem = {
+        realpath: (path) => {
+          const lower = path.toLowerCase()
+
+          if (lower === 'd:\\proj') {
+            return REAL_ROOT
+          }
+
+          if (lower === 'd:\\proj\\bin\\debug\\net8.0\\app.exe') {
+            return `${REAL_ROOT}\\bin\\Debug\\net8.0\\App.exe`
+          }
+
+          throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+        },
+        isFile: (path) => path.toLowerCase().endsWith('.exe')
+      }
+
+      expect(
+        resolveDebugProfile(
+          { ...csharpProfile, programRelativePath: 'bin/Debug/net8.0/App.exe' },
+          { ...csharpContext, fileSystem: exeFileSystem }
+        )
+      ).toEqual({ status: 'failed', reason: 'invalid-profile' })
+    })
+
+    it('is adapter-unavailable when a netcoredbg-visible C# path is not ASCII-only', () => {
+      const unicodeRoot = 'D:\\開発\\Proj'
+      const unicodeFileSystem: DebugProgramFileSystem = {
+        realpath: (path) => {
+          const lower = path.toLowerCase()
+
+          if (lower === 'd:\\proj') {
+            return unicodeRoot
+          }
+
+          if (lower === 'd:\\proj\\bin\\debug\\net8.0\\app.dll') {
+            return `${unicodeRoot}\\bin\\Debug\\net8.0\\App.dll`
+          }
+
+          throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+        },
+        isFile: (path) => path.toLowerCase().endsWith('.dll')
+      }
+
+      expect(
+        resolveDebugProfile(csharpProfile, {
+          ...csharpContext,
+          fileSystem: unicodeFileSystem
+        })
+      ).toEqual({ status: 'failed', reason: 'adapter-unavailable' })
     })
   })
 
