@@ -223,6 +223,7 @@ describe('DebugToolbar', () => {
 
     expect(byTestId<HTMLButtonElement>('debug-action-start').disabled).toBe(false)
     expect(registry().isRegistered('debug.start')).toBe(true)
+    expect(registry().isRegistered('debug.startOrContinue')).toBe(true)
 
     await publish('running')
     expect(byTestId<HTMLButtonElement>('debug-action-start').disabled).toBe(true)
@@ -238,11 +239,13 @@ describe('DebugToolbar', () => {
     expect(byTestId<HTMLButtonElement>('debug-action-stepOut').disabled).toBe(false)
     expect(byTestId<HTMLButtonElement>('debug-action-stop').disabled).toBe(false)
     expect(registry().isRegistered('debug.continue')).toBe(true)
+    expect(registry().isRegistered('debug.startOrContinue')).toBe(true)
 
     await publish('terminating')
     for (const id of ['start', 'continue', 'pause', 'stepOver', 'stepInto', 'stepOut', 'stop']) {
       expect(byTestId<HTMLButtonElement>(`debug-action-${id}`).disabled, id).toBe(true)
     }
+    expect(registry().isRegistered('debug.startOrContinue')).toBe(false)
   })
 
   it('Start は profileId だけを debug:start へ渡す', async () => {
@@ -253,6 +256,20 @@ describe('DebugToolbar', () => {
     expect(debugApi.start).toHaveBeenCalledWith({
       profileId: 'dp-11111111-1111-1111-1111-111111111111'
     })
+  })
+
+  it('F5 用 command は idle では Start、stopped では Continue を既存操作として呼ぶ', async () => {
+    await renderToolbar('idle')
+
+    expect(registry().execute('debug.startOrContinue')).toBe(true)
+    expect(debugApi.start).toHaveBeenCalledWith({
+      profileId: 'dp-11111111-1111-1111-1111-111111111111'
+    })
+
+    await publish('stopped')
+
+    expect(registry().execute('debug.startOrContinue')).toBe(true)
+    expect(debugApi.continue).toHaveBeenCalledTimes(1)
   })
 
   it('Profile を作成できる', async () => {
@@ -324,6 +341,7 @@ describe('DebugToolbar', () => {
     expect(byTestId<HTMLButtonElement>('debug-action-start').disabled).toBe(true)
     expect(container.textContent).toContain('No debug adapter is available on this machine.')
     expect(registry().isRegistered('debug.start')).toBe(false)
+    expect(registry().isRegistered('debug.startOrContinue')).toBe(false)
   })
 
   it('toolbar は accessible な toolbar と labeled controls を持つ', async () => {

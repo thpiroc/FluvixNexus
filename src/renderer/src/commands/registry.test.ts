@@ -115,21 +115,23 @@ describe('Session 4-7B で足した contribution（git / files）', () => {
   })
 })
 
-describe('Session 6-11 で足した Debug Toolbar の command', () => {
+describe('Debug command', () => {
   const ids = new Set<string>(COMMAND_IDS)
 
-  it('Profile と実行制御の10件が表に載っている', () => {
+  it('Profile と実行制御と breakpoint の12件が表に載っている', () => {
     for (const id of [
       'debug.addProfile',
       'debug.editProfile',
       'debug.deleteProfile',
+      'debug.startOrContinue',
       'debug.start',
       'debug.continue',
       'debug.pause',
       'debug.stepOver',
       'debug.stepInto',
       'debug.stepOut',
-      'debug.stop'
+      'debug.stop',
+      'debug.toggleBreakpoint'
     ]) {
       expect(ids.has(id), id).toBe(true)
     }

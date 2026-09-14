@@ -191,6 +191,12 @@ const COMMAND_REGISTRY: Readonly<Record<CommandId, CommandDescriptor>> = {
     title: 'Delete Debug Profile',
     titleKey: 'command.debug.deleteProfile'
   },
+  'debug.startOrContinue': {
+    id: 'debug.startOrContinue',
+    category: 'debug',
+    title: 'Start or Continue Debugging',
+    titleKey: 'command.debug.startOrContinue'
+  },
   'debug.start': {
     id: 'debug.start',
     category: 'debug',
@@ -232,6 +238,12 @@ const COMMAND_REGISTRY: Readonly<Record<CommandId, CommandDescriptor>> = {
     category: 'debug',
     title: 'Stop Debugging',
     titleKey: 'command.debug.stop'
+  },
+  'debug.toggleBreakpoint': {
+    id: 'debug.toggleBreakpoint',
+    category: 'debug',
+    title: 'Toggle Breakpoint',
+    titleKey: 'command.debug.toggleBreakpoint'
   },
   'git.refresh': {
     id: 'git.refresh',

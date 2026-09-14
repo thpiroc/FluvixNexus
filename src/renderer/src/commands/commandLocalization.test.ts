@@ -42,10 +42,10 @@ describe('command の titleKey', () => {
     expect(withKey).toHaveLength(COMMAND_IDS.length)
     /*
       実数も押さえる（表に足したのに翻訳を忘れた、を `COMMAND_IDS.length` との
-      比較だけに任せない）。Session 6-11 の Debug Toolbar / Profile 操作を
-      加えて 38件。
+      比較だけに任せない）。Session 6-16 の Debug Keybinding 用 command を
+      加えて 40件。
     */
-    expect(COMMAND_IDS).toHaveLength(38)
+    expect(COMMAND_IDS).toHaveLength(40)
   })
 
   /*

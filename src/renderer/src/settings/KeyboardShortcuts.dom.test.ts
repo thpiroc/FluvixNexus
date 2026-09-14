@@ -23,7 +23,7 @@ import { SettingsOverlay } from './SettingsOverlay'
  *
  *   - Settings の中から開けること
  *   - command が**1つ残らず**、カテゴリごとに並ぶこと
- *   - 割り当てのある12件と、未割り当ての見え方
+ *   - 割り当てのある18件と、未割り当ての見え方
  *   - 絞り込み
  *   - ja / en の切り替えがその場で効くこと
  *   - **押しても command が走らないこと**（閲覧専用）
@@ -199,11 +199,11 @@ describe('Settings から開く', () => {
 })
 
 describe('並ぶもの', () => {
-  it('登録されている 38 件が1つ残らず出る', async () => {
+  it('登録されている 40 件が1つ残らず出る', async () => {
     await openKeyboard()
 
     expect(rows()).toHaveLength(COMMAND_IDS.length)
-    expect(rows()).toHaveLength(38)
+    expect(rows()).toHaveLength(40)
 
     const shown = rows().map((row) => row.dataset.command)
     expect([...shown].sort()).toEqual([...COMMAND_IDS].sort())
@@ -215,12 +215,12 @@ describe('並ぶもの', () => {
     expect(groups()).toEqual(['workspace', 'editor', 'view', 'settings', 'debug', 'git', 'files'])
   })
 
-  it('割り当てのある12件が打鍵を出す', async () => {
+  it('割り当てのある18件が打鍵を出す', async () => {
     await openKeyboard()
 
     const assigned = rows().filter((row) => row.dataset.unassigned === 'false')
 
-    expect(assigned).toHaveLength(12)
+    expect(assigned).toHaveLength(18)
     expect(byTestId('settings-keyboard-row-editor.save').textContent).toContain('Ctrl+S')
     expect(byTestId('settings-keyboard-row-editor.saveAs').textContent).toContain('Ctrl+Shift+S')
     expect(byTestId('settings-keyboard-row-workspace.openFolder').textContent).toContain('Ctrl+O')
@@ -258,12 +258,12 @@ describe('並ぶもの', () => {
     Session 5-12 の `editor.showHover` も同じ（Monaco の既定が2打鍵のため）。
     Session 6-5 の Debug panel toggle も、6-8 の Toolbar までは未割り当て。
   */
-  it('未割り当ての26件が「未割り当て」として出る', async () => {
+  it('未割り当ての22件が「未割り当て」として出る', async () => {
     await openKeyboard()
 
     const unassigned = rows().filter((row) => row.dataset.unassigned === 'true')
 
-    expect(unassigned).toHaveLength(26)
+    expect(unassigned).toHaveLength(22)
     for (const row of unassigned) {
       expect(row.textContent, row.dataset.command).toContain('未割り当て')
       expect(row.querySelector('kbd')).toBeNull()
@@ -285,12 +285,18 @@ describe('並ぶもの', () => {
     expect(rows().filter((row) => row.dataset.category === 'files')).toHaveLength(3)
   })
 
-  it('Debug Toolbar の10件も未割り当てで並ぶ', async () => {
+  it('Debug command の12件が並び、操作用の既定打鍵を持つ', async () => {
     await openKeyboard()
 
     const debug = rows().filter((row) => row.dataset.category === 'debug')
 
-    expect(debug).toHaveLength(10)
+    expect(debug).toHaveLength(12)
+    expect(byTestId('settings-keyboard-row-debug.startOrContinue').textContent).toContain('F5')
+    expect(byTestId('settings-keyboard-row-debug.stop').textContent).toContain('Shift+F5')
+    expect(byTestId('settings-keyboard-row-debug.toggleBreakpoint').textContent).toContain('F9')
+    expect(byTestId('settings-keyboard-row-debug.stepOver').textContent).toContain('F10')
+    expect(byTestId('settings-keyboard-row-debug.stepInto').textContent).toContain('F11')
+    expect(byTestId('settings-keyboard-row-debug.stepOut').textContent).toContain('Shift+F11')
     expect(byTestId('settings-keyboard-row-debug.start').textContent).toContain('デバッグを開始')
     expect(byTestId('settings-keyboard-row-debug.start').textContent).toContain('未割り当て')
   })
@@ -362,7 +368,7 @@ describe('絞り込み', () => {
     await type('git.')
     await click('settings-keyboard-search-clear')
 
-    expect(rows()).toHaveLength(38)
+    expect(rows()).toHaveLength(40)
     expect(byTestId<HTMLInputElement>('settings-keyboard-search').value).toBe('')
   })
 
@@ -373,7 +379,7 @@ describe('絞り込み', () => {
     await click('settings-category-general')
     await click('settings-category-keyboard')
 
-    expect(rows()).toHaveLength(38)
+    expect(rows()).toHaveLength(40)
   })
 })
 
@@ -402,13 +408,13 @@ describe('ja / en の切り替え', () => {
     expect(byTestId('settings-keyboard-row-editor.save').textContent).toContain('Ctrl+S')
   })
 
-  it('切り替えても 38 件・7 グループのまま', async () => {
+  it('切り替えても 40 件・7 グループのまま', async () => {
     await openKeyboard()
     await click('settings-category-general')
     await click('settings-general-language-en')
     await click('settings-category-keyboard')
 
-    expect(rows()).toHaveLength(38)
+    expect(rows()).toHaveLength(40)
     expect(groups()).toEqual(['workspace', 'editor', 'view', 'settings', 'debug', 'git', 'files'])
   })
 })

@@ -163,6 +163,39 @@ describe('Language Server の操作（Session 5-12）', () => {
   })
 })
 
+describe('Debug 操作（Session 6-16）', () => {
+  const debugRules = DEFAULT_KEYBINDINGS.filter((rule) => rule.commandId.startsWith('debug.'))
+
+  it('IDE 標準の打鍵を持つ', () => {
+    const assigned = new Map(
+      debugRules.map((rule) => [rule.commandId, chordToken(parseKeybinding(rule.key)!)])
+    )
+
+    expect(Object.fromEntries(assigned)).toEqual({
+      'debug.startOrContinue': 'f5',
+      'debug.stop': 'shift+f5',
+      'debug.toggleBreakpoint': 'f9',
+      'debug.stepOver': 'f10',
+      'debug.stepInto': 'f11',
+      'debug.stepOut': 'shift+f11'
+    })
+  })
+
+  it('F9 は Editor focus のときだけ現在行へ作用する', () => {
+    const toggle = debugRules.find((rule) => rule.commandId === 'debug.toggleBreakpoint')
+
+    expect(toggle?.when ?? []).toContain('editorFocused')
+    expect(toggle?.when ?? []).toContain('!terminalFocused')
+  })
+
+  it('Debug session 操作は端末と Settings の背面で走らせない', () => {
+    for (const rule of debugRules) {
+      expect(rule.when ?? [], rule.commandId).toContain('!terminalFocused')
+      expect(rule.when ?? [], rule.commandId).toContain('!settingsOpen')
+    }
+  })
+})
+
 describe('移設前の Ctrl+S と同じであること', () => {
   /*
     Session 3-5 〜 4-5B の `editor/useEditorSession.ts` は、`window` へ直接

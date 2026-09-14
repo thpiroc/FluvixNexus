@@ -58,13 +58,15 @@ export const jaMessages = {
       addProfile: 'Debug Profile を追加',
       editProfile: 'Debug Profile を編集',
       deleteProfile: 'Debug Profile を削除',
+      startOrContinue: 'デバッグを開始 / 続行',
       start: 'デバッグを開始',
       continue: 'デバッグを続行',
       pause: 'デバッグを一時停止',
       stepOver: 'ステップオーバー',
       stepInto: 'ステップイン',
       stepOut: 'ステップアウト',
-      stop: 'デバッグを停止'
+      stop: 'デバッグを停止',
+      toggleBreakpoint: 'ブレークポイントを切り替え'
     },
     git: {
       refresh: 'Git の状態を調べ直す',

@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef } from 'react'
+import { useCommand } from '../../commands/useCommand'
 import { useBreakpoints } from '../../debug/context'
 import { useI18n } from '../../i18n/context'
 import { toBreakpointGlyphDecorations } from './breakpointDecorations'
 import {
   createBreakpointGlyphController,
+  resolveCurrentBreakpointToggleLine,
   type BreakpointGlyphController,
   type BreakpointGlyphEditor
 } from './breakpointGlyphs'
@@ -53,6 +55,7 @@ export function useBreakpointGlyphs(
 
   const controllerRef = useRef<BreakpointGlyphController | null>(null)
   const renderedPathRef = useRef<string | null>(null)
+  const editorRef = useRef<BreakpointGlyphEditor | null>(editor)
 
   /*
     描画のたびに最新を控える。押されたのも編集も React の描画とは別の時間軸で
@@ -66,6 +69,25 @@ export function useBreakpointGlyphs(
   relativePathRef.current = relativePath
   toggleRef.current = toggle
   translateRef.current = t
+  editorRef.current = editor
+
+  useCommand(
+    'debug.toggleBreakpoint',
+    () => {
+      const target = editorRef.current
+
+      if (target === null) {
+        return
+      }
+
+      const line = resolveCurrentBreakpointToggleLine(target)
+
+      if (line !== null) {
+        toggleRef.current(relativePathRef.current, line)
+      }
+    },
+    editor !== null
+  )
 
   useEffect(() => {
     if (editor === null) {

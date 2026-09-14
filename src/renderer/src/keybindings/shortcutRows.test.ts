@@ -125,7 +125,8 @@ describe('filterShortcutRows', () => {
       'view.togglePanel.editor',
       'view.togglePanel.terminal',
       'view.togglePanel.git',
-      'view.togglePanel.debug'
+      'view.togglePanel.debug',
+      'debug.toggleBreakpoint'
     ])
   })
 

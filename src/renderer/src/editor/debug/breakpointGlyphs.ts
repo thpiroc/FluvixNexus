@@ -97,6 +97,7 @@ export interface BreakpointGlyphEditor {
     decorations?: BreakpointGlyphModelDecoration[]
   ) => BreakpointGlyphDecorationsCollection
   getModel: () => { getLineCount: () => number } | null
+  getPosition: () => { readonly lineNumber: number } | null
 }
 
 /* -------------------------------------------------------------- 判断（純粋） */
@@ -130,6 +131,24 @@ export function changesLineCount(event: BreakpointGlyphContentChangedEvent): boo
     (change) =>
       change.range.startLineNumber !== change.range.endLineNumber || change.text.includes('\n')
   )
+}
+
+/** 現在のカーソル行を breakpoint の入れ替え対象として使えるか。 */
+export function resolveCurrentBreakpointToggleLine(editor: BreakpointGlyphEditor): number | null {
+  const model = editor.getModel()
+  const position = editor.getPosition()
+
+  if (model === null || position === null) {
+    return null
+  }
+
+  const line = position.lineNumber
+
+  if (!Number.isSafeInteger(line) || line <= 0 || line > model.getLineCount()) {
+    return null
+  }
+
+  return line
 }
 
 /**

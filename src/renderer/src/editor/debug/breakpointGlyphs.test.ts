@@ -4,6 +4,7 @@ import { toBreakpointGlyphDecorations } from './breakpointDecorations'
 import {
   changesLineCount,
   createBreakpointGlyphController,
+  resolveCurrentBreakpointToggleLine,
   resolveBreakpointToggleLine,
   toModelDecorations,
   type BreakpointGlyphContentChangedEvent,
@@ -50,6 +51,7 @@ interface FakeEditor {
   readonly changeContent: (event: BreakpointGlyphContentChangedEvent) => void
   readonly setLineCount: (lineCount: number) => void
   readonly setModel: (present: boolean) => void
+  readonly setPosition: (line: number | null) => void
   readonly disposed: () => { mouse: number; content: number }
 }
 
@@ -61,6 +63,7 @@ function createFakeEditor(): FakeEditor {
   let clears = 0
   let lineCount = 100
   let hasModel = true
+  let position: { readonly lineNumber: number } | null = { lineNumber: 3 }
 
   const editor: BreakpointGlyphEditor = {
     onMouseDown: (listener) => {
@@ -89,7 +92,8 @@ function createFakeEditor(): FakeEditor {
         clears += 1
       }
     }),
-    getModel: () => (hasModel ? { getLineCount: () => lineCount } : null)
+    getModel: () => (hasModel ? { getLineCount: () => lineCount } : null),
+    getPosition: () => position
   }
 
   return {
@@ -111,6 +115,9 @@ function createFakeEditor(): FakeEditor {
     },
     setModel: (present) => {
       hasModel = present
+    },
+    setPosition: (line) => {
+      position = line === null ? null : { lineNumber: line }
     },
     disposed: () => disposed
   }
@@ -150,6 +157,33 @@ describe('押した場所の判断', () => {
   it('行が取れなければ何も起きない', () => {
     expect(resolveBreakpointToggleLine(mouseEvent({ line: null }), GLYPH_MARGIN)).toBeNull()
     expect(resolveBreakpointToggleLine(mouseEvent({ line: 0 }), GLYPH_MARGIN)).toBeNull()
+  })
+})
+
+describe('現在カーソル行からの判断', () => {
+  it('現在行を breakpoint の入れ替え対象にする', () => {
+    const fake = createFakeEditor()
+
+    fake.setPosition(8)
+
+    expect(resolveCurrentBreakpointToggleLine(fake.editor)).toBe(8)
+  })
+
+  it('Model や位置が無いとき、または範囲外の行では何もしない', () => {
+    const fake = createFakeEditor()
+
+    fake.setPosition(null)
+    expect(resolveCurrentBreakpointToggleLine(fake.editor)).toBeNull()
+
+    fake.setPosition(0)
+    expect(resolveCurrentBreakpointToggleLine(fake.editor)).toBeNull()
+
+    fake.setPosition(101)
+    expect(resolveCurrentBreakpointToggleLine(fake.editor)).toBeNull()
+
+    fake.setPosition(1)
+    fake.setModel(false)
+    expect(resolveCurrentBreakpointToggleLine(fake.editor)).toBeNull()
   })
 })
 

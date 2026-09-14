@@ -23,6 +23,7 @@ export type DebugToolbarCommandId = Extract<
   | 'debug.addProfile'
   | 'debug.editProfile'
   | 'debug.deleteProfile'
+  | 'debug.startOrContinue'
   | 'debug.start'
   | 'debug.continue'
   | 'debug.pause'

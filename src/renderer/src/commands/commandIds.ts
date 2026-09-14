@@ -121,13 +121,19 @@ export const COMMAND_IDS = [
   'settings.open',
   'settings.close',
   /*
-    Debug Toolbar（Session 6-11）。所有者は DebugPanel の上部 toolbar で、
-    ボタンが押せるときだけ同じ command が登録される。正式な F5 / F10 などの
-    keybinding は Session 6-15 に残すため、ここでは command と toolbar の接続だけ。
+    Debug Toolbar（Session 6-11）と Debug Keybinding（Session 6-16）。
+    実行制御の所有者は DebugPanel の上部 toolbar で、ボタンが押せるときだけ
+    同じ command が登録される。F5 は Start / Continue を状態で切り替えるため、
+    操作そのものを二重化せず `debug.startOrContinue` から既存の Start /
+    Continue handler へ委ねる。
+
+    `debug.toggleBreakpoint` の所有者は Monaco の器。現在の Editor / カーソル行を
+    安全に読む必要があるため、toolbar ではなく Editor 側で登録する。
   */
   'debug.addProfile',
   'debug.editProfile',
   'debug.deleteProfile',
+  'debug.startOrContinue',
   'debug.start',
   'debug.continue',
   'debug.pause',
@@ -135,6 +141,7 @@ export const COMMAND_IDS = [
   'debug.stepInto',
   'debug.stepOut',
   'debug.stop',
+  'debug.toggleBreakpoint',
   /*
     Git（Session 4-7B）。所有者は GitView の中の GitCommands で、
     **リポジトリが使える状態のときだけ**登録される（git/GitCommands.tsx）。

@@ -196,6 +196,17 @@ export function DebugToolbar(): JSX.Element {
     [busy, hasSelectedProfile, status]
   )
 
+  const startOrContinue = useCallback((): void => {
+    if (actionEnabled.start) {
+      actionHandlers.start()
+      return
+    }
+
+    if (actionEnabled.continue) {
+      actionHandlers.continue()
+    }
+  }, [actionEnabled, actionHandlers])
+
   useCommand('debug.addProfile', showCreateEditor, hasWorkspace && !busy)
   useCommand('debug.editProfile', showEditEditor, hasWorkspace && hasSelectedProfile && !busy)
   useCommand(
@@ -205,6 +216,11 @@ export function DebugToolbar(): JSX.Element {
   )
   useCommand('debug.start', actionHandlers.start, actionEnabled.start)
   useCommand('debug.continue', actionHandlers.continue, actionEnabled.continue)
+  useCommand(
+    'debug.startOrContinue',
+    startOrContinue,
+    actionEnabled.start || actionEnabled.continue
+  )
   useCommand('debug.pause', actionHandlers.pause, actionEnabled.pause)
   useCommand('debug.stepOver', actionHandlers.stepOver, actionEnabled.stepOver)
   useCommand('debug.stepInto', actionHandlers.stepInto, actionEnabled.stepInto)

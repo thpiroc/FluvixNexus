@@ -162,6 +162,54 @@ export const DEFAULT_KEYBINDINGS: readonly KeybindingRule[] = [
     when: ['editorFocused', '!terminalFocused'],
     source: 'default'
   },
+  /*
+    Debug 操作（Session 6-16）。
+
+    実行できるかどうかは Debug Toolbar が登録する command の有無に寄せる。
+    F5 だけは VS Code と同じく状態で Start / Continue が切り替わるため、
+    `debug.start` / `debug.continue` のどちらかに直接割り当てず、
+    Toolbar 側の同じ状態判定を通る `debug.startOrContinue` を使う。
+
+    F9 は現在の Editor / カーソル行を使うため `editorFocused` を要求する。
+    Step / Stop は Debug session の操作なので Editor focus は要求しないが、
+    端末入力中と Settings の背面では走らせない。
+  */
+  {
+    commandId: 'debug.startOrContinue',
+    key: 'f5',
+    when: ['workspaceOpen', '!terminalFocused', '!settingsOpen'],
+    source: 'default'
+  },
+  {
+    commandId: 'debug.stop',
+    key: 'shift+f5',
+    when: ['workspaceOpen', '!terminalFocused', '!settingsOpen'],
+    source: 'default'
+  },
+  {
+    commandId: 'debug.toggleBreakpoint',
+    key: 'f9',
+    when: ['editorFocused', '!terminalFocused', '!settingsOpen'],
+    source: 'default'
+  },
+  {
+    commandId: 'debug.stepOver',
+    key: 'f10',
+    when: ['workspaceOpen', '!terminalFocused', '!settingsOpen'],
+    source: 'default'
+  },
+  {
+    commandId: 'debug.stepInto',
+    key: 'f11',
+    when: ['workspaceOpen', '!terminalFocused', '!settingsOpen'],
+    source: 'default'
+  },
+  {
+    commandId: 'debug.stepOut',
+    key: 'shift+f11',
+    when: ['workspaceOpen', '!terminalFocused', '!settingsOpen'],
+    source: 'default'
+  },
   {
     commandId: 'view.togglePanel.files',
     key: 'ctrl+shift+e',

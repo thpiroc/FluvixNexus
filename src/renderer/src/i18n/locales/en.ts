@@ -70,13 +70,15 @@ export const enMessages = {
       addProfile: 'Add Debug Profile',
       editProfile: 'Edit Debug Profile',
       deleteProfile: 'Delete Debug Profile',
+      startOrContinue: 'Start / Continue Debugging',
       start: 'Start Debugging',
       continue: 'Continue Debugging',
       pause: 'Pause Debugging',
       stepOver: 'Step Over',
       stepInto: 'Step Into',
       stepOut: 'Step Out',
-      stop: 'Stop Debugging'
+      stop: 'Stop Debugging',
+      toggleBreakpoint: 'Toggle Breakpoint'
     },
     git: {
       refresh: 'Refresh Git Status',
