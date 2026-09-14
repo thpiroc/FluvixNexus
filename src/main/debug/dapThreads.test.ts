@@ -19,14 +19,21 @@ describe('DAP threads response', () => {
       parseThreadsResponse({
         threads: [
           { id: 1, name: 'main' },
-          { id: 0, name: 'zero' },
           { id: -1, name: 'negative' },
           { id: 1.5, name: 'fraction' },
           { id: '2', name: 'string' },
+          { id: Number.MAX_SAFE_INTEGER + 1, name: 'unsafe' },
           null
         ]
       })
     ).toEqual([{ id: 1, name: 'main' }])
+  })
+
+  /** Session 6-15B ── 実 vscode-js-debug 1.117.0 はスレッドを `0` と名乗る（DAP の id は整数）。 */
+  it('keeps thread id 0 (vscode-js-debug)', () => {
+    expect(parseThreadsResponse({ threads: [{ id: 0, name: 'main.js [47048]' }] })).toEqual([
+      { id: 0, name: 'main.js [47048]' }
+    ])
   })
 
   it.each([null, undefined, 42, 'threads', {}, { threads: null }, { threads: {} }, []])(

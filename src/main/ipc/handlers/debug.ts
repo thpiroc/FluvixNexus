@@ -122,16 +122,19 @@ export function registerDebugHandlers(): void {
   /*
     Variables（Session 6-6）。**形だけをここで確かめる** ── frame が今の停止のものか、
     handle が今の表にあるかは main/debug/variables.ts が決め、古いものは値
-    （`unavailable`）で返る。ここで断るのは「frameId が正の整数でない」
+    （`unavailable`）で返る。ここで断るのは「frameId が 0 以上の整数でない」
     「handle が文字列でない（生の `variablesReference` の数値を含む）」の2つだけ。
+
+    frameId の 0 は通す（Session 6-15B）。DAP の frame id は整数で、vscode-js-debug は最上段に
+    `0` を振ることがある。今の停止の表に在るかは main/debug/variables.ts が決める。
   */
   handleIpc(
     IPC_CHANNELS.DEBUG_LIST_SCOPES,
     async (request: ListDebugScopesRequest): Promise<DebugScopesResponse> => {
       const frameId: unknown = request?.frameId
 
-      if (typeof frameId !== 'number' || !Number.isSafeInteger(frameId) || frameId <= 0) {
-        throw invalidRequest('the frame id must be a positive integer.')
+      if (!isFrameIdShape(frameId)) {
+        throw invalidRequest('the frame id must be a non-negative integer.')
       }
 
       return { result: await listDebugScopes(frameId) }
@@ -171,8 +174,8 @@ export function registerDebugHandlers(): void {
         throw invalidRequest('the expression must be a non-empty string within the length limit.')
       }
 
-      if (typeof frameId !== 'number' || !Number.isSafeInteger(frameId) || frameId <= 0) {
-        throw invalidRequest('the frame id must be a positive integer.')
+      if (!isFrameIdShape(frameId)) {
+        throw invalidRequest('the frame id must be a non-negative integer.')
       }
 
       if (!isDebugEvaluateContext(context)) {
@@ -272,6 +275,11 @@ export function registerDebugHandlers(): void {
 }
 
 /** Main が発番した id の形でなければ INVALID_REQUEST（実在するかは値で返る）。 */
+/** frame id の形（0 以上の整数。Session 6-15B で 0 を通すようにした）。 */
+function isFrameIdShape(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+}
+
 function readProfileId(value: unknown): DebugProfileId {
   if (!isDebugProfileIdShape(value)) {
     throw invalidRequest('the debug profile id must be an id issued by the main process.')

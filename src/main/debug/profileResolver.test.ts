@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { DebugProfile } from '@shared/debug'
-import { getDebugAdapterCatalogEntry, type DebugAdapterCatalogEntry } from './adapterCatalog'
+import {
+  JS_DEBUG_READY_PATTERN,
+  getDebugAdapterCatalogEntry,
+  type DebugAdapterCatalogEntry
+} from './adapterCatalog'
 import type { DebugProgramFileSystem } from './programPath'
 import {
   DEBUG_LAUNCH_LANGUAGE_OPTIONS,
@@ -59,10 +63,18 @@ const fileSystem: DebugProgramFileSystem = {
       return 'C:\\outside\\evil.js'
     }
 
+    // node の runtime（Session 6-15B。resolver が実体も Workspace の外かを見る）。
+    if (lower === 'c:\\program files\\nodejs\\node.exe') {
+      return path
+    }
+
     throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
   },
   isFile: (path) => path.toLowerCase().endsWith('.js')
 }
+
+/** 確かめ終えた配布物の入り口（userData の下。Session 6-15B）。 */
+const ARTIFACT_ENTRY = `${ADAPTER_CWD}\\debug-adapters\\js-debug-dap-v1.117.0\\js-debug\\src\\dapDebugServer.js`
 
 function context(
   overrides: Partial<DebugProfileResolverContext> = {}
@@ -80,6 +92,11 @@ function context(
     fileSystem,
     getCatalogEntry: () => integratedNode,
     adapterWorkingDirectory: ADAPTER_CWD,
+    resolveAdapterArtifact: () => ({
+      status: 'verified',
+      rootPath: `${ADAPTER_CWD}\\debug-adapters\\js-debug-dap-v1.117.0\\js-debug`,
+      entryPath: ARTIFACT_ENTRY
+    }),
     ...overrides
   }
 }
@@ -110,10 +127,16 @@ describe('resolveDebugProfile', () => {
           cwd: REAL_ROOT,
           env: { APP_MODE: 'debug' },
           stopOnEntry: true,
-          console: 'internalConsole'
+          console: 'internalConsole',
+          // node の固定欄と runtime（Session 6-15B。adapter と同じ node.exe）。
+          runtimeExecutable: 'C:\\Program Files\\nodejs\\node.exe',
+          sourceMaps: false,
+          outFiles: [],
+          autoAttachChildProcesses: false,
+          outputCapture: 'std'
         },
         waitForLaunchResponseBeforeConfiguration: false,
-        exceptionBreakpointFilters: []
+        exceptionBreakpointFilters: ['uncaught']
       }
     })
   })
@@ -164,7 +187,10 @@ describe('resolveDebugProfile', () => {
       )
       expect(resolution.configuration.launchArguments.cwd).toBe(REAL_ROOT)
       expect(resolution.configuration.launchArguments.console).toBe('internalConsole')
-      expect(resolution.configuration.launchArguments).not.toHaveProperty('runtimeExecutable')
+      // runtime は Main が PATH から解いた node.exe だけ（profile の値は届かない。Session 6-15B）。
+      expect(resolution.configuration.launchArguments.runtimeExecutable).toBe(
+        'C:\\Program Files\\nodejs\\node.exe'
+      )
     }
   })
 
@@ -490,7 +516,7 @@ describe('resolveDebugProfile', () => {
   })
 
   describe('adapter availability', () => {
-    it('is unavailable while the catalog row is not integrated (the shipped state)', () => {
+    it('is unavailable while the catalog row is not integrated', () => {
       expect(
         resolveDebugProfile(
           profile,
@@ -589,19 +615,295 @@ describe('resolveDebugProfile', () => {
       }
     })
 
-    it('keeps the shipped rows as they were (python / csharp on stdio, node not integrated)', () => {
+    it('keeps python / csharp on stdio and gives only the shipped node row a socket (Session 6-15B)', () => {
       for (const language of ['python', 'csharp'] as const) {
         const entry = getDebugAdapterCatalogEntry(language)
 
         expect(entry.adapter?.transport).toBeUndefined()
         expect(entry.adapter?.childSessions).toBeUndefined()
+        expect(entry.adapter?.artifact).toBeUndefined()
       }
 
-      expect(getDebugAdapterCatalogEntry('node')).toEqual({
-        language: 'node',
-        name: 'Node.js Debug Adapter',
-        integrationStatus: 'not-integrated'
+      expect(getDebugAdapterCatalogEntry('node').adapter).toMatchObject({
+        artifact: 'vscode-js-debug',
+        transport: { kind: 'socket' },
+        childSessions: { targetIdKey: '__pendingTargetId' }
       })
+    })
+  })
+
+  /** Session 6-15B ── 値は実 vscode-js-debug（1.117.0）で確かめたもの。§20.24。 */
+  describe('node (vscode-js-debug)', () => {
+    const NODE = 'C:\\Program Files\\nodejs\\node.exe'
+    const programs = [
+      'app.js',
+      'app.mjs',
+      'app.cjs',
+      'upper.MJS',
+      'app.ts',
+      'app.mts',
+      'app.cts',
+      'app.json',
+      'app'
+    ]
+
+    /** src の下に拡張子違いのプログラムを置いた Workspace と、Workspace の中 / 外の node.exe。 */
+    const nodeFileSystem: DebugProgramFileSystem = {
+      realpath: (path) => {
+        const lower = path.toLowerCase()
+
+        if (lower === 'd:\\proj') {
+          return REAL_ROOT
+        }
+
+        for (const name of programs) {
+          if (lower === `d:\\proj\\src\\${name.toLowerCase()}`) {
+            return `${REAL_ROOT}\\src\\${name}`
+          }
+        }
+
+        if (lower === NODE.toLowerCase() || lower === 'd:\\proj\\tools\\node.exe') {
+          return path
+        }
+
+        if (lower === 'c:\\links\\node.exe') {
+          return `${REAL_ROOT}\\bin\\node.exe`
+        }
+
+        throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+      },
+      isFile: (path) =>
+        programs.some((name) => path.toLowerCase().endsWith(`\\src\\${name.toLowerCase()}`))
+    }
+
+    function nodeContext(
+      overrides: Partial<DebugProfileResolverContext> = {}
+    ): DebugProfileResolverContext {
+      return context({
+        fileSystem: nodeFileSystem,
+        getCatalogEntry: getDebugAdapterCatalogEntry,
+        ...overrides
+      })
+    }
+
+    it('resolves the shipped node row to the verified js-debug server on node.exe', () => {
+      const requested: string[] = []
+      const resolution = resolveDebugProfile(
+        profile,
+        nodeContext({
+          resolveAdapterArtifact: (artifact) => {
+            requested.push(artifact)
+            return { status: 'verified', rootPath: 'unused', entryPath: ARTIFACT_ENTRY }
+          }
+        })
+      )
+
+      expect(requested).toEqual(['vscode-js-debug'])
+      expect(resolution).toEqual({
+        status: 'resolved',
+        configuration: {
+          profileId: profile.profileId,
+          language: 'node',
+          adapterId: 'pwa-node',
+          adapterCommand: {
+            name: 'vscode-js-debug',
+            file: NODE,
+            args: [ARTIFACT_ENTRY, '0', '127.0.0.1'],
+            cwd: ADAPTER_CWD,
+            env: { PATH: 'C:\\Program Files\\nodejs;.;relative\\bin', SystemRoot: 'C:\\Windows' },
+            transport: {
+              kind: 'socket',
+              readiness: { kind: 'stdout-pattern', pattern: JS_DEBUG_READY_PATTERN }
+            }
+          },
+          launchArguments: {
+            name: 'Run app',
+            type: 'pwa-node',
+            request: 'launch',
+            program: `${REAL_ROOT}\\src\\app.js`,
+            args: ['--port', '3000', '&&', 'calc.exe'],
+            cwd: REAL_ROOT,
+            env: { APP_MODE: 'debug' },
+            stopOnEntry: true,
+            runtimeExecutable: NODE,
+            sourceMaps: false,
+            outFiles: [],
+            autoAttachChildProcesses: false,
+            outputCapture: 'std',
+            console: 'internalConsole'
+          },
+          waitForLaunchResponseBeforeConfiguration: false,
+          exceptionBreakpointFilters: ['uncaught'],
+          childSessions: {
+            launchType: 'pwa-node',
+            targetIdKey: '__pendingTargetId',
+            rootOutputCategories: ['stdout', 'stderr']
+          }
+        }
+      })
+    })
+
+    it.each(['app.js', 'app.mjs', 'app.cjs', 'upper.MJS'])('accepts %s', (name) => {
+      const resolution = resolveDebugProfile(
+        { ...profile, programRelativePath: `src/${name}` },
+        nodeContext()
+      )
+
+      expect(
+        resolution.status === 'resolved' && resolution.configuration.launchArguments.program
+      ).toBe(`${REAL_ROOT}\\src\\${name}`)
+    })
+
+    it.each(['app.ts', 'app.mts', 'app.cts', 'app.json', 'app'])(
+      'is invalid-profile for %s and never verifies the artifact',
+      (name) => {
+        const requested: string[] = []
+
+        expect(
+          resolveDebugProfile(
+            { ...profile, programRelativePath: `src/${name}` },
+            nodeContext({
+              resolveAdapterArtifact: (artifact) => {
+                requested.push(artifact)
+                return { status: 'verified', rootPath: 'unused', entryPath: ARTIFACT_ENTRY }
+              }
+            })
+          )
+        ).toEqual({ status: 'failed', reason: 'invalid-profile' })
+        expect(requested).toEqual([])
+      }
+    )
+
+    it.each(['missing', 'invalid', 'hash-mismatch'] as const)(
+      'is adapter-unavailable when the pinned artifact is %s',
+      (status) => {
+        expect(
+          resolveDebugProfile(profile, nodeContext({ resolveAdapterArtifact: () => ({ status }) }))
+        ).toEqual({ status: 'failed', reason: 'adapter-unavailable' })
+      }
+    )
+
+    it('is adapter-unavailable when the verified entry is inside the workspace', () => {
+      expect(
+        resolveDebugProfile(
+          profile,
+          nodeContext({
+            resolveAdapterArtifact: () => ({
+              status: 'verified',
+              rootPath: 'D:\\proj\\js-debug',
+              entryPath: 'd:\\PROJ\\js-debug\\src\\dapDebugServer.js'
+            })
+          })
+        )
+      ).toEqual({ status: 'failed', reason: 'adapter-unavailable' })
+    })
+
+    it('does not trust a node.exe inside the workspace, even from an absolute PATH entry', () => {
+      expect(
+        resolveDebugProfile(
+          profile,
+          nodeContext({
+            parentEnv: {
+              PATH: 'D:\\proj\\tools;C:\\Program Files\\nodejs',
+              SystemRoot: 'C:\\Windows'
+            },
+            exists: (path) => path === 'D:\\proj\\tools\\node.exe' || path === NODE
+          })
+        )
+      ).toEqual({ status: 'failed', reason: 'adapter-unavailable' })
+    })
+
+    it('does not trust a node.exe whose real path is inside the workspace', () => {
+      expect(
+        resolveDebugProfile(
+          profile,
+          nodeContext({
+            parentEnv: { PATH: 'C:\\links', SystemRoot: 'C:\\Windows' },
+            exists: (path) => path === 'C:\\links\\node.exe'
+          })
+        )
+      ).toEqual({ status: 'failed', reason: 'adapter-unavailable' })
+    })
+
+    it('is adapter-unavailable when node is only a .cmd shim or not on PATH', () => {
+      expect(
+        resolveDebugProfile(
+          profile,
+          nodeContext({
+            parentEnv: { PATH: 'C:\\shims', SystemRoot: 'C:\\Windows' },
+            exists: (path) => path === 'C:\\shims\\node.cmd'
+          })
+        )
+      ).toEqual({ status: 'failed', reason: 'adapter-unavailable' })
+      expect(resolveDebugProfile(profile, nodeContext({ exists: () => false }))).toEqual({
+        status: 'failed',
+        reason: 'adapter-unavailable'
+      })
+    })
+
+    it('never lets the profile choose the runtime, source maps, child processes or attach', () => {
+      const resolution = resolveDebugProfile(
+        {
+          ...profile,
+          runtimeExecutable: 'C:\\evil\\node.exe',
+          runtimeArgs: ['--require', 'C:\\evil.js'],
+          runtimeVersion: '14',
+          sourceMaps: true,
+          outFiles: ['C:\\**\\*.js'],
+          autoAttachChildProcesses: true,
+          outputCapture: 'console',
+          request: 'attach',
+          port: 9229,
+          __workspaceFolder: 'C:\\'
+        } as DebugProfile,
+        nodeContext()
+      )
+
+      expect(resolution.status).toBe('resolved')
+
+      if (resolution.status === 'resolved') {
+        const launch = resolution.configuration.launchArguments
+
+        expect(launch).toMatchObject({
+          request: 'launch',
+          runtimeExecutable: NODE,
+          sourceMaps: false,
+          outFiles: [],
+          autoAttachChildProcesses: false,
+          outputCapture: 'std'
+        })
+        expect(launch).not.toHaveProperty('runtimeArgs')
+        expect(launch).not.toHaveProperty('runtimeVersion')
+        expect(launch).not.toHaveProperty('port')
+        expect(launch).not.toHaveProperty('__workspaceFolder')
+      }
+    })
+
+    it('adds no node fields to python / csharp', () => {
+      const python = resolveDebugProfile(
+        { ...profile, language: 'python', programRelativePath: 'src/app.js' },
+        context({
+          parentEnv: { PATH: 'C:\\Python312', SystemRoot: 'C:\\Windows' },
+          exists: (path) => path === 'C:\\Python312\\python.exe',
+          getCatalogEntry: getDebugAdapterCatalogEntry
+        })
+      )
+
+      expect(python.status).toBe('resolved')
+
+      if (python.status === 'resolved') {
+        for (const key of [
+          'runtimeExecutable',
+          'sourceMaps',
+          'outFiles',
+          'autoAttachChildProcesses',
+          'outputCapture'
+        ]) {
+          expect(python.configuration.launchArguments).not.toHaveProperty(key)
+        }
+
+        expect(python.configuration.adapterCommand.args).toEqual(['-m', 'debugpy.adapter'])
+      }
     })
   })
 })

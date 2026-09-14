@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
 import { app } from 'electron'
-import { realpathSync, statSync } from 'fs'
+import { lstatSync, readFileSync, readdirSync, realpathSync, statSync } from 'fs'
+import { join } from 'path'
 import type { PlatformId } from '@shared/api'
 import {
   DEBUG_PROFILES_MAX_PER_WORKSPACE,
@@ -21,6 +22,14 @@ import { currentPlatform } from '../platform'
 import type { FileExistsCheck } from '../platform/executablePath'
 import { readDebugProfilesDocument, saveDebugProfilesDocument } from '../store/debugProfiles'
 import { getCurrentWorkspaceFolder } from '../workspaceFolder/currentWorkspaceFolder'
+import {
+  DEBUG_ADAPTER_ARTIFACTS,
+  DEBUG_ADAPTER_ARTIFACTS_DIRECTORY_NAME,
+  resolveDebugAdapterArtifactRoot,
+  verifyDebugAdapterArtifact,
+  type DebugAdapterArtifactId,
+  type DebugAdapterArtifactVerification
+} from './adapterArtifact'
 import {
   getDebugAdapterCatalogEntry,
   type DebugAdapterCatalogEntry,
@@ -84,6 +93,10 @@ export interface DebugProfileServiceDependencies {
   readonly getCatalogEntry: (language: DebugAdapterLanguageId) => DebugAdapterCatalogEntry
   /** adapter のプロセスの cwd。Main が持つ Workspace の外のフォルダ（Session 6-12）。 */
   readonly getAdapterWorkingDirectory: () => string
+  /** catalog の行が名乗る配布物を確かめる（Session 6-15B。起動のたびに呼ぶ）。 */
+  readonly resolveAdapterArtifact: (
+    artifact: DebugAdapterArtifactId
+  ) => DebugAdapterArtifactVerification
   readonly getSessionState: () => DebugSessionState
   readonly startSession: (options: DebugSessionStartOptions) => StartDebugSessionOutcome
   readonly log?: (level: 'info' | 'warn', message: string) => void
@@ -306,7 +319,8 @@ export function createDebugProfileService(
       exists: dependencies.exists,
       fileSystem: dependencies.fileSystem,
       getCatalogEntry: dependencies.getCatalogEntry,
-      adapterWorkingDirectory: dependencies.getAdapterWorkingDirectory()
+      adapterWorkingDirectory: dependencies.getAdapterWorkingDirectory(),
+      resolveAdapterArtifact: dependencies.resolveAdapterArtifact
     })
 
     if (resolution.status === 'failed') {
@@ -426,6 +440,31 @@ const defaultService = createDebugProfileService({
     指していれば profileResolver.ts が起動を断る。
   */
   getAdapterWorkingDirectory: () => app.getPath('userData'),
+  /*
+    adapter の配布物（Session 6-15B。docs/ARCHITECTURE.md §20.24）。置き場所は userData の下で、
+    Renderer から来る値も Workspace も見ない。使えない理由（無い / 形が違う / hash が違う）と
+    置き場所は Main のログにだけ残し、起動の結末は `adapter-unavailable` になる。
+  */
+  resolveAdapterArtifact: (id) => {
+    const artifact = DEBUG_ADAPTER_ARTIFACTS[id]
+    const rootPath = resolveDebugAdapterArtifactRoot(
+      join(app.getPath('userData'), DEBUG_ADAPTER_ARTIFACTS_DIRECTORY_NAME),
+      artifact
+    )
+    const verification = verifyDebugAdapterArtifact(rootPath, artifact, {
+      lstat: (path) => lstatSync(path),
+      readdir: (path) => readdirSync(path),
+      readFile: (path) => readFileSync(path)
+    })
+
+    if (verification.status !== 'verified') {
+      log.warn(
+        `debug adapter artifact ${id} ${artifact.version} is not usable (${verification.status}): ${rootPath}`
+      )
+    }
+
+    return verification
+  },
   getSessionState: getDebugSessionState,
   startSession: startDebugSession,
   log: (level, message) => {

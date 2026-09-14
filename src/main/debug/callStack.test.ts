@@ -230,6 +230,68 @@ describe('debug call stack store', () => {
     })
   })
 
+  /** Session 6-15B ── 実 vscode-js-debug 1.117.0 はスレッドも最上段の frame も `0` と名乗る。 */
+  it('keeps thread id 0 and frame id 0 and issues a frame handle for them (vscode-js-debug)', async () => {
+    const harness = createHarness()
+    const activeChannel = channel({
+      stoppedThreadId: 0,
+      requestThreads: vi.fn(async () => success({ threads: [{ id: 0, name: 'main.js [4242]' }] })),
+      requestStackTrace: vi.fn(async () =>
+        success({
+          stackFrames: [
+            {
+              id: 0,
+              name: 'global.main',
+              source: { path: 'd:\\proj\\main.js' },
+              line: 13,
+              column: 18
+            },
+            {
+              id: 1,
+              name: '<anonymous>',
+              source: { path: 'd:\\proj\\main.js' },
+              line: 18,
+              column: 1
+            }
+          ]
+        })
+      )
+    })
+
+    harness.fireStopped(activeChannel)
+    await settle()
+
+    expect(activeChannel.requestStackTrace).toHaveBeenCalledWith({
+      threadId: 0,
+      startFrame: 0,
+      levels: 50
+    })
+    expect(harness.store.list()).toMatchObject({
+      status: 'stopped',
+      activeThreadId: 0,
+      threads: [
+        {
+          id: 0,
+          stopped: true,
+          frames: [
+            { id: 0, line: 13 },
+            { id: 1, line: 18 }
+          ]
+        }
+      ]
+    })
+    expect(harness.store.getFrameHandle(0)).toEqual({
+      workspaceId: 'workspace-1',
+      sessionGeneration: 1,
+      stopGeneration: 1,
+      connectionId: 'debug-session-1/root',
+      threadId: 0,
+      frameId: 0
+    })
+    expect(harness.store.getFrameHandle(-1)).toBeNull()
+    expect(harness.store.getFrameHandle(0.5)).toBeNull()
+  })
+
   it('keeps multiple threads and loads frames only for the stopped thread', async () => {
     const harness = createHarness()
     const activeChannel = channel({

@@ -33,6 +33,14 @@ export interface DebugChildSessionPolicy {
   readonly launchType: string
   /** adapter が target を見分けるために構成へ入れてくる欄の名前（例: `__pendingTargetId`）。 */
   readonly targetIdKey: string
+  /**
+   * root の接続の `output` event のうち、Debug Console へ通す category（Session 6-15B）。
+   *
+   * 省略はすべて通す（6-15A のまま）。vscode-js-debug は root に起動したコマンドライン
+   * （runtime の絶対パス入り）を `console` で書くため、catalog の行が `stdout` / `stderr` に絞る。
+   * 子の接続の `output` はこの欄に関係なく通す。
+   */
+  readonly rootOutputCategories?: readonly string[]
 }
 
 export type DapStartDebuggingRejection =

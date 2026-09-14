@@ -7452,15 +7452,17 @@ Workspace の絶対パスが key として保存ファイルに載るが、**こ
 
 Session 6-1 では catalog の基盤だけを置き、`node` / `python` / `csharp` の固定行を `not-integrated` として持つ。`debugpy` / `vscode-js-debug` / `netcoredbg` の実 adapter 統合は後続 Session で行う。Renderer から任意 adapter、実行ファイル、引数、cwd を指定する口は作っていない。
 
-**Session 6-12 で python 行を `integrated` にした**（§20.20）。**Session 6-14 で csharp 行を `integrated` にした**（§20.22）。node は `not-integrated` のまま。
+**Session 6-12 で python 行を `integrated` にした**（§20.20）。**Session 6-14 で csharp 行を `integrated` にした**（§20.22）。**Session 6-15B で node 行を `integrated` にした**（§20.24。PATH の実行ファイルではなく、pin した配布物の script を PATH の `node.exe` で走らせる）。
 
 繋ぐ相手（**入手経路と stdio 対応は Session 6-1 で実機確認する**）:
 
-| 言語    | Debug Adapter 候補                       | 入手経路              | 6-1 で確かめること            |
-| ------- | ---------------------------------------- | --------------------- | ----------------------------- |
-| Node.js | vscode-js-debug の DAP server            | 未確定（同梱しない）  | **stdio か TCP か**・入手経路 |
-| Python  | `debugpy`（`python -m debugpy.adapter`） | `pip install debugpy` | 起動と `initialize` の往復    |
-| C#      | `netcoredbg --interpreter=vscode`        | 配布バイナリ          | 同上。**vsdbg は使わない**    |
+| 言語    | Debug Adapter 候補            | 入手経路             | 6-1 で確かめること            |
+| ------- | ----------------------------- | -------------------- | ----------------------------- |
+| Node.js | vscode-js-debug の DAP server | 未確定（同梱しない） | **stdio か TCP か**・入手経路 |
+
+> Node.js の行は Session 6-15B で確定した: 公式 GitHub Release の `js-debug-dap-v1.117.0.tar.gz` を userData へ展開したものを pin し、**TCP（socket）**で繋ぐ（§20.24）。
+> | Python | `debugpy`（`python -m debugpy.adapter`） | `pip install debugpy` | 起動と `initialize` の往復 |
+> | C# | `netcoredbg --interpreter=vscode` | 配布バイナリ | 同上。**vsdbg は使わない** |
 
 **vsdbg（Visual Studio の debugger）はライセンス上 Visual Studio / VS Code 以外から使えない。** C# は netcoredbg を前提とし、入手できない PC では「未インストール」に留める（LSP の csharp-ls と同じ扱い。§19.6 の状態表がそのまま使える）。
 
@@ -7538,25 +7540,27 @@ Session 6-15A で **DAP 接続の id（`connectionId`）** を足した。1つ�
 
 §19.8 の表をそのまま引き継ぎ、DAP 固有の3行を足す。
 
-| 渡さないもの                          | どう閉じているか                                                                          |
-| ------------------------------------- | ----------------------------------------------------------------------------------------- |
-| 絶対パス                              | Profile も応答も **workspace-relative path** だけ。変換は Main の中                       |
-| file URI                              | 組み立てるのも解くのも Main の中だけ                                                      |
-| adapter の実行ファイル / 引数 / cwd   | catalog が持つ。Profile にも IPC にも欄が無い（§20.4）                                    |
-| interpreter / runtime の実行ファイル  | PATH から Main が解決する。Profile に欄が無い                                             |
-| 任意の DAP request 名                 | 口は機能ごとに分かれている。method 名を渡す口が無い                                       |
-| 任意の adapter 選択                   | 行き先は `language`（3つの閉じた集合）だけで決まる                                        |
-| 任意の Workspace の profile           | `debug:list-profiles` の要求は `void`。key を渡す口が無い（§20.5）                        |
-| **`runInTerminal`（逆方向要求）**     | **拒否する。** `initialize` で `supportsRunInTerminalRequest: false` を名乗る             |
-| **`startDebugging`（逆方向要求）**    | 子セッションを受けるセッションだけが Main で検証して答える。Renderer へは出ない（§20.23） |
-| **adapter の port / socket / pid**    | `socketDebugAdapter.ts` の外へ出さない（§20.23）                                          |
-| **Workspace 外の program**            | `programRelativePath` を Files と同じ2段（パス文字列 → realpath）で検証して断る           |
-| **adapter が返す stack frame source** | Main が Workspace 相対へ正規化し、Workspace 外 / missing / malformed は開けない           |
-| **`variablesReference`**              | Main の handle 表に控え、Renderer へは Main が発行した handle だけを渡す（§20.15）        |
-| **evaluate の文脈**                   | 閉じた集合（`repl` / `watch`）だけ。任意の文字列を渡す欄が無い（§20.16）                  |
-| **stopped event / exceptionInfo**     | 閉じた集合の理由と、パスを伏せた型名 / メッセージだけを snapshot に載せる（§20.21）       |
-| **例外で止まる条件（filter）**        | Main の表と adapter が名乗った filter の積。Renderer に欄が無い（§20.21）                 |
-| **実行を差し替える環境変数**          | 下記                                                                                      |
+| 渡さないもの                          | どう閉じているか                                                                                |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| 絶対パス                              | Profile も応答も **workspace-relative path** だけ。変換は Main の中                             |
+| file URI                              | 組み立てるのも解くのも Main の中だけ                                                            |
+| adapter の実行ファイル / 引数 / cwd   | catalog が持つ。Profile にも IPC にも欄が無い（§20.4）                                          |
+| interpreter / runtime の実行ファイル  | PATH から Main が解決する。Profile に欄が無い                                                   |
+| 任意の DAP request 名                 | 口は機能ごとに分かれている。method 名を渡す口が無い                                             |
+| 任意の adapter 選択                   | 行き先は `language`（3つの閉じた集合）だけで決まる                                              |
+| 任意の Workspace の profile           | `debug:list-profiles` の要求は `void`。key を渡す口が無い（§20.5）                              |
+| **`runInTerminal`（逆方向要求）**     | **拒否する。** `initialize` で `supportsRunInTerminalRequest: false` を名乗る                   |
+| **`startDebugging`（逆方向要求）**    | 子セッションを受けるセッションだけが Main で検証して答える。Renderer へは出ない（§20.23）       |
+| **adapter の port / socket / pid**    | `socketDebugAdapter.ts` の外へ出さない（§20.23）                                                |
+| **adapter の配布物（script）**        | userData の下の pin した木だけを走らせる。置き場所 / 版 / hash は Main の表とログだけ（§20.24） |
+| **adapter が root へ書く出力**        | 表が名乗る category だけを Debug Console へ通す（js-debug は stdout / stderr。§20.24）          |
+| **Workspace 外の program**            | `programRelativePath` を Files と同じ2段（パス文字列 → realpath）で検証して断る                 |
+| **adapter が返す stack frame source** | Main が Workspace 相対へ正規化し、Workspace 外 / missing / malformed は開けない                 |
+| **`variablesReference`**              | Main の handle 表に控え、Renderer へは Main が発行した handle だけを渡す（§20.15）              |
+| **evaluate の文脈**                   | 閉じた集合（`repl` / `watch`）だけ。任意の文字列を渡す欄が無い（§20.16）                        |
+| **stopped event / exceptionInfo**     | 閉じた集合の理由と、パスを伏せた型名 / メッセージだけを snapshot に載せる（§20.21）             |
+| **例外で止まる条件（filter）**        | Main の表と adapter が名乗った filter の積。Renderer に欄が無い（§20.21）                       |
+| **実行を差し替える環境変数**          | 下記                                                                                            |
 
 #### `runInTerminal` を拒否する
 
@@ -8299,7 +8303,7 @@ adapter の `name` / 絶対パス / adapter の引数 / cwd / 環境（`adapterC
 
 - **`programArgs` は adapter のコマンドラインに一語も現れない**（`launchArguments.args` にだけ入る。§20.4 をテストで固定）
 - `console` は `internalConsole` 固定（`integratedTerminal` にすると `runInTerminal` を頼まれる経路になる）
-- launch の `type` と `initialize` の `adapterID` は言語ごとの表（`node: pwa-node` / `python: debugpy` / `csharp: coreclr`）。python / csharp は実 adapter で確かめた。node は実 adapter を繋ぐ Session が確定させる
+- launch の `type` と `initialize` の `adapterID` は言語ごとの表（`node: pwa-node` / `python: debugpy` / `csharp: coreclr`）。python / csharp は実 adapter で確かめた。node は実 adapter を繋ぐ Session が確定させる（Session 6-15B で `pwa-node` を実 vscode-js-debug で確かめた。§20.24）
 
 #### Adapter catalog の起動行
 
@@ -8310,7 +8314,7 @@ Session 6-12 で python 行を `python -m debugpy.adapter`、Session 6-14 で cs
 実 adapter を繋ぐときに確かめること（申し送り）:
 
 - **adapter のプロセスの cwd は Workspace の外**（§20.20）。python は `userData` を使う。C# は Windows 版 netcoredbg の Unicode path 不具合を踏まえ、`userData` が Unicode になりうるため `netcoredbg.exe` のある ASCII-only フォルダを cwd にする。どちらも Workspace root / Workspace 内なら `adapter-unavailable` で断る
-- vscode-js-debug は transport（stdio / TCP）が未確定のまま（§20.7）
+- vscode-js-debug は transport（stdio / TCP）が未確定のまま（§20.7）── Session 6-15B で TCP（socket）に確定（§20.24）
 - launch の `type` / 追加で要る欄（C# の `stopAtEntry` など）は、言語の枝に欄を足すのではなく `profileResolver.ts` の表 / 組み立てで閉じるのが既定（§20.10）
 
 #### 入れていないもの（Session 6-10）
@@ -8654,3 +8658,89 @@ root だけのセッション（debugpy / netcoredbg、子を受けない adapte
 #### 入れていないもの（Session 6-15A）
 
 vscode-js-debug の catalog 統合と入手経路 / Node Profile の実起動 / named pipe / 2本目以降の子（worker・子プロセス）/ worker・子プロセスの UI / attach / `runInTerminal` / TypeScript・sourceMaps・outFiles / 実 js-debug での debuggee プロセスの木の片付けの確認 / 正式 keybinding。
+
+### 20.24 Node.js Debug Adapter（vscode-js-debug。Session 6-15B）
+
+§20.23 の土台へ実 vscode-js-debug を繋ぎ、catalog の node 行を `integrated` にした。**v1 は JavaScript の launch だけ**。Renderer・preload・IPC の口（要求18・購読5）・CSP・Debug Profile の7欄（§20.3）は変えていない。値はすべて、実装の前に実 vscode-js-debug 1.117.0 へ Content-Length フレーミングの DAP を直接送る probe で確かめた。
+
+#### artifact（`adapterArtifact.ts`）
+
+| 項目                  | 値                                                                                                                      |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| 入手元                | 公式 GitHub Release `microsoft/vscode-js-debug` の `v1.117.0` / `js-debug-dap-v1.117.0.tar.gz`（standalone DAP server） |
+| release asset SHA-256 | `ad8d04ede9d4b75cc290fd5438a65047a06f786d04f604b6112485b36f090772`                                                      |
+| license               | MIT（asset の `js-debug/LICENSE`）                                                                                      |
+| 置き場所              | `<userData>/debug-adapters/js-debug-dap-v1.117.0/js-debug`（asset を展開すると `js-debug/` ができる）                   |
+| 入り口                | `src/dapDebugServer.js`                                                                                                 |
+| tree hash             | 60 ファイル / 2,467,634 バイト / `fdda8ebfec62c3d898a2332f033408cae035dd6981397416b559fe20743d4933`                     |
+
+- **npm の package に依存しない・同梱しない・自動で取りに行かない・新しい版へ追従しない。** 版を上げるときは asset の SHA-256 と tree hash を取り直し、probe で lifecycle を確かめ直してから表を書き換える
+- tree hash は、木の全ファイルを `/` 区切りの相対位置の UTF-16 code unit 順に並べ、`<SHA-256>  <相対位置>\n` を連ねたものの SHA-256。**入り口の script だけを hash しない** ── js-debug は debuggee に `bootloader.js` を `--require` で読み込ませ、`watchdog.js` を別プロセスで起こす
+- **起動のたびに**木を辿る（2.5MB。symlink / ジャンクションは辿らず `invalid`、数か大きさが表を越えたら中身を読む前に `hash-mismatch`）。結果は `verified` / `missing` / `invalid` / `hash-mismatch` で、Renderer へは `adapter-unavailable` だけが届く。置き場所と理由は Main のログだけ
+- js-debug は実行中に自分の木へ書かない（probe の前後で tree hash が同じ）
+
+#### runtime
+
+- **PATH から解いたネイティブの `node.exe` 1つ**を、adapter の server と debuggee の両方に使う。debuggee は launch の `runtimeExecutable` に Main が同じ絶対パスを載せる（載せないと js-debug が自分で `node` を探す）
+- `.cmd` の shim は探さない（`cmd.exe` で包むと kill が cmd.exe にしか届かない）。相対の PATH 項目は §20.7 のとおり飛ばし、**見つけた `node.exe` もその実体（realpath）も Workspace の中なら `adapter-unavailable`**（`node_modules/.bin` を PATH に足した環境で、clone したリポジトリの node.exe を信頼しないため）
+- adapter のプロセスの cwd は userData（§20.20 と同じ）、環境は `ELECTRON_RUN_AS_NODE` / `NODE_OPTIONS` を落とした親の環境。profile の `env` は launch の `env` にだけ入り、`NODE_OPTIONS` は §20.9 の表で断る
+
+#### launch 構成（`profileResolver.ts`）
+
+```
+adapter   node.exe <artifact>/src/dapDebugServer.js 0 127.0.0.1   （port 0 = OS が選ぶ。ready の合図 `Debug server listening at <host>:<port>`）
+launch    { type: 'pwa-node', request: 'launch', name, program, args, cwd: <Workspace root>, env, stopOnEntry,
+            runtimeExecutable: <同じ node.exe>, console: 'internalConsole',
+            sourceMaps: false, outFiles: [], autoAttachChildProcesses: false, outputCapture: 'std' }
+```
+
+| 欄                                   | 理由（実 1.117.0 の振る舞い）                                                                                       |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `sourceMaps: false` / `outFiles: []` | v1 は JavaScript だけ。`__workspaceFolder` を渡さないので既定の `${workspaceFolder}` 系の glob は js-debug が落とす |
+| `autoAttachChildProcesses: false`    | 既定は true。debuggee が起こした子プロセスへ2本目の `startDebugging` が来る（v1 は primary child だけ）             |
+| `outputCapture: 'std'`               | 既定の `console` は `console.*` しか拾わず、`process.stdout.write` / stderr が Debug Console に出ない               |
+| 拡張子                               | `.js` / `.mjs` / `.cjs` だけ（大小を区別しない）。`.ts` / `.mts` / `.cts` などは `invalid-profile`                  |
+| 例外 filter                          | `uncaught`（`all` は捕まえた例外でも止まる）                                                                        |
+
+Profile に `runtimeExecutable` / `runtimeArgs` / `runtimeVersion` / `sourceMaps` / `request: attach` / `port` が載っていても、検証が7欄から作り直すので launch に届かない。
+
+#### root / primary child と出力
+
+- 実 js-debug の順序: root `launch` の応答 → root へ `startDebugging`（`{ request: 'launch', configuration: { type: 'pwa-node', name: '<file> [<pid>]', __pendingTargetId } }`）→ 子の接続。`runInTerminal` は来ない（`console: internalConsole`）。構成は §20.23 の検証をそのまま通り、子の `launch` には作り直した4欄だけが行く
+- 子は `initialized` を2回送る（設定の窓と、`launch` 応答の後）。Deferred なので2回目は無害
+- breakpoint は子で `verified: false`（provisional）→ 読み込み後に `breakpoint` event で `verified: true`。source の path はドライブ文字が小文字（`c:\…`）で、§20.12 / §20.14 の相対化は大小を区別しないのでそのまま効く
+- **stdout / stderr（`outputCapture: 'std'`）は root の接続に届く**。root はほかに、起動したコマンドライン（`C:/Program Files/nodejs/node.exe .\main.js …`）を `console` で、`js-debug/launch` を `telemetry` で送る。**catalog の `childSessions.rootOutputCategories: ['stdout', 'stderr']` で、root の `output` はその2つだけを Debug Console へ通す**（子の `output` と、表に欄の無い python / csharp は 6-15A のまま全部通す）。node 自身が stderr に書く `Debugger attached.` / `Waiting for the debugger to disconnect...` は通る
+
+#### 片付け
+
+| きっかけ                                    | 実 js-debug で起きること                                                                                 | Main がすること                                                                                  |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| 正常終了 / 未処理例外で終了                 | 子 `thread exited` → 子 `terminated` → （約 60ms）root に未処理例外の stderr → root `terminated`         | **terminating で root の `terminated` / `exited` を待つ（上限 2 秒）** → 子 → root → server kill |
+| Stop                                        | `supportsTerminateRequest: false` なので子へ `disconnect`（`terminateDebuggee`）→ 子 `terminated` → 応答 | §20.13 の段（terminate を飛ばす）→ server kill                                                   |
+| debuggee が外から落ちた                     | 子 / root の `terminated`                                                                                | 上の正常終了と同じ                                                                               |
+| server が外から落ちた / root の接続の error | debuggee と watchdog は server が消えると自分で終わる（probe で 300ms 以内）                             | §20.23 の adapter の失敗の経路                                                                   |
+| Workspace switch / アプリ終了               | —                                                                                                        | root へ `disconnect` を書いて子 → root → server を閉じる（§20.23 のまま）                        |
+
+- **server は session の後も常駐する**（root の `disconnect` の後も待ち受けを続ける）。Main は必ず kill する（2 秒で終わらなければ SIGKILL）
+- 子が自分から終わって root を待つ間の、子の接続の close と adapter の close は失敗ではなく終わり方として扱う（error のログを出さない）。待つ間の Stop は同じ終わりを待つ
+- 子の設定中の `terminated` と Stop の途中の `terminated` は §20.23 のまま即座に片付ける
+
+#### id 0 と telemetry（production 確認で直したもの）
+
+| 見つけたこと                                                                                                             | 直した場所                                                                                                                                                                   |
+| ------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| js-debug はスレッドを `0`、最上段の frame を `0` と名乗る。0 を落として Call Stack が空・Variables / Evaluate が `stale` | `dapThreads.ts`・thread event の読み取り（`debugSessionManager.ts`）・frame handle の照合（`callStack.ts`）・IPC の frameId の形（`handlers/debug.ts`）を **0 以上の整数**に |
+| 子の接続からも `telemetry`（`js-debug/dap/operation`）が来て、Debug Console に system の行が出た                         | `console.ts` の host が `telemetry` を出さない（言語に依らず。DAP の仕様で利用者に見せない category）                                                                        |
+
+`variablesReference` は従来どおり `> 0` だけが中身を持つ（DAP で 0 は「子が無い」の意味）。
+
+#### 分かっている制約（v1）
+
+- Pause の停止理由は `step` になる（js-debug が `skipFiles` の `<node_internals>` を抜けて止まるため）。Toolbar の Pause 自体は効き、止まる行は Workspace のコード
+- `exceptionInfo` は `details.typeName` / `details.message` を持たず、`exceptionId` に `Error: <メッセージ>` を丸ごと入れる。`breakMode` は DAP に無い値 `all` を返すので §20.21 の読み方で null になり、breakMode の表示は出ない。型名の欄に `Error: boom uncaught`、メッセージの欄に stopped の `description`（`Paused on exception`）が出る
+- ESM の top-level で投げた例外は `uncaught` でも止まらない（V8 が module の評価の reject として扱う）。関数の中の例外は止まる
+- node が stderr に書く未処理例外のスタックは絶対パス / file URI を含む ── プログラム自身の出力で、§20.9 の Debug Console の例外のまま加工しない
+
+#### 入れていないもの（Session 6-15B）
+
+TypeScript / source map / outFiles / attach / npm・yarn・pnpm の script / runtimeVersion・nvm / 任意の runtimeExecutable・cwd / worker・子プロセスの UI と2本目以降の子 / artifact の自動ダウンロード・展開 UI / 正式 keybinding。

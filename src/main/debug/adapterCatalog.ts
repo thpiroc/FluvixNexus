@@ -5,6 +5,7 @@ import {
   trimTrailingSeparator,
   type FileExistsCheck
 } from '../platform/executablePath'
+import type { DebugAdapterArtifactId } from './adapterArtifact'
 import type { DebugAdapterTransport } from './adapterTransport'
 
 /**
@@ -18,7 +19,8 @@ import type { DebugAdapterTransport } from './adapterTransport'
  *
  * Session 6-12 で **python の行を `integrated` にした**（最初の実 adapter。`python -m debugpy.adapter`）。
  * Session 6-14 で **csharp の行を `integrated` にした**（`netcoredbg --interpreter=vscode`）。
- * node は `not-integrated` のまま（Node adapter の入手経路と transport は未調査）。
+ * Session 6-15B で **node の行を `integrated` にした**（PATH の `node` で、pin した
+ * vscode-js-debug の `dapDebugServer.js` を socket の server として立てる。adapterArtifact.ts）。
  */
 
 /*
@@ -50,19 +52,31 @@ export interface DebugAdapterExecutable {
   readonly executable: string
   readonly args: readonly string[]
   /**
+   * `executable` で走らせる script の配布物（Session 6-15B。main/debug/adapterArtifact.ts）。
+   *
+   * 持つ行は、起動のたびに resolver が pin した中身と突き合わせ、入り口の script の絶対パスを
+   * `args` の**前**に置く。実行ファイルは**ネイティブの実行ファイルだけ**を探す（`.cmd` を
+   * `cmd.exe` で包むと、kill が届くのが cmd.exe だけになり script が残るため）。
+   */
+  readonly artifact?: DebugAdapterArtifactId
+  /**
    * 繋ぎ方（Session 6-15A。main/debug/adapterTransport.ts）。省略は stdio。
    *
    * socket の行は ready の合図（stdout の1行に当てる正規表現）も表の側で持つ。
-   * 出荷状態の行はどれも持たない（python / csharp は stdio、node は未統合）。
+   * 出荷状態で持つのは node の行だけ（python / csharp は stdio）。
    */
   readonly transport?: DebugAdapterTransport
   /**
    * `startDebugging` で子セッションを受ける adapter か（Session 6-15A）。省略は受けない。
    *
    * 子の構成の `type` は resolver が言語の表から埋める。ここに持つのは、adapter が
-   * target を見分けるために構成へ入れてくる欄の名前だけ。
+   * target を見分けるために構成へ入れてくる欄の名前と、root の接続の `output` のうち
+   * Debug Console へ通す category（Session 6-15B。省略はすべて通す）。
    */
-  readonly childSessions?: { readonly targetIdKey: string }
+  readonly childSessions?: {
+    readonly targetIdKey: string
+    readonly rootOutputCategories?: readonly string[]
+  }
 }
 
 export interface DebugAdapterCatalogEntry {
@@ -83,11 +97,40 @@ export interface DebugAdapterCommand {
   readonly transport?: DebugAdapterTransport
 }
 
+/**
+ * vscode-js-debug の standalone server が待ち受けを始めた合図（Session 6-15B。v1.117.0 で確認）。
+ *
+ * `dapDebugServer.js <port> <host>` は `Debug server listening at <address>:<port>` を1行出す。
+ * port は `0`（OS が空いた port を選ぶ）で起こし、実際の port をこの行から読む。
+ */
+export const JS_DEBUG_READY_PATTERN = /^Debug server listening at (?<host>\S+):(?<port>\d{1,5})$/
+
 const DEBUG_ADAPTER_CATALOG: Record<DebugAdapterLanguageId, DebugAdapterCatalogEntry> = {
+  /*
+    Session 6-15B。PATH の `node`（ネイティブの node.exe）で、pin した vscode-js-debug の
+    `dapDebugServer.js 0 127.0.0.1` を立てる。stdio ではなく socket で DAP を話し、root の接続に
+    届く `startDebugging`（`__pendingTargetId`）で debug 対象ごとの子の接続を張る。
+    デバッグ対象の node も同じ node.exe（profileResolver.ts が launch の `runtimeExecutable` に載せる）。
+    root の接続の `output` は、デバッグ対象の stdout / stderr だけを通す ── js-debug は root に
+    起動したコマンドライン（node の絶対パス入り）を `console` で書き、`telemetry` も送る。
+  */
   node: {
     language: 'node',
-    name: 'Node.js Debug Adapter',
-    integrationStatus: 'not-integrated'
+    name: 'vscode-js-debug',
+    integrationStatus: 'integrated',
+    adapter: {
+      executable: 'node',
+      artifact: 'vscode-js-debug',
+      args: ['0', '127.0.0.1'],
+      transport: {
+        kind: 'socket',
+        readiness: { kind: 'stdout-pattern', pattern: JS_DEBUG_READY_PATTERN }
+      },
+      childSessions: {
+        targetIdKey: '__pendingTargetId',
+        rootOutputCategories: ['stdout', 'stderr']
+      }
+    }
   },
   /*
     Session 6-12。PATH の `python` で debugpy の adapter を stdio で立てる（`pip install debugpy`）。
@@ -183,9 +226,14 @@ export function resolveDebugAdapterExecutable(
     return found === null ? null : { file: found, args: [...adapter.args] }
   }
 
-  // ネイティブの実行ファイルを先に探し、包むのは包まないと動かないものだけにする。
+  /*
+    ネイティブの実行ファイルを先に探し、包むのは包まないと動かないものだけにする。
+    script の配布物を走らせる行（Session 6-15B）は `.cmd` を探さない（`artifact` の説明）。
+  */
   const found = findExecutableOnPath(
-    [`${executable}.exe`, `${executable}.cmd`],
+    adapter.artifact === undefined
+      ? [`${executable}.exe`, `${executable}.cmd`]
+      : [`${executable}.exe`],
     platform,
     env,
     exists

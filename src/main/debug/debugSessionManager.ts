@@ -159,6 +159,16 @@ export const DEBUG_SESSION_DISCONNECT_GRACE_MS = 2_000
 export const DEBUG_SESSION_CONTROL_TIMEOUT_MS = 10_000
 
 /**
+ * primary child が自分から終わった後、root の `terminated` / `exited` を待つ長さ（Session 6-15B）。
+ *
+ * vscode-js-debug では子の `terminated` はデバッグ対象の接続が切れた合図で、プロセスの終わりと
+ * その最後の出力（捕まえられなかった例外のメッセージなど）は root の接続に**後から**届く
+ * （実 1.117.0 で子の `terminated` の約 60ms 後）。待つ間は terminating で、Continue / Step は断る。
+ * 過ぎたら root を待たずに片付ける ── 待つのはこの長さまで。
+ */
+export const DEBUG_CHILD_SESSION_COMPLETION_GRACE_MS = 2_000
+
+/**
  * 動いている Debug Session へ breakpoint を送る口（Session 6-3）。
  *
  * ## なぜ「送れるもの」を1つに絞ってあるのか
@@ -296,6 +306,8 @@ export interface DebugSessionManagerOptions {
   readonly terminateGraceMs?: number
   readonly disconnectGraceMs?: number
   readonly controlTimeoutMs?: number
+  /** Session 6-15B。既定は `DEBUG_CHILD_SESSION_COMPLETION_GRACE_MS`。 */
+  readonly childCompletionGraceMs?: number
 }
 
 interface RunningDebugSession {
@@ -353,6 +365,11 @@ interface RunningDebugSession {
   childCount: number
   /** root が `starting → running` へ進んだ（または終わった）とき解決する。子の切り替えはこれを待つ。 */
   readonly rootStarted: Deferred<void>
+  /**
+   * primary child が自分から終わり、root の終わりを待っている（Session 6-15B）。
+   * 立っている間の子の接続の close と adapter の close は、失敗ではなく終わり方として扱う。
+   */
+  childCompleted: boolean
 }
 
 /**
@@ -606,7 +623,8 @@ export function createDebugSessionManager(
       childSessions: startOptions.childSessions ?? null,
       primaryChild: null,
       childCount: 0,
-      rootStarted: createDeferred()
+      rootStarted: createDeferred(),
+      childCompleted: false
     }
 
     current = record
@@ -1026,6 +1044,19 @@ export function createDebugSessionManager(
       return
     }
 
+    /*
+      root の `output` を category で絞る（Session 6-15B）。表が名乗るときだけで、子が来る前から効く
+      ── vscode-js-debug は子を頼む前に、起動したコマンドライン（runtime の絶対パス入り）を
+      root へ `console` で書く。DAP の既定の category は `console`。
+    */
+    if (event === 'output' && !isRootOutputAllowed(record.childSessions, body)) {
+      log(
+        'debug',
+        `${record.adapterCommand.name}: dropped a root output outside the allowed categories.`
+      )
+      return
+    }
+
     if (
       child !== null &&
       child.phase === 'ready' &&
@@ -1051,7 +1082,12 @@ export function createDebugSessionManager(
       return
     }
 
-    if (event === 'output' || event === 'terminated' || event === 'exited') {
+    if (event === 'terminated' || event === 'exited') {
+      handleChildCompletion(record, child, event, body)
+      return
+    }
+
+    if (event === 'output') {
       dispatchSessionEvent(record, event, body)
       return
     }
@@ -1340,6 +1376,45 @@ export function createDebugSessionManager(
     }
   }
 
+  /**
+   * primary child の `terminated` / `exited`（Session 6-15B）。
+   *
+   * ```
+   * Stop の途中 / 片付けの途中 / 子がまだ設定中 … 6-15A のまま（dispatchSessionEvent がその場で終わらせる）
+   * ready の子が自分から終わった               … terminating へ進め、root の終わりを待つ
+   *                                              （root の terminated / exited / 接続の close / 猶予切れ）
+   * ```
+   *
+   * root の接続が残っている間に届く `output` はそのまま Debug Console へ流れる。
+   */
+  function handleChildCompletion(
+    record: RunningDebugSession,
+    child: ChildDebugConnection,
+    event: string,
+    body: unknown
+  ): void {
+    if (record.childCompleted) {
+      return
+    }
+
+    if (record.stopPhase !== 'none' || record.cleanupStarted || child.phase !== 'ready') {
+      dispatchSessionEvent(record, event, body)
+      return
+    }
+
+    record.childCompleted = true
+    log('debug', `${record.adapterCommand.name}: the child sent "${event}"; waiting for the root.`)
+    beginStopping(record)
+
+    armStopTimer(
+      record,
+      options.childCompletionGraceMs ?? DEBUG_CHILD_SESSION_COMPLETION_GRACE_MS,
+      () => {
+        terminateRecord(record, 'the root debug session did not end after the child ended.', false)
+      }
+    )
+  }
+
   function handleChildClosed(generation: number, connectionId: string, reason: string): void {
     const record = current
 
@@ -1355,6 +1430,14 @@ export function createDebugSessionManager(
 
     child.phase = 'closed'
     child.initialized.resolve()
+
+    if (record.childCompleted) {
+      log(
+        'debug',
+        `${record.adapterCommand.name}: the child debug connection closed after it ended.`
+      )
+      return
+    }
 
     if (record.stopPhase !== 'none') {
       log('debug', `${record.adapterCommand.name}: the child debug connection closed after stop.`)
@@ -1456,6 +1539,13 @@ export function createDebugSessionManager(
     */
     if (record.stopPhase !== 'none') {
       log('warn', `${record.adapterCommand.name}: failed while stopping: ${reason}`)
+      terminateRecord(record, reason, false)
+      return
+    }
+
+    /* 子が終わって root を待っている間に adapter が閉じた（Session 6-15B）── 終わり方の1つ。 */
+    if (record.childCompleted) {
+      log('debug', `${record.adapterCommand.name}: the adapter ended after the child: ${reason}`)
       terminateRecord(record, reason, false)
       return
     }
@@ -2175,7 +2265,8 @@ function readThreadEventId(body: unknown): number | null {
 
   const threadId = (body as { readonly threadId?: unknown }).threadId
 
-  return typeof threadId === 'number' && Number.isSafeInteger(threadId) && threadId > 0
+  // 0 を含む（vscode-js-debug のスレッドは 0。Session 6-15B）。
+  return typeof threadId === 'number' && Number.isSafeInteger(threadId) && threadId >= 0
     ? threadId
     : null
 }
@@ -2198,6 +2289,27 @@ function createDeferred<T>(): Deferred<T> {
   })
 
   return { promise, resolve }
+}
+
+/**
+ * root の `output` を Debug Console へ通してよいか（Session 6-15B）。
+ *
+ * 子セッションの表が `rootOutputCategories` を名乗らなければ、6-15A のまま全部通す。
+ * category が無い / 文字列でない output は DAP の既定どおり `console` として比べる。
+ */
+function isRootOutputAllowed(policy: DebugChildSessionPolicy | null, body: unknown): boolean {
+  const allowed = policy?.rootOutputCategories
+
+  if (allowed === undefined) {
+    return true
+  }
+
+  const category =
+    typeof body === 'object' && body !== null && 'category' in body
+      ? (body as { readonly category?: unknown }).category
+      : undefined
+
+  return allowed.includes(typeof category === 'string' ? category : 'console')
 }
 
 function declineStartDebugging(message: string): DapStartDebuggingAnswer {

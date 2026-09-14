@@ -51,6 +51,14 @@ export interface DebugLaunchRequestArguments extends DebugLaunchLanguageOptions 
    */
   readonly stopAtEntry?: boolean
   /**
+   * node の debuggee を起こす実行ファイル（Session 6-15B。node だけが持つ）。
+   *
+   * adapter を起こしたのと**同じ** node.exe の絶対パス（Main が PATH から解決したもの）。
+   * 載せないと js-debug が既定の `node` を自分で探しに行き、何が動くかを Main が決めていないことになる。
+   * profile の欄からは作らない。
+   */
+  readonly runtimeExecutable?: string
+  /**
    * 出力先。**Debug Console 固定**（§20.3）。`integratedTerminal` / `externalTerminal` にすると
    * adapter が `runInTerminal` を頼んでくる経路になる（§20.9 で拒否している）。
    */
@@ -70,6 +78,20 @@ export interface DebugLaunchLanguageOptions {
    * ── v1 は同時セッション1本なので応える手段が無く、`subprocess.run(...)` が返らなくなる。
    */
   readonly subProcess?: false
+  /**
+   * 以下4つは vscode-js-debug（Session 6-15B。§20.24）。v1 は JavaScript だけを対象にする。
+   *
+   * - `sourceMaps: false` … TypeScript / bundler の source map を読まない（既定は true）
+   * - `outFiles: []`      … source map を探しに Workspace を走査しない
+   * - `autoAttachChildProcesses: false` … debuggee が起こした子プロセスへ2本目の子セッションを張らない
+   *   （既定は true。v1 は primary child の1本だけを受ける）
+   * - `outputCapture: 'std'` … `process.stdout` / `process.stderr` への書き込みを Debug Console へ送る
+   *   （既定の `console` は `console.*` しか拾わない）
+   */
+  readonly sourceMaps?: false
+  readonly outFiles?: readonly []
+  readonly autoAttachChildProcesses?: false
+  readonly outputCapture?: 'std'
 }
 
 export interface ResolvedLaunchConfiguration {

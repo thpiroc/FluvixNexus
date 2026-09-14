@@ -7,6 +7,7 @@ import {
   findInDirectory,
   type FileExistsCheck
 } from '../platform/executablePath'
+import type { DebugAdapterArtifactId, DebugAdapterArtifactVerification } from './adapterArtifact'
 import { resolveDebugAdapterExecutable, type DebugAdapterCatalogEntry } from './adapterCatalog'
 import { createDebugAdapterProcessEnvironment } from './environmentPolicy'
 import { resolveDebugProgramPath, type DebugProgramFileSystem } from './programPath'
@@ -39,14 +40,14 @@ import type { DebugLaunchLanguageOptions, ResolvedLaunchConfiguration } from './
  * 言語ごとの launch 構成の違い（`type` と、固定で足す欄）はこのファイルの表にあり、Renderer には
  * 現れない（§20.10）。python の行は Session 6-12 で実 debugpy に当てて確定させた。
  * csharp の行は Session 6-14 で実 netcoredbg に当てて確定させた。
- * node は実 adapter を繋ぐ Session が確定させる。
+ * node の行は Session 6-15B で実 vscode-js-debug（1.117.0）に当てて確定させた（§20.24）。
  */
 
 /**
  * launch 構成の `type` と `initialize` の `adapterID`（言語ごとの閉じた表）。
  *
  * VS Code の拡張が使う名前に揃えてある（vscode-js-debug は `pwa-node`・debugpy は
- * `debugpy`・netcoredbg は `coreclr`）。debugpy と netcoredbg は実 adapter で確かめた。
+ * `debugpy`・netcoredbg は `coreclr`）。3つとも実 adapter で確かめた。
  */
 export const DEBUG_LAUNCH_TYPES: Readonly<Record<DebugProfileLanguage, string>> = {
   node: 'pwa-node',
@@ -59,12 +60,17 @@ export const DEBUG_LAUNCH_TYPES: Readonly<Record<DebugProfileLanguage, string>> 
  *
  * python は実 debugpy（1.8.21）で確かめた値。`type: 'debugpy'` もそのまま通った。
  * csharp は実 netcoredbg（3.2.0-1）で追加の固定欄なしに通った。
- * node は実 adapter を繋ぐ Session が決める。
+ * node は実 vscode-js-debug（1.117.0）で確かめた値（resolvedLaunch.ts の各欄の説明）。
  */
 export const DEBUG_LAUNCH_LANGUAGE_OPTIONS: Readonly<
   Record<DebugProfileLanguage, DebugLaunchLanguageOptions>
 > = {
-  node: {},
+  node: {
+    sourceMaps: false,
+    outFiles: [],
+    autoAttachChildProcesses: false,
+    outputCapture: 'std'
+  },
   python: { subProcess: false },
   csharp: {}
 }
@@ -82,17 +88,26 @@ export const DEBUG_LAUNCH_LANGUAGE_OPTIONS: Readonly<
  * | `userUnhandled` | 型名に adapter の注記（`(note: full exception trace is shown …)`）が混ざる            |
  *
  * csharp は実 netcoredbg 3.2.0-1 で `user-unhandled` が未処理例外の raise 位置で止まり、
- * `exceptionInfo` まで返ることを確かめた。node は未統合なので空（何も送らない）。
+ * `exceptionInfo` まで返ることを確かめた。node は実 vscode-js-debug 1.117.0 で `uncaught` が
+ * 捕まえられなかった例外の throw の位置で1回だけ止まり（`try` で捕まえた例外では止まらない）、
+ * `exceptionInfo` まで返ることを確かめた（`all` は捕まえた例外でも止まる）。
  */
 export const DEBUG_EXCEPTION_BREAKPOINT_FILTERS: Readonly<
   Record<DebugProfileLanguage, readonly string[]>
 > = {
-  node: [],
+  node: ['uncaught'],
   python: ['uncaught'],
   csharp: ['user-unhandled']
 }
 
 const WINDOWS_DOTNET_DIRECTORIES = ['C:\\Program Files\\dotnet', 'C:\\Program Files (x86)\\dotnet']
+
+/**
+ * node の profile で走らせてよいプログラムの拡張子（Session 6-15B。v1 は JavaScript だけ）。
+ *
+ * TypeScript（`.ts` / `.mts` / `.cts`）は source map と build の段取りが要るので v1 では断る。
+ */
+export const NODE_DEBUG_PROGRAM_EXTENSIONS: readonly string[] = ['.js', '.mjs', '.cjs']
 
 export interface DebugProfileResolverContext {
   /** 今の Workspace root（currentWorkspaceFolder の値。realpath は中で取る）。 */
@@ -111,6 +126,14 @@ export interface DebugProfileResolverContext {
    * （既定は userData）。Renderer から来る値ではない。
    */
   readonly adapterWorkingDirectory: string
+  /**
+   * catalog の行が名乗る配布物を、pin した中身と突き合わせる（Session 6-15B。adapterArtifact.ts）。
+   *
+   * 置き場所は Main が決める（userData の下）。`verified` 以外なら起動しない。
+   */
+  readonly resolveAdapterArtifact: (
+    artifact: DebugAdapterArtifactId
+  ) => DebugAdapterArtifactVerification
 }
 
 export type DebugProfileResolution =
@@ -205,6 +228,16 @@ export function resolveDebugProfile(
     return failed('adapter-unavailable')
   }
 
+  const nodeLaunch = resolveNodeLaunch(draft.language, entry, program, context, executable)
+
+  if (nodeLaunch.status === 'invalid-profile') {
+    return failed('invalid-profile')
+  }
+
+  if (nodeLaunch.status === 'adapter-unavailable') {
+    return failed('adapter-unavailable')
+  }
+
   /*
     5. 組み立て。プログラムの cwd は常に Workspace root（§20.3）で、検証に使った root の
        realpath を使う ── 確かめた場所と起動する場所を同じ手順から出す。
@@ -225,6 +258,16 @@ export function resolveDebugProfile(
   */
   const transport = entry.adapter?.transport
   const childSessions = entry.adapter?.childSessions
+  /*
+    node（Session 6-15B）: adapter の引数の前に、確かめた配布物の入り口の script を置く。
+    debuggee は adapter と同じ node.exe で起こす（launch の `runtimeExecutable`）。
+  */
+  const adapterArgs =
+    nodeLaunch.status === 'ok' && nodeLaunch.artifactEntryPath !== null
+      ? [nodeLaunch.artifactEntryPath, ...executable.args]
+      : executable.args
+  const runtimeExecutable =
+    nodeLaunch.status === 'ok' ? ({ runtimeExecutable: nodeLaunch.runtimeExecutable } as const) : {}
 
   return {
     status: 'resolved',
@@ -235,7 +278,7 @@ export function resolveDebugProfile(
       adapterCommand: {
         name: entry.name,
         file: executable.file,
-        args: executable.args,
+        args: adapterArgs,
         cwd: adapterCwd,
         env: createDebugAdapterProcessEnvironment(context.parentEnv),
         ...(transport === undefined ? {} : { transport })
@@ -251,15 +294,113 @@ export function resolveDebugProfile(
         cwd,
         env: draft.env,
         ...stopOnEntry,
+        ...runtimeExecutable,
         console: 'internalConsole'
       },
       waitForLaunchResponseBeforeConfiguration: draft.language === 'csharp',
       exceptionBreakpointFilters: DEBUG_EXCEPTION_BREAKPOINT_FILTERS[draft.language],
       ...(childSessions === undefined
         ? {}
-        : { childSessions: { launchType: type, targetIdKey: childSessions.targetIdKey } })
+        : {
+            childSessions: {
+              launchType: type,
+              targetIdKey: childSessions.targetIdKey,
+              ...(childSessions.rootOutputCategories === undefined
+                ? {}
+                : { rootOutputCategories: childSessions.rootOutputCategories })
+            }
+          })
     }
   }
+}
+
+type NodeLaunchResolution =
+  | { readonly status: 'not-node' }
+  | {
+      readonly status: 'ok'
+      /** debuggee を起こす node.exe（adapter と同じ絶対パス）。 */
+      readonly runtimeExecutable: string
+      /** 確かめた配布物の入り口の script。行が配布物を名乗らなければ null。 */
+      readonly artifactEntryPath: string | null
+    }
+  | { readonly status: 'invalid-profile' }
+  | { readonly status: 'adapter-unavailable' }
+
+/**
+ * node の起動に要るものを確かめる（Session 6-15B。§20.24）。
+ *
+ * ```
+ * プログラム … .js / .mjs / .cjs だけ（TypeScript は v1 の外）
+ * runtime   … adapter として PATH から解いた node.exe。実体（realpath）も含めて Workspace の外
+ * 配布物    … pin した tree hash と一致したときだけ。入り口の script も Workspace の外
+ * ```
+ *
+ * runtime を Workspace の中に許さないのは、`node_modules/.bin` のようなフォルダを PATH に足した
+ * 環境で、clone してきたリポジトリの `node.exe` が adapter と debuggee の両方として動くため。
+ */
+function resolveNodeLaunch(
+  language: DebugProfileLanguage,
+  entry: DebugAdapterCatalogEntry,
+  program: { readonly absolutePath: string; readonly rootRealPath: string },
+  context: DebugProfileResolverContext,
+  adapterExecutable: { readonly file: string }
+): NodeLaunchResolution {
+  if (language !== 'node') {
+    return { status: 'not-node' }
+  }
+
+  const extension = extensionForPlatform(program.absolutePath, context.platform).toLowerCase()
+
+  if (!NODE_DEBUG_PROGRAM_EXTENSIONS.includes(extension)) {
+    return { status: 'invalid-profile' }
+  }
+
+  const runtime = adapterExecutable.file
+
+  if (isInsideEitherWorkspaceRoot(runtime, program.rootRealPath, context)) {
+    return { status: 'adapter-unavailable' }
+  }
+
+  let runtimeRealPath: string
+
+  try {
+    runtimeRealPath = context.fileSystem.realpath(runtime)
+  } catch {
+    return { status: 'adapter-unavailable' }
+  }
+
+  if (isInsideEitherWorkspaceRoot(runtimeRealPath, program.rootRealPath, context)) {
+    return { status: 'adapter-unavailable' }
+  }
+
+  const artifactId = entry.adapter?.artifact
+
+  if (artifactId === undefined) {
+    return { status: 'ok', runtimeExecutable: runtime, artifactEntryPath: null }
+  }
+
+  const artifact = context.resolveAdapterArtifact(artifactId)
+
+  if (
+    artifact.status !== 'verified' ||
+    !isAbsolute(artifact.entryPath) ||
+    isInsideEitherWorkspaceRoot(artifact.entryPath, program.rootRealPath, context)
+  ) {
+    return { status: 'adapter-unavailable' }
+  }
+
+  return { status: 'ok', runtimeExecutable: runtime, artifactEntryPath: artifact.entryPath }
+}
+
+function isInsideEitherWorkspaceRoot(
+  path: string,
+  workspaceRootRealPath: string,
+  context: DebugProfileResolverContext
+): boolean {
+  return (
+    isInsideWorkspace(workspaceRootRealPath, path) ||
+    isInsideWorkspace(context.workspaceRootPath, path)
+  )
 }
 
 function failed(reason: Exclude<DebugStartFailure, 'spawn-failed'>): DebugProfileResolution {

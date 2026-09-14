@@ -85,6 +85,10 @@ function harness(overrides: Partial<DebugProfileServiceDependencies> = {}) {
           return 'C:\\outside\\evil.js'
         }
 
+        if (lower === 'c:\\nodejs\\node.exe') {
+          return path
+        }
+
         throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
       },
       isFile: (path) => path.toLowerCase().endsWith('app.js')
@@ -94,6 +98,8 @@ function harness(overrides: Partial<DebugProfileServiceDependencies> = {}) {
     exists: (path) => path === 'C:\\nodejs\\node.exe',
     getCatalogEntry: () => integratedNode,
     getAdapterWorkingDirectory: () => ADAPTER_CWD,
+    // 配布物を名乗らない mock の行では呼ばれない（Session 6-15B）。
+    resolveAdapterArtifact: () => ({ status: 'missing' }),
     getSessionState: () => 'idle',
     startSession: (options) => {
       started.push(options)
@@ -362,10 +368,15 @@ describe('debug profiles — start', () => {
           cwd: 'D:\\proj',
           env: { APP_MODE: 'debug' },
           stopOnEntry: false,
-          console: 'internalConsole'
+          console: 'internalConsole',
+          runtimeExecutable: 'C:\\nodejs\\node.exe',
+          sourceMaps: false,
+          outFiles: [],
+          autoAttachChildProcesses: false,
+          outputCapture: 'std'
         },
         waitForLaunchResponseBeforeConfiguration: false,
-        exceptionBreakpointFilters: []
+        exceptionBreakpointFilters: ['uncaught']
       }
     ])
     expect(started[0]).not.toHaveProperty('childSessions')
@@ -395,6 +406,45 @@ describe('debug profiles — start', () => {
       childSessions: { launchType: 'pwa-node', targetIdKey: '__pendingTargetId' }
     })
   })
+
+  it('verifies the pinned artifact at every start and puts its entry before the server arguments (Session 6-15B)', () => {
+    const verifications: string[] = []
+    const artifactRow: DebugAdapterCatalogEntry = {
+      ...integratedNode,
+      adapter: { executable: 'node', artifact: 'vscode-js-debug', args: ['0', '127.0.0.1'] }
+    }
+    const entry =
+      'C:\\Users\\me\\AppData\\Roaming\\Fluvix Nexus\\debug-adapters\\js-debug\\src\\dapDebugServer.js'
+    const { service, started, profileId } = withProfile({
+      getCatalogEntry: () => artifactRow,
+      resolveAdapterArtifact: (artifact) => {
+        verifications.push(artifact)
+        return { status: 'verified', rootPath: 'unused', entryPath: entry }
+      }
+    })
+
+    expect(service.start(profileId)).toEqual({ status: 'started' })
+    expect(started[0]?.adapterCommand.args).toEqual([entry, '0', '127.0.0.1'])
+    expect(verifications).toEqual(['vscode-js-debug'])
+  })
+
+  it.each(['missing', 'invalid', 'hash-mismatch'] as const)(
+    'is adapter-unavailable without starting anything when the artifact is %s (Session 6-15B)',
+    (status) => {
+      const { service, started, profileId } = withProfile({
+        getCatalogEntry: () => ({
+          ...integratedNode,
+          adapter: { executable: 'node', artifact: 'vscode-js-debug', args: ['0', '127.0.0.1'] }
+        }),
+        resolveAdapterArtifact: () => ({ status })
+      })
+      const outcome = service.start(profileId)
+
+      expect(outcome).toEqual({ status: 'failed', reason: 'adapter-unavailable' })
+      expect(JSON.stringify(outcome)).not.toMatch(/debug-adapters|js-debug|hash|sha/i)
+      expect(started).toEqual([])
+    }
+  )
 
   it('is adapter-unavailable with a catalog row that is not integrated', () => {
     const { service, started, profileId } = withProfile({

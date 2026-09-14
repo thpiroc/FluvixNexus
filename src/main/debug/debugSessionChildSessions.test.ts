@@ -228,6 +228,7 @@ function createHarness(
     readonly openable?: () => boolean
     readonly configurationHook?: DebugSessionConfigurationHook
     readonly startTimeoutMs?: number
+    readonly childCompletionGraceMs?: number
   } = {}
 ): Harness {
   const adapters: FakeAdapter[] = []
@@ -238,6 +239,7 @@ function createHarness(
     terminateGraceMs: 200,
     disconnectGraceMs: 200,
     controlTimeoutMs: 500,
+    childCompletionGraceMs: overrides.childCompletionGraceMs ?? 1_000,
     ...(overrides.configurationHook === undefined
       ? {}
       : { configurationHook: overrides.configurationHook }),
@@ -599,6 +601,97 @@ describe('debug session root / child connections (Session 6-15A)', () => {
     })
   })
 
+  describe('thread id 0 (Session 6-15B)', () => {
+    it('routes Pause and Continue to the child with thread id 0 (vscode-js-debug)', async () => {
+      const harness = createHarness()
+      const adapter = await startRoot(harness)
+      const child = await attachChild(adapter)
+
+      child.handlers.onEvent('thread', { reason: 'started', threadId: 0 })
+      const pause = harness.manager.control('pause')
+      await flush()
+
+      expect(child.fake.commands()).not.toContain('threads')
+      expect(child.fake.requests.find((request) => request.command === 'pause')?.args).toEqual({
+        threadId: 0
+      })
+      await child.fake.respond('pause')
+      await pause
+
+      child.handlers.onEvent('stopped', { reason: 'pause', threadId: 0 })
+      expect(harness.manager.getState()).toBe('stopped')
+      expect(harness.manager.getCallStackChannel()?.stoppedThreadId).toBe(0)
+
+      const resume = harness.manager.control('continue')
+      await flush()
+
+      expect(child.fake.requests.find((request) => request.command === 'continue')?.args).toEqual({
+        threadId: 0
+      })
+      await child.fake.respond('continue')
+      await expect(resume).resolves.toMatchObject({ status: 'accepted', state: 'running' })
+    })
+  })
+
+  describe('root output categories (Session 6-15B)', () => {
+    const FILTERED = { ...POLICY, rootOutputCategories: ['stdout', 'stderr'] } as const
+
+    it('passes only the named categories from root, before and after the child is primary', async () => {
+      const harness = createHarness()
+      const outputs: unknown[] = []
+      harness.manager.onOutput((output) => {
+        outputs.push(output.body)
+      })
+      const adapter = await startRoot(harness, { childSessions: FILTERED })
+
+      // js-debug は子を頼む前に、runtime の絶対パス入りのコマンドラインを root へ console で書く。
+      adapter.rootEvent('output', { category: 'console', output: 'C:/node/node.exe .\\main.js\n' })
+      adapter.rootEvent('output', { category: 'telemetry', output: 'js-debug/launch' })
+      adapter.rootEvent('output', { output: 'no category is console\n' })
+      adapter.rootEvent('output', { category: 'stderr', output: 'Debugger attached.\r\n' })
+
+      const child = await attachChild(adapter)
+
+      adapter.rootEvent('output', { category: 'stdout', output: 'hello\n' })
+      adapter.rootEvent('output', { category: 'important', output: 'adapter note\n' })
+      child.handlers.onEvent('output', { category: 'console', output: 'child console\n' })
+
+      expect(outputs).toEqual([
+        { category: 'stderr', output: 'Debugger attached.\r\n' },
+        { category: 'stdout', output: 'hello\n' },
+        { category: 'console', output: 'child console\n' }
+      ])
+      expect(JSON.stringify(outputs)).not.toContain('node.exe')
+    })
+
+    it('keeps passing every root output when the policy names no categories (6-15A)', async () => {
+      const harness = createHarness()
+      const outputs: unknown[] = []
+      harness.manager.onOutput((output) => {
+        outputs.push(output.body)
+      })
+      const adapter = await startRoot(harness)
+
+      adapter.rootEvent('output', { category: 'console', output: 'console\n' })
+      adapter.rootEvent('output', { category: 'telemetry', output: 'telemetry' })
+
+      expect(outputs).toHaveLength(2)
+    })
+
+    it('does not filter a root-only session without child sessions (debugpy / netcoredbg)', async () => {
+      const harness = createHarness({ transport: 'stdio' })
+      const outputs: unknown[] = []
+      harness.manager.onOutput((output) => {
+        outputs.push(output.body)
+      })
+      const adapter = await startRoot(harness, { childSessions: undefined })
+
+      adapter.rootEvent('output', { category: 'console', output: 'console\n' })
+
+      expect(outputs).toHaveLength(1)
+    })
+  })
+
   describe('primary child routing', () => {
     it('routes Continue / Step / Pause to the primary child with its thread', async () => {
       const harness = createHarness()
@@ -723,20 +816,137 @@ describe('debug session root / child connections (Session 6-15A)', () => {
   })
 
   describe('cleanup', () => {
+    /*
+      Session 6-15B で変えた振る舞い。実 vscode-js-debug 1.117.0 では、子の `terminated` の約 60ms 後に
+      デバッグ対象の最後の出力（捕まえられなかった例外のメッセージ）と root の `terminated` が届く。
+      子が自分から終わったら terminating で root を待ち、root の終わりか猶予切れで片付ける。
+    */
     it.each(['terminated', 'exited'])(
-      'ends the whole session when the child sends "%s"',
+      'waits for root after the ready child sends "%s", then ends the whole session (Session 6-15B)',
       async (event) => {
         const harness = createHarness()
         const adapter = await startRoot(harness)
         const child = await attachChild(adapter)
+        const outputs: unknown[] = []
+        harness.manager.onOutput((output) => {
+          outputs.push(output.body)
+        })
 
         child.handlers.onEvent(event, undefined)
 
+        expect(harness.manager.getState()).toBe('terminating')
+        expect(child.disposeReasons).toHaveLength(0)
+        expect(adapter.disposeReasons).toHaveLength(0)
+        await expect(harness.manager.control('continue')).resolves.toMatchObject({
+          status: 'rejected'
+        })
+
+        adapter.rootEvent('output', { category: 'stderr', output: 'Uncaught Error: boom\n' })
+        adapter.rootEvent('terminated')
+
+        expect(outputs).toEqual([{ category: 'stderr', output: 'Uncaught Error: boom\n' }])
         expect(harness.manager.getState()).toBe('idle')
         expect(child.disposeReasons).toHaveLength(1)
         expect(adapter.disposeReasons).toHaveLength(1)
+        expect(harness.logs.some((line) => line.startsWith('error:'))).toBe(false)
       }
     )
+
+    it('ends the session when root does not end within the completion grace (Session 6-15B)', async () => {
+      const harness = createHarness({ childCompletionGraceMs: 30 })
+      const adapter = await startRoot(harness)
+      const child = await attachChild(adapter)
+
+      child.handlers.onEvent('terminated', undefined)
+      expect(harness.manager.getState()).toBe('terminating')
+
+      await wait(80)
+
+      expect(harness.manager.getState()).toBe('idle')
+      expect(child.disposeReasons).toHaveLength(1)
+      expect(adapter.disposeReasons).toHaveLength(1)
+    })
+
+    it('treats the child socket and the adapter closing after completion as the end, not a failure (Session 6-15B)', async () => {
+      const harness = createHarness()
+      const adapter = await startRoot(harness)
+      const child = await attachChild(adapter)
+
+      child.handlers.onEvent('terminated', undefined)
+      child.handlers.onClosed('the socket closed.')
+
+      expect(harness.manager.getState()).toBe('terminating')
+
+      adapter.options.onClose?.('close', 0, null)
+
+      expect(harness.manager.getState()).toBe('idle')
+      expect(adapter.disposeReasons).toHaveLength(1)
+      expect(harness.logs.some((line) => line.startsWith('error:'))).toBe(false)
+    })
+
+    it('makes Stop wait for the same end while the session waits for root (Session 6-15B)', async () => {
+      const harness = createHarness()
+      const adapter = await startRoot(harness)
+      const child = await attachChild(adapter)
+
+      child.handlers.onEvent('terminated', undefined)
+      const stop = harness.manager.requestStop()
+      await flush()
+
+      expect(child.fake.commands()).not.toContain('disconnect')
+      expect(child.fake.commands()).not.toContain('terminate')
+
+      adapter.rootEvent('terminated')
+
+      expect(await stop).toEqual({ status: 'accepted', state: 'idle' })
+      expect(adapter.disposeReasons).toHaveLength(1)
+    })
+
+    it('still ends at once when the child terminates before it is ready', async () => {
+      const harness = createHarness()
+      const adapter = await startRoot(harness)
+
+      expect(adapter.startDebugging(CHILD_ARGS)).toEqual({ accepted: true })
+      const child = childAt(adapter)
+      await flush()
+      child.handlers.onEvent('terminated', undefined)
+
+      expect(harness.manager.getState()).toBe('idle')
+      expect(child.disposeReasons).toHaveLength(1)
+      expect(adapter.disposeReasons).toHaveLength(1)
+    })
+
+    it('Stop disconnects the child directly when it does not support terminate (real js-debug capabilities)', async () => {
+      const harness = createHarness()
+      const adapter = await startRoot(harness)
+      const child = await attachChild(adapter, {
+        supportsConfigurationDoneRequest: true,
+        supportsTerminateRequest: false,
+        supportTerminateDebuggee: true,
+        supportsExceptionInfoRequest: true
+      })
+
+      child.handlers.onEvent('stopped', { reason: 'breakpoint', threadId: 0 })
+      const stop = harness.manager.requestStop()
+      await flush()
+
+      expect(child.fake.commands()).not.toContain('terminate')
+      expect(child.fake.requests.find((request) => request.command === 'disconnect')?.args).toEqual(
+        {
+          restart: false,
+          terminateDebuggee: true
+        }
+      )
+
+      // js-debug は disconnect の応答より先に子の terminated を送る。Stop の段では待たずに片付けへ進む。
+      child.handlers.onEvent('terminated', undefined)
+      await child.fake.respond('disconnect')
+
+      expect(await stop).toEqual({ status: 'accepted', state: 'idle' })
+      expect(adapter.root.commands()).not.toContain('disconnect')
+      expect(child.disposeReasons).toHaveLength(1)
+      expect(adapter.disposeReasons).toHaveLength(1)
+    })
 
     it('ends the session and closes the child when root terminates', async () => {
       const harness = createHarness()

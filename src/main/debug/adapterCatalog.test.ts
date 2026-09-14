@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import { createDebugAdapterReadinessScanner } from './adapterTransport'
 import {
   DEBUG_ADAPTER_LANGUAGE_IDS,
+  JS_DEBUG_READY_PATTERN,
   getDebugAdapterCatalogEntry,
   hasIntegratedDebugAdapter,
   isDebugAdapterLanguageId,
@@ -16,9 +18,26 @@ describe('Debug Adapter catalog foundation', () => {
     expect(isDebugAdapterLanguageId('ruby')).toBe(false)
   })
 
-  it('Session 6-14 では python（debugpy）と C#（netcoredbg）の行が統合されている', () => {
+  it('Session 6-15B では node（vscode-js-debug）・python（debugpy）・C#（netcoredbg）の行が統合されている', () => {
     expect(listDebugAdapterCatalogEntries()).toEqual([
-      { language: 'node', name: 'Node.js Debug Adapter', integrationStatus: 'not-integrated' },
+      {
+        language: 'node',
+        name: 'vscode-js-debug',
+        integrationStatus: 'integrated',
+        adapter: {
+          executable: 'node',
+          artifact: 'vscode-js-debug',
+          args: ['0', '127.0.0.1'],
+          transport: {
+            kind: 'socket',
+            readiness: { kind: 'stdout-pattern', pattern: JS_DEBUG_READY_PATTERN }
+          },
+          childSessions: {
+            targetIdKey: '__pendingTargetId',
+            rootOutputCategories: ['stdout', 'stderr']
+          }
+        }
+      },
       {
         language: 'python',
         name: 'debugpy',
@@ -70,15 +89,45 @@ describe('resolveDebugAdapterExecutable', () => {
 
   const windowsEnv = { PATH: 'C:\\Python312;.;tools', SystemRoot: 'C:\\Windows' }
 
-  it('does not resolve the shipped node row while it is not integrated', () => {
+  it('resolves the shipped node row to node.exe with the server arguments (Session 6-15B)', () => {
+    // 入り口の script は表に無い。配布物を確かめた resolver が args の前に置く（profileResolver.ts）。
     expect(
       resolveDebugAdapterExecutable(
         getDebugAdapterCatalogEntry('node'),
         'win32',
-        windowsEnv,
-        () => true
+        { PATH: 'C:\\Program Files\\nodejs', SystemRoot: 'C:\\Windows' },
+        (path) => path === 'C:\\Program Files\\nodejs\\node.exe'
+      )
+    ).toEqual({ file: 'C:\\Program Files\\nodejs\\node.exe', args: ['0', '127.0.0.1'] })
+  })
+
+  it('never wraps a node.cmd for a row that runs an artifact script (Session 6-15B)', () => {
+    expect(
+      resolveDebugAdapterExecutable(
+        getDebugAdapterCatalogEntry('node'),
+        'win32',
+        { PATH: 'C:\\shims', SystemRoot: 'C:\\Windows' },
+        (path) => path === 'C:\\shims\\node.cmd'
       )
     ).toBeNull()
+  })
+
+  it('reads the port from the real js-debug ready line and refuses a non-loopback host (Session 6-15B)', () => {
+    const readiness = { kind: 'stdout-pattern', pattern: JS_DEBUG_READY_PATTERN } as const
+
+    expect(
+      createDebugAdapterReadinessScanner(readiness).push(
+        'Debug server listening at 127.0.0.1:59377\n'
+      )
+    ).toEqual({ status: 'ready', port: 59377 })
+    expect(
+      createDebugAdapterReadinessScanner(readiness).push(
+        'Debug server listening at 0.0.0.0:8123\r\n'
+      )
+    ).toMatchObject({ status: 'invalid' })
+    expect(
+      createDebugAdapterReadinessScanner(readiness).push('Debug server listening soon\n')
+    ).toEqual({ status: 'waiting' })
   })
 
   it('resolves the shipped python row through PATH (Session 6-12)', () => {

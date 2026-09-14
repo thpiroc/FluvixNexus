@@ -111,14 +111,21 @@ describe('debug IPC handlers — variables', () => {
     expect(listDebugScopes).toHaveBeenCalledWith(11)
   })
 
+  /** Session 6-15B ── DAP の frame id は整数で、vscode-js-debug は最上段に 0 を振ることがある。 */
+  it('passes frame id 0 to the variables store', async () => {
+    await handler('debug:list-scopes')({ frameId: 0 })
+
+    expect(listDebugScopes).toHaveBeenCalledWith(0)
+  })
+
   it.each([
     undefined,
     null,
     {},
     { frameId: '11' },
-    { frameId: 0 },
     { frameId: -1 },
-    { frameId: 1.5 }
+    { frameId: 1.5 },
+    { frameId: Number.MAX_SAFE_INTEGER + 1 }
   ])('rejects a malformed scopes request %j', async (request) => {
     await expectInvalid(
       (async () => {
@@ -193,6 +200,13 @@ describe('debug IPC handlers — evaluate (Session 6-7)', () => {
     expect(evaluateDebugExpression).toHaveBeenCalledWith('user.name', 11, 'repl')
   })
 
+  /** Session 6-15B ── frame id 0（vscode-js-debug）は形として通す。今の停止の frame かは evaluate.ts が決める。 */
+  it('passes frame id 0 to the evaluate store', async () => {
+    await handler('debug:evaluate')({ expression: 'a', frameId: 0, context: 'repl' })
+
+    expect(evaluateDebugExpression).toHaveBeenCalledWith('a', 0, 'repl')
+  })
+
   /** 式は加工せずに渡す ── 前後の空白で意味が変わる言語がある。 */
   it('does not trim or reshape the expression', async () => {
     await handler('debug:evaluate')({ expression: '  a + b  ', frameId: 11, context: 'watch' })
@@ -209,8 +223,8 @@ describe('debug IPC handlers — evaluate (Session 6-7)', () => {
     ['expression is too long', { expression: 'a'.repeat(2001), frameId: 11, context: 'repl' }],
     ['expression contains NUL', { expression: 'a\0b', frameId: 11, context: 'repl' }],
     ['frame id is missing', { expression: 'a', context: 'repl' }],
-    ['frame id is zero', { expression: 'a', frameId: 0, context: 'repl' }],
     ['frame id is negative', { expression: 'a', frameId: -1, context: 'repl' }],
+    ['frame id is not a safe integer', { expression: 'a', frameId: 2 ** 53, context: 'repl' }],
     ['frame id is fractional', { expression: 'a', frameId: 1.5, context: 'repl' }],
     ['frame id is a string', { expression: 'a', frameId: '11', context: 'repl' }],
     ['context is missing', { expression: 'a', frameId: 11 }],

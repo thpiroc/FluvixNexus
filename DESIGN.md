@@ -2059,6 +2059,47 @@ vscode-js-debug を後で繋ぐための **generic な土台だけ**を Main に
 
 production build + fake socket DAP server での確認は [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) §4。
 
+### Session 6-15B（完了）— Node.js Debug Adapter（vscode-js-debug）
+
+6-15A の socket DAP / 子セッションの土台へ **実 vscode-js-debug を繋ぎ、catalog の node 行を `integrated` にした**。v1 は **JavaScript（`.js` / `.mjs` / `.cjs`）の launch だけ**。Renderer / preload / IPC の口（要求18・購読5）/ CSP / Debug Profile の7欄は変えていない（[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §20.24）。
+
+入れたもの:
+
+| ファイル                                                     | 役割                                                                                                        |
+| ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| `main/debug/adapterArtifact.ts`                              | pin した配布物の表（版・release asset の URL と SHA-256・license・tree hash）と、置き場所の木の検証         |
+| `main/debug/adapterCatalog.ts`                               | node 行: PATH の `node.exe` で `dapDebugServer.js 0 127.0.0.1`・socket の ready の合図・`__pendingTargetId` |
+| `main/debug/profileResolver.ts` / `resolvedLaunch.ts`        | 拡張子・runtime が Workspace の外か・配布物の検証・launch 構成（`runtimeExecutable` と固定4欄）             |
+| `main/debug/debugProfiles.ts`                                | userData の下の配布物を起動のたびに確かめる（使えない理由は Main のログだけ）                               |
+| `main/debug/debugSessionManager.ts` / `dapStartDebugging.ts` | root の `output` を category で絞る・ready の子が自分から終わったら root の終わりを待つ                     |
+
+決めたこと（実装の前に、実 vscode-js-debug 1.117.0 へ直接 DAP を送る probe で確かめた）:
+
+- **artifact は公式 GitHub Release の `js-debug-dap-v1.117.0.tar.gz`（MIT）を pin する**。npm には依存しない・同梱しない・勝手に新しい版へ追従しない。置き場所は `<userData>/debug-adapters/js-debug-dap-v1.117.0/js-debug`（Workspace の外）で、**起動のたびに全60ファイルの tree hash を表と突き合わせる**（入り口の script だけでなく、debuggee に読み込まれる `bootloader.js` / `watchdog.js` も含む）。無い / symlink / 1バイト違いは `adapter-unavailable`
+- **runtime は PATH から解いたネイティブの `node.exe` 1つ**で、adapter と debuggee の両方に使う（launch の `runtimeExecutable` に Main が載せる）。`.cmd` の shim は使わない。実体（realpath）が Workspace の中なら起動しない
+- **launch 構成は Main が組む**: `sourceMaps: false`・`outFiles: []`・`autoAttachChildProcesses: false`・`outputCapture: 'std'`（既定の `console` は `process.stdout.write` を拾わない）・`console: 'internalConsole'`。attach / npm script / runtimeVersion / 任意の runtimeExecutable / 任意の cwd は欄が無い
+- 実 js-debug の `startDebugging` は `{ type, name, __pendingTargetId }` だけで、6-15A の検証をそのまま通る。`runInTerminal` は来ない
+- 例外で止まる条件は `uncaught`（`all` は捕まえた例外でも止まる）
+- **root の `output` は `stdout` / `stderr` だけを Debug Console へ通す** ── js-debug は子を頼む前に、起動したコマンドライン（node の絶対パス入り）を root へ `console` で書き、`telemetry` も送る
+- **ready の子が `terminated` / `exited` を送ったら、terminating で root の `terminated` を待つ（上限 2 秒）**。捕まえられなかった例外のメッセージとプロセスの終わりは、子の `terminated` の約 60ms 後に root へ届く。Stop の途中・子の設定中は 6-15A のまま即座に片付ける
+- Stop は js-debug が `terminate` を名乗らないので、子へ `disconnect`（`terminateDebuggee: true`）→ server を kill。server は session の後も常駐するので必ず kill する。kill だけでも debuggee と watchdog は 300ms 以内に消えた
+
+production 確認で見つけて直したもの:
+
+- **止まっても Call Stack が空で、Variables / Evaluate が `stale` になった。** 実 js-debug はスレッドも最上段の frame も id `0` を振るが、Main は thread id（`dapThreads.ts` / thread event）と frame id（Call Stack の handle 表・IPC の `debug:list-scopes` / `debug:evaluate` の形の検査）を「正の整数」で読んでいた。DAP の id は整数なので、どれも 0 以上に直した（負 / 小数 / 安全でない整数は従来どおり断る）。fake adapter も debugpy / netcoredbg も 1 から振るため、unit test と 6-15A までの確認では出なかった
+- **子の接続の `telemetry`（`js-debug/dap/operation`）が Debug Console に system の行として出た。** `telemetry` は DAP の仕様で利用者に見せない category なので、Debug Console の Main 側（`console.ts`）で言語に依らず出さないようにした（6-12 から出ていた debugpy の2行も消える）
+
+残したもの:
+
+- TypeScript / source map / outFiles・attach・npm / yarn / pnpm・runtimeVersion / nvm・worker / 子プロセスの UI（2本目以降の子は受けない）
+- js-debug の Pause の停止理由は `step`（`skipFiles` の `<node_internals>` を抜けるため）で、「手動で一時停止中」ではなく「Step の後で一時停止中」と出る
+- js-debug の `exceptionInfo` は `exceptionId` に `Error: メッセージ` を丸ごと入れ、`breakMode` は DAP に無い `all` を返す（汎用の表示では型名の欄が `Error: メッセージ`、メッセージの欄が `Paused on exception` になり、breakMode は出ない）
+- ESM（`.mjs`）の top-level で投げた例外は `uncaught` でも止まらない（V8 が promise の reject として扱う）
+- Debug Console のプログラム自身の出力（node が stderr に書く未処理例外のスタック）は加工しない（§20.9 の例外のまま）
+- artifact の入手・展開の UI / 自動ダウンロード（手順は [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) §1）
+
+production build + 実 vscode-js-debug + 実 Node.js での確認は [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) §4。
+
 ### Session 6-7 〜 6-13（予定）— 実装
 
 | Session | 入れるもの                                                         | 推奨 Agent   |

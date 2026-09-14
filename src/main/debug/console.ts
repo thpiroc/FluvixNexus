@@ -60,7 +60,12 @@ export function createDebugConsoleHost(
     dependencies.onOutput((event) => {
       ensureWorkspace()
 
-      if (workspace === null) {
+      /*
+        `telemetry` は Debug Console に出さない（Session 6-15B）。DAP の仕様で「利用者に見せない」
+        category で、vscode-js-debug は子の接続からも `js-debug/dap/operation` を送ってくる
+        （debugpy の `ptvsd` / `debugpy` の2行も、6-12 から system として出ていた）。
+      */
+      if (workspace === null || isTelemetryOutput(event.body)) {
         return
       }
 
@@ -172,6 +177,10 @@ function sanitizeConsoleText(raw: string): string {
   return withoutNul.length <= DEBUG_CONSOLE_TEXT_MAX_LENGTH
     ? withoutNul
     : `${withoutNul.slice(0, DEBUG_CONSOLE_TEXT_MAX_LENGTH)}...`
+}
+
+function isTelemetryOutput(body: unknown): boolean {
+  return isRecord(body) && body.category === 'telemetry'
 }
 
 function toPositiveInteger(value: unknown): number | null {

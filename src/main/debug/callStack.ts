@@ -129,7 +129,12 @@ export function createDebugCallStackStore(
   function getFrameHandle(rawFrameId: unknown): DebugCallStackFrameHandle | null {
     ensureWorkspace()
 
-    if (typeof rawFrameId !== 'number' || !Number.isSafeInteger(rawFrameId) || rawFrameId <= 0) {
+    /*
+      0 を含む（Session 6-15B）。DAP の frame id は整数で、vscode-js-debug は最上段に 0 を振る。
+      0 を落とすと、止まっても Variables / Evaluate が `stale` になった（production 確認で実 js-debug
+      1.117.0 に当てて見つけた）。今の停止の表に在るかは下で照合する。
+    */
+    if (typeof rawFrameId !== 'number' || !Number.isSafeInteger(rawFrameId) || rawFrameId < 0) {
       return null
     }
 

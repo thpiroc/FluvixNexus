@@ -47,8 +47,15 @@ function parseThread(value: unknown): DapThread | null {
   }
 }
 
+/**
+ * スレッドの id として読めるか。
+ *
+ * **0 を含む**（Session 6-15B）。DAP の `threadId` は整数で、vscode-js-debug は最初のスレッドを
+ * `0` と名乗る。0 を落とすと `threads` が空になり、止まっても Call Stack が出なかった
+ * （production 確認で実 js-debug 1.117.0 に当てて見つけた）。
+ */
 export function isDapHandle(value: unknown): value is number {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
 }
 
 export function sanitizeLabel(raw: unknown, fallback: string): string {

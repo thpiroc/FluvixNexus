@@ -193,4 +193,36 @@ describe('debug console host', () => {
       entry: { kind: 'system', text: 'Debug session ended.' }
     })
   })
+
+  it('never emits telemetry output (Session 6-15B)', () => {
+    const outputListeners: ((event: DebugSessionOutputEvent) => void)[] = []
+    const emitted: DebugConsoleEntry[] = []
+
+    createDebugConsoleHost({
+      getWorkspace: () => WORKSPACE,
+      onOutput: (listener) => {
+        outputListeners.push(listener)
+        return () => {}
+      },
+      onStateChange: () => () => {},
+      emit: (_workspaceId, entry) => {
+        emitted.push(entry)
+      }
+    }).start(() => () => {})
+
+    for (const body of [
+      { category: 'telemetry', output: 'js-debug/dap/operation', data: { adapter: 'x' } },
+      { category: 'telemetry', output: 'debugpy' }
+    ]) {
+      outputListeners[0]?.({ sessionId: 'debug-session-1', generation: 1, body })
+    }
+
+    outputListeners[0]?.({
+      sessionId: 'debug-session-1',
+      generation: 1,
+      body: { category: 'stdout', output: 'program' }
+    })
+
+    expect(emitted.map((entry) => entry.text)).toEqual(['program'])
+  })
 })
