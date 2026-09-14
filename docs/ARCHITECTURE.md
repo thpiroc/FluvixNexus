@@ -7490,6 +7490,8 @@ main/debug/dapExceptionBreakpoints.ts  setExceptionBreakpoints の filter を表
 
 `jsonRpcConnection.ts`（§19.2）が子プロセスの stdio に直接結びついているのに対し、**`dapConnection.ts` は stream を受け取る形にする**。TCP の adapter が来たときに層を作り直さずに済む唯一の分け方になる。
 
+**Session 6-15A で socket transport を足した**（`adapterTransport.ts` / `socketDebugAdapter.ts`。§20.23）。`dapConnection.ts` はこの分け方のまま1行も transport を知らない。
+
 ### 20.8 launch lifecycle
 
 責務の順序は次で確定とする。
@@ -7530,27 +7532,31 @@ stop / dispose / Workspace switch / app quit / start timeout / adapter error / a
 
 Session 6-5 で `frameId` 用にもう1段足した。`frameId` は同じ session の中でも次の停止で再利用されうるため、Call Stack snapshot は **session generation + stop generation + stopped state + Workspace identity** を一緒に持つ。6-6 Variables は、この4つが現在値と一致する frame だけを使う。
 
+Session 6-15A で **DAP 接続の id（`connectionId`）** を足した。1つのセッションに root と子の接続があると、同じ数の handle が接続ごとに振られうるため（§20.23）。
+
 ### 20.9 Security boundary
 
 §19.8 の表をそのまま引き継ぎ、DAP 固有の3行を足す。
 
-| 渡さないもの                          | どう閉じているか                                                                    |
-| ------------------------------------- | ----------------------------------------------------------------------------------- |
-| 絶対パス                              | Profile も応答も **workspace-relative path** だけ。変換は Main の中                 |
-| file URI                              | 組み立てるのも解くのも Main の中だけ                                                |
-| adapter の実行ファイル / 引数 / cwd   | catalog が持つ。Profile にも IPC にも欄が無い（§20.4）                              |
-| interpreter / runtime の実行ファイル  | PATH から Main が解決する。Profile に欄が無い                                       |
-| 任意の DAP request 名                 | 口は機能ごとに分かれている。method 名を渡す口が無い                                 |
-| 任意の adapter 選択                   | 行き先は `language`（3つの閉じた集合）だけで決まる                                  |
-| 任意の Workspace の profile           | `debug:list-profiles` の要求は `void`。key を渡す口が無い（§20.5）                  |
-| **`runInTerminal`（逆方向要求）**     | **拒否する。** `initialize` で `supportsRunInTerminalRequest: false` を名乗る       |
-| **Workspace 外の program**            | `programRelativePath` を Files と同じ2段（パス文字列 → realpath）で検証して断る     |
-| **adapter が返す stack frame source** | Main が Workspace 相対へ正規化し、Workspace 外 / missing / malformed は開けない     |
-| **`variablesReference`**              | Main の handle 表に控え、Renderer へは Main が発行した handle だけを渡す（§20.15）  |
-| **evaluate の文脈**                   | 閉じた集合（`repl` / `watch`）だけ。任意の文字列を渡す欄が無い（§20.16）            |
-| **stopped event / exceptionInfo**     | 閉じた集合の理由と、パスを伏せた型名 / メッセージだけを snapshot に載せる（§20.21） |
-| **例外で止まる条件（filter）**        | Main の表と adapter が名乗った filter の積。Renderer に欄が無い（§20.21）           |
-| **実行を差し替える環境変数**          | 下記                                                                                |
+| 渡さないもの                          | どう閉じているか                                                                          |
+| ------------------------------------- | ----------------------------------------------------------------------------------------- |
+| 絶対パス                              | Profile も応答も **workspace-relative path** だけ。変換は Main の中                       |
+| file URI                              | 組み立てるのも解くのも Main の中だけ                                                      |
+| adapter の実行ファイル / 引数 / cwd   | catalog が持つ。Profile にも IPC にも欄が無い（§20.4）                                    |
+| interpreter / runtime の実行ファイル  | PATH から Main が解決する。Profile に欄が無い                                             |
+| 任意の DAP request 名                 | 口は機能ごとに分かれている。method 名を渡す口が無い                                       |
+| 任意の adapter 選択                   | 行き先は `language`（3つの閉じた集合）だけで決まる                                        |
+| 任意の Workspace の profile           | `debug:list-profiles` の要求は `void`。key を渡す口が無い（§20.5）                        |
+| **`runInTerminal`（逆方向要求）**     | **拒否する。** `initialize` で `supportsRunInTerminalRequest: false` を名乗る             |
+| **`startDebugging`（逆方向要求）**    | 子セッションを受けるセッションだけが Main で検証して答える。Renderer へは出ない（§20.23） |
+| **adapter の port / socket / pid**    | `socketDebugAdapter.ts` の外へ出さない（§20.23）                                          |
+| **Workspace 外の program**            | `programRelativePath` を Files と同じ2段（パス文字列 → realpath）で検証して断る           |
+| **adapter が返す stack frame source** | Main が Workspace 相対へ正規化し、Workspace 外 / missing / malformed は開けない           |
+| **`variablesReference`**              | Main の handle 表に控え、Renderer へは Main が発行した handle だけを渡す（§20.15）        |
+| **evaluate の文脈**                   | 閉じた集合（`repl` / `watch`）だけ。任意の文字列を渡す欄が無い（§20.16）                  |
+| **stopped event / exceptionInfo**     | 閉じた集合の理由と、パスを伏せた型名 / メッセージだけを snapshot に載せる（§20.21）       |
+| **例外で止まる条件（filter）**        | Main の表と adapter が名乗った filter の積。Renderer に欄が無い（§20.21）                 |
+| **実行を差し替える環境変数**          | 下記                                                                                      |
 
 #### `runInTerminal` を拒否する
 
@@ -7638,8 +7644,8 @@ v1: node / python / csharp のどの枝も固有欄を持たない
 | 変数の値の書き換え（`setVariable`） | 入れない。v1 は見るだけ                                                                                                        |
 | Watch 式の永続化                    | 入れない。評価は Debug Console から（評価そのものは **Session 6-7 で入れた**。§20.16）                                         |
 | ~~breakpoint の永続化~~             | **Session 6-3 で入れた。**予告どおり §20.5 と同じ形（userData の JSON 1つを Workspace の絶対パスで引く）に載せてある（§20.12） |
-| 複数セッションの同時実行            | 入れない。**同時に走るのは1本**                                                                                                |
-| 子プロセスへの追従                  | 入れない                                                                                                                       |
+| 複数セッションの同時実行            | 入れない。**同時に走るのは1本**（Session 6-15A の root + primary child は、1本のセッションの中の DAP 接続。§20.23）            |
+| 子プロセスへの追従                  | 入れない（`startDebugging` で受けるのは primary child の1本だけ。§20.23）                                                      |
 | `cwd` の指定                        | 入れない。常に Workspace root（§20.3）                                                                                         |
 | 変数展開（`${workspaceFolder}` 等） | 入れない。展開の仕組みは、書ける文字列が増える仕組みにほかならない                                                             |
 | Problems panel との連携             | 入れない。診断は STEP 5 のまま（§19.11）                                                                                       |
@@ -8554,3 +8560,97 @@ netcoredbg 3.2.0-1（release tag `3.2.0-1092` の Windows x64 zip）へ、本物
 #### 入れていないもの（Session 6-14）
 
 .NET SDK / netcoredbg の同梱やインストール支援 / `dotnet build` の preLaunchTask / `.csproj` から出力 DLL を自動推測すること / `launchSettings.json` / attach / `justMyCode` などの C# 固有設定 UI / 条件付き breakpoint・logpoint / 正式 keybinding。
+
+### 20.23 Socket DAP transport / child session foundation（Session 6-15A）
+
+vscode-js-debug を後の Session で繋ぐための **generic な土台だけ**を Main に入れた。**Node の実 adapter はまだ統合していない**（catalog の node 行は `not-integrated` のまま）。Renderer・preload・IPC の口（要求18・購読5）・CSP・Python / C# の lifecycle は変えていない。
+
+前提にしたのは過去の read-only 調査の結果で、この Session では実物を再実行していない（この PC に vscode-js-debug が無い）: standalone server は stdio ではなく TCP / named pipe で DAP を話す / 1回の launch で DAP 接続が複数張られうる（root から `startDebugging` が来て、target ごとに別の接続になる）/ `runInTerminal` を拒否しても launch できる / `autoAttachChildProcesses: false` でも root target の `startDebugging` は来る / server は session の終了後も常駐しうる。
+
+#### transport（`adapterTransport.ts` / `socketDebugAdapter.ts`）
+
+| kind              | 繋ぎ方                                                                                                    |
+| ----------------- | --------------------------------------------------------------------------------------------------------- |
+| `stdio`（省略時） | 6-14 までと同じ経路。`adapterProcess.ts` の中身は1行も変わらない                                          |
+| `socket`          | adapter を server として spawn（shell なし）→ stdout の ready の合図で port を読む → 127.0.0.1 へ接続する |
+
+- **ready の合図は catalog の行が持つ**（`transport.readiness`: stdout の1行に当てる正規表現。名前付きグループ `port` が必須）。transport の実装は adapter 固有の文言を知らない
+- 接続先の host は **常に 127.0.0.1**。合図が `host` を名乗っていて loopback でなければ ready にしない。ready までに溜める stdout は 64KB まで
+- 上限: ready まで 10 秒・接続1本ごとに 5 秒。**無限には待たない**
+- root の `DapConnection` は spawn の直後に返し、接続が張れるまでの送信は溜める ── Session Manager は stdio と同じ手順で `initialize` を送ればよく、§20.8 の lifecycle を transport で分けない
+- 失敗（ready の timeout / 接続拒否 / ready 前の exit / root の socket の error・close / 流れの破損）は、全接続を閉じて kill し、既存の adapter の失敗の経路（`starting → idle`）に合流する
+- dispose: 全接続を閉じる → kill → **2 秒で終わらなければ SIGKILL**
+- port・socket・pid は `socketDebugAdapter.ts` の外へ出ない。Session Manager が受け取るのは `DapConnection` と、子の接続を足す `openConnection` だけ（stdio には無い）
+- named pipe は入れていない
+
+#### `startDebugging`（`dapStartDebugging.ts`）
+
+`dapConnection.ts` が答えられる逆方向 request は **`startDebugging` の1つだけ**で、答えを決める口（`onStartDebugging`）は **子セッションを受けるセッションにだけ**渡す。`runInTerminal` と他の逆方向 request は、口があっても 6-0 からの一律の断りのまま。
+
+| 見るもの                      | 通す形                                                                                                                 |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `request`                     | `launch` だけ（`attach`・任意の文字列は断る）                                                                          |
+| `configuration.type`          | root の launch と同じ `type`（言語の表）                                                                               |
+| `configuration.request`       | 無いか `launch`                                                                                                        |
+| target の id                  | 必須。欄の名前は catalog の行が持つ（例: `__pendingTargetId`）。128 字以下の英数字と `._:-`                            |
+| 実行ファイル / cwd / shell 等 | `program` / `args` / `cwd` / `env` / `runtimeExecutable` / `console` / `port` など23欄のどれかがあれば**構成ごと断る** |
+| それ以外                      | 捨てる                                                                                                                 |
+
+子の `launch` に渡すのは Main が作り直した `{ type, name, request: 'launch', <target id> }` の4欄だけで、adapter から来た object をそのまま渡さない。断りの文言は adapter へ返るだけで、パスを載せない。
+
+#### root / primary child（`debugSessionManager.ts`）
+
+```
+root 接続     initialize → launch → initialized → breakpoint → exception filter → configurationDone → running
+  └ startDebugging ─(検証)─→ openConnection
+child 接続    initialize → launch（作り直した構成）→ initialized
+              → root の running を待つ
+              → breakpoint（全件を送り直す）→ exception filter（子が名乗った filter との積）→ configurationDone
+              → 実行の接続を子へ切り替える（stop generation を進める・溜めた event を当てる）
+```
+
+- **v1 は root + primary child の1本だけ。** 最初に受けた子が primary になり、それ以降の `startDebugging` は断る。worker / 子プロセスの木は持たない
+- 子の設定の窓は **root の running を待ってから**入る ── root と子の breakpoint 仕込みを重ねない（`breakpoints.ts` の同期の控えは1組）。それまでの子の `stopped` / `thread` / `continued` / `breakpoint` は溜めておき（64件まで）、切り替えの後に当てる
+- Renderer から見える状態は1本のセッションのまま（`starting` / `running` / `stopped` / `terminating` / `idle`）
+
+| 送るもの / 受けるもの                                                  | 子が ready の前 | 子が ready の後                               |
+| ---------------------------------------------------------------------- | --------------- | --------------------------------------------- |
+| Continue / Pause / Step・`threads`・Stop の `terminate` / `disconnect` | root            | **child**                                     |
+| Call Stack / Variables / Evaluate / exceptionInfo の口                 | root            | **child**                                     |
+| breakpoint の変更（`getBreakpointChannel`）                            | root            | **child**（子の設定中は null）                |
+| `stopped` / `thread` / `continued` / `breakpoint` event                | root            | child だけ（root のは捨てる）                 |
+| `output` event                                                         | root            | root と child                                 |
+| `terminated` / `exited` event                                          | root            | root と child（どちらでもセッションを終える） |
+
+root だけのセッション（debugpy / netcoredbg、子を受けない adapter、子が来ない場合）は、実行の接続が常に root になり 6-14 までと同じ宛先になる。
+
+#### handle（threadId / frameId / variablesReference）
+
+別の接続同士では `threadId` / `frameId` / `variablesReference` が同じ数になりうる。
+
+- Session Manager の口（Breakpoint / Call Stack / Variables / Evaluate / exceptionInfo）に **`connectionId`**（`<sessionId>/root`・`<sessionId>/child-1`。Main の中だけの文字列）を載せ、送る直前に「実行の接続がまだ口を作った時と同じか」を確かめる
+- 実行の接続を切り替えるときは **stop generation を進める** ── root の停止で作った口と handle は、6-5 〜 6-7 の既存の照合でそのまま `stale` になる
+- その上で `DebugCallStackFrameHandle` と Variables の handle 表の1件にも `connectionId` を控え、今の口の接続と食い違えば `stale`（二重の守り）
+- Renderer に見える形は変えていない。snapshot の `frameId` / `threadId` は従来どおり数で、Main は **今の snapshot の表に在る frame だけ**を通す。`variablesReference` は従来どおり Main が発行した handle（`dv-N`）
+
+#### cleanup
+
+| きっかけ                                                        | どうなるか                                                                         |
+| --------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| 正常終了（子 / root の `exited`・`terminated`）                 | セッションを終える → 子の接続 → root の接続 → server の kill                       |
+| 利用者の Stop                                                   | 子へ `terminate` → `disconnect` → 同上（段と猶予は §20.13 のまま）                 |
+| 子の接続が adapter 側から閉じた                                 | セッションを終える（v1 の primary child は debug 対象そのもの）                    |
+| 子が設定を終えない（start timeout）/ 子の `initialize` 等の失敗 | セッションを終える                                                                 |
+| root の接続の error / adapter の異常終了                        | 全接続を閉じて kill（transport）→ `idle`                                           |
+| Workspace switch / アプリ終了                                   | root へ `disconnect` を書き、子 → root → server を閉じる（§20.8 のその場の片付け） |
+| kill しても終わらない                                           | 2 秒後に SIGKILL                                                                   |
+
+閉じた子の接続・前の世代の接続から遅れて届いた event / `startDebugging` / close は捨てる。
+
+#### catalog → resolver
+
+`DebugAdapterExecutable` に `transport` と `childSessions: { targetIdKey }` を足し、resolver が `adapterCommand.transport` と `ResolvedLaunchConfiguration.childSessions`（`launchType` は言語の `type`）へ写す。**行が持たなければ欄ごと載らない**（出荷状態の python / csharp は stdio、node は未統合）。Profile の欄からは作らない。
+
+#### 入れていないもの（Session 6-15A）
+
+vscode-js-debug の catalog 統合と入手経路 / Node Profile の実起動 / named pipe / 2本目以降の子（worker・子プロセス）/ worker・子プロセスの UI / attach / `runInTerminal` / TypeScript・sourceMaps・outFiles / 実 js-debug での debuggee プロセスの木の片付けの確認 / 正式 keybinding。

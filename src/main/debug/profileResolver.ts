@@ -219,6 +219,12 @@ export function resolveDebugProfile(
     csharpLaunch.status === 'ok' ? csharpLaunch.runtimeExecutable : program.absolutePath
   const launchArgs =
     csharpLaunch.status === 'ok' ? [program.absolutePath, ...draft.programArgs] : draft.programArgs
+  /*
+    繋ぎ方と子セッションの受け方（Session 6-15A）は catalog の行がそのまま決める。
+    行が持たなければ欄ごと載せない ── 6-14 までの解決済みの形と1欄も変わらない。
+  */
+  const transport = entry.adapter?.transport
+  const childSessions = entry.adapter?.childSessions
 
   return {
     status: 'resolved',
@@ -231,7 +237,8 @@ export function resolveDebugProfile(
         file: executable.file,
         args: executable.args,
         cwd: adapterCwd,
-        env: createDebugAdapterProcessEnvironment(context.parentEnv)
+        env: createDebugAdapterProcessEnvironment(context.parentEnv),
+        ...(transport === undefined ? {} : { transport })
       },
       launchArguments: {
         ...DEBUG_LAUNCH_LANGUAGE_OPTIONS[draft.language],
@@ -247,7 +254,10 @@ export function resolveDebugProfile(
         console: 'internalConsole'
       },
       waitForLaunchResponseBeforeConfiguration: draft.language === 'csharp',
-      exceptionBreakpointFilters: DEBUG_EXCEPTION_BREAKPOINT_FILTERS[draft.language]
+      exceptionBreakpointFilters: DEBUG_EXCEPTION_BREAKPOINT_FILTERS[draft.language],
+      ...(childSessions === undefined
+        ? {}
+        : { childSessions: { launchType: type, targetIdKey: childSessions.targetIdKey } })
     }
   }
 }

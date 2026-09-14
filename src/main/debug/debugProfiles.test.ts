@@ -368,6 +368,32 @@ describe('debug profiles — start', () => {
         exceptionBreakpointFilters: []
       }
     ])
+    expect(started[0]).not.toHaveProperty('childSessions')
+    expect(started[0]?.adapterCommand).not.toHaveProperty('transport')
+  })
+
+  it('hands the row transport and child session policy to the session (Session 6-15A)', () => {
+    const transport = {
+      kind: 'socket',
+      readiness: { kind: 'stdout-pattern', pattern: /at 127\.0\.0\.1:(?<port>\d+)/ }
+    } as const
+    const { service, started, profileId } = withProfile({
+      getCatalogEntry: () => ({
+        ...integratedNode,
+        adapter: {
+          executable: 'node',
+          args: ['C:\\tools\\mock-adapter.js'],
+          transport,
+          childSessions: { targetIdKey: '__pendingTargetId' }
+        }
+      })
+    })
+
+    expect(service.start(profileId)).toEqual({ status: 'started' })
+    expect(started[0]).toMatchObject({
+      adapterCommand: { transport },
+      childSessions: { launchType: 'pwa-node', targetIdKey: '__pendingTargetId' }
+    })
   })
 
   it('is adapter-unavailable with a catalog row that is not integrated', () => {

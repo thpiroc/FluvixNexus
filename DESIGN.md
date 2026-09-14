@@ -2027,6 +2027,38 @@ production 確認で見つけて直したもの:
 
 production build + 実 debugpy での確認は [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) §4。
 
+### Session 6-15A（完了）— Socket DAP transport + Child Session Foundation
+
+vscode-js-debug を後で繋ぐための **generic な土台だけ**を Main に入れた。**Node の実 adapter は統合していない**（catalog の node 行は `not-integrated` のまま）。Renderer / preload / IPC の口 / CSP / Python・C# の lifecycle は変えていない（[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §20.23）。
+
+入れたもの:
+
+| ファイル                                                                   | 役割                                                                                                          |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `main/debug/adapterTransport.ts`                                           | transport の種類（stdio / socket）と、stdout の ready の合図から port を読む scanner                          |
+| `main/debug/socketDebugAdapter.ts`                                         | adapter server の spawn → ready → 127.0.0.1 への接続 → 子の接続の追加 → dispose / SIGKILL                     |
+| `main/debug/dapStartDebugging.ts`                                          | 逆方向 request `startDebugging` の検証と、子の `launch` 構成の作り直し                                        |
+| `main/debug/dapConnection.ts`                                              | `startDebugging` にだけ答える口（`runInTerminal` と他は従来どおり断る）                                       |
+| `main/debug/debugSessionManager.ts`                                        | root + primary child の接続、子の設定の窓、実行の接続の切り替え、口への `connectionId`、全接続の片付け        |
+| `main/debug/callStack.ts` / `variables.ts` / `evaluate.ts`                 | handle に `connectionId` を控え、別の接続のものを `stale` にする                                              |
+| `main/debug/adapterCatalog.ts` / `profileResolver.ts` / `debugProfiles.ts` | catalog の行の `transport` / `childSessions` を解決済みの形とセッションへ写す（出荷状態の行はどれも持たない） |
+
+決めたこと:
+
+- **socket の接続先は常に 127.0.0.1**。port は stdout の1行から読み、その文言は catalog の行が正規表現で持つ（transport は adapter 固有の文字列を知らない）。ready まで 10 秒・接続 5 秒・kill から SIGKILL まで 2 秒で、無限に待たない
+- **`startDebugging` は launch だけ・root と同じ type だけ・target の id 必須**。実行ファイル / cwd / shell 系の欄が1つでもあれば断り、子の `launch` には Main が作り直した4欄だけを渡す。子セッションを受けないセッション（debugpy / netcoredbg）には答える口そのものを渡さない
+- **v1 は root + primary child の1本だけ**。子は root の running を待ってから設定の窓に入り（breakpoint 仕込みを重ねない）、設定を終えた時点で実行の接続（実行制御 / Call Stack / Variables / Evaluate / breakpoint の変更）が子へ移る。移るときに stop generation を進め、root の停止の handle を古くする
+- Breakpoint は Workspace 単位のまま。root の窓で全件、子の窓でもう一度全件を送り、以降の変更は子へ送る
+- 子の終わり（`terminated` / `exited` / 接続の close / 設定の失敗）も root の終わりも、**セッションごと終わらせて全接続と server を片付ける**
+
+残したもの（Session 6-15B 以降）:
+
+- vscode-js-debug の catalog 統合（入手経路・ready の合図の実際の文言・`__pendingTargetId` の実際の欄名の確認）と Node Profile の実起動
+- 実 js-debug での debuggee（node）プロセスの木の片付け（server を kill しても debuggee が残らないか）
+- 2本目以降の子（worker / 子プロセス）・named pipe・attach・sourceMaps
+
+production build + fake socket DAP server での確認は [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) §4。
+
 ### Session 6-7 〜 6-13（予定）— 実装
 
 | Session | 入れるもの                                                         | 推奨 Agent   |

@@ -60,6 +60,9 @@ function createHarness(options: HarnessOptions = {}) {
   let state: DebugSessionState = 'stopped'
   let generation = 1
   let stopGeneration = 1
+  /** 今の口の接続（Session 6-15A）と、frame を返した接続。既定はどちらも root。 */
+  let connectionId = 'debug-session-1/root'
+  let frameConnectionId = connectionId
   const frames = new Set<number>([11, 12])
   const workspaceListeners: ((next: WorkspaceFolder | null) => void)[] = []
   const stateListeners: ((state: DebugSessionState) => void)[] = []
@@ -90,6 +93,7 @@ function createHarness(options: HarnessOptions = {}) {
           workspaceId: workspace.id,
           sessionGeneration: generation,
           stopGeneration,
+          connectionId: frameConnectionId,
           threadId: 1,
           frameId: rawFrameId
         }
@@ -107,6 +111,7 @@ function createHarness(options: HarnessOptions = {}) {
             sessionId: `debug-session-${String(generation)}`,
             generation,
             stopGeneration,
+            connectionId,
             supportsVariablePaging: false,
             requestScopes,
             requestVariables
@@ -156,6 +161,7 @@ function createHarness(options: HarnessOptions = {}) {
             sessionId: `debug-session-${String(generation)}`,
             generation,
             stopGeneration,
+            connectionId,
             requestEvaluate
           }
         : null,
@@ -204,6 +210,13 @@ function createHarness(options: HarnessOptions = {}) {
     },
     switchWorkspaceSilently: (next: WorkspaceFolder | null) => {
       workspace = next
+    },
+    /** 口の接続だけを差し替える（Session 6-15A。variables.test.ts と同じ形）。 */
+    switchConnection: (next: string, options: { readonly frames?: boolean } = {}) => {
+      connectionId = next
+      if (options.frames === true) {
+        frameConnectionId = next
+      }
     }
   }
 }
@@ -603,5 +616,48 @@ describe('debug evaluate — what never reaches the renderer', () => {
     for (const call of harness.requestEvaluate.mock.calls) {
       expect(Object.keys(call[0] as object).sort()).toEqual(['context', 'expression', 'frameId'])
     }
+  })
+})
+
+describe('debug evaluate — DAP connection scope (Session 6-15A)', () => {
+  it('rejects a frame id that overlaps with a frame from another connection', async () => {
+    const harness = createHarness()
+
+    harness.switchConnection('debug-session-1/child-1')
+
+    expect(reason(await harness.store.evaluate('count', 11, 'repl'))).toBe('stale')
+    expect(harness.requestEvaluate).not.toHaveBeenCalled()
+
+    harness.switchConnection('debug-session-1/child-1', { frames: true })
+
+    expect(reason(await harness.store.evaluate('count', 11, 'repl'))).toBe('ok')
+    expect(harness.requestEvaluate).toHaveBeenCalledTimes(1)
+  })
+
+  it('drops an answer and issues no handle when the connection switched while evaluating', async () => {
+    const pending = deferred<DapRequestOutcome>()
+    const harness = createHarness({ evaluate: () => pending.promise })
+    const result = harness.store.evaluate('user', 11, 'repl')
+
+    harness.switchConnection('debug-session-1/child-1', { frames: true })
+    pending.resolve(success({ result: '{…}', variablesReference: 4001 }))
+
+    expect(reason(await result)).toBe('stale')
+    expect(harness.variables.handleCount()).toBe(0)
+  })
+
+  it('keeps an evaluate handle scoped to the connection it came from', async () => {
+    const harness = createHarness({
+      evaluate: async () => success({ result: '{…}', variablesReference: 4001 })
+    })
+    const handle = handleOf(await harness.store.evaluate('user', 11, 'repl'))
+
+    harness.switchConnection('debug-session-1/child-1', { frames: true })
+
+    expect(await harness.variables.listVariables(handle)).toEqual({
+      status: 'unavailable',
+      reason: 'stale'
+    })
+    expect(harness.requestVariables).not.toHaveBeenCalled()
   })
 })

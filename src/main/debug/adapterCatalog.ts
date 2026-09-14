@@ -5,6 +5,7 @@ import {
   trimTrailingSeparator,
   type FileExistsCheck
 } from '../platform/executablePath'
+import type { DebugAdapterTransport } from './adapterTransport'
 
 /**
  * Debug Adapter の Main-owned catalog foundation。
@@ -48,6 +49,20 @@ export type DebugAdapterIntegrationStatus = 'integrated' | 'not-integrated'
 export interface DebugAdapterExecutable {
   readonly executable: string
   readonly args: readonly string[]
+  /**
+   * 繋ぎ方（Session 6-15A。main/debug/adapterTransport.ts）。省略は stdio。
+   *
+   * socket の行は ready の合図（stdout の1行に当てる正規表現）も表の側で持つ。
+   * 出荷状態の行はどれも持たない（python / csharp は stdio、node は未統合）。
+   */
+  readonly transport?: DebugAdapterTransport
+  /**
+   * `startDebugging` で子セッションを受ける adapter か（Session 6-15A）。省略は受けない。
+   *
+   * 子の構成の `type` は resolver が言語の表から埋める。ここに持つのは、adapter が
+   * target を見分けるために構成へ入れてくる欄の名前だけ。
+   */
+  readonly childSessions?: { readonly targetIdKey: string }
 }
 
 export interface DebugAdapterCatalogEntry {
@@ -64,6 +79,8 @@ export interface DebugAdapterCommand {
   readonly args: readonly string[]
   readonly cwd: string
   readonly env?: Readonly<Record<string, string | undefined>>
+  /** 省略は stdio（Session 6-15A）。 */
+  readonly transport?: DebugAdapterTransport
 }
 
 const DEBUG_ADAPTER_CATALOG: Record<DebugAdapterLanguageId, DebugAdapterCatalogEntry> = {

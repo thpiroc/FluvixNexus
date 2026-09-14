@@ -149,6 +149,10 @@ function createHarness(getExceptionInfoChannel?: ExceptionInfoChannelGetter) {
     },
     replaceStop: (nextStopGeneration: number) => {
       stopGeneration = nextStopGeneration
+    },
+    /** 口の接続だけを差し替える（Session 6-15A。世代も停止も動かさない）。 */
+    switchConnection: (connectionId: string) => {
+      channel = channel === null ? null : { ...channel, connectionId }
     }
   }
 }
@@ -160,6 +164,7 @@ function channel(
     sessionId: 'debug-session-1',
     generation: 1,
     stopGeneration: 1,
+    connectionId: 'debug-session-1/root',
     stoppedThreadId: 1,
     stop: { reason: 'breakpoint', description: null, text: null },
     requestThreads: vi.fn(async () => success({ threads: [{ id: 1, name: 'main' }] })),
@@ -219,6 +224,7 @@ describe('debug call stack store', () => {
       workspaceId: 'workspace-1',
       sessionGeneration: 1,
       stopGeneration: 1,
+      connectionId: 'debug-session-1/root',
       threadId: 1,
       frameId: 11
     })
@@ -396,12 +402,17 @@ describe('debug call stack store: stop reason and exceptions (Session 6-13)', ()
 
   function exceptionChannel(
     requestExceptionInfo: (args: { readonly threadId: number }) => Promise<DapRequestOutcome>,
-    overrides: { readonly generation?: number; readonly stopGeneration?: number } = {}
+    overrides: {
+      readonly generation?: number
+      readonly stopGeneration?: number
+      readonly connectionId?: string
+    } = {}
   ) {
     return {
       sessionId: 'debug-session-1',
       generation: overrides.generation ?? 1,
       stopGeneration: overrides.stopGeneration ?? 1,
+      connectionId: overrides.connectionId ?? 'debug-session-1/root',
       requestExceptionInfo: vi.fn(requestExceptionInfo)
     }
   }
@@ -669,5 +680,70 @@ describe('debug call stack store: stop reason and exceptions (Session 6-13)', ()
       name: 'Unknown source'
     })
     expect(JSON.stringify(snapshot)).not.toContain('Python')
+  })
+})
+
+describe('debug call stack store: DAP connection scope (Session 6-15A)', () => {
+  it('keeps thread and frame ids scoped to the connection that returned them', async () => {
+    const harness = createHarness()
+
+    harness.fireStopped(channel())
+    await settle()
+
+    expect(harness.store.getFrameHandle(11)).toMatchObject({
+      connectionId: 'debug-session-1/root',
+      threadId: 1,
+      frameId: 11
+    })
+
+    // 世代も停止も同じまま、口だけが別の接続になった。同じ番号の frame でも通さない。
+    harness.switchConnection('debug-session-1/child-1')
+    expect(harness.store.getFrameHandle(11)).toBeNull()
+
+    // 子の停止が同じ thread id / frame id を返す。
+    harness.fireStopped(channel({ stopGeneration: 2, connectionId: 'debug-session-1/child-1' }))
+    await settle()
+
+    expect(harness.store.getFrameHandle(11)).toEqual({
+      workspaceId: 'workspace-1',
+      sessionGeneration: 1,
+      stopGeneration: 2,
+      connectionId: 'debug-session-1/child-1',
+      threadId: 1,
+      frameId: 11
+    })
+  })
+
+  it('does not publish a stackTrace answer after the connection switched', async () => {
+    const stack = deferred<DapRequestOutcome>()
+    const harness = createHarness()
+
+    harness.fireStopped(channel({ requestStackTrace: vi.fn(() => stack.promise) }))
+    await settle()
+    harness.switchConnection('debug-session-1/child-1')
+    stack.resolve(success({ stackFrames: [{ id: 11, name: 'main', line: 1 }] }))
+    await settle()
+
+    expect(harness.store.list().status).toBe('loading')
+    expect(harness.store.getFrameHandle(11)).toBeNull()
+  })
+
+  it('ignores an exceptionInfo channel that belongs to another connection', async () => {
+    const info = {
+      sessionId: 'debug-session-1',
+      generation: 1,
+      stopGeneration: 1,
+      connectionId: 'debug-session-1/child-1',
+      requestExceptionInfo: vi.fn(async () => success({ exceptionId: 'X' }))
+    }
+    const harness = createHarness(() => info)
+
+    harness.fireStopped(
+      channel({ stop: { reason: 'exception', description: 'boom', text: 'Error' } })
+    )
+    await settle()
+
+    expect(info.requestExceptionInfo).not.toHaveBeenCalled()
+    expect(harness.store.list().status).toBe('stopped')
   })
 })

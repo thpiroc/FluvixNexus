@@ -7,11 +7,16 @@ import type {
 import type { DebugAdapterCommand } from './adapterCatalog'
 import {
   startDebugAdapterProcess,
+  type DebugAdapterConnection,
   type DebugAdapterProcess,
   type DebugAdapterProcessCloseReason,
   type StartDebugAdapterProcessOutcome
 } from './adapterProcess'
-import type { DapRequestOutcome } from './dapConnection'
+import type { DapConnection, DapRequestOutcome, DapStartDebuggingAnswer } from './dapConnection'
+import {
+  validateDapStartDebuggingArguments,
+  type DebugChildSessionPolicy
+} from './dapStartDebugging'
 import type { DapSetBreakpointsArguments } from './dapBreakpoints'
 import type { DapEvaluateArguments } from './dapEvaluate'
 import { selectDapExceptionBreakpointFilters } from './dapExceptionBreakpoints'
@@ -68,6 +73,14 @@ export interface DebugSessionStartOptions {
    * （送らなければ 6-12 までの lifecycle と1 tick も変わらない）。
    */
   readonly exceptionBreakpointFilters?: readonly string[]
+  /**
+   * `startDebugging` で子セッションを受ける（Session 6-15A）。省略は受けない。
+   *
+   * 受けるのは root の接続に届いた1本だけで、それが **primary child** になる
+   * （下の「root / child」）。省略したセッション（debugpy / netcoredbg）は 6-14 までと同じく
+   * 逆方向 request をすべて断り、lifecycle も1 tick も変わらない。
+   */
+  readonly childSessions?: DebugChildSessionPolicy
 }
 
 export type StartDebugSessionOutcome =
@@ -166,6 +179,13 @@ export const DEBUG_SESSION_CONTROL_TIMEOUT_MS = 10_000
 export interface DebugSessionBreakpointChannel {
   readonly sessionId: string
   readonly generation: number
+  /**
+   * どの DAP 接続へ送る口か（Session 6-15A。Main の中だけの不透明な文字列）。
+   *
+   * root だけのセッションでは常に root の id。子セッションを受けたセッションでは、
+   * 子の設定の窓で渡す口と、子が ready になった後の口が子の id を持つ。
+   */
+  readonly connectionId: string
   readonly setBreakpoints: (args: DapSetBreakpointsArguments) => Promise<DapRequestOutcome>
 }
 
@@ -173,6 +193,13 @@ export interface DebugSessionCallStackChannel {
   readonly sessionId: string
   readonly generation: number
   readonly stopGeneration: number
+  /**
+   * 口を作った時点の実行の接続（Session 6-15A）。
+   *
+   * frame id / thread id は接続ごとに adapter が振る数で、root と子で重なりうる。
+   * handle はこの id を一緒に控え、今の口と食い違えば `stale` として断る。
+   */
+  readonly connectionId: string
   readonly stoppedThreadId: number | null
   /**
    * この停止の `stopped` event から読んだもの（Session 6-13）。
@@ -197,6 +224,7 @@ export interface DebugSessionExceptionInfoChannel {
   readonly sessionId: string
   readonly generation: number
   readonly stopGeneration: number
+  readonly connectionId: string
   readonly requestExceptionInfo: (args: DapExceptionInfoArguments) => Promise<DapRequestOutcome>
 }
 
@@ -212,6 +240,8 @@ export interface DebugSessionVariablesChannel {
   readonly sessionId: string
   readonly generation: number
   readonly stopGeneration: number
+  /** 口を作った時点の実行の接続（Session 6-15A。`variablesReference` も接続ごとの数）。 */
+  readonly connectionId: string
   /** `initialize` の応答で adapter が `supportsVariablePaging` を名乗ったか。 */
   readonly supportsVariablePaging: boolean
   readonly requestScopes: (args: DapScopesArguments) => Promise<DapRequestOutcome>
@@ -235,6 +265,7 @@ export interface DebugSessionEvaluateChannel {
   readonly sessionId: string
   readonly generation: number
   readonly stopGeneration: number
+  readonly connectionId: string
   readonly requestEvaluate: (args: DapEvaluateArguments) => Promise<DapRequestOutcome>
 }
 
@@ -311,7 +342,49 @@ interface RunningDebugSession {
   disconnectSent: boolean
   /** idle へ戻り終えたとき解決する（Stop の返事はこれを待つ）。 */
   readonly ended: Deferred<void>
+  /** 以下は Session 6-15A（root / child）。 */
+  /** root の DAP 接続の id（`<sessionId>/root`）。 */
+  readonly rootConnectionId: string
+  /** 子セッションを受けるか（start options のまま）。null なら `startDebugging` を断る。 */
+  readonly childSessions: DebugChildSessionPolicy | null
+  /** 受けた子（v1 は1本だけ）。一度受けたら、終わるまで次の子は受けない。 */
+  primaryChild: ChildDebugConnection | null
+  /** 子の id の通し番号。 */
+  childCount: number
+  /** root が `starting → running` へ進んだ（または終わった）とき解決する。子の切り替えはこれを待つ。 */
+  readonly rootStarted: Deferred<void>
 }
+
+/**
+ * root から `startDebugging` で受けた子の DAP 接続（Session 6-15A）。
+ *
+ * ```
+ * configuring … initialize → launch → initialized → breakpoint → exception filter → configurationDone
+ *               ここまでの stopped / thread / continued / breakpoint は溜めておく
+ * ready       … 実行の接続がこの子へ移る（Continue / Step / Call Stack / Variables / Evaluate）
+ * closed      … 片付けた / adapter 側から閉じた
+ * ```
+ */
+interface ChildDebugConnection {
+  readonly connectionId: string
+  readonly link: DebugAdapterConnection
+  readonly launchArguments: Readonly<Record<string, unknown>>
+  readonly initialized: Deferred<void>
+  phase: 'configuring' | 'ready' | 'closed'
+  stopCapabilities: DebugAdapterStopCapabilities
+  supportsVariablePaging: boolean
+  supportsExceptionInfoRequest: boolean
+  readonly bufferedEvents: { readonly event: string; readonly body: unknown }[]
+}
+
+/** DAP を送る先（Session 6-15A）。`connection` が null なら送らずに `closed` を返す。 */
+interface DebugConnectionTarget {
+  readonly connectionId: string
+  readonly connection: DapConnection | null
+}
+
+/** 子が ready になる前に溜めておく event の上限（Session 6-15A）。 */
+export const DEBUG_CHILD_SESSION_MAX_BUFFERED_EVENTS = 64
 
 interface Deferred<T> {
   readonly promise: Promise<T>
@@ -528,7 +601,12 @@ export function createDebugSessionManager(
       stopPhase: 'none',
       stopTimer: null,
       disconnectSent: false,
-      ended: createDeferred()
+      ended: createDeferred(),
+      rootConnectionId: `debug-session-${generation}/root`,
+      childSessions: startOptions.childSessions ?? null,
+      primaryChild: null,
+      childCount: 0,
+      rootStarted: createDeferred()
     }
 
     current = record
@@ -537,11 +615,20 @@ export function createDebugSessionManager(
     const adapter = startAdapterProcess({
       command: record.adapterCommand,
       onEvent: (event, body) => {
-        handleAdapterEvent(record.generation, event, body)
+        handleAdapterEvent(record.generation, record.rootConnectionId, event, body)
       },
       onAdapterRequest: (command) => {
         log('warn', `${record.adapterCommand.name}: rejected reverse DAP request "${command}".`)
       },
+      /*
+        子セッションを受けないセッションには答える口そのものを渡さない（Session 6-15A）。
+        `startDebugging` も 6-14 までと同じ経路（dapConnection の一律の断り）を通る。
+      */
+      ...(record.childSessions === null
+        ? {}
+        : {
+            onStartDebugging: (args: unknown) => handleStartDebugging(record.generation, args)
+          }),
       onBrokenStream: (reason) => {
         handleAdapterFailure(record.generation, `the DAP message stream is broken: ${reason}`)
       },
@@ -559,6 +646,9 @@ export function createDebugSessionManager(
       },
       onStderr: (chunk) => {
         log('debug', `${record.adapterCommand.name} [stderr] ${chunk}`)
+      },
+      onStdout: (chunk) => {
+        log('debug', `${record.adapterCommand.name} [stdout] ${chunk}`)
       }
     })
 
@@ -595,7 +685,12 @@ export function createDebugSessionManager(
 
     timer.unref?.()
 
-    const initialize = await request(record, 'initialize', createInitializeArguments(record))
+    /*
+      起動の lifecycle は常に root の接続へ送る（Session 6-15A）。子が先に ready になることは
+      無い（子の切り替えは root の `started` を待つ）が、宛先を実行の接続に任せない。
+    */
+    const root = rootTarget(record)
+    const initialize = await requestOn(root, 'initialize', createInitializeArguments(record))
 
     /*
       以下の `isActive` は、6-2 の `isCurrent` に「Stop を頼まれていない」を足したもの
@@ -623,7 +718,7 @@ export function createDebugSessionManager(
         record.exceptionBreakpointFilters
       )
 
-      const launch = request(record, 'launch', record.launchArguments)
+      const launch = requestOn(root, 'launch', record.launchArguments)
 
       if (record.waitForLaunchResponseBeforeConfiguration) {
         const outcome = await launch
@@ -666,7 +761,7 @@ export function createDebugSessionManager(
         ── Session 6-2 の lifecycle を、6-3 の有無で変えないための形にあたる。
       */
       if (configurationHook !== null) {
-        await runConfigurationHook(record)
+        await runConfigurationHook(record, createBreakpointChannel(record, root))
 
         if (!isActive(record)) {
           return
@@ -682,7 +777,7 @@ export function createDebugSessionManager(
         断られても Debug Session は続ける（例外で止まらないだけで、走らせることはできる）。
       */
       if (exceptionBreakpoints !== null) {
-        const outcome = await request(record, 'setExceptionBreakpoints', exceptionBreakpoints)
+        const outcome = await requestOn(root, 'setExceptionBreakpoints', exceptionBreakpoints)
 
         if (!isActive(record)) {
           return
@@ -697,7 +792,7 @@ export function createDebugSessionManager(
       }
 
       if (supportsConfigurationDone) {
-        const configurationDone = await request(record, 'configurationDone')
+        const configurationDone = await requestOn(root, 'configurationDone')
 
         if (!isActive(record)) {
           return
@@ -712,6 +807,8 @@ export function createDebugSessionManager(
       if (record.state === 'starting') {
         transition(record, 'started')
       }
+
+      record.rootStarted.resolve()
     } finally {
       clearTimeout(timer)
     }
@@ -724,25 +821,32 @@ export function createDebugSessionManager(
    * プログラムを走らせられないことは別のことにほかならない ── 止めてしまうと、
    * 印の同期に失敗しただけでデバッグそのものが始まらなくなる。
    */
-  async function runConfigurationHook(record: RunningDebugSession): Promise<void> {
+  async function runConfigurationHook(
+    record: RunningDebugSession,
+    channel: DebugSessionBreakpointChannel
+  ): Promise<void> {
     if (configurationHook === null) {
       return
     }
 
     try {
-      await configurationHook(createBreakpointChannel(record))
+      await configurationHook(channel)
     } catch (cause) {
       log('warn', `the debug session configuration hook failed: ${describeError(cause)}`)
     }
   }
 
-  function createBreakpointChannel(record: RunningDebugSession): DebugSessionBreakpointChannel {
+  function createBreakpointChannel(
+    record: RunningDebugSession,
+    target: DebugConnectionTarget
+  ): DebugSessionBreakpointChannel {
     return {
       sessionId: record.sessionId,
       generation: record.generation,
+      connectionId: target.connectionId,
       setBreakpoints: (args) =>
-        isCurrent(record)
-          ? request(record, 'setBreakpoints', args)
+        isCurrent(record) && isLiveTarget(record, target)
+          ? requestOn(target, 'setBreakpoints', args)
           : Promise.resolve({
               status: 'closed' as const,
               reason: 'the debug session has already ended.'
@@ -755,28 +859,38 @@ export function createDebugSessionManager(
       return null
     }
 
-    return createBreakpointChannel(current)
+    /*
+      子が設定の窓の中にいる間は返さない（Session 6-15A）。`starting` の間に返さないのと
+      同じ理由で、子への仕込み（configurationHook）と別経路の送信が前後して届かないようにする。
+    */
+    if (current.primaryChild?.phase === 'configuring') {
+      return null
+    }
+
+    return createBreakpointChannel(current, executionTarget(current))
   }
 
   function createCallStackChannel(record: RunningDebugSession): DebugSessionCallStackChannel {
     const stopGeneration = record.stopEpoch
+    const target = executionTarget(record)
 
     return {
       sessionId: record.sessionId,
       generation: record.generation,
       stopGeneration,
+      connectionId: target.connectionId,
       stoppedThreadId: record.stoppedThreadId,
       stop: record.lastStop,
       requestThreads: () =>
-        isCurrentStopped(record, stopGeneration)
-          ? request(record, 'threads')
+        isCurrentStoppedOn(record, stopGeneration, target)
+          ? requestOn(target, 'threads')
           : Promise.resolve({
               status: 'closed' as const,
               reason: 'the stopped debug session has already moved on.'
             }),
       requestStackTrace: (args) =>
-        isCurrentStopped(record, stopGeneration)
-          ? request(record, 'stackTrace', args)
+        isCurrentStoppedOn(record, stopGeneration, target)
+          ? requestOn(target, 'stackTrace', args)
           : Promise.resolve({
               status: 'closed' as const,
               reason: 'the stopped debug session has already moved on.'
@@ -794,6 +908,7 @@ export function createDebugSessionManager(
 
   function createVariablesChannel(record: RunningDebugSession): DebugSessionVariablesChannel {
     const stopGeneration = record.stopEpoch
+    const target = executionTarget(record)
     const moved = (): Promise<DapRequestOutcome> =>
       Promise.resolve({
         status: 'closed' as const,
@@ -804,11 +919,16 @@ export function createDebugSessionManager(
       sessionId: record.sessionId,
       generation: record.generation,
       stopGeneration,
+      connectionId: target.connectionId,
       supportsVariablePaging: record.supportsVariablePaging,
       requestScopes: (args) =>
-        isCurrentStopped(record, stopGeneration) ? request(record, 'scopes', args) : moved(),
+        isCurrentStoppedOn(record, stopGeneration, target)
+          ? requestOn(target, 'scopes', args)
+          : moved(),
       requestVariables: (args) =>
-        isCurrentStopped(record, stopGeneration) ? request(record, 'variables', args) : moved()
+        isCurrentStoppedOn(record, stopGeneration, target)
+          ? requestOn(target, 'variables', args)
+          : moved()
     }
   }
 
@@ -827,14 +947,16 @@ export function createDebugSessionManager(
 
     const record = current
     const stopGeneration = record.stopEpoch
+    const target = executionTarget(record)
 
     return {
       sessionId: record.sessionId,
       generation: record.generation,
       stopGeneration,
+      connectionId: target.connectionId,
       requestEvaluate: (args) =>
-        isCurrentStopped(record, stopGeneration)
-          ? request(record, 'evaluate', args)
+        isCurrentStoppedOn(record, stopGeneration, target)
+          ? requestOn(target, 'evaluate', args)
           : Promise.resolve({
               status: 'closed' as const,
               reason: 'the stopped debug session has already moved on.'
@@ -849,14 +971,16 @@ export function createDebugSessionManager(
 
     const record = current
     const stopGeneration = record.stopEpoch
+    const target = executionTarget(record)
 
     return {
       sessionId: record.sessionId,
       generation: record.generation,
       stopGeneration,
+      connectionId: target.connectionId,
       requestExceptionInfo: (args) =>
-        isCurrentStopped(record, stopGeneration)
-          ? request(record, 'exceptionInfo', args)
+        isCurrentStoppedOn(record, stopGeneration, target)
+          ? requestOn(target, 'exceptionInfo', args)
           : Promise.resolve({
               status: 'closed' as const,
               reason: 'the stopped debug session has already moved on.'
@@ -864,13 +988,389 @@ export function createDebugSessionManager(
     }
   }
 
-  function handleAdapterEvent(generation: number, event: string, body: unknown): void {
+  /**
+   * DAP の接続から届いた event の振り分け（Session 6-15A で接続を見るようにした）。
+   *
+   * ```
+   * root だけ（debugpy / netcoredbg）   → 6-14 までと同じ（dispatchSessionEvent）
+   * 子が configuring                     → root の event は従来どおり。子の event は溜める
+   * 子が ready                           → 実行の event（stopped / thread / continued /
+   *                                        breakpoint）は子からだけ。root からは output /
+   *                                        terminated / exited だけを受ける
+   * 閉じた子 / 前の世代の接続             → 捨てる
+   * ```
+   */
+  function handleAdapterEvent(
+    generation: number,
+    connectionId: string,
+    event: string,
+    body: unknown
+  ): void {
     const record = current
 
     if (record === null || record.generation !== generation) {
       return
     }
 
+    const child = record.primaryChild
+
+    if (child !== null && child.connectionId === connectionId) {
+      if (child.phase !== 'closed') {
+        handleChildEvent(record, child, event, body)
+      }
+      return
+    }
+
+    if (connectionId !== record.rootConnectionId) {
+      log('debug', `${record.adapterCommand.name}: ignored "${event}" from a closed connection.`)
+      return
+    }
+
+    if (
+      child !== null &&
+      child.phase === 'ready' &&
+      event !== 'output' &&
+      event !== 'terminated' &&
+      event !== 'exited'
+    ) {
+      log('debug', `${record.adapterCommand.name}: ignored root "${event}" (child is primary).`)
+      return
+    }
+
+    dispatchSessionEvent(record, event, body)
+  }
+
+  function handleChildEvent(
+    record: RunningDebugSession,
+    child: ChildDebugConnection,
+    event: string,
+    body: unknown
+  ): void {
+    if (event === 'initialized') {
+      child.initialized.resolve()
+      return
+    }
+
+    if (event === 'output' || event === 'terminated' || event === 'exited') {
+      dispatchSessionEvent(record, event, body)
+      return
+    }
+
+    if (child.phase === 'configuring') {
+      if (child.bufferedEvents.length >= DEBUG_CHILD_SESSION_MAX_BUFFERED_EVENTS) {
+        log('warn', `${record.adapterCommand.name}: dropped child "${event}" before it was ready.`)
+        return
+      }
+
+      child.bufferedEvents.push({ event, body })
+      return
+    }
+
+    dispatchSessionEvent(record, event, body)
+  }
+
+  /**
+   * root の接続に届いた `startDebugging`（Session 6-15A）。
+   *
+   * ## primary child
+   *
+   * **最初に受けた1本が primary child になり、それ以降は受けない**（v1）。子が ready に
+   * なった時点で実行の接続が子へ移り、Continue / Pause / Step・Call Stack・Variables・
+   * Evaluate・breakpoint の変更はすべて子へ送る。root に残るのは起動と片付けだけ。
+   *
+   * 断る順番: 前の世代 → 子を受けないセッション → 終わらせている途中 → 既に子がある →
+   * 接続を足せない transport（stdio）→ 構成の検証（dapStartDebugging.ts）→ 接続が張れない。
+   *
+   * 断りの文言は adapter へ返るだけで、Renderer へは出ない。パスも載せない。
+   */
+  function handleStartDebugging(generation: number, args: unknown): DapStartDebuggingAnswer {
+    const record = current
+
+    if (record === null || record.generation !== generation) {
+      return declineStartDebugging('the debug session has already ended.')
+    }
+
+    const name = record.adapterCommand.name
+    const policy = record.childSessions
+
+    if (policy === null) {
+      log('warn', `${name}: rejected "startDebugging" (child sessions are not supported).`)
+      return declineStartDebugging('child debug sessions are not supported.')
+    }
+
+    if (!isActive(record) || record.cleanupStarted) {
+      return declineStartDebugging('the debug session is ending.')
+    }
+
+    if (record.primaryChild !== null) {
+      log('warn', `${name}: rejected "startDebugging" (a child session is already attached).`)
+      return declineStartDebugging('a child debug session is already attached.')
+    }
+
+    const openConnection = record.process?.openConnection
+
+    if (openConnection === undefined) {
+      log('warn', `${name}: rejected "startDebugging" (the transport has one connection).`)
+      return declineStartDebugging('this debug adapter cannot open another connection.')
+    }
+
+    const validation = validateDapStartDebuggingArguments(args, policy)
+
+    if (validation.status === 'rejected') {
+      log('warn', `${name}: rejected "startDebugging" (${validation.reason}).`)
+      return declineStartDebugging('the client does not start this debug session.')
+    }
+
+    const connectionId = `${record.sessionId}/child-${String(record.childCount + 1)}`
+    const link = openConnection({
+      onEvent: (event, body) => {
+        handleAdapterEvent(record.generation, connectionId, event, body)
+      },
+      onAdapterRequest: (command) => {
+        log('warn', `${name}: rejected reverse DAP request "${command}" on a child connection.`)
+      },
+      onProtocolWarning: (reason) => {
+        log('warn', `${name} [child]: ${reason}`)
+      },
+      onClosed: (reason) => {
+        handleChildClosed(record.generation, connectionId, reason)
+      }
+    })
+
+    if (link === null) {
+      log('warn', `${name}: rejected "startDebugging" (no connection could be opened).`)
+      return declineStartDebugging('the client could not open another debug connection.')
+    }
+
+    record.childCount += 1
+    const child: ChildDebugConnection = {
+      connectionId,
+      link,
+      launchArguments: validation.configuration,
+      initialized: createDeferred(),
+      phase: 'configuring',
+      stopCapabilities: NO_DEBUG_ADAPTER_STOP_CAPABILITIES,
+      supportsVariablePaging: false,
+      supportsExceptionInfoRequest: false,
+      bufferedEvents: []
+    }
+
+    record.primaryChild = child
+    log(
+      'debug',
+      `${name}: accepted a child debug session (${String(validation.droppedFieldCount)} fields dropped).`
+    )
+    void runChildLifecycle(record, child)
+
+    return { accepted: true }
+  }
+
+  /**
+   * 子の設定の窓（Session 6-15A）。root の lifecycle（`runStartLifecycle`）と同じ順序を、
+   * 子の接続に対してもう一度踏む。
+   *
+   * ```
+   * initialize → launch（作り直した構成）→ initialized
+   *   → breakpoint（configurationHook。子へ全件を送り直す）
+   *   → setExceptionBreakpoints（子が名乗った filter との積）
+   *   → configurationDone（子が名乗れば）
+   *   → root の running を待つ → 実行の接続を子へ切り替える
+   * ```
+   *
+   * どこで失敗しても Debug Session ごと終わらせる ── v1 の primary child は debug 対象そのもので、
+   * 子が繋がらないまま root だけ残しても止める・読むの相手がいない。
+   */
+  async function runChildLifecycle(
+    record: RunningDebugSession,
+    child: ChildDebugConnection
+  ): Promise<void> {
+    const target = childTarget(child)
+    const timer = setTimeout(() => {
+      if (isConfiguringChild(record, child)) {
+        failActiveRecord(record, 'the child debug session did not finish configuration in time.')
+      }
+    }, options.startTimeoutMs ?? DEBUG_SESSION_START_TIMEOUT_MS)
+
+    timer.unref?.()
+
+    try {
+      const initialize = await requestOn(target, 'initialize', createInitializeArguments(record))
+
+      if (!isConfiguringChild(record, child)) {
+        return
+      }
+
+      if (initialize.status !== 'success') {
+        failActiveRecord(record, `child ${describeRequestFailure('initialize', initialize)}`)
+        return
+      }
+
+      child.stopCapabilities = readDebugAdapterStopCapabilities(initialize.body)
+      child.supportsVariablePaging = readSupportsVariablePaging(initialize.body)
+      child.supportsExceptionInfoRequest = readSupportsExceptionInfoRequest(initialize.body)
+
+      const supportsConfigurationDone = supportsConfigurationDoneRequest(initialize.body)
+      const exceptionBreakpoints = selectDapExceptionBreakpointFilters(
+        initialize.body,
+        record.exceptionBreakpointFilters
+      )
+      const launch = requestOn(target, 'launch', child.launchArguments)
+
+      if (record.waitForLaunchResponseBeforeConfiguration) {
+        const outcome = await launch
+
+        if (!isConfiguringChild(record, child)) {
+          return
+        }
+
+        if (outcome.status !== 'success') {
+          failActiveRecord(record, `child ${describeRequestFailure('launch', outcome)}`)
+          return
+        }
+      } else {
+        void launch.then((outcome) => {
+          if (
+            isActive(record) &&
+            record.primaryChild === child &&
+            child.phase !== 'closed' &&
+            outcome.status !== 'success'
+          ) {
+            failActiveRecord(record, `child ${describeRequestFailure('launch', outcome)}`)
+          }
+        })
+      }
+
+      await child.initialized.promise
+
+      if (!isConfiguringChild(record, child)) {
+        return
+      }
+
+      /*
+        root がまだ starting なら running へ進むのを待ってから、子の設定の窓に入る。
+
+        - root と子の仕込み（configurationHook）を重ねない ── breakpoint の同期（breakpoints.ts）は
+          「今どのファイルを送ったか」を1組しか持たず、2本が交互に進むと控えが食い違う
+        - 子の stopped を starting のまま当てると、状態が running を飛ばせない
+          （debugSessionState.ts の許可遷移）。それまで届いた実行の event は溜めておく
+      */
+      await record.rootStarted.promise
+
+      if (!isConfiguringChild(record, child)) {
+        return
+      }
+
+      if (configurationHook !== null) {
+        await runConfigurationHook(record, createBreakpointChannel(record, target))
+
+        if (!isConfiguringChild(record, child)) {
+          return
+        }
+      }
+
+      if (exceptionBreakpoints !== null) {
+        const outcome = await requestOn(target, 'setExceptionBreakpoints', exceptionBreakpoints)
+
+        if (!isConfiguringChild(record, child)) {
+          return
+        }
+
+        if (outcome.status !== 'success') {
+          log(
+            'warn',
+            `${record.adapterCommand.name}: child setExceptionBreakpoints was not applied: ${describeRequestFailure('setExceptionBreakpoints', outcome)}`
+          )
+        }
+      }
+
+      if (supportsConfigurationDone) {
+        const configurationDone = await requestOn(target, 'configurationDone')
+
+        if (!isConfiguringChild(record, child)) {
+          return
+        }
+
+        if (configurationDone.status !== 'success') {
+          failActiveRecord(
+            record,
+            `child ${describeRequestFailure('configurationDone', configurationDone)}`
+          )
+          return
+        }
+      }
+
+      switchExecutionConnection(record, child)
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  /**
+   * 実行の接続を子へ移す（Session 6-15A）。
+   *
+   * **stop generation を進める。** root の停止で作った口・frame・`variablesReference` の handle は
+   * 接続が違うので使えない ── 世代で古くしておけば、Call Stack / Variables / Evaluate の既存の
+   * 照合（6-5 〜 6-7）がそのまま `stale` にする。`connectionId` の照合はその上の二重の守り。
+   */
+  function switchExecutionConnection(
+    record: RunningDebugSession,
+    child: ChildDebugConnection
+  ): void {
+    child.phase = 'ready'
+    record.stopCapabilities = child.stopCapabilities
+    record.supportsVariablePaging = child.supportsVariablePaging
+    record.supportsExceptionInfoRequest = child.supportsExceptionInfoRequest
+    record.stopEpoch += 1
+    record.stoppedThreadId = null
+    record.activeThreadId = null
+    record.lastStop = null
+
+    log('debug', `${record.adapterCommand.name}: the child debug session is now primary.`)
+
+    if (record.state === 'stopped') {
+      transition(record, 'continued')
+    }
+
+    for (const buffered of child.bufferedEvents.splice(0)) {
+      if (!isCurrent(record) || record.primaryChild !== child || child.phase !== 'ready') {
+        return
+      }
+
+      dispatchSessionEvent(record, buffered.event, buffered.body)
+    }
+  }
+
+  function handleChildClosed(generation: number, connectionId: string, reason: string): void {
+    const record = current
+
+    if (record === null || record.generation !== generation || record.cleanupStarted) {
+      return
+    }
+
+    const child = record.primaryChild
+
+    if (child === null || child.connectionId !== connectionId || child.phase === 'closed') {
+      return
+    }
+
+    child.phase = 'closed'
+    child.initialized.resolve()
+
+    if (record.stopPhase !== 'none') {
+      log('debug', `${record.adapterCommand.name}: the child debug connection closed after stop.`)
+      terminateRecord(record, 'the child debug connection closed after stop.', false)
+      return
+    }
+
+    failActiveRecord(record, `the child debug connection closed: ${reason}`)
+  }
+
+  function isConfiguringChild(record: RunningDebugSession, child: ChildDebugConnection): boolean {
+    return isActive(record) && record.primaryChild === child && child.phase === 'configuring'
+  }
+
+  /** 実行の event を状態へ当てる（6-14 までの `handleAdapterEvent` の本体）。 */
+  function dispatchSessionEvent(record: RunningDebugSession, event: string, body: unknown): void {
     switch (event) {
       case 'initialized':
         record.initialized.resolve()
@@ -1020,6 +1520,8 @@ export function createDebugSessionManager(
 
     record.terminationRequested = true
     record.initialized.resolve()
+    record.rootStarted.resolve()
+    record.primaryChild?.initialized.resolve()
     clearStopTimer(record)
 
     if (record.state !== 'terminating') {
@@ -1039,6 +1541,18 @@ export function createDebugSessionManager(
           'disconnect',
           createDapDisconnectArguments(record.stopCapabilities)
         )
+      }
+
+      /*
+        子の接続を先に閉じ、root と adapter のプロセスを後に閉じる（Session 6-15A）。
+        socket の adapter では process の dispose も全接続を閉じるが、子の控えを
+        `closed` にするのはここだけ ── 閉じた後に遅れて届いた event を捨てられるように。
+      */
+      const child = record.primaryChild
+
+      if (child !== null) {
+        child.phase = 'closed'
+        child.link.dispose(reason)
       }
 
       record.process?.dispose(reason)
@@ -1297,6 +1811,8 @@ export function createDebugSessionManager(
   function beginStopping(record: RunningDebugSession): void {
     record.terminationRequested = true
     record.initialized.resolve()
+    record.rootStarted.resolve()
+    record.primaryChild?.initialized.resolve()
 
     if (record.state !== 'terminating') {
       transition(record, 'terminate')
@@ -1371,18 +1887,55 @@ export function createDebugSessionManager(
     return { status: 'failed', reason, state: getState() }
   }
 
+  /**
+   * 実行の接続へ送る（Continue / Pause / Step・`threads`・Stop の `terminate` / `disconnect`）。
+   *
+   * root だけのセッションでは root の接続そのもの（6-14 までと同じ）。子が ready なら子の接続。
+   */
   function request(
     record: RunningDebugSession,
     command: string,
     args?: unknown
   ): Promise<DapRequestOutcome> {
-    const adapter = record.process
+    return requestOn(executionTarget(record), command, args)
+  }
 
-    if (adapter === null) {
+  function requestOn(
+    target: DebugConnectionTarget,
+    command: string,
+    args?: unknown
+  ): Promise<DapRequestOutcome> {
+    if (target.connection === null) {
       return Promise.resolve({ status: 'closed', reason: 'the debug adapter is not running.' })
     }
 
-    return adapter.connection.request(command, args)
+    return target.connection.request(command, args)
+  }
+
+  function rootTarget(record: RunningDebugSession): DebugConnectionTarget {
+    return { connectionId: record.rootConnectionId, connection: record.process?.connection ?? null }
+  }
+
+  function childTarget(child: ChildDebugConnection): DebugConnectionTarget {
+    return { connectionId: child.connectionId, connection: child.link.connection }
+  }
+
+  /** 実行の接続。子が ready なら子、それ以外は root（Session 6-15A）。 */
+  function executionTarget(record: RunningDebugSession): DebugConnectionTarget {
+    const child = record.primaryChild
+
+    return child !== null && child.phase === 'ready' ? childTarget(child) : rootTarget(record)
+  }
+
+  /** その送り先がまだ閉じていないか（root は片付けの前、子は `closed` の前）。 */
+  function isLiveTarget(record: RunningDebugSession, target: DebugConnectionTarget): boolean {
+    if (target.connectionId === record.rootConnectionId) {
+      return !record.cleanupStarted
+    }
+
+    const child = record.primaryChild
+
+    return child !== null && child.connectionId === target.connectionId && child.phase !== 'closed'
   }
 
   function isCurrent(record: RunningDebugSession): boolean {
@@ -1391,6 +1944,18 @@ export function createDebugSessionManager(
 
   function isCurrentStopped(record: RunningDebugSession, stopGeneration: number): boolean {
     return isActive(record) && record.state === 'stopped' && record.stopEpoch === stopGeneration
+  }
+
+  /** 同じ停止のまま、実行の接続もまだ口を作った時と同じか（Session 6-15A）。 */
+  function isCurrentStoppedOn(
+    record: RunningDebugSession,
+    stopGeneration: number,
+    target: DebugConnectionTarget
+  ): boolean {
+    return (
+      isCurrentStopped(record, stopGeneration) &&
+      executionTarget(record).connectionId === target.connectionId
+    )
   }
 
   /** 今のセッションで、まだ Stop を頼まれていない（Session 6-4）。 */
@@ -1633,6 +2198,10 @@ function createDeferred<T>(): Deferred<T> {
   })
 
   return { promise, resolve }
+}
+
+function declineStartDebugging(message: string): DapStartDebuggingAnswer {
+  return { accepted: false, message }
 }
 
 function describeRequestFailure(command: string, outcome: DapRequestOutcome): string {

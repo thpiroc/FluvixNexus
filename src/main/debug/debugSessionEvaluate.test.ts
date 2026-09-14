@@ -198,6 +198,7 @@ describe('debug session evaluate channel (Session 6-7)', () => {
     const variablesChannel = manager.getVariablesChannel()
 
     expect(Object.keys(evaluateChannel ?? {}).sort()).toEqual([
+      'connectionId',
       'generation',
       'requestEvaluate',
       'sessionId',

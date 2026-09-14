@@ -14,6 +14,10 @@ import {
  * DAP は JSON-RPC ではないため、応答の対応付けは `id` ではなく
  * response の `request_seq` で行う。adapter からの逆方向 request は、
  * Session 6-0 の境界に従って失敗応答を返す。
+ *
+ * Session 6-15A で、**`startDebugging` の1つだけ**を答えられるようにした（子セッション）。
+ * 答えを決めるのは `onStartDebugging`（Main の Session Manager）で、渡されなければ従来どおり断る。
+ * 任意の逆方向 request を受ける口は作らない ── `runInTerminal` はここを通っても必ず断る。
  */
 
 export type DapRequestOutcome =
@@ -21,10 +25,16 @@ export type DapRequestOutcome =
   | { readonly status: 'failure'; readonly message?: string; readonly body: unknown }
   | { readonly status: 'closed'; readonly reason: string }
 
+/** `startDebugging` への答え（Session 6-15A）。失敗の文言にパスを載せないこと。 */
+export type DapStartDebuggingAnswer =
+  { readonly accepted: true } | { readonly accepted: false; readonly message: string }
+
 export interface DapConnectionOptions {
   readonly send: (data: Buffer) => void
   readonly onEvent: (event: string, body: unknown) => void
   readonly onAdapterRequest?: (command: string, args: unknown) => void
+  /** `startDebugging` にだけ答える（Session 6-15A）。無ければ他の逆方向 request と同じく断る。 */
+  readonly onStartDebugging?: (args: unknown) => DapStartDebuggingAnswer
   readonly onBrokenStream: (reason: string) => void
   readonly onProtocolWarning?: (reason: string) => void
 }
@@ -84,6 +94,11 @@ export function createDapConnection(options: DapConnectionOptions): DapConnectio
     }
 
     if (isDapRequest(message)) {
+      if (message.command === 'startDebugging' && options.onStartDebugging !== undefined) {
+        answerStartDebugging(message.seq, message.arguments, options.onStartDebugging)
+        return
+      }
+
       options.onAdapterRequest?.(message.command, message.arguments)
 
       write({
@@ -96,6 +111,42 @@ export function createDapConnection(options: DapConnectionOptions): DapConnectio
       })
       nextSeq += 1
     }
+  }
+
+  function answerStartDebugging(
+    requestSeq: number,
+    args: unknown,
+    decide: NonNullable<DapConnectionOptions['onStartDebugging']>
+  ): void {
+    let answer: DapStartDebuggingAnswer
+
+    try {
+      answer = decide(args)
+    } catch (cause) {
+      const detail = cause instanceof Error ? cause.message : String(cause)
+      options.onProtocolWarning?.(`deciding "startDebugging" failed: ${detail}`)
+      answer = { accepted: false, message: 'the client could not start the debug session.' }
+    }
+
+    write(
+      answer.accepted
+        ? {
+            seq: nextSeq,
+            type: 'response',
+            request_seq: requestSeq,
+            success: true,
+            command: 'startDebugging'
+          }
+        : {
+            seq: nextSeq,
+            type: 'response',
+            request_seq: requestSeq,
+            success: false,
+            command: 'startDebugging',
+            message: answer.message
+          }
+    )
+    nextSeq += 1
   }
 
   function dispose(reason: string): void {

@@ -331,7 +331,10 @@ export function createDebugProfileService(
       launchArguments: configuration.launchArguments,
       waitForLaunchResponseBeforeConfiguration:
         configuration.waitForLaunchResponseBeforeConfiguration,
-      exceptionBreakpointFilters: configuration.exceptionBreakpointFilters
+      exceptionBreakpointFilters: configuration.exceptionBreakpointFilters,
+      ...(configuration.childSessions === undefined
+        ? {}
+        : { childSessions: configuration.childSessions })
     })
 
     switch (outcome.status) {

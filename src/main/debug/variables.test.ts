@@ -77,6 +77,9 @@ function createHarness(options: HarnessOptions = {}) {
   let state: DebugSessionState = 'stopped'
   let generation = 1
   let stopGeneration = 1
+  /** 今の口の接続（Session 6-15A）と、frame を返した接続。既定はどちらも root。 */
+  let connectionId = 'debug-session-1/root'
+  let frameConnectionId = connectionId
   const frames = new Set<number>([11, 12])
   const workspaceListeners: ((next: WorkspaceFolder | null) => void)[] = []
   const stateListeners: ((state: DebugSessionState) => void)[] = []
@@ -105,6 +108,7 @@ function createHarness(options: HarnessOptions = {}) {
           sessionId: `debug-session-${String(generation)}`,
           generation,
           stopGeneration,
+          connectionId,
           supportsVariablePaging: options.paging ?? false,
           requestScopes,
           requestVariables
@@ -126,6 +130,7 @@ function createHarness(options: HarnessOptions = {}) {
             workspaceId: workspace.id,
             sessionGeneration: generation,
             stopGeneration,
+            connectionId: frameConnectionId,
             threadId: 1,
             frameId: rawFrameId
           }
@@ -198,6 +203,16 @@ function createHarness(options: HarnessOptions = {}) {
     },
     switchWorkspaceSilently: (next: WorkspaceFolder | null) => {
       workspace = next
+    },
+    /**
+     * 口の接続だけを差し替える（Session 6-15A）。`frames: true` なら frame もその接続のものにする
+     * ── 世代も停止も動かさないので、接続の照合だけで断れるかを見られる。
+     */
+    switchConnection: (next: string, options: { readonly frames?: boolean } = {}) => {
+      connectionId = next
+      if (options.frames === true) {
+        frameConnectionId = next
+      }
     }
   }
 }
@@ -618,6 +633,7 @@ describe('debug variables handle table — the evaluate entry point (Session 6-7
       workspaceId: WORKSPACE.id,
       sessionGeneration: 1,
       stopGeneration: 1,
+      connectionId: 'debug-session-1/root',
       epoch: harness.store.currentEpoch()
     }
   }
@@ -654,7 +670,8 @@ describe('debug variables handle table — the evaluate entry point (Session 6-7
     ['a stale epoch', { epoch: -1 }],
     ['another workspace', { workspaceId: OTHER_WORKSPACE.id }],
     ['another session', { sessionGeneration: 2 }],
-    ['another stop', { stopGeneration: 2 }]
+    ['another stop', { stopGeneration: 2 }],
+    ['another DAP connection (Session 6-15A)', { connectionId: 'debug-session-1/child-1' }]
   ])('issues nothing for %s', (_name, override) => {
     const harness = createHarness()
 
@@ -697,5 +714,52 @@ describe('debug variables handle table — the evaluate entry point (Session 6-7
 
     expect(harness.store.handleCount()).toBe(2)
     expect(harness.store.registerEvaluateResult(scopeOf(harness), 4001)).toBeNull()
+  })
+})
+
+describe('debug variables handle table — DAP connection scope (Session 6-15A)', () => {
+  it('does not reuse a handle from another connection even when the variablesReference overlaps', async () => {
+    const harness = createHarness()
+    const rootLocals = okScopes(await harness.store.listScopes(11))[0]?.handle ?? null
+
+    expect(rootLocals).not.toBeNull()
+
+    // 子の接続が同じ frame id / 同じ variablesReference（1000）を返す。
+    harness.switchConnection('debug-session-1/child-1', { frames: true })
+
+    expect(await harness.store.listVariables(rootLocals)).toEqual({
+      status: 'unavailable',
+      reason: 'stale'
+    })
+    expect(harness.requestVariables).not.toHaveBeenCalled()
+
+    const childLocals = okScopes(await harness.store.listScopes(11))[0]?.handle ?? null
+
+    expect(childLocals).not.toBeNull()
+    expect(childLocals).not.toBe(rootLocals)
+    expect(await harness.store.listVariables(childLocals)).toMatchObject({ status: 'ok' })
+    expect(harness.requestVariables).toHaveBeenCalledWith({ variablesReference: 1000 })
+    expect(await harness.store.listVariables(rootLocals)).toMatchObject({ reason: 'stale' })
+  })
+
+  it('rejects a frame from another connection for scopes', async () => {
+    const harness = createHarness()
+
+    harness.switchConnection('debug-session-1/child-1')
+
+    expect(await harness.store.listScopes(11)).toEqual({ status: 'unavailable', reason: 'stale' })
+    expect(harness.requestScopes).not.toHaveBeenCalled()
+  })
+
+  it('issues no handle when the connection switched while scopes were in flight', async () => {
+    const pending = deferred<DapRequestOutcome>()
+    const harness = createHarness({ scopes: () => pending.promise })
+    const result = harness.store.listScopes(11)
+
+    harness.switchConnection('debug-session-1/child-1', { frames: true })
+    pending.resolve(SCOPES)
+
+    expect(await result).toEqual({ status: 'unavailable', reason: 'stale' })
+    expect(harness.store.handleCount()).toBe(0)
   })
 })

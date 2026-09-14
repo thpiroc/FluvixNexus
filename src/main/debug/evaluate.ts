@@ -137,7 +137,8 @@ export function createDebugEvaluateStore(
       frame.workspaceId !== workspace.id ||
       channel === null ||
       channel.generation !== frame.sessionGeneration ||
-      channel.stopGeneration !== frame.stopGeneration
+      channel.stopGeneration !== frame.stopGeneration ||
+      channel.connectionId !== frame.connectionId
     ) {
       return unavailable('stale')
     }
@@ -146,6 +147,7 @@ export function createDebugEvaluateStore(
       workspaceId: workspace.id,
       sessionGeneration: channel.generation,
       stopGeneration: channel.stopGeneration,
+      connectionId: channel.connectionId,
       epoch: dependencies.getHandleEpoch()
     }
 
@@ -204,7 +206,8 @@ export function createDebugEvaluateStore(
       dependencies.getWorkspace()?.id === scope.workspaceId &&
       dependencies.getDebugState() === 'stopped' &&
       dependencies.getDebugGeneration() === scope.sessionGeneration &&
-      dependencies.getDebugStopGeneration() === scope.stopGeneration
+      dependencies.getDebugStopGeneration() === scope.stopGeneration &&
+      dependencies.getChannel()?.connectionId === scope.connectionId
     )
   }
 

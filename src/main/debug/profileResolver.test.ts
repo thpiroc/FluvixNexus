@@ -531,4 +531,77 @@ describe('resolveDebugProfile', () => {
       })
     })
   })
+
+  describe('transport and child session metadata (Session 6-15A)', () => {
+    it('adds no transport or child session fields for a row without them', () => {
+      const result = resolveDebugProfile(profile, context())
+
+      expect(result.status).toBe('resolved')
+      if (result.status === 'resolved') {
+        expect('transport' in result.configuration.adapterCommand).toBe(false)
+        expect('childSessions' in result.configuration).toBe(false)
+      }
+    })
+
+    it('passes the row transport through and derives the child policy from the language type', () => {
+      const transport = {
+        kind: 'socket',
+        readiness: { kind: 'stdout-pattern', pattern: /listening at 127\.0\.0\.1:(?<port>\d+)/ }
+      } as const
+      const result = resolveDebugProfile(
+        profile,
+        context({
+          getCatalogEntry: () => ({
+            ...integratedNode,
+            adapter: {
+              executable: 'node',
+              args: ['C:\\tools\\mock-adapter.js'],
+              transport,
+              childSessions: { targetIdKey: '__pendingTargetId' }
+            }
+          })
+        })
+      )
+
+      expect(result).toMatchObject({
+        status: 'resolved',
+        configuration: {
+          adapterCommand: { transport },
+          childSessions: { launchType: DEBUG_LAUNCH_TYPES.node, targetIdKey: '__pendingTargetId' }
+        }
+      })
+    })
+
+    it('does not let profile fields choose the transport or child sessions', () => {
+      const result = resolveDebugProfile(
+        {
+          ...profile,
+          transport: { kind: 'socket' },
+          childSessions: { launchType: 'anything', targetIdKey: 'cwd' }
+        } as DebugProfile,
+        context()
+      )
+
+      expect(result.status).toBe('resolved')
+      if (result.status === 'resolved') {
+        expect('transport' in result.configuration.adapterCommand).toBe(false)
+        expect('childSessions' in result.configuration).toBe(false)
+      }
+    })
+
+    it('keeps the shipped rows as they were (python / csharp on stdio, node not integrated)', () => {
+      for (const language of ['python', 'csharp'] as const) {
+        const entry = getDebugAdapterCatalogEntry(language)
+
+        expect(entry.adapter?.transport).toBeUndefined()
+        expect(entry.adapter?.childSessions).toBeUndefined()
+      }
+
+      expect(getDebugAdapterCatalogEntry('node')).toEqual({
+        language: 'node',
+        name: 'Node.js Debug Adapter',
+        integrationStatus: 'not-integrated'
+      })
+    })
+  })
 })

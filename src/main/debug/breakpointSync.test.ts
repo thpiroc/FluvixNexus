@@ -22,6 +22,7 @@ function createChannel(outcome: DapRequestOutcome): {
     channel: {
       sessionId: 'debug-session-1',
       generation: 1,
+      connectionId: 'debug-session-1/root',
       setBreakpoints: vi.fn((args: DapSetBreakpointsArguments) => {
         sent.push(args)
 

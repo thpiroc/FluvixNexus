@@ -40,6 +40,13 @@ export interface DebugCallStackFrameHandle {
   readonly workspaceId: string
   readonly sessionGeneration: number
   readonly stopGeneration: number
+  /**
+   * frame を返した DAP 接続（Session 6-15A）。
+   *
+   * Renderer が持ち回る `frameId` は adapter が接続ごとに振る数で、root と子で重なりうる。
+   * Main はこの表の中の handle しか信じず、今の口の接続と食い違えば通さない。
+   */
+  readonly connectionId: string
   readonly threadId: number
   readonly frameId: number
 }
@@ -135,7 +142,8 @@ export function createDebugCallStackStore(
       handle.workspaceId !== current.id ||
       dependencies.getDebugState() !== 'stopped' ||
       dependencies.getDebugGeneration() !== handle.sessionGeneration ||
-      dependencies.getDebugStopGeneration() !== handle.stopGeneration
+      dependencies.getDebugStopGeneration() !== handle.stopGeneration ||
+      dependencies.getChannel()?.connectionId !== handle.connectionId
     ) {
       return null
     }
@@ -354,7 +362,8 @@ export function createDebugCallStackStore(
     if (
       exceptionChannel !== null &&
       exceptionChannel.generation === channel.generation &&
-      exceptionChannel.stopGeneration === channel.stopGeneration
+      exceptionChannel.stopGeneration === channel.stopGeneration &&
+      exceptionChannel.connectionId === channel.connectionId
     ) {
       const outcome = await exceptionChannel.requestExceptionInfo(
         createExceptionInfoArguments(threadId)
@@ -404,7 +413,8 @@ export function createDebugCallStackStore(
       workspace?.id === workspaceId &&
       dependencies.getDebugState() === 'stopped' &&
       dependencies.getDebugGeneration() === channel.generation &&
-      dependencies.getDebugStopGeneration() === channel.stopGeneration
+      dependencies.getDebugStopGeneration() === channel.stopGeneration &&
+      dependencies.getChannel()?.connectionId === channel.connectionId
     )
   }
 
@@ -523,6 +533,7 @@ function collectFrameHandles(
       workspaceId,
       sessionGeneration: channel.generation,
       stopGeneration: channel.stopGeneration,
+      connectionId: channel.connectionId,
       threadId,
       frameId: frame.id
     })

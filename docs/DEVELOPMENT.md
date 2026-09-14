@@ -1,6 +1,6 @@
 # 開発ガイド
 
-> 対象: Session 5-13（STEP 5 LSP Closing）完了時点 ＋ Session 6-14（STEP 6 C# Debug Adapter / netcoredbg）
+> 対象: Session 5-13（STEP 5 LSP Closing）完了時点 ＋ Session 6-14（STEP 6 C# Debug Adapter / netcoredbg）＋ Session 6-15A（STEP 6 Socket DAP / Child Session Foundation）
 > 最終更新: 2026-09-13
 
 ---
@@ -63,6 +63,8 @@ Session 6-11 で **Debug Toolbar と Debug Profile editor** が Debug Panel の�
 Session 6-12 で **Python（debugpy）が最初の実 adapter** になった（docs/ARCHITECTURE.md §20.20）。catalog の python 行が `integrated` になったので、**出荷状態のステータスは「待機中」**になり、PATH の `python` に debugpy が入っていれば Debug Profile → Start → breakpoint → Continue / Pause / Step → Call Stack / Variables / Debug Console → Stop が実機で通る。adapter のプロセスの cwd は userData（Workspace の外）、launch には `subProcess: false` が固定で載る。python が PATH に無ければ Start は `adapter-unavailable`、debugpy の無い python では starting から idle へ戻るだけになる。
 
 Session 6-14 で **C#（netcoredbg）が2つ目の実 adapter** になった（docs/ARCHITECTURE.md §20.22）。catalog の csharp 行は `netcoredbg --interpreter=vscode`、launch type は `coreclr`。C# launch は実証済みの `dotnet.exe + build 済み DLL` に限定し、profile の `programRelativePath` が `.dll` でなければ起動しない。entry stop は profile の `stopOnEntry` から `stopAtEntry` へ写し、C# launch には共通欄の `stopOnEntry` は載せない。netcoredbg では `launch` 応答前に breakpoint 仕込みへ進めると debuggee が即終了することがあるため、C# だけ `launch` 応答を待ってから configuration に入る。Windows 版 netcoredbg の Unicode path 不具合を踏まえ、netcoredbg が触る path が ASCII-only でない場合は Start を `adapter-unavailable` で止める。条件を満たせば breakpoint → Call Stack / Variables / Evaluate → Stop が実機で通り、未処理例外は `user-unhandled` filter で止まる。Node は未統合のまま。
+
+Session 6-15A で **socket で DAP を話す adapter と、`startDebugging` による子セッションの generic な土台**が Main に入った（docs/ARCHITECTURE.md §20.23）。vscode-js-debug のための準備で、**Node の実 adapter はまだ統合していない** ── catalog の node 行は `not-integrated` のままなので、出荷状態の Node Profile の Start は `adapter-unavailable` になる。Python / C# は stdio のまま何も変わらない。
 
 ---
 
@@ -661,6 +663,16 @@ DAP の周りは 6-1 / 6-2 と同じ分け方で、**Electron も子プロセス
 - `src/renderer/src/debug/executionLocation.test.ts` — 実行位置が止まった thread の最上段であること・停止ごとに1回だけ追うこと（同じ停止の読み直し / loading / idle / Workspace 外）
 - `src/renderer/src/editor/debug/executionLineDecorations.test.ts` / `executionLineGlyphs.test.ts` — current / selected の印・ファイルごとの出し分け・同じ行に重ねないこと・loading / idle で空になること・色を持たないこと・breakpoint とは別の decorations collection を持つこと・同じ内容なら Monaco に触れないこと・ファイル切替で当て直すこと・dispose で残らないこと
 - `src/renderer/src/debug/DebugStopReasonView.dom.test.ts` / `debugStopReasonLabels.test.ts` / `ExecutionLocationFollower.dom.test.ts` / `CallStackView.dom.test.ts` — 理由ごとの日英の言葉（Paused / 一時停止中。Stopped と書かない）・例外の型名 / メッセージ / breakMode・文字列として描くこと・停止ごとに1回だけ `openFileAt` を呼び、下の段を選んでも引き戻さないこと・Call Stack の「実行位置」と選択の区別
+
+#### Socket DAP / Child Session Foundation（Session 6-15A）
+
+- `src/main/debug/adapterTransport.test.ts` — ready の合図（行が揃ってから当てる・`port` だけを読む・loopback 以外 / port 0 / 範囲外で ready にしない・名前付きグループ `port` 必須・`g` / `y` フラグでも同じ答え・溜める上限）
+- `src/main/debug/dapStartDebugging.test.ts` — 通す形（launch・root と同じ type・target の id）と作り直した4欄・捨てた欄の数・名前の制御文字と長さ、断る形（壊れた body・attach・未知の request / type・target の id の欠落 / パス / 長さ / 型・禁じた23欄それぞれ・大文字小文字違い・prototype の欄・`__proto__`）
+- `src/main/debug/dapConnection.test.ts` — **答える口が無ければ `startDebugging` も従来どおり断る**・受けたら本文の無い成功応答・断りの文言・判断が例外を投げても失敗応答で読み進める・**口があっても `runInTerminal` と任意の逆方向 request は断る**
+- `src/main/debug/socketDebugAdapter.test.ts` — **本物の子プロセスと本物の TCP**（一時フォルダに書いた小さな DAP server）で、接続 → 子の接続 → dispose でプロセスが消えること・ready の timeout・接続拒否・ready 前の exit・存在しない実行ファイル。偽のプロセスで、接続先が 127.0.0.1 だけ・接続までの送信を溜める・loopback 以外を名乗ったら繋がない・**kill で終わらなければ SIGKILL・猶予内に終われば送らない**・子の socket が閉じても adapter は終わらない・root の socket の error で kill・stdio の adapter に `openConnection` が無い。**Session Manager を本物の socket adapter に繋いで** root → `runInTerminal` / 不正な `startDebugging` の拒否 → 正しい `startDebugging` → 子の設定 → stopped → threads / scopes / variables / evaluate / continue → Stop の順を server 側の記録で確かめ、プロセスの終了と Main 側の TCP socket の数が元に戻ることまで見る（Workspace switch / アプリ終了も同じ）
+- `src/main/debug/debugSessionChildSessions.test.ts` — 偽の adapter で root / child: 子を受けないセッションに答える口が渡らないこと・子の lifecycle の順と作り直した構成・**breakpoint が root の窓と子の窓で送られ、子の設定中は breakpoint の口が null**・例外 filter を子が名乗るときだけ送ること・**子の設定が root の running を待つこと**・ready 前の子の event を溜めて当てること・断る形（attach / 未知の type / 壊れた body / cwd / runtimeExecutable / target の欠落 / 重複 / stdio / 接続を開けない / Stop 中）・**実行制御と Call Stack / Variables / Evaluate / exceptionInfo が子へ行き root へ行かない**こと・子が primary の後の root の実行 event を捨てること・切り替えで root の停止の口が `closed` になること・片付け（子の `terminated` / `exited`・root の `terminated`・子の接続の close・adapter の error・子の設定の timeout / 失敗・Stop・答えない子の Stop・Workspace switch・アプリ終了）・前のセッション / 閉じた子からの遅れた event を捨てること
+- `src/main/debug/callStack.test.ts` / `variables.test.ts` / `evaluate.test.ts` — **thread id / frame id / `variablesReference` が別の接続と重なっても通さない**（世代も停止も同じまま口の接続だけが変わった場合を含む）・答えを待つ間に接続が変わったら publish / handle 発行をしない・evaluate の handle が接続に閉じること・別の接続の exceptionInfo の口を使わないこと
+- `src/main/debug/profileResolver.test.ts` / `debugProfiles.test.ts` — 行が持たなければ `transport` / `childSessions` の欄ごと載らない・行の transport と子セッションの方針（type は言語の表）がセッションまで届く・Profile の欄からは作れない・出荷状態の python / csharp / node 行が変わっていないこと
 
 ### 整形
 
@@ -2124,6 +2136,28 @@ Session 4-5 / 4-7 は**境界を1つも動かしていない**ことを、両ス
 - 停止ごとの位置は Renderer 側で `onCallStackChanged` をもう1本購読し、`stop.sequence` が進むのを待つ。画面の文言だけを待つと、Step の前後で同じ「Step の後で一時停止中」が続き、前の停止のまま次の確認へ進む
 - decoration の行は、`.view-overlays` の要素の縦位置を Monaco 自身の `.line-numbers` の縦位置と突き合わせて読む（6-3 と同じ）
 - `webContents.setZoomFactor(3)` で glyph を拡大しようとすると、要素が見つからないまま locator が 30 秒待って確認全体が止まった。見た目の補助は `page.$()`（待たない）と `try / finally` で包み、判定には使わない
+
+### Session 6-15A（Socket DAP / Child Session Foundation）
+
+**production build 版 97項目、全項目 PASS。** Node の実 adapter（vscode-js-debug）は統合していないので、**`npm run build` の `out/main/index.js` の catalog の node 行だけ**を scratchpad の **fake socket DAP server**（Node の小さなスクリプト。vscode-js-debug ではない）へ一時的に書き換え、Renderer の経路（Profile editor / Toolbar / `window.fluvix.debug`）だけで駆動した。確認の後に `npm run build` で bundle を戻した。使い捨ての Workspace 3つと `--user-data-dir`。
+
+fake server は 127.0.0.1 の空いた port で待ち受けて stdout に1行で port を出し、1本目の接続を root、2本目を child として振る舞う。root は `configurationDone` の後に `runInTerminal`・`startDebugging`（attach）・`startDebugging`（`runtimeExecutable` 付き）・正しい `startDebugging` の順で逆方向 request を送る。受けた request と逆方向 request への応答は JSON 行でファイルへ書き、それを数えて判定した。終わり方の再現は、evaluate の式（`__child_terminated__` など）を server が読んで起こす。
+
+- 面 / 境界: `debug` の関数が22個のまま（port / socket / transport / child / reverse / process / adapter / connection / request / dap を名乗る関数が無い）、build の CSP が source と同じ、CSP 違反 0件、Renderer の console エラー 0件、`process` / `require` / `electron` / `Buffer` の非露出
+- socket transport と `startDebugging`: node の profile の Start で root → 子 → breakpoint で停止。root が受けたのは `initialize` / `launch` / `setBreakpoints` / `configurationDone` だけ。逆方向 request の応答は `runInTerminal:false` / attach `false` / runtimeExecutable `false` / 正しいもの `true`、開いた子の接続は1本、子の `launch` は `{ type, name, request, __pendingTargetId }` の4欄だけ、子の `initialize` は root と同じ引数（`supportsRunInTerminalRequest: false`）
+- primary child: Call Stack の thread は子のもの（`Main Thread`）、最上段は `compute`（main.js:3・Workspace 相対）、Workspace 外の frame は `unavailable`、breakpoint は子が答えた verified、Variables（`who = "child"`・入れ子の展開）と Evaluate（`child:1+2`）が子へ行く、Toolbar の Step Over / Into / Out が子へ `threadId: 1` 付きで届き、root へは実行制御も読み取りも1通も届かない
+- handle: 存在しない frame id は `stale`、生の数の `variablesReference` は `INVALID_REQUEST`、前の停止の Variables の handle は `stale`、handle は `dv-N` の不透明な文字列
+- 片付け（それぞれで fake server のプロセス 0・その port が接続を拒否・その port に確立 / 待ち受けの socket 0）: 正常終了（Continue → 子と root の `terminated`）・Stop（子へ `terminate` → `disconnect`）・子の `terminated`・root の `terminated`・子の接続の切断・adapter のプロセスの異常終了・Workspace switch・アプリ終了
+- ready の失敗: 起動直後に exit（75ms で starting → idle）・接続拒否（82ms）・合図を出さない（**10 秒の timeout で idle**）、どれもプロセス 0 でアプリは応答し続ける
+- 境界の走査: Renderer が受けた IPC event・invoke の結果・Debug パネルの DOM のどれにも、port・fixture のパス・`127.0.0.1`・`__pendingTargetId` / target id・`startDebugging` / `runInTerminal`・`connectionId` / `child-1` / `/root`・`calc.exe`・絶対パスが無い
+- Python（実 debugpy 1.8.21）の回帰（2回目の起動）: breakpoint（main.py:6）・Variables（items）・Evaluate（`len(items)` = 3）・Step Into（helper.py:2）・Continue で完走し Debug Console に出力・loop.py の Pause → Stop・CSP 違反 0・各段で python のプロセス 0
+- C#（netcoredbg）の production 回帰は**この PC では行えなかった**（.NET SDK が無く build 済み DLL を作れない・netcoredbg が無い）。unit test の回帰（resolver / profiles / manager）だけ
+
+#### 確認スクリプトを書くときに踏んだこと（Session 6-15A）
+
+- **境界の走査に、確認スクリプト自身が送った文字列が混ざる。** 終わり方を起こす evaluate の式（`__child_socket_close__`）を fake server が結果に写して返すため、invoke の結果に `socket` が出て FAIL になった（アプリの漏れではない）。走査の前に、自分が送った式だけを取り除く
+- **片付けの後に「server 側で socket が閉じた」を server に記録させることはできない**（kill が先に届く）。orphan socket は server の port へ繋いで拒否されること・`Get-NetTCPConnection` で確立 / 待ち受けが無いことで見る。unit test では Main 側の `process.getActiveResourcesInfo()` の `TCPSocketWrap` の数が元に戻ることで見る
+- `onStateChange` の idle は片付けで2回届く（`cleanup` の遷移と `current = null` の通知。6-2 からの振る舞い）。「その後に状態が変わらない」を見るときは、回数ではなく片付け直後の配列と比べる
 
 ---
 

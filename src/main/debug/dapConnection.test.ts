@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createDapConnection, type DapConnection } from './dapConnection'
+import { createDapConnection, type DapConnection, type DapConnectionOptions } from './dapConnection'
 import { createDapDecoder, encodeDapMessage, type DapMessage } from './dapMessage'
 
 interface Harness {
@@ -13,7 +13,10 @@ interface Harness {
   readonly warnings: readonly string[]
 }
 
-function createHarness(options?: { readonly failSend?: boolean }): Harness {
+function createHarness(options?: {
+  readonly failSend?: boolean
+  readonly onStartDebugging?: DapConnectionOptions['onStartDebugging']
+}): Harness {
   const sent: DapMessage[] = []
   const events: { event: string; body: unknown }[] = []
   const adapterRequests: { command: string; args: unknown }[] = []
@@ -44,7 +47,10 @@ function createHarness(options?: { readonly failSend?: boolean }): Harness {
     },
     onProtocolWarning: (reason) => {
       warnings.push(reason)
-    }
+    },
+    ...(options?.onStartDebugging === undefined
+      ? {}
+      : { onStartDebugging: options.onStartDebugging })
   })
 
   return {
@@ -157,6 +163,122 @@ describe('createDapConnection', () => {
         message: 'the client does not handle "runInTerminal".'
       }
     ])
+  })
+
+  describe('startDebugging（Session 6-15A）', () => {
+    const START_ARGS = {
+      request: 'launch',
+      configuration: { type: 'pwa-node', __pendingTargetId: 't1' }
+    }
+
+    it('答える口が無ければ、他の逆方向 request と同じく断る', () => {
+      const harness = createHarness()
+
+      harness.deliver({ seq: 7, type: 'request', command: 'startDebugging', arguments: START_ARGS })
+
+      expect(harness.adapterRequests).toEqual([{ command: 'startDebugging', args: START_ARGS }])
+      expect(harness.sent).toEqual([
+        {
+          seq: 1,
+          type: 'response',
+          request_seq: 7,
+          success: false,
+          command: 'startDebugging',
+          message: 'the client does not handle "startDebugging".'
+        }
+      ])
+    })
+
+    it('受けたら本文の無い成功応答を返し、seq を使い回さない', () => {
+      const decide = vi.fn(() => ({ accepted: true }) as const)
+      const harness = createHarness({ onStartDebugging: decide })
+
+      harness.deliver({ seq: 8, type: 'request', command: 'startDebugging', arguments: START_ARGS })
+      void harness.connection.request('threads')
+
+      expect(decide).toHaveBeenCalledWith(START_ARGS)
+      expect(harness.adapterRequests).toEqual([])
+      expect(harness.sent).toEqual([
+        { seq: 1, type: 'response', request_seq: 8, success: true, command: 'startDebugging' },
+        { seq: 2, type: 'request', command: 'threads' }
+      ])
+    })
+
+    it('断ったら失敗応答に口が決めた文言だけを載せる', () => {
+      const harness = createHarness({
+        onStartDebugging: () => ({ accepted: false, message: 'not now.' })
+      })
+
+      harness.deliver({ seq: 9, type: 'request', command: 'startDebugging', arguments: START_ARGS })
+
+      expect(harness.sent).toEqual([
+        {
+          seq: 1,
+          type: 'response',
+          request_seq: 9,
+          success: false,
+          command: 'startDebugging',
+          message: 'not now.'
+        }
+      ])
+    })
+
+    it('判断が例外を投げても失敗応答を返して読み進める', () => {
+      const harness = createHarness({
+        onStartDebugging: () => {
+          throw new Error('C:\\secret\\path exploded')
+        }
+      })
+
+      harness.deliver({ seq: 10, type: 'request', command: 'startDebugging', arguments: 'bad' })
+      harness.deliver({ seq: 11, type: 'event', event: 'after' })
+
+      expect(harness.sent).toEqual([
+        {
+          seq: 1,
+          type: 'response',
+          request_seq: 10,
+          success: false,
+          command: 'startDebugging',
+          message: 'the client could not start the debug session.'
+        }
+      ])
+      expect(harness.warnings).toHaveLength(1)
+      expect(harness.events).toEqual([{ event: 'after', body: undefined }])
+    })
+
+    it('答える口があっても runInTerminal と任意の逆方向 request は断る', () => {
+      const decide = vi.fn(() => ({ accepted: true }) as const)
+      const harness = createHarness({ onStartDebugging: decide })
+
+      harness.deliver({
+        seq: 12,
+        type: 'request',
+        command: 'runInTerminal',
+        arguments: { args: ['calc.exe'] }
+      })
+      harness.deliver({ seq: 13, type: 'request', command: 'startDebuggingEx', arguments: {} })
+
+      expect(decide).not.toHaveBeenCalled()
+      expect(harness.sent).toEqual([
+        {
+          seq: 1,
+          type: 'response',
+          request_seq: 12,
+          success: false,
+          command: 'runInTerminal',
+          message: 'the client does not handle "runInTerminal".'
+        },
+        {
+          seq: 2,
+          type: 'response',
+          request_seq: 13,
+          success: false,
+          command: 'startDebuggingEx',
+          message: 'the client does not handle "startDebuggingEx".'
+        }
+      ])
+    })
   })
 
   it('宛先の分からない response は警告にして読み進める', () => {

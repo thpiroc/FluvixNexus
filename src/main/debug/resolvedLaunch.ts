@@ -1,5 +1,6 @@
 import type { DebugProfileId, DebugProfileLanguage } from '@shared/debug'
 import type { DebugAdapterCommand } from './adapterCatalog'
+import type { DebugChildSessionPolicy } from './dapStartDebugging'
 
 /**
  * 解決済みの launch 構成（Session 6-10）── **Main の中だけにある形。**
@@ -93,4 +94,10 @@ export interface ResolvedLaunchConfiguration {
    * profile の欄からは作らない。
    */
   readonly exceptionBreakpointFilters: readonly string[]
+  /**
+   * `startDebugging` で子セッションを受けるか（Session 6-15A）。catalog の行が名乗るときだけ載る。
+   *
+   * 子の構成の `type` は上の `adapterId`（言語の表）と同じ値にする。profile の欄からは作らない。
+   */
+  readonly childSessions?: DebugChildSessionPolicy
 }

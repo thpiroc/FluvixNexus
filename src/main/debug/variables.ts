@@ -49,6 +49,8 @@ interface VariableHandleEntry {
   readonly workspaceId: string
   readonly sessionGeneration: number
   readonly stopGeneration: number
+  /** `reference` を返した DAP 接続（Session 6-15A。root と子で同じ数が振られうる）。 */
+  readonly connectionId: string
   /** 表を捨てた回数。捨てる前に発行したものは、同じ停止の中でも通さない。 */
   readonly epoch: number
 }
@@ -63,6 +65,8 @@ export interface DebugVariableHandleScope {
   readonly workspaceId: string
   readonly sessionGeneration: number
   readonly stopGeneration: number
+  /** evaluate を送った口の接続（Session 6-15A）。 */
+  readonly connectionId: string
   readonly epoch: number
 }
 
@@ -173,7 +177,8 @@ export function createDebugVariablesStore(
       frame.workspaceId !== current.id ||
       channel === null ||
       channel.generation !== frame.sessionGeneration ||
-      channel.stopGeneration !== frame.stopGeneration
+      channel.stopGeneration !== frame.stopGeneration ||
+      channel.connectionId !== frame.connectionId
     ) {
       return unavailable('stale')
     }
@@ -227,7 +232,8 @@ export function createDebugVariablesStore(
       entry.sessionGeneration !== dependencies.getDebugGeneration() ||
       entry.stopGeneration !== dependencies.getDebugStopGeneration() ||
       channel.generation !== entry.sessionGeneration ||
-      channel.stopGeneration !== entry.stopGeneration
+      channel.stopGeneration !== entry.stopGeneration ||
+      channel.connectionId !== entry.connectionId
     ) {
       return unavailable('stale')
     }
@@ -303,7 +309,8 @@ export function createDebugVariablesStore(
       scope.workspaceId !== current.id ||
       dependencies.getDebugState() !== 'stopped' ||
       dependencies.getDebugGeneration() !== scope.sessionGeneration ||
-      dependencies.getDebugStopGeneration() !== scope.stopGeneration
+      dependencies.getDebugStopGeneration() !== scope.stopGeneration ||
+      dependencies.getChannel()?.connectionId !== scope.connectionId
     ) {
       return null
     }
@@ -313,7 +320,8 @@ export function createDebugVariablesStore(
         workspaceId: scope.workspaceId,
         channel: {
           generation: scope.sessionGeneration,
-          stopGeneration: scope.stopGeneration
+          stopGeneration: scope.stopGeneration,
+          connectionId: scope.connectionId
         },
         epoch: scope.epoch
       },
@@ -327,6 +335,7 @@ export function createDebugVariablesStore(
     readonly channel: {
       readonly generation: number
       readonly stopGeneration: number
+      readonly connectionId: string
     }
     readonly epoch: number
   }
@@ -338,7 +347,8 @@ export function createDebugVariablesStore(
       dependencies.getWorkspace()?.id === scope.workspaceId &&
       dependencies.getDebugState() === 'stopped' &&
       dependencies.getDebugGeneration() === scope.channel.generation &&
-      dependencies.getDebugStopGeneration() === scope.channel.stopGeneration
+      dependencies.getDebugStopGeneration() === scope.channel.stopGeneration &&
+      dependencies.getChannel()?.connectionId === scope.channel.connectionId
     )
   }
 
@@ -361,6 +371,7 @@ export function createDebugVariablesStore(
       workspaceId: scope.workspaceId,
       sessionGeneration: scope.channel.generation,
       stopGeneration: scope.channel.stopGeneration,
+      connectionId: scope.channel.connectionId,
       epoch: scope.epoch
     })
 
