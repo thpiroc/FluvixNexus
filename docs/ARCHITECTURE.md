@@ -1,7 +1,7 @@
 # アーキテクチャ
 
-> 対象: Session 6-17（STEP 6 Debugger Closing）完了時点の実装
-> 最終更新: 2026-09-15
+> 対象: Session 7-1D（Documentation Synchronization）時点の実装
+> 最終更新: 2026-09-16
 
 製品としての方向性は [DESIGN.md](../DESIGN.md) を参照。このドキュメントは「現在のコードがどう組まれているか」と「機能を足すときにどこへ書くか」を扱う。
 
@@ -55,6 +55,9 @@ src/
 │   │       ├── files.ts           Workspace 内の列挙・読み込み・作成 / 改名 / 削除（§9・§10）
 │   │       ├── terminal.ts        シェルの起動 / 入力 / 大きさ / 片付け（§13）
 │   │       ├── git.ts             リポジトリの検出・変更ファイルの一覧・Stage / Unstage・Commit・Push / Pull・ブランチ・差分 / 破棄（§14）
+│   │       ├── github.ts          GitHub へ公開する（§14.17）
+│   │       ├── lsp.ts             Language Server との同期・補完・定義・参照・rename・formatting（§19）
+│   │       ├── debug.ts           Debug Profile / Breakpoint / 実行制御 / Call Stack / Variables / Console（§20）
 │   │       └── settings.ts        アプリの設定の永続化（section 単位。§12.4）
 │   ├── workspaceFolder/      開いているプロジェクトフォルダ（§8）
 │   │   ├── currentWorkspaceFolder.ts  現在の Workspace の正本（開く・閉じる・復元・購読）
@@ -150,7 +153,7 @@ src/
 │   ├── language.ts           保存済み Language を最初の描画より前に `<html>` へ当てる（§17.6）
 │   ├── ipc/invoke.ts         Main を呼ぶ唯一の経路
 │   ├── ipc/subscribe.ts      Main からのイベントを受ける唯一の経路（§3.3）
-│   └── api/                  ドメインごとの薄いラッパ（env / system / workspace / workspaceFolder / files / terminal / settings）
+│   └── api/                  ドメインごとの薄いラッパ（env / system / workspace / workspaceFolder / files / terminal / git / github / lsp / debug / settings）
 ├── renderer/
 │   ├── index.html            CSP を含む唯一の HTML
 │   └── src/
@@ -180,6 +183,7 @@ src/
 │       │   ├── filesColumnsModel.ts カラムの列の並び（同上・テスト対象・§10.13）
 │       │   ├── filesLayoutMode.ts   表示方式の決め方と幅の上下限（同上・テスト対象・§10.13）
 │       │   ├── filesSettings.ts     見え方 ↔ 保存形式の変換（同上・テスト対象・§10.14）
+│       │   ├── FileTreeStateProvider.tsx ツリーの展開状態を Panel の mount / unmount を越えて持つ（Session 7-1B）
 │       │   ├── useFilesLayout.ts    パネルの形の観測（ResizeObserver は1か所・§10.13）
 │       │   ├── useFilesController.ts 状態と操作（ツリーとカラムが共有する・§10.13）
 │       │   ├── FilesViewProvider.tsx 見え方の正本と永続化（パネルより長く生きる・§10.14）
@@ -254,7 +258,20 @@ src/
 │       │   ├── githubPublish.ts        公開の面に出す言葉・公開できるか（React / DOM 非依存・テスト対象・§14.17）
 │       │   ├── GitHubPublishForm.tsx    GitHub に公開する面（畳んである・§14.17）
 │       │   ├── GitIcons.tsx            Stage / Unstage / 差分 / 破棄 のアイコン（Files と同じ描き方・§14.11・§14.16）
+│       │   ├── GitDraftProvider.tsx    Commit message の下書きを Panel の mount / unmount を越えて持つ（Session 7-1B）
 │       │   └── git.css
+│       ├── debug/            Debug パネルと Debug 状態の Renderer 側（§20）
+│       │   ├── DebugProvider.tsx       Profile 選択と実行 command の所有者。Debug Panel より長く生きる（Session 7-1A）
+│       │   ├── debugControlContext.ts  DebugProvider が配る状態と操作
+│       │   ├── BreakpointProvider.tsx  今の Workspace の breakpoint の写し（Session 6-3）
+│       │   ├── CallStackProvider.tsx   Call Stack snapshot と frame 選択（Session 6-5）
+│       │   ├── ExecutionLocationFollower.tsx 停止位置を Editor で開く器（Session 6-13）
+│       │   ├── DebugToolbar.tsx        Profile selector / editor と Debug Panel 内のボタン（Session 6-11）
+│       │   ├── DebugConsoleView.tsx    Debug Console（Session 6-8）
+│       │   ├── VariablesView.tsx       Variables tree（Session 6-6）
+│       │   ├── CallStackView.tsx       Call Stack 表示（Session 6-5）
+│       │   ├── DebugStatusItem.tsx     Status Bar の1語（Session 6-9）
+│       │   └── debug.css
 │       ├── i18n/               画面の文言（Localization。§17）
 │       │   ├── locales/en.ts          英語の辞書（**キーの正本**。型はここから導く・§17.2）
 │       │   ├── locales/ja.ts          日本語の辞書（既定の言語・§17.2）
@@ -276,7 +293,7 @@ src/
 │       │   ├── chord.ts               打鍵1つの表し方（`event.code` 基準・React / DOM 非依存・テスト対象・§18.4）
 │       │   ├── when.ts                効く条件（閉じた6つの AND・同上・§18.5）
 │       │   ├── resolve.ts             rule の並び → 効く割り当ての表（後勝ち・同上・§18.4）
-│       │   ├── defaults.ts            既定の割り当て7件（**v1 が rule を作る唯一の場所**・§18.4）
+│       │   ├── defaults.ts            既定の割り当て18件（**v1 が rule を作る唯一の場所**・§18.4）
 │       │   ├── dispatch.ts            打鍵 → command（確認ダイアログの裏では走らせない・同上・§18.5）
 │       │   ├── shortcutRows.ts        registry ＋ 割り当て → 一覧の行（同上・§18.6）
 │       │   ├── context.ts             Context の定義（効いている割り当てと、条件の申告）
@@ -316,6 +333,8 @@ src/
     ├── git/                   リポジトリの状態・HEAD・失敗の分類・変更ファイルの一覧・操作の対象と結末・Commit メッセージの規則・ブランチの一覧と名前の規則・commit の履歴（§14）
     ├── github/                公開範囲・GitHub CLI の状態・repository 名の規則（§14.17）
     ├── settings/             アプリ設定の保存形式（section の閉じた集合と文書の形。§12.4）
+    ├── lsp/                  LSP の safe domain model（server 状態・診断・補完・hover・navigation・rename・formatting）
+    ├── debug/                Debug の safe domain model（profile / status / breakpoint / call stack / variables / evaluate / console / stop）
     ├── language/             Language の名前・既定・落とし先と、初期描画用の受け渡し（§17.1）
     └── theme/                Theme の名前・既定・落とし先と、初期描画用の1色（§16.1）
 ```
@@ -7343,9 +7362,9 @@ Session 5-13 で実際に測った範囲は次のとおり。
 
 ## 20. Debug（DAP。STEP 6）
 
-Session 6-0 で設計を確定し、Session 6-1 で Main 内の最下層（DAP message / connection、adapter process、adapter catalog）を実装し、Session 6-2 で Main-owned Debug Session lifecycle / state machine を追加し、Session 6-3 で Breakpoint（Monaco の glyph margin・保存・`setBreakpoints`）を入れ（§20.12）、Session 6-4 で実行制御（Continue / Pause / Step Over / Step Into / Step Out / Stop）を入れ（§20.13）、Session 6-5 で Call Stack（`threads` / `stackTrace` と safe source normalization）を入れた（§20.14）。Session 6-9 で Debug の状態（ステータスバー）を入れた（§20.17）。Session 6-10 で Debug Profile の保存と `debug:start`（Profile → ResolvedLaunchConfiguration → Debug Session）を入れた（§20.18）。Session 6-11 で Debug Panel 上部の Toolbar と Profile editor を Renderer に入れた（§20.19）。Session 6-12 で python 行を実 debugpy に繋いだ（§20.20）。Session 6-13 で例外停止と現在の実行位置を入れた（§20.21）。Session 6-7 で Evaluate（§20.16）、Session 6-8 で Debug Console（§20.25）、Session 6-14 で csharp 行を実 netcoredbg に繋ぎ（§20.22）、Session 6-15A で socket transport と子セッションの土台（§20.23）、Session 6-15B で node 行を実 vscode-js-debug に繋ぎ（§20.24）、Session 6-16 で Debug の command と keybinding を入れた（§20.26）。**Session 6-17 で STEP 6 を閉じた**（§20.27）。ここに書いていない口・欄・経路を実装側で足すときは、足す前にこの節へ戻ること。
+Session 6-0 で設計を確定し、Session 6-1 で Main 内の最下層（DAP message / connection、adapter process、adapter catalog）を実装し、Session 6-2 で Main-owned Debug Session lifecycle / state machine を追加し、Session 6-3 で Breakpoint（Monaco の glyph margin・保存・`setBreakpoints`）を入れ（§20.12）、Session 6-4 で実行制御（Continue / Pause / Step Over / Step Into / Step Out / Stop）を入れ（§20.13）、Session 6-5 で Call Stack（`threads` / `stackTrace` と safe source normalization）を入れた（§20.14）。Session 6-9 で Debug の状態（ステータスバー）を入れた（§20.17）。Session 6-10 で Debug Profile の保存と `debug:start`（Profile → ResolvedLaunchConfiguration → Debug Session）を入れた（§20.18）。Session 6-11 で Debug Panel 上部の Toolbar と Profile editor を Renderer に入れた（§20.19）。Session 6-12 で python 行を実 debugpy に繋いだ（§20.20）。Session 6-13 で例外停止と現在の実行位置を入れた（§20.21）。Session 6-7 で Evaluate（§20.16）、Session 6-8 で Debug Console（§20.25）、Session 6-14 で csharp 行を実 netcoredbg に繋ぎ（§20.22）、Session 6-15A で socket transport と子セッションの土台（§20.23）、Session 6-15B で node 行を実 vscode-js-debug に繋ぎ（§20.24）、Session 6-16 で Debug の command と keybinding を入れた（§20.26）。**Session 6-17 で STEP 6 を閉じた**（§20.27）。STEP 7 では Debug command の所有を `DebugProvider` へ移し（Session 7-1A）、adapter が無いときの案内を詳しくした（Session 7-1C）。ここに書いていない口・欄・経路を実装側で足すときは、足す前にこの節へ戻ること。
 
-§20.12 以降の Session ごとの節は**その Session を閉じた時点の記録**で、「入れていないもの」の多くは後の Session で入っている（入ったものには後の節への矢印を付けてある）。**STEP 6 Closing 時点で残っている制約は §20.27 だけを正とする。**
+§20.12 以降の Session ごとの節は**その Session を閉じた時点の記録**で、「入れていないもの」の多くは後の Session で入っている（入ったものには後の節への矢印を付けてある）。**現在残っている制約は §20.28 を正とする。**
 
 DESIGN.md §5 の11機能（Breakpoint / Continue / Pause / Step Over / Step Into / Step Out / Stop / Variables / Call Stack / Debug Console / エラー位置へのジャンプ）を、Terminal（§13）と LSP（§19）が固めた「**Main が長命な子プロセスを持ち、Renderer は app-domain の言葉だけで話す**」形の上に載せる。
 
@@ -8404,6 +8423,8 @@ Debug Profile の編集 UI / 起動ボタン / Debug Toolbar / 実 adapter の�
 
 Session 6-10 の typed IPC を使って、Debug Panel の上部に **Profile selector / Profile editor / Start / Continue / Pause / Step Over / Step Into / Step Out / Stop** を置いた。Settings には入れていない。Profile は Workspace 単位の値であり、編集する場所も Debug Panel の中になる。
 
+Session 7-1A で、Profile の一覧・選択・実行 command の正本は `DebugToolbar` から `DebugProvider` へ移った。`DebugToolbar` は現在、Debug Panel 内の表示と Profile editor だけを受け持つ。`DebugProvider` は `App.tsx` で WorkspaceFolderProvider の内側、KeybindingProvider の外側に置かれ、Debug Panel が mount / unmount されても選択 Profile と F5 系 command が残る。
+
 #### Toolbar の状態
 
 状態の正本は Session 6-9 の `DebugSessionStatus` で、Renderer 側に別の state machine は作っていない。Toolbar は届いた1語から押せるものだけを決める。
@@ -8417,7 +8438,7 @@ Session 6-10 の typed IPC を使って、Debug Panel の上部に **Profile sel
 | `stopped`     | Continue / Step Over / Step Into / Step Out / Stop |
 | `terminating` | なし                                               |
 
-この判定は `debugToolbarModel.ts` の純粋関数に置き、Toolbar のボタンと Command Registry の登録条件が同じ値を使う。押せない command は登録しない（Git / Files contribution と同じ形）。
+この判定は `debugToolbarModel.ts` の純粋関数に置き、Toolbar のボタンと Command Registry の登録条件が同じ値を使う。実行制御 command の登録は現在 `DebugProvider` が持つ。押せない command は登録しない（Git / Files contribution と同じ形）。
 
 #### Profile selector / editor
 
@@ -8881,30 +8902,30 @@ Session 6-11 の `debug.*` command（10件）に `debug.startOrContinue` / `debu
 | `debug.addProfile`       | `DebugToolbar`                                       | Workspace があり、保存 / 削除の最中でない        | —          |
 | `debug.editProfile`      | `DebugToolbar`                                       | 上に加えて Profile を選んでいる                  | —          |
 | `debug.deleteProfile`    | `DebugToolbar`                                       | 同上                                             | —          |
-| `debug.startOrContinue`  | `DebugToolbar`                                       | Start か Continue のボタンが押せる               | F5         |
-| `debug.start`            | `DebugToolbar`                                       | Start が押せる（idle かつ Profile を選んでいる） | —          |
-| `debug.continue`         | `DebugToolbar`                                       | stopped                                          | —          |
-| `debug.pause`            | `DebugToolbar`                                       | running                                          | —          |
-| `debug.stepOver`         | `DebugToolbar`                                       | stopped                                          | F10        |
-| `debug.stepInto`         | `DebugToolbar`                                       | stopped                                          | F11        |
-| `debug.stepOut`          | `DebugToolbar`                                       | stopped                                          | Shift+F11  |
-| `debug.stop`             | `DebugToolbar`                                       | running / stopped                                | Shift+F5   |
+| `debug.startOrContinue`  | `DebugProvider`（Session 7-1A 以降）                 | Start か Continue のボタンが押せる               | F5         |
+| `debug.start`            | `DebugProvider`（Session 7-1A 以降）                 | Start が押せる（idle かつ Profile を選んでいる） | —          |
+| `debug.continue`         | `DebugProvider`（Session 7-1A 以降）                 | stopped                                          | —          |
+| `debug.pause`            | `DebugProvider`（Session 7-1A 以降）                 | running                                          | —          |
+| `debug.stepOver`         | `DebugProvider`（Session 7-1A 以降）                 | stopped                                          | F10        |
+| `debug.stepInto`         | `DebugProvider`（Session 7-1A 以降）                 | stopped                                          | F11        |
+| `debug.stepOut`          | `DebugProvider`（Session 7-1A 以降）                 | stopped                                          | Shift+F11  |
+| `debug.stop`             | `DebugProvider`（Session 7-1A 以降）                 | running / stopped                                | Shift+F5   |
 | `debug.toggleBreakpoint` | Monaco の器（`editor/debug/useBreakpointGlyphs.ts`） | Editor が出ている                                | F9         |
 
 打鍵の条件（`when`）は、F9 が `editorFocused` / `!terminalFocused` / `!settingsOpen`、残りの5つが `workspaceOpen` / `!terminalFocused` / `!settingsOpen`。
 
 - **F5 は状態で Start / Continue を切り替える。** `debug.startOrContinue` は Toolbar の Start / Continue と同じ活性の値を読み、押せる方の既存の handler を呼ぶだけ ── 操作を二重に持たない
-- **押せる条件を書き直さない。** 実行制御の command は Toolbar のボタンが押せるときだけ登録され（§20.19）、打鍵はその有無に従う。押せない状態の打鍵は `execute` が false を返し、ブラウザの既定にそのまま通る（§18.3）
+- **押せる条件を書き直さない。** 実行制御の command は常に mount されている `DebugProvider` が、Toolbar のボタンと同じ判定（§20.19）で有効な操作だけを登録する。押せない状態の打鍵は `execute` が false を返し、ブラウザの既定にそのまま通る（§18.3）
 - **F9 はカーソルのある行**に glyph の click と同じ経路で breakpoint を入れ替える（`resolveCurrentBreakpointToggleLine`）。Model や位置が無い・範囲外なら何もしない
 - Pause（VS Code の F6）と Profile の操作には打鍵を当てていない。`debug.start` / `debug.continue` は F5 が代わりに持つ
 
-#### 既知の制約: F5 / Shift+F5 / F10 / F11 / Shift+F11 は Debug パネルが前面のときだけ効く
+#### STEP 6 時点の既知の制約: F5 / Shift+F5 / F10 / F11 / Shift+F11 は Debug パネルが前面のときだけ効く
 
-command は**所有者が mount している間だけ**登録され（§18.3）、実行制御の所有者 `DebugToolbar` は Debug パネルの中にある。dock のタブ群では前面のパネルしか mount されないので、Debug パネルと同じ dock にある Files などを前面にすると Toolbar が外れ、実行制御の command が表から消える ── **打鍵は何も起こさない**。条件は「Debug パネルが mount されているか」であって、状態や focus ではない。
+この制約は Session 6-16 / 6-17 時点の記録になる。当時は command の所有者が mount している間だけ登録され（§18.3）、実行制御の所有者 `DebugToolbar` は Debug パネルの中にあった。dock のタブ群では前面のパネルしか mount されないので、Debug パネルと同じ dock にある Files などを前面にすると Toolbar が外れ、実行制御の command が表から消える ── **打鍵は何も起こさない**。条件は「Debug パネルが mount されているか」であって、状態や focus ではなかった。
 
 - F9 は Editor の器が持つので、Debug パネルの有無に依らず効く
 - Session 6-17 で production build に実測した: breakpoint で止まったまま Files のタブを前面にすると、F10 / F11 / Shift+F11 / F5 / Shift+F5 のどれも状態も停止の通し番号も変えない。idle で Files を前面にしたまま F5 を押しても起動しない。F9 はそのまま効き、Debug パネルを前面に戻すと F10 がまた効く
-- **STEP 6 v1 の既知の制約として受け入れる。** 常に効かせるには、押せる条件（`DebugSessionStatus` と Profile の選択）を読む所有者を常に mount されている場所へ移すことになり、Toolbar と2箇所で同じ判定を持つ形を避ける設計が要る。STEP 6 Closing には含めず、**STEP 7 の dogfooding で必要性を見てから再評価する**（§20.27）
+- **STEP 6 v1 の既知の制約として受け入れた。** Session 7-1A で、押せる条件（`DebugSessionStatus` と Profile の選択）を読む所有者を `DebugProvider` へ移し、Toolbar と同じ判定を共有した。現在仕様では、F5 / Shift+F5 / F10 / F11 / Shift+F11 は Debug パネルの mount / unmount に依存しない。
 
 ### 20.27 STEP 6 Closing（Session 6-17）
 
@@ -8928,13 +8949,13 @@ Session 6-17 はコードを変えていない。production build で STEP 6 全
 | Python  | PATH の `python` + `-m debugpy.adapter`                       | stdio               | userData                             | `debugpy`     | `uncaught`       | 受けない            |
 | C#      | PATH の `netcoredbg` + `--interpreter=vscode`                 | stdio               | `netcoredbg.exe` のフォルダ（ASCII） | `coreclr`     | `user-unhandled` | 受けない            |
 
-#### 既知の制約（STEP 6 Closing 時点で残っているもの）
+#### 既知の制約（STEP 6 Closing 時点で残っていたもの）
 
-Session ごとの節の「入れていないもの」「残したもの」のうち、**今も残っている**ものだけを並べる。どれも STEP 6 の完了を止めるものではなく、STEP 7 以降へ送る。§20.11 の「入れないもの」は制約ではなく設計の判断なので、ここには重ねない。
+Session ごとの節の「入れていないもの」「残したもの」のうち、Session 6-17 の Closing 時点で残っていたものを並べる。どれも STEP 6 の完了を止めるものではなく、STEP 7 以降へ送った。§20.11 の「入れないもの」は制約ではなく設計の判断なので、ここには重ねない。**現在も残っている制約は §20.28 を正とする。**
 
 | 項目                                             | 内容                                                                                                                               | 詳細                      |
 | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
-| Debug keybinding は Debug パネルが前面のときだけ | F5 / Shift+F5 / F10 / F11 / Shift+F11。STEP 7 の dogfooding で再評価する                                                           | §20.26                    |
+| Debug keybinding は Debug パネルが前面のときだけ | F5 / Shift+F5 / F10 / F11 / Shift+F11。Session 7-1A で `DebugProvider` へ移し、現在仕様では解消済み                                | §20.26                    |
 | `runInTerminal` を断る代償                       | debuggee は本物の端末を持たない（標準入力・端末の大きさ / 色）                                                                     | §20.9                     |
 | breakpoint は編集に付いて回らない                | 行を挿入しても印は置いた行に留まる                                                                                                 | §20.12                    |
 | 起動後の失敗理由が画面に出ない                   | Start が `started` を返した後に adapter が終わると、starting → idle に戻るだけ（理由は Main のログ）                               | §20.20                    |
@@ -8949,3 +8970,25 @@ Session ごとの節の「入れていないもの」「残したもの」のう
 Debug Console の出力・Variables の値・Evaluate の結果に絶対パスが出ることは制約ではなく**設計どおり**（利用者のプログラム自身の出力と値。§20.9 の例外）。
 
 **`pyright-no-file-watching`（§19.10）は STEP 5 の既知の制約で、STEP 6 では動いていない。**
+
+### 20.28 STEP 7-1D 時点の Debug 現在仕様と残制約
+
+Session 7-1A で、Profile の選択と実行制御 command の所有者を `DebugToolbar` から `DebugProvider` へ移した。`DebugProvider` は `WorkspaceFolderProvider` の内側、`KeybindingProvider` の外側で常に mount されるため、F5 / Shift+F5 / F10 / F11 / Shift+F11 は Debug パネルが前面でなくても登録される。F9 は引き続き Editor の器が持つ。
+
+Session 7-1C で、`adapter-unavailable` の案内は言語と閉じた集合の `cause` から固定文言を選ぶ形にした。Renderer へ返るのは `status / reason / language / cause` だけで、adapter のパス・実行ファイル名・配布物の置き場所は返さない。Main のログは `userData/logs/main.log` に出る。1 MiB を超えると `main.old.log` へ1世代だけ回し、ファイル出力では絶対パス・file URI・UNC・認証情報を伏せる。Renderer にはログを読む API を作っていない。
+
+現在残っている v1.0.0 Release 前の主な問題は次のとおり。
+
+| 項目                                   | 現在状態                                                                                                                           |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `runInTerminal` を断る代償             | debuggee は本物の端末を持たない。標準入力・端末サイズ・色を見るプログラムは Debug Console では同じように動かない                   |
+| breakpoint は編集に付いて回らない      | 行を挿入しても印は置いた行に留まる                                                                                                 |
+| 起動後の失敗理由が画面に出ない         | Start が `started` を返した後に adapter が終わる場合は starting → idle に戻り、理由は Main のログに残る                            |
+| Variables の続きを読めない             | 1応答 500件・1停止の handle 5,000件で切る。「さらに読む」は無い                                                                    |
+| Debug Console の一覧に件数の上限が無い | 出力し続けるプログラムでは一覧が伸び続ける。1 entry は 10,000 字で切る                                                             |
+| C# は ASCII-only の path だけ          | netcoredbg の Windows 版の制約。adapter / dotnet / DLL / Workspace / cwd のいずれかが Unicode path なら `adapter-unavailable`      |
+| vscode-js-debug の振る舞い             | Pause の理由が `step`・`exceptionInfo` の型名の欄に `Error: <メッセージ>`・breakMode が出ない・ESM の top-level の例外で止まらない |
+| 停止で Editor を開くとフォーカスも移る | `openFileAt` を通るため                                                                                                            |
+| adapter は利用者が置く                 | js-debug の配布物・debugpy・netcoredbg を同梱も自動入手もしない                                                                    |
+| 使われていない `EvaluateView.tsx`      | 6-8 で Debug Console に置き換わった面がテストと一緒に残っている。動作には影響しない                                                |
+| Renderer の `file://` 読み込み元       | production build の Renderer から `fetch('file:///...')` でローカルファイルを読める。ログ専用の問題ではなく、別 Session で扱う     |

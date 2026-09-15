@@ -1,7 +1,7 @@
 # Fluvix Nexus 設計ドキュメント
 
-> ステータス: STEP 1（基盤構築）完了 / STEP 2（Dockable Workspace 基盤）完了 / STEP 3（各パネルの本機能）完了 / STEP 4（日常使用の土台）完了 / STEP 5（LSP）完了 / **STEP 6（DAP）完了（Session 6-17 Closing）**
-> 最終更新: 2026-09-11
+> ステータス: STEP 1（基盤構築）完了 / STEP 2（Dockable Workspace 基盤）完了 / STEP 3（各パネルの本機能）完了 / STEP 4（日常使用の土台）完了 / STEP 5（LSP）完了 / **STEP 6（Debugger / DAP）完了** / **STEP 7（v1.0.0 Release 前 Dogfooding / 整合）進行中（Session 7-1D Documentation Synchronization 完了）**
+> 最終更新: 2026-09-16
 
 このドキュメントは**製品としての設計方針**を扱う。実装の構造と開発手順は以下を参照。
 
@@ -2252,20 +2252,20 @@ STEP 6 で意図的に入れていないもの:
 | C# の build（preLaunchTask）・`launchSettings.json`          | 入れていない。build 済み `.dll` を指定する                                    |
 | Debug の Settings section                                    | 作っていない。値を持てる候補が残らなかった（Session 6-9）                     |
 
-STEP 6 Closing 時点の既知の制約（**今も残っているものだけ**。どれも STEP 6 の完了を止めるものではなく、STEP 7 以降へ送る）:
+STEP 6 Closing 時点で残っていた既知の制約。これは **Session 6-17 を閉じた時点の記録**であり、現在も残っているものは STEP 7 の現在状態で見直す。
 
-| 項目                                                 | 内容                                                                                                                                                                                                                                                                                                                                            |
-| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Debug keybinding は Debug パネルが前面のときだけ** | F5 / Shift+F5 / F10 / F11 / Shift+F11 の command は Debug Toolbar が登録し、Toolbar は Debug パネルが dock の前面タブのときにだけ mount される。Files などを前面にすると打鍵は何も起こさない（production で実測。F9 は Editor の器が持つので影響を受けない）。常時使えるようにする変更は STEP 6 に含めず、**STEP 7 の dogfooding で再評価する** |
-| `runInTerminal` を断る代償                           | debuggee は本物の端末を持たない。標準入力を待つ・端末の大きさや色を見るプログラムは Debug Console の中では同じように動かない                                                                                                                                                                                                                    |
-| breakpoint は編集に付いて回らない                    | 行を挿入しても印は置いた行に留まる（docs/ARCHITECTURE.md §20.12）                                                                                                                                                                                                                                                                               |
-| 起動後の失敗理由が画面に出ない                       | Start の応答が `started` の後に adapter が終わった場合（debugpy の無い python など）、状態が starting → idle に戻るだけで理由は Main のログにだけ残る                                                                                                                                                                                           |
-| Variables の続きを読めない                           | 1応答 500件・1停止の handle 5,000件で切り、「さらに読む」は無い                                                                                                                                                                                                                                                                                 |
-| C# は ASCII-only の path だけ                        | netcoredbg の Windows 版の不具合。adapter / dotnet / DLL / Workspace のどれかが Unicode path なら `adapter-unavailable`（Closing で実測）                                                                                                                                                                                                       |
-| vscode-js-debug の振る舞い                           | Pause の停止理由が `step` になる・`exceptionInfo` の型名の欄に `Error: <メッセージ>` が入り breakMode が出ない・ESM の top-level の例外は `uncaught` でも止まらない                                                                                                                                                                             |
-| 停止で Editor を開くとフォーカスも移る               | 既存の `openFileAt` を通るため                                                                                                                                                                                                                                                                                                                  |
-| adapter は利用者が置く                               | js-debug の配布物・debugpy・netcoredbg はどれも同梱も自動入手もしない                                                                                                                                                                                                                                                                           |
-| `EvaluateView.tsx` が残っている                      | 6-8 で Debug Console に置き換わった単独の Evaluate の面が、どこからも mount されないまま（テストと一緒に）残っている。動作には影響しない。Closing では消さず、STEP 7 の整理の候補にする                                                                                                                                                         |
+| 項目                                                 | 内容                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Debug keybinding は Debug パネルが前面のときだけ** | F5 / Shift+F5 / F10 / F11 / Shift+F11 の command は Debug Toolbar が登録し、Toolbar は Debug パネルが dock の前面タブのときにだけ mount される。Files などを前面にすると打鍵は何も起こさない（production で実測。F9 は Editor の器が持つので影響を受けない）。常時使えるようにする変更は STEP 6 に含めず、**STEP 7 の dogfooding で再評価する**（→ Session 7-1A で DebugProvider へ所有を移し、現在仕様では解消済み） |
+| `runInTerminal` を断る代償                           | debuggee は本物の端末を持たない。標準入力を待つ・端末の大きさや色を見るプログラムは Debug Console の中では同じように動かない                                                                                                                                                                                                                                                                                          |
+| breakpoint は編集に付いて回らない                    | 行を挿入しても印は置いた行に留まる（docs/ARCHITECTURE.md §20.12）                                                                                                                                                                                                                                                                                                                                                     |
+| 起動後の失敗理由が画面に出ない                       | Start の応答が `started` の後に adapter が終わった場合（debugpy の無い python など）、状態が starting → idle に戻るだけで理由は Main のログにだけ残る                                                                                                                                                                                                                                                                 |
+| Variables の続きを読めない                           | 1応答 500件・1停止の handle 5,000件で切り、「さらに読む」は無い                                                                                                                                                                                                                                                                                                                                                       |
+| C# は ASCII-only の path だけ                        | netcoredbg の Windows 版の不具合。adapter / dotnet / DLL / Workspace のどれかが Unicode path なら `adapter-unavailable`（Closing で実測）                                                                                                                                                                                                                                                                             |
+| vscode-js-debug の振る舞い                           | Pause の停止理由が `step` になる・`exceptionInfo` の型名の欄に `Error: <メッセージ>` が入り breakMode が出ない・ESM の top-level の例外は `uncaught` でも止まらない                                                                                                                                                                                                                                                   |
+| 停止で Editor を開くとフォーカスも移る               | 既存の `openFileAt` を通るため                                                                                                                                                                                                                                                                                                                                                                                        |
+| adapter は利用者が置く                               | js-debug の配布物・debugpy・netcoredbg はどれも同梱も自動入手もしない                                                                                                                                                                                                                                                                                                                                                 |
+| `EvaluateView.tsx` が残っている                      | 6-8 で Debug Console に置き換わった単独の Evaluate の面が、どこからも mount されないまま（テストと一緒に）残っている。動作には影響しない。Closing では消さず、STEP 7 の整理の候補にする                                                                                                                                                                                                                               |
 
 Debug Console の出力と Variables の値に絶対パスが出ることは制約ではなく**設計どおり**（利用者のプログラム自身の出力と値。docs/ARCHITECTURE.md §20.9 の例外）。
 
@@ -2284,7 +2284,7 @@ STEP 6 を Close するための必須条件:
 | ドキュメント更新                                                                          | DESIGN.md §13、docs/ARCHITECTURE.md §18・§20、docs/DEVELOPMENT.md §1・§3・§4                         |
 | 既知の制約の記録                                                                          | 上表と docs/ARCHITECTURE.md §20.27                                                                   |
 
-STEP 7 への引き継ぎ:
+STEP 7 への引き継ぎ（Session 6-17 時点）:
 
 | 項目                        | 次の段で守ること                                                                                                                                                           |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -2295,6 +2295,47 @@ STEP 7 への引き継ぎ:
 | Command Palette             | `Ctrl+P` / `Ctrl+Shift+P` は依然として空いている。`debug.*` も descriptor を持つので、Palette 側は表を読むだけで済む                                                       |
 
 以上により、STEP 6 は「Debugger（DAP）統合」として正式に完了する。
+
+## 14. STEP 7（進行中）— v1.0.0 Release 前 Dogfooding / 整合
+
+STEP 7 は v1.0.0 Release 前に、実際に使ったときの不便・崩れ・案内不足・ドキュメントのズレを潰す段になる。新しい大機能を入れる段ではなく、STEP 1〜6 で作った道具を release できる状態へ揃える。
+
+現在の位置:
+
+| Session | 状態 | 内容                                                                                                                                                                                                                      |
+| ------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 7-1A    | 完了 | Debug の実行 command と Profile 選択の所有を `DebugProvider` へ移し、Debug パネルの mount / unmount に依存しないようにした。STEP 6 Closing の「F5 系 keybinding は Debug パネル前面だけ」という制約は現在仕様では解消済み |
+| 7-1B    | 完了 | Files ツリーの展開状態と Git commit message draft を Panel の寿命より長く持たせた。Git パネルの狭い幅での折り返し / 省略も調整した                                                                                        |
+| 7-1C    | 完了 | Debug adapter が無い / 検証に失敗したときの案内を言語・原因ごとの固定文言へ分けた。Main のログを `userData/logs/main.log` へ残し、ファイル出力では絶対パスと認証情報を伏せるようにした                                    |
+| 7-1D    | 完了 | Documentation Synchronization。現在の実装と DESIGN.md / docs/ARCHITECTURE.md / docs/DEVELOPMENT.md の食い違い（Dogfooding B6）を解消した。コード変更はしていない                                                          |
+
+現在仕様として見るべきこと:
+
+| 項目                   | 現在状態                                                                                                                                                             |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| STEP 6 Debugger        | 完了。Node.js / Python / C# adapter、Debug Console、Debug Profile、実行制御、Call Stack、Variables / Evaluate、例外停止、Debug command / keybinding まで入っている   |
+| Debug keybinding       | F5 / Shift+F5 / F10 / F11 / Shift+F11 の所有者は `DebugProvider`。Debug パネルが前面でなくても command は登録される。F9 は従来どおり Editor の器が持つ               |
+| Panel state            | Terminal / Editor / Files 表示方式 / Files 展開状態 / Git commit draft / Debug Profile 選択は、Panel の作り直しで失わせない状態として Shell の外側の Provider が持つ |
+| Debug adapter guidance | `adapter-unavailable` は `language` と閉じた集合の `cause` だけを Renderer へ返し、文言は固定の翻訳から選ぶ。パスや実行ファイル名は返さない                          |
+| Main log               | `userData/logs/main.log`（Windows では `%APPDATA%/Fluvix Nexus/logs/main.log`）。1 MiB + `main.old.log` 1世代。ファイル出力では絶対パス・認証情報を伏せる            |
+
+v1.0.0 Release 前にまだ残っている主な問題:
+
+| 項目                                   | 状態                                                                                                                                                     |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `runInTerminal` を断る代償             | debuggee は本物の端末を持たない。標準入力・端末サイズ・色を見るプログラムは Debug Console では同じように動かない                                         |
+| breakpoint は編集に付いて回らない      | 行を挿入しても印は置いた行に留まる                                                                                                                       |
+| 起動後の失敗理由が画面に出ない         | Start が `started` を返した後に adapter が終わる場合は starting → idle に戻り、理由は Main のログに残る                                                  |
+| Variables の続きを読めない             | 1応答 500件・1停止の handle 5,000件で切る。「さらに読む」は無い                                                                                          |
+| Debug Console の一覧に件数上限が無い   | 出力し続けるプログラムでは一覧が伸び続ける。1 entry は 10,000 字で切る                                                                                   |
+| C# は ASCII-only の path だけ          | netcoredbg の Windows 版の制約。adapter / dotnet / DLL / Workspace / cwd のいずれかが Unicode path なら `adapter-unavailable`                            |
+| vscode-js-debug の振る舞い             | Pause の理由が `step`、`exceptionInfo` の型名欄に `Error: <メッセージ>`、breakMode が出ない、ESM top-level の例外で止まらない                            |
+| 停止で Editor を開くとフォーカスも移る | 既存の `openFileAt` を通るため                                                                                                                           |
+| adapter は利用者が置く                 | js-debug の配布物・debugpy・netcoredbg は同梱も自動入手もしない                                                                                          |
+| 使われていない `EvaluateView.tsx`      | Debug Console に置き換わった単独の Evaluate 面が残っている。動作には影響しない                                                                           |
+| Renderer の `file://` 読み込み元       | production build の Renderer から `fetch('file:///...')` でローカルファイルを読めることを Session 7-1C で実測。ログ専用の問題ではなく、別 Session で扱う |
+
+Session 7-1D ではこの節と [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) / [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) の現在状態だけを同期した。Session 7-2 Release には進んでいない。
 
 ### Session 6-0 時点の Session 割り当て（予定）と実際
 

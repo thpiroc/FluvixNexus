@@ -1,7 +1,7 @@
 # 開発ガイド
 
-> 対象: Session 6-17（STEP 6 Debugger Closing）完了時点
-> 最終更新: 2026-09-15
+> 対象: Session 7-1D（Documentation Synchronization）時点
+> 最終更新: 2026-09-16
 
 ---
 
@@ -36,7 +36,7 @@ Language Server と同じく**アプリの開発・テスト・ビルドには�
 | Python  | `debugpy`（`python -m debugpy.adapter`）         | `pip install debugpy`                           | **Session 6-12 で `integrated`**  | 1.8.21（CPython 3.14.7）     |
 | C#      | `netcoredbg --interpreter=vscode`                | Samsung/netcoredbg の公式 release zip           | **Session 6-14 で `integrated`**  | 3.2.0-1092（.NET 8 runtime） |
 
-3つとも Status Bar の既定は「待機中」になり、adapter が見つからないことは Start の応答（`adapter-unavailable`）でだけ分かる（docs/ARCHITECTURE.md §20.17）。
+3つとも Status Bar の既定は「待機中」になり、adapter が見つからないことは Start の応答（`adapter-unavailable`）と Debug パネルの案内で分かる（docs/ARCHITECTURE.md §20.17 / §20.18）。詳細な原因は `language` と閉じた集合の `cause` だけで Renderer へ返し、パスや実行ファイル名は返さない。Main 側の詳しい理由は `userData/logs/main.log` に残る（Session 7-1C）。
 
 Node.js は **PATH のネイティブの `node.exe`** と、**pin した vscode-js-debug の配布物が userData の決まった場所にあること**が条件（docs/ARCHITECTURE.md §20.24）。debuggee も同じ node.exe で動く。v1 は `.js` / `.mjs` / `.cjs` の launch だけ。アプリは配布物を取りに行かないので、使うときだけ手で置く（Windows / PowerShell。`$env:APPDATA\Fluvix Nexus` はアプリの userData）:
 
@@ -71,7 +71,7 @@ Expand-Archive netcoredbg-win64.zip -DestinationPath C:\tools   # → C:\tools\n
 
 この PC の現状（Session 6-17 時点）は、システムに **Node.js と .NET の runtime（SDK 無し）** だけが入っていて、Python・debugpy・netcoredbg・.NET SDK は入っていない。Python / C# を実機で確かめるときは、STEP 5 の C# と同じく一時ディレクトリへ置き、起動する Electron の `env` にだけ PATH を足す（§4）。netcoredbg と C# の題材は ASCII-only の一時パス（`D:\fx617` のような場所）に置く ── 作業用ディレクトリ（`%TEMP%` の下）はユーザー名が Unicode のため使えない。
 
-#### STEP 6 Closing 時点で揃っているもの
+#### 現在揃っているもの（STEP 6 Closing + STEP 7-1D）
 
 Debug パネル（View メニュー → Debug）に、上から Toolbar（Profile の選択と編集・Start / Continue / Pause / Step Over / Step Into / Step Out / Stop）・停止理由・Call Stack・Variables・Debug Console が並ぶ。ステータスバーに Debug の状態が1語で出る。adapter を1つでも置けば、次の流れが production build でそのまま通る（Session 6-17 で3言語とも実測。§4）。
 
@@ -79,18 +79,18 @@ Debug パネル（View メニュー → Debug）に、上から Toolbar（Profil
 | ----------------------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------ |
 | Debug Profile の作成 / 編集   | Debug パネルの Profile editor（名前・言語・Workspace 相対の program・引数・環境変数・入口で止めるか） | docs/ARCHITECTURE.md §20.18 / §20.19 |
 | Breakpoint                    | Editor の glyph margin の click / **F9**（Editor に focus）                                           | §20.12 / §20.26                      |
-| Start / Continue              | Toolbar / **F5**（状態で切り替わる）                                                                  | §20.13 / §20.26                      |
-| Step Over / Into / Out / Stop | Toolbar / **F10** / **F11** / **Shift+F11** / **Shift+F5**                                            | §20.13 / §20.26                      |
+| Start / Continue              | Toolbar / **F5**（状態で切り替わる。command の所有者は `DebugProvider`）                              | §20.13 / §20.26 / §20.28             |
+| Step Over / Into / Out / Stop | Toolbar / **F10** / **F11** / **Shift+F11** / **Shift+F5**（所有者は `DebugProvider`）                | §20.13 / §20.26 / §20.28             |
 | Pause                         | Toolbar（打鍵は無い）                                                                                 | §20.13                               |
 | Call Stack / 実行位置         | 止まると Editor が最上段の行を開き、印を出す。frame を押すと Variables がその frame を読む            | §20.14 / §20.21                      |
 | Variables / Evaluate          | Variables の tree / Debug Console の入力欄                                                            | §20.15 / §20.16 / §20.25             |
 | 例外で止まる                  | 捕まえられなかった例外（言語ごとの固定の表）                                                          | §20.21                               |
 
-- 保存先は userData の `debug-profiles.json` / `debug-breakpoints.json`（Workspace の絶対パスで引く）。**Workspace の中には何も書かない**
-- **F5 / Shift+F5 / F10 / F11 / Shift+F11 は Debug パネルが dock の前面タブのときだけ効く**（STEP 6 v1 の既知の制約。docs/ARCHITECTURE.md §20.26）。Files などを前面にしている間は Toolbar のボタンと同じく command が登録されず、打鍵は何も起こさない。F9 は Editor の器が持つので影響を受けない
+- 保存先は userData の `debug-profiles.json` / `debug-breakpoints.json`（Workspace の絶対パスで引く）。Node の js-debug 配布物は userData の `debug-adapters/` に利用者が置く。Main のログは `userData/logs/main.log` に出る。**Workspace の中には何も書かない**
+- **F5 / Shift+F5 / F10 / F11 / Shift+F11 は Debug パネルの mount / unmount に依存しない**（Session 7-1A）。`DebugProvider` が Profile 選択と実行 command を持ち、Toolbar と同じ判定で登録する。F9 は Editor の器が持つので従来どおり Editor focus が条件になる
 - Debug Session は同時に1本。Workspace を切り替える・アプリを閉じると、動いているセッションは終わり adapter と debuggee のプロセスも消える
 
-Session ごとの経緯（何をどの順に入れたか）は DESIGN.md §13、構造は docs/ARCHITECTURE.md §20 にある。Closing 時点の既知の制約は DESIGN.md §13 の Session 6-17 と docs/ARCHITECTURE.md §20.27。
+Session ごとの経緯（何をどの順に入れたか）は DESIGN.md §13 / §14、構造は docs/ARCHITECTURE.md §20 にある。STEP 6 Closing 時点の既知の制約は DESIGN.md §13 と docs/ARCHITECTURE.md §20.27、現在残っている制約は DESIGN.md §14 と docs/ARCHITECTURE.md §20.28 を正とする。
 
 Session 6-15B で **Node.js（vscode-js-debug 1.117.0）が3つ目の実 adapter** になった（docs/ARCHITECTURE.md §20.24）。PATH の `node.exe` で、userData に置いた pin 済みの `dapDebugServer.js` を socket の server として立て、root に届く `startDebugging` で primary child を張る。launch は Main が組み（`runtimeExecutable` は同じ node.exe・`sourceMaps: false`・`autoAttachChildProcesses: false`・`outputCapture: 'std'`）、`.js` / `.mjs` / `.cjs` 以外は `invalid-profile`。配布物が無い / 改変されている・node が PATH に無い（または Workspace の中にある）なら `adapter-unavailable`。条件を満たせば Profile → Start → breakpoint → Continue / Pause / Step → Call Stack / Variables / Evaluate / Debug Console → 未処理例外で停止 → Stop / 完走が実機で通る。
 
@@ -742,10 +742,11 @@ DAP の周りは 6-1 / 6-2 と同じ分け方で、**Electron も子プロセス
 - `src/renderer/src/keybindings/defaults.test.ts` — F5 / Shift+F5 / F9 / F10 / F11 / Shift+F11 を持つこと・F9 は Editor に focus があるときだけ・実行制御は端末と Settings の背面で走らせないこと
 - `src/renderer/src/commands/registry.test.ts` / `commandLocalization.test.ts` — Profile と実行制御と breakpoint の12件と日英の名前
 - `src/renderer/src/debug/DebugToolbar.dom.test.ts` — **`debug.startOrContinue` が idle では Start、stopped では Continue を既存の操作として呼ぶ**こと
+- `src/renderer/src/debug/DebugToolbar.dom.test.ts`（Session 7-1A 以降） — `DebugProvider` が Profile 選択と実行 command を Debug パネルの mount / unmount より長く持ち、Toolbar は Panel 内の表示と Profile editor に寄ること
 - `src/renderer/src/editor/debug/breakpointGlyphs.test.ts` — カーソルのある行を入れ替えの対象にすること・Model / 位置が無い / 範囲外の行では何もしないこと
 - `src/renderer/src/settings/KeyboardShortcuts.dom.test.ts` / `src/renderer/src/keybindings/shortcutRows.test.ts` — 40件が1つ残らず出ること・割り当てのある18件が打鍵を出し、22件が未割り当てとして出ること・Debug の12件と既定の打鍵・言語を切り替えても40件・7グループのまま
 
-**「Debug パネルが前面のタブのときにだけ F5 / Shift+F5 / F10 / F11 / Shift+F11 が効く」は unit test では固定していない**（command の登録は所有者の mount で決まり、mount は dock の描画で決まる）。production build で実測している（§4 の Session 6-17）。
+**「Debug パネルが前面のタブのときにだけ F5 / Shift+F5 / F10 / F11 / Shift+F11 が効く」は Session 6-17 時点の production 実測記録**で、Session 7-1A 以降の現在仕様では解消済み。現在は `DebugProvider` が所有者になるため、unit test は Provider と Toolbar の分担を固定する。
 
 #### Debug adapter の案内 / ログファイル（Session 7-1C）
 
@@ -2360,6 +2361,22 @@ Session 6-5 / 6-8 / 6-14 / 6-16 はこの節に確認の記録が無かった（
 - **netcoredbg の breakpoint は `setBreakpoints` の応答の時点では verified が false のことがある**（Session 6-14 の調査。module の読み込みの後の `breakpoint` event で true になり、Main がそれを当てる）。verified は止まった後に読む
 - **C# の題材は Workspace の中で build する。** PDB に書かれた source path と Workspace の Program.cs が一致しないと breakpoint が pending のまま止まらない。題材も netcoredbg も ASCII-only のパスに置く
 
+### Session 7-1A（Debug command 所有の修正）
+
+Session 6-17 で実測した「F5 / Shift+F5 / F10 / F11 / Shift+F11 は Debug パネルが前面のときだけ効く」は、Session 7-1A で解消した。Profile の一覧・選択・実行 command の正本を `DebugToolbar` から `DebugProvider` へ移し、`DebugProvider` を `App.tsx` の `WorkspaceFolderProvider` 内側 / `KeybindingProvider` 外側に置いた。これで Debug パネルが mount / unmount されても Profile 選択と実行 command が残る。
+
+この Session では Debug の IPC / preload / Main / adapter catalog / CSP は変えていない。Toolbar は現在も Debug パネル内の表示と Profile editor を持つが、F5 系 command の所有者ではない。
+
+### Session 7-1B（Panel state persistence / Git layout）
+
+Session 7-1B では、Panel の mount / unmount で失うべきでない Renderer 状態を Shell 側の Provider へ出した。
+
+- Files ツリーの展開状態は `FileTreeStateProvider` が Workspace ごとに持つ。Files パネルを閉じる / 別パネルを前面にする / 再表示するだけでは展開状態を失わない
+- Git commit message draft は `GitDraftProvider` が Workspace ごとに持つ。Git パネルを閉じる / 再表示するだけでは下書きを失わない
+- Git パネルの狭い幅では、操作ボタンや行の文言がはみ出さないよう折り返し / 省略の CSS を調整した
+
+この Session では Main / preload / shared / Security boundary は変えていない。
+
 ### Session 7-1C（Debug adapter の案内 / ログファイルの production 確認）
 
 `npm run build` した out/ をそのまま（bundle の差し替え無し）、`_electron.launch` に `--user-data-dir=<一時フォルダ>` を渡して起動した。利用者の本物の userData には触れていない（確認後に `logs` が作られていないことも見た）。**98 項目すべて PASS**。
@@ -2369,6 +2386,18 @@ Session 6-5 / 6-8 / 6-14 / 6-16 はこの節に確認の記録が無かった（
 - **ログ**: 前回ぶんの 1.1 MiB の `main.log` を置いて起動 → それが `main.old.log` になり新しい `main.log` から始まる・先頭が版 / Electron / platform / pid だけの見出し・全行が日時付きの INFO / WARN / ERROR（DEBUG 無し）・`workspace opened: <path>` と7通りの `adapter-unavailable (<language>: <cause>)`・配布物の `is not usable (missing / hash-mismatch): <path>`・**一時フォルダ / Workspace / ユーザー名（Unicode）/ `USERPROFILE` / コンピューター名 / `System32` / ドライブ付きのパス / adapter のコマンドラインが1つも無い**。console には従来どおり生のパスが出る。2回目の起動で見出しが2つになり、前の行はそのまま残る
 - **書けないとき**: userData の `logs` をファイルにして起動 → 起動時に1度だけ警告が出てアプリは動き続ける（起動直後の出力は `_electron.launch` では拾えないので、`spawn` で直接起こして数えた）。起動中に `logs` をファイルへ差し替え → 警告は1度だけで、その後もログの行が出る操作と IPC が普通に通り、差し替えたファイルは書き換えられない
 - **境界**: `window.fluvix.debug` は22関数のまま・`window.fluvix` にログ / ファイルシステムの口は無い・`process` / `require` / `electron` / `ipcRenderer` は undefined・build 後の CSP は source と同一で違反 0件。**Renderer の `fetch('file:///…')` はログも `C:\Windows\win.ini` も読めた**（既存の性質。docs/ARCHITECTURE.md §4 の既知の制約）
+
+### Session 7-1D（Documentation Synchronization）
+
+Dogfooding B6（ドキュメントと実装の食い違い）への対応。対象は DESIGN.md / docs/ARCHITECTURE.md / docs/DEVELOPMENT.md の現在状態だけで、Renderer / Main / preload / shared のコードは変更しない。
+
+同期する主な現在仕様:
+
+- STEP 6 Debugger は完了済み。Node.js / Python / C# adapter、Debug Console、Debug command / keybinding は実装済み
+- F5 / Shift+F5 / F10 / F11 / Shift+F11 の所有者は `DebugProvider`。STEP 6 Closing 時点の「Debug パネル前面だけ」は現在仕様では解消済み
+- Node.js の vscode-js-debug は `userData/debug-adapters/js-debug-dap-v1.117.0/js-debug` に利用者が置く。アプリは asset / tree hash を検証し、失敗時は `adapter-unavailable` を固定 cause で返す
+- Main のログは `userData/logs/main.log`（1 MiB + `main.old.log` 1世代）。Renderer にログ API は無く、ファイル出力では絶対パスと認証情報を伏せる
+- 現在残っている v1.0.0 Release 前の問題は DESIGN.md §14 / docs/ARCHITECTURE.md §20.28 を正とする
 
 ---
 
