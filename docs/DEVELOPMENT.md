@@ -2424,6 +2424,17 @@ docs/RELEASE.md §5 の設計どおりに electron-builder を入れ、ローカ
 - smoke: scratchpad の playwright-core の `_electron.launch` に `release/win-unpacked/Fluvix Nexus.exe` と使い捨ての `--user-data-dir` を渡し、`workspace-folder.json` を先に置いて Workspace を復元させた。Main（isPackaged / appPath）・webPreferences・Renderer の境界と CSP・`window.fluvix.terminal` の listShells → create → write → dispose・`main.log` を読んだ。IPC の戻り値は `{ ok, data }` なので `data` を読む（読み違えると `session` が undefined でアプリの不具合に見える）
 - `npm audit`: `--omit=dev` は 0 件。全体では 4 件（low 1 / moderate 3）で、Renderer にバンドルされる monaco-editor 経由の `dompurify` を含む（7-2C 以降へ引き継ぎ。7-2B では依存を上げていない）
 
+### Session 7-2C（installer で入れたアプリの検証）
+
+7-2B の installer をこの PC に per-user で入れ、インストール先の exe で全機能を確かめた（結果の表は docs/RELEASE.md §8.1）。Release blocker は無く、コード・`electron-builder.yml`・installer は変えていない。tag と GitHub Release は作っていない。
+
+- 起動は scratchpad の playwright-core の `_electron.launch` に `%LOCALAPPDATA%\Programs\fluvix-nexus\Fluvix Nexus.exe` と使い捨ての `--user-data-dir` を渡す（PROJECT の引数は付けない）。STEP 6 Closing の Debug 確認スクリプトは、起動先と「CSP / bundle を `app.asar` から読む」部分だけ差し替えて流用した。`app.asar` は `@electron/asar` の `extractFile` に `path.join('out', …)` で渡す（`/` 区切りだと not found）
+- 6-17 の Node.js スクリプトにあった「Debug パネルが背面だと F5 系が効かない」確認は、Session 7-1A で解消した制約なので現在仕様（背面でも効く）の確認へ置き換えた
+- `app.process().pid` は Main と一致しないことがある。Main の子プロセスを数えるときは、`Fluvix Nexus.exe` のうち `--type=` を含まず CommandLine に userData のパスを含むものを CIM で探す
+- node-pty の `fork` 経路は一瞬で終わるためプロセスとしては捕まえにくい。シェルで `ping -n 600` を起こしてタブを閉じ、孫まで消えるかで確かめた
+- 既定の `%APPDATA%\Fluvix Nexus` は消さない（開発版と共有していて、利用者の Workspace を復元する）。インストール直後の起動で増えたのは `logs` だけで、既存の JSON は変わっていない
+- 使い捨ての Workspace は `D:\fx72c`（C# の題材を ASCII のパスで build するため）
+
 ---
 
 ## 5. 進め方
@@ -2472,7 +2483,7 @@ STEP 1 では **`electron-builder` の導入は行わず、準備だけ**を済�
 残っているもの（設計は docs/RELEASE.md §5〜§8）:
 
 - アプリアイコン（`resources/icon.ico`、256x256 を含むもの。docs/RELEASE.md §5.3。素材は未作成。7-2E の公開前に必須）
-- installer で入れたアプリの確認（7-2C / 7-2D）
+- installer で入れたアプリの確認: この PC（7-2C）は完了。clean Windows（7-2D）が残る
 - `electron-builder.yml` を触るときに外してはいけないこと（Session 7-2B で入れた）
   - **`dependencies` を同梱する必要がある。** Session 3-7-1 で `@lydell/node-pty`（native モジュール）が入り、これが最初の `dependencies` になった。`externalizeDepsPlugin` により Main のバンドルには含まれないため、`node_modules` 側の実体が要る。electron-builder は既定で `dependencies` を拾うが、`files` を絞り込む場合はここを外さないこと
   - prebuilt はプラットフォームごとに別パッケージ（`@lydell/node-pty-win32-x64` など）として入る。`optionalDependencies` 経由なので、**ビルドする OS / アーキテクチャのものしか入っていない**
