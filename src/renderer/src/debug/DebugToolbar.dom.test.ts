@@ -10,6 +10,7 @@ import { useCommands, type CommandRegistryController } from '../commands/context
 import { I18nContext } from '../i18n/context'
 import { createTranslator } from '../i18n/messages'
 import { WorkspaceFolderContext, type WorkspaceFolderController } from '../workspaceFolder/context'
+import { DebugProvider } from './DebugProvider'
 import { DebugToolbar } from './DebugToolbar'
 
 const debugApi = vi.hoisted(() => ({
@@ -60,6 +61,7 @@ beforeEach(() => {
     globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = true
 
+  vi.clearAllMocks()
   listeners = []
   commands = null
   container = document.createElement('div')
@@ -105,11 +107,11 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-function workspace(): WorkspaceFolderController {
+function workspace(id = 'w1'): WorkspaceFolderController {
   return {
     status: 'ready',
     workspace: {
-      id: 'w1',
+      id,
       rootPath: 'D:\\project',
       displayName: 'project',
       exists: true,
@@ -136,8 +138,12 @@ function registry(): CommandRegistryController {
   return commands
 }
 
-async function renderToolbar(status: DebugSessionStatus = 'idle'): Promise<void> {
+async function renderToolbar(
+  status: DebugSessionStatus = 'idle',
+  options: { readonly showToolbar?: boolean; readonly workspace?: WorkspaceFolderController } = {}
+): Promise<void> {
   debugApi.getStatus.mockResolvedValue({ ok: true, data: { status } })
+  const showToolbar = options.showToolbar ?? true
 
   const tree: ReactElement = createElement(
     I18nContext.Provider,
@@ -148,8 +154,8 @@ async function renderToolbar(status: DebugSessionStatus = 'idle'): Promise<void>
       createElement(Probe),
       createElement(
         WorkspaceFolderContext.Provider,
-        { value: workspace() },
-        createElement(DebugToolbar)
+        { value: options.workspace ?? workspace() },
+        createElement(DebugProvider, null, showToolbar ? createElement(DebugToolbar) : null)
       )
     )
   )
@@ -201,6 +207,14 @@ async function select(testId: string, value: string): Promise<void> {
 
     descriptor?.set?.call(element, value)
     element.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+}
+
+async function executeCommand(
+  id: Parameters<CommandRegistryController['execute']>[0]
+): Promise<void> {
+  await act(async () => {
+    expect(registry().execute(id)).toBe(true)
   })
 }
 
@@ -261,15 +275,82 @@ describe('DebugToolbar', () => {
   it('F5 用 command は idle では Start、stopped では Continue を既存操作として呼ぶ', async () => {
     await renderToolbar('idle')
 
-    expect(registry().execute('debug.startOrContinue')).toBe(true)
+    await executeCommand('debug.startOrContinue')
     expect(debugApi.start).toHaveBeenCalledWith({
       profileId: 'dp-11111111-1111-1111-1111-111111111111'
     })
 
     await publish('stopped')
 
-    expect(registry().execute('debug.startOrContinue')).toBe(true)
+    await executeCommand('debug.startOrContinue')
     expect(debugApi.continue).toHaveBeenCalledTimes(1)
+  })
+
+  it('Profile 選択は Debug Panel の unmount/remount を越えて維持され、F5 はその Profile を使う', async () => {
+    await renderToolbar('idle')
+    await select('debug-profile-selector', PROFILE_B.profileId)
+
+    await renderToolbar('idle', { showToolbar: false })
+
+    expect(registry().isRegistered('debug.startOrContinue')).toBe(true)
+    await executeCommand('debug.startOrContinue')
+    expect(debugApi.start).toHaveBeenCalledWith({
+      profileId: PROFILE_B.profileId
+    })
+
+    await renderToolbar('idle')
+    expect(byTestId<HTMLSelectElement>('debug-profile-selector').value).toBe(PROFILE_B.profileId)
+  })
+
+  it('Debug Panel が unmount されても実行制御 command は登録されたまま残る', async () => {
+    await renderToolbar('stopped', { showToolbar: false })
+
+    for (const id of [
+      'debug.startOrContinue',
+      'debug.continue',
+      'debug.stepOver',
+      'debug.stepInto',
+      'debug.stepOut',
+      'debug.stop'
+    ] as const) {
+      expect(registry().isRegistered(id), id).toBe(true)
+    }
+
+    await executeCommand('debug.startOrContinue')
+    await executeCommand('debug.stepOver')
+    await executeCommand('debug.stepInto')
+    await executeCommand('debug.stepOut')
+    await executeCommand('debug.stop')
+
+    expect(debugApi.continue).toHaveBeenCalledTimes(1)
+    expect(debugApi.stepOver).toHaveBeenCalledTimes(1)
+    expect(debugApi.stepInto).toHaveBeenCalledTimes(1)
+    expect(debugApi.stepOut).toHaveBeenCalledTimes(1)
+    expect(debugApi.stop).toHaveBeenCalledTimes(1)
+  })
+
+  it('Workspace が切り替わると別 Workspace の Profile 選択を引き継がない', async () => {
+    const profileC: DebugProfile = {
+      ...PROFILE_A,
+      profileId: 'dp-33333333-3333-3333-3333-333333333333',
+      name: 'Workspace 2'
+    }
+
+    debugApi.listProfiles
+      .mockResolvedValueOnce({ ok: true, data: { profiles: [PROFILE_A, PROFILE_B] } })
+      .mockResolvedValueOnce({ ok: true, data: { profiles: [profileC] } })
+
+    await renderToolbar('idle')
+    await select('debug-profile-selector', PROFILE_B.profileId)
+
+    await renderToolbar('idle', { workspace: workspace('w2') })
+
+    expect(byTestId<HTMLSelectElement>('debug-profile-selector').value).toBe(profileC.profileId)
+
+    await click('debug-action-start')
+    expect(debugApi.start).toHaveBeenCalledWith({
+      profileId: profileC.profileId
+    })
   })
 
   it('Profile を作成できる', async () => {
@@ -317,6 +398,7 @@ describe('DebugToolbar', () => {
     expect(debugApi.deleteProfile).toHaveBeenCalledWith({
       profileId: 'dp-11111111-1111-1111-1111-111111111111'
     })
+    expect(byTestId<HTMLSelectElement>('debug-profile-selector').value).toBe(PROFILE_B.profileId)
     expect(container.textContent).toContain('Profile deleted.')
   })
 

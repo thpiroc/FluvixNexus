@@ -2,6 +2,7 @@ import type { JSX } from 'react'
 import { CommandProvider } from './commands/CommandProvider'
 import { BreakpointProvider } from './debug/BreakpointProvider'
 import { CallStackProvider } from './debug/CallStackProvider'
+import { DebugProvider } from './debug/DebugProvider'
 import { ExecutionLocationFollower } from './debug/ExecutionLocationFollower'
 import { EditorProvider } from './editor/EditorProvider'
 import { FilesViewProvider } from './files/FilesViewProvider'
@@ -21,7 +22,7 @@ import { WorkspaceFolderProvider } from './workspaceFolder/WorkspaceFolderProvid
  * アプリ全体に関わるもの（エラーバウンダリ、独立ウィンドウ化した際のルート分岐など）が
  * 必要になったときだけこの層に足す。
  *
- * Shell より外側に置いているものが10ある。どれも**レイアウトの都合でパネルが
+ * Shell より外側に置いているものが11ある。どれも**レイアウトの都合でパネルが
  * 作り直されても消えてはいけない状態**で、パネルは自由に配置を変えられて
  * 親子関係が固定されていないため prop では配れない。
  *
@@ -33,6 +34,7 @@ import { WorkspaceFolderProvider } from './workspaceFolder/WorkspaceFolderProvid
  *   TerminalProvider        … 動いているシェルと、その画面（Session 3-7-1）
  *   FilesViewProvider       … Files の表示方式として**利用者が選んだ方**（Session 3-6-7）
  *   LspSettingsProvider     … Language Server を使うか（Session 5-4。lsp/）
+ *   DebugProvider           … Profile 選択と実行 command（Session 7-1A。debug/）
  *   BreakpointProvider      … その Workspace の breakpoint（Session 6-3。debug/）
  *   KeybindingProvider      … 打鍵を command へ繋ぐ（Session 4-7A。keybindings/）
  *
@@ -106,18 +108,20 @@ function App(): JSX.Element {
                         Workspace には依存する（相対位置は Workspace が変われば
                         別のファイルを指す）ので、WorkspaceFolderProvider の内側になる。
                       */}
-                      <BreakpointProvider>
-                        <CallStackProvider>
-                          {/*
-                            止まったら、その位置を Editor で開く（Session 6-13）。Debug パネルを
-                            閉じていても働くよう、パネルではなくここに1つだけ置く。
-                          */}
-                          <ExecutionLocationFollower />
-                          <KeybindingProvider>
-                            <WorkspaceShell />
-                          </KeybindingProvider>
-                        </CallStackProvider>
-                      </BreakpointProvider>
+                      <DebugProvider>
+                        <BreakpointProvider>
+                          <CallStackProvider>
+                            {/*
+                              止まったら、その位置を Editor で開く（Session 6-13）。Debug パネルを
+                              閉じていても働くよう、パネルではなくここに1つだけ置く。
+                            */}
+                            <ExecutionLocationFollower />
+                            <KeybindingProvider>
+                              <WorkspaceShell />
+                            </KeybindingProvider>
+                          </CallStackProvider>
+                        </BreakpointProvider>
+                      </DebugProvider>
                     </LspSettingsProvider>
                   </FilesViewProvider>
                 </TerminalProvider>

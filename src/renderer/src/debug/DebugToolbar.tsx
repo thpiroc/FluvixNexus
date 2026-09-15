@@ -1,33 +1,20 @@
-import { useCallback, useEffect, useMemo, useState, type JSX } from 'react'
-import {
-  DEBUG_PROFILE_LANGUAGES,
-  type DebugControlOutcome,
-  type DebugProfile,
-  type DebugProfileLanguage,
-  type DebugProfileSaveOutcome
-} from '@shared/debug'
-import { fluvix } from '../api/fluvix'
+import { useCallback, useMemo, useState, type JSX } from 'react'
+import { DEBUG_PROFILE_LANGUAGES, type DebugProfileLanguage } from '@shared/debug'
 import { useCommands } from '../commands/context'
 import { useCommand } from '../commands/useCommand'
 import { useI18n } from '../i18n/context'
-import type { TranslationKey } from '../i18n/messages'
 import { useWorkspaceFolder } from '../workspaceFolder/context'
 import {
   DEBUG_TOOLBAR_ACTIONS,
   EMPTY_DEBUG_PROFILE_FORM,
   canRunDebugToolbarAction,
-  debugControlOutcomeKey,
-  debugIpcErrorKey,
   debugProfileLanguageNameKey,
-  debugProfileRejectionKey,
-  debugProfileValidationKey,
-  debugStartOutcomeKey,
   draftFromDebugProfileForm,
   formFromDebugProfile,
   isDebugProfileLanguageChoice,
   type DebugProfileFormState
 } from './debugToolbarModel'
-import { useDebugSessionStatus } from './useDebugSessionStatus'
+import { useDebug } from './debugControlContext'
 
 type EditorMode = 'create' | 'edit'
 
@@ -40,192 +27,69 @@ interface EditorState {
 /**
  * Debug Panel 上部の操作面（Session 6-11）。
  *
- * Profile の選択・編集と、Session 6-4 / 6-10 の typed Debug API だけを繋ぐ。
- * Start に渡すのは選択済みの `profileId` だけで、adapter・cwd・絶対パス・DAP method
- * はこの層に現れない。
+ * Profile の一覧・選択と実行 command は DebugProvider が持つ。ここは Panel 内の
+ * 表示と Profile 編集フォームだけを受け持つため、Panel が作り直されても F5 が
+ * 使う選択 Profile は失われない。
  */
 export function DebugToolbar(): JSX.Element {
   const { t } = useI18n()
   const commands = useCommands()
+  const debug = useDebug()
   const workspaceFolder = useWorkspaceFolder()
-  const status = useDebugSessionStatus()
-  const [profiles, setProfiles] = useState<readonly DebugProfile[]>([])
-  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null)
   const [editor, setEditor] = useState<EditorState | null>(null)
-  const [messageKey, setMessageKey] = useState<TranslationKey | null>(null)
-  const [loadingProfiles, setLoadingProfiles] = useState(false)
-  const [busy, setBusy] = useState(false)
 
-  const workspaceId = workspaceFolder.workspace?.id ?? null
   const hasWorkspace = workspaceFolder.status === 'ready' && workspaceFolder.workspace !== null
-  const selectedProfile =
-    profiles.find((profile) => profile.profileId === selectedProfileId) ?? null
-  const hasSelectedProfile = selectedProfile !== null
-
-  const refreshProfiles = useCallback(async (): Promise<void> => {
-    setLoadingProfiles(true)
-    const result = await fluvix.debug.listProfiles()
-
-    if (!result.ok) {
-      setProfiles([])
-      setSelectedProfileId(null)
-      setMessageKey(debugIpcErrorKey(result.error))
-      setLoadingProfiles(false)
-      return
-    }
-
-    setProfiles(result.data.profiles)
-    setSelectedProfileId((current) => {
-      if (
-        current !== null &&
-        result.data.profiles.some((profile) => profile.profileId === current)
-      ) {
-        return current
-      }
-
-      return result.data.profiles[0]?.profileId ?? null
-    })
-    setLoadingProfiles(false)
-  }, [])
-
-  useEffect(() => {
-    setProfiles([])
-    setSelectedProfileId(null)
-    setEditor(null)
-    setMessageKey(null)
-
-    if (workspaceFolder.status !== 'ready') {
-      return
-    }
-
-    void refreshProfiles()
-  }, [refreshProfiles, workspaceFolder.status, workspaceId])
+  const hasSelectedProfile = debug.selectedProfile !== null
 
   const showCreateEditor = useCallback((): void => {
-    setMessageKey(null)
+    debug.setMessageKey(null)
     setEditor({ mode: 'create', profileId: null, form: EMPTY_DEBUG_PROFILE_FORM })
-  }, [])
+  }, [debug])
 
   const showEditEditor = useCallback((): void => {
-    if (selectedProfile === null) {
-      setMessageKey('debug.toolbar.noSelectedProfile')
+    if (debug.selectedProfile === null) {
+      debug.setMessageKey('debug.toolbar.noSelectedProfile')
       return
     }
 
-    setMessageKey(null)
+    debug.setMessageKey(null)
     setEditor({
       mode: 'edit',
-      profileId: selectedProfile.profileId,
-      form: formFromDebugProfile(selectedProfile)
+      profileId: debug.selectedProfile.profileId,
+      form: formFromDebugProfile(debug.selectedProfile)
     })
-  }, [selectedProfile])
+  }, [debug])
 
   const deleteCurrentProfile = useCallback(async (): Promise<void> => {
-    if (selectedProfile === null || !window.confirm(t('debug.profile.confirmDelete'))) {
+    if (debug.selectedProfile === null || !window.confirm(t('debug.profile.confirmDelete'))) {
       return
     }
 
-    setBusy(true)
-    const result = await fluvix.debug.deleteProfile({ profileId: selectedProfile.profileId })
-
-    if (!result.ok) {
-      setMessageKey(debugIpcErrorKey(result.error))
-      setBusy(false)
-      return
-    }
-
-    if (result.data.status === 'deleted') {
-      setProfiles(result.data.profiles)
-      setSelectedProfileId(result.data.profiles[0]?.profileId ?? null)
+    if (await debug.deleteSelectedProfile()) {
       setEditor(null)
-      setMessageKey('debug.profile.deleted')
-    } else {
-      setMessageKey(debugProfileRejectionKey(result.data.reason))
     }
-
-    setBusy(false)
-  }, [selectedProfile, t])
-
-  const start = useCallback(async (): Promise<void> => {
-    if (selectedProfile === null) {
-      setMessageKey('debug.toolbar.noSelectedProfile')
-      return
-    }
-
-    setBusy(true)
-    const result = await fluvix.debug.start({ profileId: selectedProfile.profileId })
-    setMessageKey(result.ok ? debugStartOutcomeKey(result.data) : debugIpcErrorKey(result.error))
-    setBusy(false)
-  }, [selectedProfile])
-
-  const runControl = useCallback(async (control: DebugControlCommand) => {
-    setBusy(true)
-    const result = await control()
-    setMessageKey(result.ok ? debugControlOutcomeKey(result.data) : debugIpcErrorKey(result.error))
-    setBusy(false)
-  }, [])
-
-  const continueDebug = useCallback(() => runControl(fluvix.debug.continue), [runControl])
-  const pauseDebug = useCallback(() => runControl(fluvix.debug.pause), [runControl])
-  const stepOver = useCallback(() => runControl(fluvix.debug.stepOver), [runControl])
-  const stepInto = useCallback(() => runControl(fluvix.debug.stepInto), [runControl])
-  const stepOut = useCallback(() => runControl(fluvix.debug.stepOut), [runControl])
-  const stopDebug = useCallback(() => runControl(fluvix.debug.stop), [runControl])
-
-  const actionHandlers = useMemo(
-    () => ({
-      start,
-      continue: continueDebug,
-      pause: pauseDebug,
-      stepOver,
-      stepInto,
-      stepOut,
-      stop: stopDebug
-    }),
-    [continueDebug, pauseDebug, start, stepInto, stepOut, stepOver, stopDebug]
-  )
+  }, [debug, t])
 
   const actionEnabled = useMemo(
     () =>
       Object.fromEntries(
         DEBUG_TOOLBAR_ACTIONS.map((action) => [
           action.id,
-          !busy && canRunDebugToolbarAction(action.id, status, hasSelectedProfile)
+          hasWorkspace &&
+            !debug.busy &&
+            canRunDebugToolbarAction(action.id, debug.status, debug.selectedProfile !== null)
         ])
       ) as Readonly<Record<(typeof DEBUG_TOOLBAR_ACTIONS)[number]['id'], boolean>>,
-    [busy, hasSelectedProfile, status]
+    [debug.busy, debug.selectedProfile, debug.status, hasWorkspace]
   )
 
-  const startOrContinue = useCallback((): void => {
-    if (actionEnabled.start) {
-      actionHandlers.start()
-      return
-    }
-
-    if (actionEnabled.continue) {
-      actionHandlers.continue()
-    }
-  }, [actionEnabled, actionHandlers])
-
-  useCommand('debug.addProfile', showCreateEditor, hasWorkspace && !busy)
-  useCommand('debug.editProfile', showEditEditor, hasWorkspace && hasSelectedProfile && !busy)
+  useCommand('debug.addProfile', showCreateEditor, hasWorkspace && !debug.busy)
+  useCommand('debug.editProfile', showEditEditor, hasWorkspace && hasSelectedProfile && !debug.busy)
   useCommand(
     'debug.deleteProfile',
     deleteCurrentProfile,
-    hasWorkspace && hasSelectedProfile && !busy
+    hasWorkspace && hasSelectedProfile && !debug.busy
   )
-  useCommand('debug.start', actionHandlers.start, actionEnabled.start)
-  useCommand('debug.continue', actionHandlers.continue, actionEnabled.continue)
-  useCommand(
-    'debug.startOrContinue',
-    startOrContinue,
-    actionEnabled.start || actionEnabled.continue
-  )
-  useCommand('debug.pause', actionHandlers.pause, actionEnabled.pause)
-  useCommand('debug.stepOver', actionHandlers.stepOver, actionEnabled.stepOver)
-  useCommand('debug.stepInto', actionHandlers.stepInto, actionEnabled.stepInto)
-  useCommand('debug.stepOut', actionHandlers.stepOut, actionEnabled.stepOut)
-  useCommand('debug.stop', actionHandlers.stop, actionEnabled.stop)
 
   const saveEditor = useCallback(async (): Promise<void> => {
     if (editor === null) {
@@ -235,52 +99,19 @@ export function DebugToolbar(): JSX.Element {
     const formDraft = draftFromDebugProfileForm(editor.form)
 
     if (formDraft.status === 'invalid-env-line') {
-      setMessageKey('debug.profile.invalidEnvLine')
+      debug.setMessageKey('debug.profile.invalidEnvLine')
       return
     }
 
-    setBusy(true)
-    const result =
+    const saved =
       editor.mode === 'create'
-        ? await fluvix.debug.createProfile({ profile: formDraft.draft })
-        : await fluvix.debug.updateProfile({
-            profileId: editor.profileId ?? '',
-            profile: formDraft.draft
-          })
+        ? await debug.createProfile(formDraft.draft)
+        : await debug.updateProfile(editor.profileId ?? '', formDraft.draft)
 
-    applyProfileSaveResult(result)
-    setBusy(false)
-  }, [editor])
-
-  function applyProfileSaveResult(
-    result: Awaited<ReturnType<typeof fluvix.debug.createProfile>>
-  ): void {
-    if (!result.ok) {
-      setMessageKey(debugIpcErrorKey(result.error))
-      return
+    if (saved) {
+      setEditor(null)
     }
-
-    handleProfileSaveOutcome(result.data)
-  }
-
-  function handleProfileSaveOutcome(outcome: DebugProfileSaveOutcome): void {
-    switch (outcome.status) {
-      case 'saved':
-        setProfiles(outcome.profiles)
-        setSelectedProfileId(outcome.profile.profileId)
-        setEditor(null)
-        setMessageKey('debug.profile.saved')
-        break
-
-      case 'invalid':
-        setMessageKey(debugProfileValidationKey(outcome.field, outcome.reason))
-        break
-
-      case 'rejected':
-        setMessageKey(debugProfileRejectionKey(outcome.reason))
-        break
-    }
-  }
+  }, [debug, editor])
 
   const updateForm = useCallback((patch: Partial<DebugProfileFormState>): void => {
     setEditor((current) =>
@@ -296,14 +127,14 @@ export function DebugToolbar(): JSX.Element {
           <select
             className="fx-debug-toolbar__select"
             data-testid="debug-profile-selector"
-            value={selectedProfileId ?? ''}
-            disabled={!hasWorkspace || loadingProfiles || profiles.length === 0}
-            onChange={(event) => setSelectedProfileId(event.target.value || null)}
+            value={debug.selectedProfileId ?? ''}
+            disabled={!hasWorkspace || debug.loadingProfiles || debug.profiles.length === 0}
+            onChange={(event) => debug.selectProfile(event.target.value || null)}
           >
-            {profiles.length === 0 ? (
+            {debug.profiles.length === 0 ? (
               <option value="">{t('debug.toolbar.noProfile')}</option>
             ) : (
-              profiles.map((profile) => (
+              debug.profiles.map((profile) => (
                 <option key={profile.profileId} value={profile.profileId}>
                   {profile.name} ({t(debugProfileLanguageNameKey(profile.language))})
                 </option>
@@ -316,7 +147,7 @@ export function DebugToolbar(): JSX.Element {
           type="button"
           className="fx-debug-toolbar__button"
           data-testid="debug-add-profile"
-          disabled={!hasWorkspace || busy}
+          disabled={!hasWorkspace || debug.busy}
           onClick={() => commands.execute('debug.addProfile')}
         >
           {t('debug.toolbar.addProfile')}
@@ -325,7 +156,7 @@ export function DebugToolbar(): JSX.Element {
           type="button"
           className="fx-debug-toolbar__button"
           data-testid="debug-edit-profile"
-          disabled={!hasWorkspace || !hasSelectedProfile || busy}
+          disabled={!hasWorkspace || !hasSelectedProfile || debug.busy}
           onClick={() => commands.execute('debug.editProfile')}
         >
           {t('debug.toolbar.editProfile')}
@@ -349,24 +180,24 @@ export function DebugToolbar(): JSX.Element {
         </div>
       </div>
 
-      {loadingProfiles ? (
+      {debug.loadingProfiles ? (
         <p className="fx-debug-toolbar__notice">{t('debug.toolbar.loadingProfiles')}</p>
       ) : null}
       {!hasWorkspace && workspaceFolder.status === 'ready' ? (
         <p className="fx-debug-toolbar__notice">{t('debug.toolbar.noWorkspace')}</p>
       ) : null}
-      {status === 'unavailable' ? (
+      {debug.status === 'unavailable' ? (
         <p className="fx-debug-toolbar__notice">{t('debug.toolbar.unavailable')}</p>
       ) : null}
-      {messageKey === null ? null : (
+      {debug.messageKey === null ? null : (
         <p className="fx-debug-toolbar__message" role="status">
-          {t(messageKey)}
+          {t(debug.messageKey)}
         </p>
       )}
       {editor === null ? null : (
         <DebugProfileEditor
           editor={editor}
-          busy={busy}
+          busy={debug.busy}
           onChange={updateForm}
           onSave={saveEditor}
           onDelete={deleteCurrentProfile}
@@ -502,8 +333,3 @@ function DebugProfileEditor({
     </section>
   )
 }
-
-type DebugControlCommand = () => Promise<
-  | { readonly ok: true; readonly data: DebugControlOutcome }
-  | { readonly ok: false; readonly error: Parameters<typeof debugIpcErrorKey>[0] }
->
