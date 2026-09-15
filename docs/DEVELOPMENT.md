@@ -98,18 +98,19 @@ Session 6-15B で **Node.js（vscode-js-debug 1.117.0）が3つ目の実 adapter
 
 ## 2. コマンド
 
-| コマンド                | 内容                                                                   |
-| ----------------------- | ---------------------------------------------------------------------- |
-| `npm run dev`           | 開発起動（Vite dev server + Electron、HMR あり）                       |
-| `npm run build`         | `out/` へビルド                                                        |
-| `npm run typecheck`     | 型検査（Main/Preload/shared と Renderer/shared を別々に）              |
-| `npm test`              | ユニットテスト（1回実行）                                              |
-| `npm run test:watch`    | ユニットテスト（監視）                                                 |
-| `npm run format`        | Prettier で整形                                                        |
-| `npm run format:check`  | 整形漏れの検査                                                         |
-| `npm run notices`       | `THIRD_PARTY_NOTICES.txt` を作り直す（docs/RELEASE.md §4）             |
-| `npm run notices:check` | `THIRD_PARTY_NOTICES.txt` が今の依存と一致するかの検査                 |
-| `npm run verify`        | `format:check` → `typecheck` → `notices:check` → `test` をまとめて実行 |
+| コマンド                | 内容                                                                                      |
+| ----------------------- | ----------------------------------------------------------------------------------------- |
+| `npm run dev`           | 開発起動（Vite dev server + Electron、HMR あり）                                          |
+| `npm run build`         | `out/` へビルド                                                                           |
+| `npm run dist`          | `build` の後に `release/` へ Windows installer を作る（公開しない。docs/RELEASE.md §5.5） |
+| `npm run typecheck`     | 型検査（Main/Preload/shared と Renderer/shared を別々に）                                 |
+| `npm test`              | ユニットテスト（1回実行）                                                                 |
+| `npm run test:watch`    | ユニットテスト（監視）                                                                    |
+| `npm run format`        | Prettier で整形                                                                           |
+| `npm run format:check`  | 整形漏れの検査                                                                            |
+| `npm run notices`       | `THIRD_PARTY_NOTICES.txt` を作り直す（docs/RELEASE.md §4）                                |
+| `npm run notices:check` | `THIRD_PARTY_NOTICES.txt` が今の依存と一致するかの検査                                    |
+| `npm run verify`        | `format:check` → `typecheck` → `notices:check` → `test` をまとめて実行                    |
 
 依存を足す / 版を上げる / Renderer や Main で新しいパッケージを import したときは `npm run notices` を実行して、`THIRD_PARTY_NOTICES.txt` も一緒に commit する（しないと `verify` が落ちる）。
 
@@ -2412,6 +2413,17 @@ v1.0.0 の配布仕様とメタデータを確定した。electron-builder の�
 - `docs/RELEASE.md` を新設: 確定事項・Session 7-2 の分割・変えてはいけない識別子・第三者ライセンスの決め方・electron-builder の設計（7-2B で実装）・アイコンの方針・公開前の確認（7-2A 時点の結果と再確認の手順）・Release notes の項目・installer の確認項目
 - 決めたこと: appId `studio.fluvix.fluvixnexus`・NSIS / per-user / x64・repository は v1.0.0 公開時に Public・自動更新 / コード署名 / adapter の自動取得は含めない・Renderer の `file://` 読み込みは v1.0.0 の既知の制約
 
+### Session 7-2B（electron-builder / ローカル installer）
+
+docs/RELEASE.md §5 の設計どおりに electron-builder を入れ、ローカルで installer を作った。GitHub Release への公開と tag はしていない。Renderer / Main / preload / shared のコードと security boundary は変えていない。
+
+- `package.json`: devDependencies に `electron-builder` 26.15.3（完全一致）・`dist` script（`npm run build && electron-builder --win nsis --x64 --publish never`）
+- ルートに `electron-builder.yml`: appId / productName / copyright・出力 `release/`・`files` は `out/**` と `package.json`（`@lydell/node-pty-win32-x64/*.pdb` を除く）・`asar: true`・`asarUnpack: node_modules/@lydell/**`・`npmRebuild: false`・`extraResources` に `LICENSE` / `THIRD_PARTY_NOTICES.txt`・NSIS oneClick / per-user / x64・`deleteAppDataOnUninstall: false`・`artifactName: Fluvix-Nexus-Setup-${version}.${ext}`・`publish: null`
+- アイコンは書いていない（素材が無い。Electron の既定アイコン）。正式アイコンは 7-2E の公開前
+- 確認: `out/` と `release/` を消して `npm ci` → `npm run dist` → 生成物を調べた（結果の表は docs/RELEASE.md §5.5）。installer の payload は 7-Zip（electron-builder の Cache のもの）で一覧し、`app.asar` は `@electron/asar` で一覧した
+- smoke: scratchpad の playwright-core の `_electron.launch` に `release/win-unpacked/Fluvix Nexus.exe` と使い捨ての `--user-data-dir` を渡し、`workspace-folder.json` を先に置いて Workspace を復元させた。Main（isPackaged / appPath）・webPreferences・Renderer の境界と CSP・`window.fluvix.terminal` の listShells → create → write → dispose・`main.log` を読んだ。IPC の戻り値は `{ ok, data }` なので `data` を読む（読み違えると `session` が undefined でアプリの不具合に見える）
+- `npm audit`: `--omit=dev` は 0 件。全体では 4 件（low 1 / moderate 3）で、Renderer にバンドルされる monaco-editor 経由の `dompurify` を含む（7-2C 以降へ引き継ぎ。7-2B では依存を上げていない）
+
 ---
 
 ## 5. 進め方
@@ -2455,10 +2467,13 @@ STEP 1 では **`electron-builder` の導入は行わず、準備だけ**を済�
 - `package.json` の version `1.0.0`・`author`・`license`、`LICENSE`・`README.md`・`THIRD_PARTY_NOTICES.txt`（Session 7-2A）
 - `appId`（`studio.fluvix.fluvixnexus`）と installer の形（NSIS / per-user / x64）の決定（Session 7-2A。docs/RELEASE.md §1）
 
-着手時に必要になるもの（Session 7-2B 以降。設計は docs/RELEASE.md §5）:
+- `electron-builder`（26.15.3）・`electron-builder.yml`・`npm run dist` でローカルに NSIS installer を作れる（Session 7-2B。docs/RELEASE.md §5.5）
 
-- アプリアイコン（`resources/icon.ico`、256x256 を含むもの。docs/RELEASE.md §5.3。素材は未作成）
-- `electron-builder.yml`（`files` に `out/**` と `package.json`、target は NSIS）
+残っているもの（設計は docs/RELEASE.md §5〜§8）:
+
+- アプリアイコン（`resources/icon.ico`、256x256 を含むもの。docs/RELEASE.md §5.3。素材は未作成。7-2E の公開前に必須）
+- installer で入れたアプリの確認（7-2C / 7-2D）
+- `electron-builder.yml` を触るときに外してはいけないこと（Session 7-2B で入れた）
   - **`dependencies` を同梱する必要がある。** Session 3-7-1 で `@lydell/node-pty`（native モジュール）が入り、これが最初の `dependencies` になった。`externalizeDepsPlugin` により Main のバンドルには含まれないため、`node_modules` 側の実体が要る。electron-builder は既定で `dependencies` を拾うが、`files` を絞り込む場合はここを外さないこと
   - prebuilt はプラットフォームごとに別パッケージ（`@lydell/node-pty-win32-x64` など）として入る。`optionalDependencies` 経由なので、**ビルドする OS / アーキテクチャのものしか入っていない**
   - installer では `node_modules/@lydell/**` を asar の外へ出し、`.pdb` は同梱しない（docs/RELEASE.md §5.4）

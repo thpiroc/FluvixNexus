@@ -1,0 +1,41 @@
+# v1.0.0 の Windows installer の設定（Session 7-2B）。設計と理由は docs/RELEASE.md §5。
+# appId / productName は出荷後に変えると別アプリ扱いになる（docs/RELEASE.md §3）。
+appId: studio.fluvix.fluvixnexus
+productName: Fluvix Nexus
+copyright: Copyright (c) 2026 Piroshi
+
+directories:
+  output: release # .gitignore 済み
+  buildResources: resources # build/ は .gitignore の対象なので使わない（docs/RELEASE.md §5.3）
+
+files:
+  - out/**/*
+  - package.json
+  - '!**/node_modules/@lydell/node-pty-win32-x64/*.pdb' # デバッグシンボル（約 10 MB）は同梱しない
+
+asar: true
+asarUnpack:
+  - node_modules/@lydell/** # node-pty の Worker / fork する script / .node（docs/RELEASE.md §5.4）
+npmRebuild: false # prebuilt を使う。ビルドする PC に C++ ツールチェーンを要求しない
+
+extraResources:
+  - from: LICENSE
+    to: LICENSE
+  - from: THIRD_PARTY_NOTICES.txt
+    to: THIRD_PARTY_NOTICES.txt
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  # icon は素材（resources/icon.ico）が入るまで書かない。それまでは Electron の既定アイコンになる。
+  # 7-2E の公開までに必須（docs/RELEASE.md §5.3）
+
+nsis:
+  oneClick: true # electron-builder の既定。per-user で入る
+  perMachine: false
+  deleteAppDataOnUninstall: false # userData（設定・Debug Profile・ログ・debug-adapters）は消さない
+  artifactName: Fluvix-Nexus-Setup-${version}.${ext} # 空白を含む既定名は GitHub が `.` に置き換えるため
+
+publish: null # 自動更新は入れない。GitHub へのアップロードは手で行う

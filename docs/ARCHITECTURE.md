@@ -3170,7 +3170,7 @@ OS へ聞く往復ぶん、× を押してから閉じるまでに間が空く�
 
 これがこのプロジェクトで最初の `dependencies`（＝配布物に同梱される依存）になる。`externalizeDepsPlugin` により Main のバンドルからは external 扱いのままなので構成は変わらないが、**exe 化（DEVELOPMENT.md §6）では `node_modules` を成果物に含める必要が出る。**
 
-installer（Session 7-2B）では `node_modules/@lydell/**` を asar の外へ出す（docs/RELEASE.md §5.4）。node-pty は ConPTY の出力を読む Worker の script を、`__dirname` の `node_modules.asar` だけを置き換えて探すため、electron-builder の `app.asar` の中に置くと見つけられない。`.pdb` は同梱しない。
+installer（Session 7-2B）では `node_modules/@lydell/**` を asar の外へ出す（docs/RELEASE.md §5.4）。node-pty は ConPTY の出力を読む Worker の script を、`__dirname` の `node_modules.asar` だけを置き換えて探すため、electron-builder の `app.asar` の中に置くと見つけられない。`.pdb` は同梱しない。Session 7-2B で `electron-builder.yml` の `asarUnpack` / `files` にそのとおり入れ、`resources/app.asar.unpacked/node_modules/@lydell/` に JS と `conpty.node` / `conpty_console_list.node` があること・`.pdb` が無いこと・win-unpacked から Terminal を立てて出力が返ることを確かめた（docs/RELEASE.md §5.5）。
 
 xterm（`@xterm/xterm` / `@xterm/addon-fit`）は Renderer にバンドルされるため `devDependencies` に置く（monaco-editor と同じ扱い）。
 

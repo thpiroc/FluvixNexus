@@ -206,6 +206,7 @@ Profile は Main が `userData` 配下に Workspace 単位で持ち、Renderer �
 - Installer / アプリアイコン / バージョン管理 / GitHub Releases 対応を見据えた構成にしておく。
 - **electron-builder** を前提とする。STEP 1 では導入せず、それを妨げない構成（`productName` の設定、`electron` の devDependencies 化、`out/` への成果物分離、ユーザーデータを `userData` 配下へ統一）までを済ませている。
 - **v1.0.0 の配布仕様は Session 7-2A で確定した**（appId `studio.fluvix.fluvixnexus`・NSIS / per-user / x64・MIT。§7.5）。仕様と electron-builder の設計は [docs/RELEASE.md](docs/RELEASE.md)。
+- **Session 7-2B で electron-builder（26.15.3）を入れた。** `npm run dist` でローカルに `release/Fluvix-Nexus-Setup-1.0.0.exe` を作れる（公開・tag はまだ）。設定はルートの `electron-builder.yml`（asar / node-pty の unpack / `.pdb` 除外 / LICENSE 同梱 / `publish: null`）。アイコンは未設定で、正式アイコンは 7-2E の公開前に入れる。
 
 ### 7.2 自動更新（方針）
 
@@ -2317,13 +2318,14 @@ STEP 7 は v1.0.0 Release 前に、実際に使ったときの不便・崩れ・
 
 現在の位置:
 
-| Session | 状態 | 内容                                                                                                                                                                                                                           |
-| ------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 7-1A    | 完了 | Debug の実行 command と Profile 選択の所有を `DebugProvider` へ移し、Debug パネルの mount / unmount に依存しないようにした。STEP 6 Closing の「F5 系 keybinding は Debug パネル前面だけ」という制約は現在仕様では解消済み      |
-| 7-1B    | 完了 | Files ツリーの展開状態と Git commit message draft を Panel の寿命より長く持たせた。Git パネルの狭い幅での折り返し / 省略も調整した                                                                                             |
-| 7-1C    | 完了 | Debug adapter が無い / 検証に失敗したときの案内を言語・原因ごとの固定文言へ分けた。Main のログを `userData/logs/main.log` へ残し、ファイル出力では絶対パスと認証情報を伏せるようにした                                         |
-| 7-1D    | 完了 | Documentation Synchronization。現在の実装と DESIGN.md / docs/ARCHITECTURE.md / docs/DEVELOPMENT.md の食い違い（Dogfooding B6）を解消した。コード変更はしていない                                                               |
-| 7-2A    | 完了 | v1.0.0 Release metadata。version `1.0.0`・author・MIT LICENSE・利用者向け README・第三者ライセンス表記（生成と verify での検査）・docs/RELEASE.md（配布仕様・electron-builder の設計・公開前の確認）。installer は作っていない |
+| Session | 状態 | 内容                                                                                                                                                                                                                                                                                            |
+| ------- | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 7-1A    | 完了 | Debug の実行 command と Profile 選択の所有を `DebugProvider` へ移し、Debug パネルの mount / unmount に依存しないようにした。STEP 6 Closing の「F5 系 keybinding は Debug パネル前面だけ」という制約は現在仕様では解消済み                                                                       |
+| 7-1B    | 完了 | Files ツリーの展開状態と Git commit message draft を Panel の寿命より長く持たせた。Git パネルの狭い幅での折り返し / 省略も調整した                                                                                                                                                              |
+| 7-1C    | 完了 | Debug adapter が無い / 検証に失敗したときの案内を言語・原因ごとの固定文言へ分けた。Main のログを `userData/logs/main.log` へ残し、ファイル出力では絶対パスと認証情報を伏せるようにした                                                                                                          |
+| 7-1D    | 完了 | Documentation Synchronization。現在の実装と DESIGN.md / docs/ARCHITECTURE.md / docs/DEVELOPMENT.md の食い違い（Dogfooding B6）を解消した。コード変更はしていない                                                                                                                                |
+| 7-2A    | 完了 | v1.0.0 Release metadata。version `1.0.0`・author・MIT LICENSE・利用者向け README・第三者ライセンス表記（生成と verify での検査）・docs/RELEASE.md（配布仕様・electron-builder の設計・公開前の確認）。installer は作っていない                                                                  |
+| 7-2B    | 完了 | electron-builder 26.15.3 と `electron-builder.yml`・`npm run dist`。`npm ci` からローカルで NSIS installer（`Fluvix-Nexus-Setup-1.0.0.exe`・未署名・既定アイコン）を作り、asar / node-pty の unpack / `.pdb` 除外 / LICENSE 同梱と win-unpacked の起動 smoke を確かめた。公開・tag はしていない |
 
 現在仕様として見るべきこと:
 
@@ -2353,11 +2355,10 @@ v1.0.0 Release 前にまだ残っている主な問題:
 
 上の表は v1.0.0 の既知の制約として Release notes / README に載せる（Release を止めるものではない）。
 
-v1.0.0 Release は Session 7-2A〜7-2E に分けて進める（docs/RELEASE.md §2）。**Session 7-2A 時点で残っている Release blocker**:
+v1.0.0 Release は Session 7-2A〜7-2E に分けて進める（docs/RELEASE.md §2）。**Session 7-2B 時点で残っている Release blocker**（「installer を作る仕組みが無い」は 7-2B で解消）:
 
 | blocker                                                                                 | 片付ける Session                    |
 | --------------------------------------------------------------------------------------- | ----------------------------------- |
-| installer を作る仕組みが無い                                                            | 7-2B                                |
 | アプリアイコンの素材が無い                                                              | 7-2E の公開まで（素材の用意が必要） |
 | installer で入れたアプリが未検証                                                        | 7-2C                                |
 | clean Windows での確認が未実施                                                          | 7-2D                                |

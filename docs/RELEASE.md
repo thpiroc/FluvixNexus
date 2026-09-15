@@ -1,6 +1,6 @@
 # リリース
 
-> 対象: v1.0.0（Session 7-2A でメタデータと仕様を確定。installer はまだ作っていない）
+> 対象: v1.0.0（Session 7-2A でメタデータと仕様を確定。Session 7-2B で electron-builder を入れ、ローカルで installer を作った。公開はしていない）
 > 最終更新: 2026-09-16
 
 v1.0.0 を配布するための仕様と手順を扱う。製品としての配布方針は [DESIGN.md](../DESIGN.md) §7、利用者向けの説明は [README.md](../README.md)、開発時のコマンドは [DEVELOPMENT.md](DEVELOPMENT.md) にある。
@@ -28,7 +28,7 @@ security boundary（contextIsolation / sandbox / CSP / IPC / preload）は 7-2A 
 | Session | 内容                                                                                 | 状態   |
 | ------- | ------------------------------------------------------------------------------------ | ------ |
 | 7-2A    | Release 仕様とメタデータ（version・author・LICENSE・README・第三者ライセンス・本書） | 完了   |
-| 7-2B    | electron-builder の導入と設定（§5）、ローカルで installer を作る（公開しない）       | 未着手 |
+| 7-2B    | electron-builder の導入と設定（§5）、ローカルで installer を作る（公開しない）       | 完了   |
 | 7-2C    | installer で入れたアプリの検証（この PC・Unicode のユーザーパス。§8）                | 未着手 |
 | 7-2D    | clean Windows での検証（§8）と Release notes の確定（§7）                            | 未着手 |
 | 7-2E    | §6 の再確認 → repository を Public → `v1.0.0` tag → draft Release → 確認して公開     | 未着手 |
@@ -60,19 +60,21 @@ v1.0.0 時点で載っているもの（10件）: `@lydell/node-pty` 1.1.0・`@l
 
 `LICENSE` と `THIRD_PARTY_NOTICES.txt` は installer にも入れる（§5 の `extraResources`）。
 
-## 5. electron-builder の設計（7-2B で実装する）
+## 5. electron-builder の設定（Session 7-2B で実装）
 
-7-2A では**入れていない**。7-2B はこの設計どおりに入れ、違う判断が要るときは本書を先に直す。
+7-2A で決めた設計を 7-2B でそのまま入れた（設計と食い違った点は無い）。**設定の正はルートの `electron-builder.yml`**。変えるときは本書も一緒に直す。ローカルでの作り方と 7-2B の結果は §5.5。
 
 ### 5.1 package.json
 
-| 項目            | 内容                                                                                  |
-| --------------- | ------------------------------------------------------------------------------------- |
-| devDependencies | `electron-builder`（7-2B 着手時点の最新を**完全一致の版で** pin。調査時点は 26.15.3） |
-| scripts         | `"dist": "npm run build && electron-builder --win nsis --x64 --publish never"`        |
-| 設定の置き場所  | ルートの `electron-builder.yml`（package.json の `build` には書かない）               |
+| 項目            | 内容                                                                                                                                                 |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| devDependencies | `electron-builder` **26.15.3**（完全一致で pin）。7-2B 着手時の npm の `latest`。`v26` タグには 26.16.1 があるが `latest` に付いていないので採らない |
+| scripts         | `"dist": "npm run build && electron-builder --win nsis --x64 --publish never"`                                                                       |
+| 設定の置き場所  | ルートの `electron-builder.yml`（package.json の `build` には書かない）                                                                              |
 
 ### 5.2 electron-builder.yml
+
+7-2A で決めた形（7-2B の `electron-builder.yml` はこれにコメントを足しただけ）。
 
 ```yaml
 appId: studio.fluvix.fluvixnexus
@@ -104,7 +106,7 @@ win:
     - target: nsis
       arch:
         - x64
-  icon: resources/icon.ico # 素材が入るまでは書かない（§5.3）
+  # icon: resources/icon.ico ← 素材が入るまでは書かない（§5.3）
 
 nsis:
   oneClick: true # electron-builder の既定。per-user で入る
@@ -119,13 +121,13 @@ publish: null # 自動更新は入れない。GitHub へのアップロードは
 
 ### 5.3 アイコン
 
-| 項目       | 決めたこと                                                                                                                                      |
-| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| 置き場所   | `resources/`（リポジトリに commit する。`build/` は `.gitignore` の対象なので置いても commit されない）                                         |
-| 原本       | `resources/icon.png`（1024×1024、背景透過）。SVG で描いた場合は `resources/icon.svg` も置く                                                     |
-| Windows 用 | `resources/icon.ico`（16 / 20 / 24 / 32 / 40 / 48 / 64 / 256 px を含む。256 は PNG 圧縮）                                                       |
-| 使われ方   | exe・installer / uninstaller・ショートカット・タスクバー。Windows のウィンドウは exe のアイコンを使うため、`BrowserWindow` の `icon` は足さない |
-| 状態       | **素材は未作成**。7-2B は素材が無くても installer を作れる（Electron の既定アイコンになる）が、**7-2E の公開までに必須**                        |
+| 項目       | 決めたこと                                                                                                                                                                         |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 置き場所   | `resources/`（リポジトリに commit する。`build/` は `.gitignore` の対象なので置いても commit されない）                                                                            |
+| 原本       | `resources/icon.png`（1024×1024、背景透過）。SVG で描いた場合は `resources/icon.svg` も置く                                                                                        |
+| Windows 用 | `resources/icon.ico`（16 / 20 / 24 / 32 / 40 / 48 / 64 / 256 px を含む。256 は PNG 圧縮）                                                                                          |
+| 使われ方   | exe・installer / uninstaller・ショートカット・タスクバー。Windows のウィンドウは exe のアイコンを使うため、`BrowserWindow` の `icon` は足さない                                    |
+| 状態       | **素材は未作成**。7-2B の installer は素材無しで作った（ビルドログに `default Electron icon is used`）。**正式アイコンへの差し替えは 7-2E の公開前に必須**。仮のアイコンは作らない |
 
 `.gitattributes` は `*.png` / `*.ico` を既に binary 扱いにしている。
 
@@ -133,15 +135,49 @@ publish: null # 自動更新は入れない。GitHub へのアップロードは
 
 開発中の確認（`out/` を素の Electron で起動）では `app.isPackaged` が false で、asar も通らない。次は installer で入れたアプリでしか確かめられない。
 
-| 対象                        | 理由と対処                                                                                                                                                                                                                                                                                                                 |
-| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Terminal（node-pty）        | `windowsConoutConnection.js` は Worker の script を `__dirname` の `node_modules.asar` だけを `.asar.unpacked` へ置き換えて探す。electron-builder の `app.asar` は置き換わらず、Worker が asar の中を読みに行く。`.node` と、`fork` で起こす `conpty_console_list_agent.js` もあるため `@lydell/**` をまとめて unpack する |
-| node-pty の prebuilt        | `optionalDependencies` なので、ビルドする PC に `@lydell/node-pty-win32-x64` が無いと実行時に MODULE_NOT_FOUND。**clean checkout で `npm ci` してからビルドする**                                                                                                                                                          |
-| Electron Fuses              | v1.0.0 では設定しない。RunAsNode を無効にすると node-pty の `child_process.fork` が動かなくなる                                                                                                                                                                                                                            |
-| `app.isPackaged` の分岐     | ネイティブメニューが無くなる（DevTools も開けない）・ログが info 以上になる                                                                                                                                                                                                                                                |
-| Renderer / preload / Worker | asar の中から `file://` で読む。相対 URL なので動く見込みだが未確認                                                                                                                                                                                                                                                        |
-| PATH                        | スタートメニューから起動したアプリは Explorer の環境変数を受け継ぐ。Node / Git / LSP などを後から入れたらアプリの再起動（場合によってはサインアウト）が要る。LSP / DAP / git は PATH を自分で辿って絶対パスで起動するので、インストール先には依存しない                                                                    |
-| AppUserModelID              | NSIS はショートカットに appId を付けるが、アプリは `app.setAppUserModelId` を呼んでいない。タスクバーのピン留め・グループ化を 7-2C で見て、問題があるときだけ直す                                                                                                                                                          |
+| 対象                        | 理由と対処                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Terminal（node-pty）        | `windowsConoutConnection.js` は Worker の script を `__dirname` の `node_modules.asar` だけを `.asar.unpacked` へ置き換えて探す。electron-builder の `app.asar` は置き換わらず、Worker が asar の中を読みに行く。`.node` と、`fork` で起こす `conpty_console_list_agent.js` もあるため `@lydell/**` をまとめて unpack する。**7-2B の smoke で、win-unpacked から Terminal を立てて出力が返ることを確かめた**（§5.5）。`fork` 側（閉じるときの確認）と終了時にシェルが残らないことは 7-2C |
+| node-pty の prebuilt        | `optionalDependencies` なので、ビルドする PC に `@lydell/node-pty-win32-x64` が無いと実行時に MODULE_NOT_FOUND。**clean checkout で `npm ci` してからビルドする**                                                                                                                                                                                                                                                                                                                         |
+| Electron Fuses              | v1.0.0 では設定しない。RunAsNode を無効にすると node-pty の `child_process.fork` が動かなくなる                                                                                                                                                                                                                                                                                                                                                                                           |
+| `app.isPackaged` の分岐     | ネイティブメニューが無くなる（DevTools も開けない）・ログが info 以上になる                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Renderer / preload / Worker | asar の中から `file://` で読む。Renderer と preload が asar の中から読めることは 7-2B の smoke で確認。Monaco の Worker は 7-2C                                                                                                                                                                                                                                                                                                                                                           |
+| PATH                        | スタートメニューから起動したアプリは Explorer の環境変数を受け継ぐ。Node / Git / LSP などを後から入れたらアプリの再起動（場合によってはサインアウト）が要る。LSP / DAP / git は PATH を自分で辿って絶対パスで起動するので、インストール先には依存しない                                                                                                                                                                                                                                   |
+| AppUserModelID              | NSIS はショートカットに appId を付けるが、アプリは `app.setAppUserModelId` を呼んでいない。タスクバーのピン留め・グループ化を 7-2C で見て、問題があるときだけ直す                                                                                                                                                                                                                                                                                                                         |
+
+### 5.5 ローカルで installer を作る（Session 7-2B の結果）
+
+```bash
+npm ci          # optionalDependencies の prebuilt を入れ直す（§5.4）
+npm run dist    # electron-vite build → electron-builder（NSIS / x64 / --publish never）
+```
+
+初回は electron の zip・NSIS・7-Zip を `%LOCALAPPDATA%\electron-builder\Cache` へ取りに行く（ネットワークが要る）。GitHub へは何も上げない。
+
+`release/`（`.gitignore` 済み）にできるもの:
+
+| ファイル                                | 扱い                                                    |
+| --------------------------------------- | ------------------------------------------------------- |
+| `Fluvix-Nexus-Setup-1.0.0.exe`          | installer。Release に上げるのはこれだけ（§7）           |
+| `Fluvix-Nexus-Setup-1.0.0.exe.blockmap` | 自動更新用。上げない                                    |
+| `builder-debug.yml`                     | electron-builder の診断用。上げない                     |
+| `win-unpacked/`                         | installer の中身と同じ木。7-2B の確認に使った。上げない |
+
+7-2B で作ったもの（`npm ci` の直後にビルド。この PC の結果で、Release に載せる hash ではない）:
+
+| 観点                  | 結果                                                                                                                                                                                                                                                                                                                                                           |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| installer             | `Fluvix-Nexus-Setup-1.0.0.exe` 102,755,820 bytes（約 98 MiB）。payload 96 ファイル / 展開後 約 363 MiB                                                                                                                                                                                                                                                         |
+| 署名                  | ログに `signing with signtool.exe` と出るが証明書が無いので**署名されない**（`Get-AuthenticodeSignature` が installer / exe とも `NotSigned`）。方針どおり                                                                                                                                                                                                     |
+| exe のバージョン情報  | ProductName / FileDescription `Fluvix Nexus`・FileVersion `1.0.0`・CompanyName `Piroshi`・LegalCopyright `Copyright (c) 2026 Piroshi`                                                                                                                                                                                                                          |
+| `app.asar`            | 約 15 MiB。`out/main`・`out/preload`・`out/renderer`・`package.json`（`devDependencies` / `scripts` は落ちる）・`node_modules/@lydell/*`（unpack 済みの印だけ）                                                                                                                                                                                                |
+| `app.asar.unpacked`   | `@lydell/node-pty` の JS 15 本（`worker/conoutSocketWorker.js`・`conpty_console_list_agent.js` を含む）と LICENSE・`@lydell/node-pty-win32-x64` の `conpty.node`・`conpty_console_list.node`                                                                                                                                                                   |
+| `.pdb`                | `win-unpacked` にも installer の payload にも 0 件                                                                                                                                                                                                                                                                                                             |
+| ライセンス            | `resources\LICENSE`・`resources\THIRD_PARTY_NOTICES.txt`（リポジトリのものとバイト一致）・`LICENSE.electron.txt`・`LICENSES.chromium.html`。installer の payload にも入っている                                                                                                                                                                                |
+| Debug Adapter         | asar / unpacked に js-debug・debugpy・netcoredbg・`debug-adapters` は無い（userData に利用者が置く設計のまま）                                                                                                                                                                                                                                                 |
+| smoke（win-unpacked） | 使い捨ての `--user-data-dir` で起動: `app.isPackaged` true・contextIsolation / sandbox true・nodeIntegration / webviewTag false・Renderer の `process` / `require` undefined・CSP は source と同じ・`window.fluvix` は従来の12ドメイン・Terminal（PowerShell）が約 0.2 秒で出力を返し `echo` の結果が届く・`main.log` の見出しが `packaged`、WARN / ERROR 0 件 |
+
+全機能の確認（インストールしての起動・Monaco の Worker・Git / LSP / Debug など）は 7-2C（§8）。
 
 ## 6. repository を Public にする前の確認
 
