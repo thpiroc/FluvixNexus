@@ -1,6 +1,11 @@
 import { isAbsolute, posix as posixPath, win32 as windowsPath } from 'path'
 import type { PlatformId } from '@shared/api'
-import type { DebugProfile, DebugProfileLanguage, DebugStartFailure } from '@shared/debug'
+import type {
+  DebugAdapterUnavailableCause,
+  DebugProfile,
+  DebugProfileLanguage,
+  DebugStartFailure
+} from '@shared/debug'
 import { isInsideWorkspace } from '../files/workspacePath'
 import {
   findExecutableOnPath,
@@ -138,7 +143,17 @@ export interface DebugProfileResolverContext {
 
 export type DebugProfileResolution =
   | { readonly status: 'resolved'; readonly configuration: ResolvedLaunchConfiguration }
-  | { readonly status: 'failed'; readonly reason: Exclude<DebugStartFailure, 'spawn-failed'> }
+  | {
+      readonly status: 'failed'
+      readonly reason: Exclude<DebugStartFailure, 'spawn-failed' | 'adapter-unavailable'>
+    }
+  | {
+      readonly status: 'failed'
+      readonly reason: 'adapter-unavailable'
+      readonly language: DebugProfileLanguage
+      /** 閉じた集合の分類だけ（Session 7-1C）。どのパスが原因だったかは載せない。 */
+      readonly cause: DebugAdapterUnavailableCause
+    }
 
 export function resolveDebugProfile(
   profile: DebugProfile,
@@ -182,7 +197,7 @@ export function resolveDebugProfile(
   const entry = context.getCatalogEntry(draft.language)
 
   if (entry.language !== draft.language) {
-    return failed('adapter-unavailable')
+    return adapterUnavailable(draft.language, 'not-integrated')
   }
 
   const executable = resolveDebugAdapterExecutable(
@@ -193,7 +208,18 @@ export function resolveDebugProfile(
   )
 
   if (executable === null) {
-    return failed('adapter-unavailable')
+    /*
+      行が起動するものを持っていれば、見つからなかったのは PATH の実行ファイル（Session 7-1C）。
+      node / python ではそれが runtime そのもの、csharp では adapter（netcoredbg）にあたる。
+    */
+    if (entry.integrationStatus !== 'integrated' || entry.adapter === undefined) {
+      return adapterUnavailable(draft.language, 'not-integrated')
+    }
+
+    return adapterUnavailable(
+      draft.language,
+      draft.language === 'csharp' ? 'adapter-not-found' : 'runtime-not-found'
+    )
   }
 
   /*
@@ -214,8 +240,8 @@ export function resolveDebugProfile(
     context
   )
 
-  if (adapterCwd === null) {
-    return failed('adapter-unavailable')
+  if (adapterCwd.status === 'unavailable') {
+    return adapterUnavailable(draft.language, adapterCwd.cause)
   }
 
   const csharpLaunch = resolveCsharpLaunch(draft.language, program, context, executable)
@@ -225,7 +251,7 @@ export function resolveDebugProfile(
   }
 
   if (csharpLaunch.status === 'adapter-unavailable') {
-    return failed('adapter-unavailable')
+    return adapterUnavailable(draft.language, csharpLaunch.cause)
   }
 
   const nodeLaunch = resolveNodeLaunch(draft.language, entry, program, context, executable)
@@ -235,7 +261,7 @@ export function resolveDebugProfile(
   }
 
   if (nodeLaunch.status === 'adapter-unavailable') {
-    return failed('adapter-unavailable')
+    return adapterUnavailable(draft.language, nodeLaunch.cause)
   }
 
   /*
@@ -279,7 +305,7 @@ export function resolveDebugProfile(
         name: entry.name,
         file: executable.file,
         args: adapterArgs,
-        cwd: adapterCwd,
+        cwd: adapterCwd.path,
         env: createDebugAdapterProcessEnvironment(context.parentEnv),
         ...(transport === undefined ? {} : { transport })
       },
@@ -324,7 +350,7 @@ type NodeLaunchResolution =
       readonly artifactEntryPath: string | null
     }
   | { readonly status: 'invalid-profile' }
-  | { readonly status: 'adapter-unavailable' }
+  | { readonly status: 'adapter-unavailable'; readonly cause: DebugAdapterUnavailableCause }
 
 /**
  * node の起動に要るものを確かめる（Session 6-15B。§20.24）。
@@ -358,7 +384,7 @@ function resolveNodeLaunch(
   const runtime = adapterExecutable.file
 
   if (isInsideEitherWorkspaceRoot(runtime, program.rootRealPath, context)) {
-    return { status: 'adapter-unavailable' }
+    return { status: 'adapter-unavailable', cause: 'runtime-inside-workspace' }
   }
 
   let runtimeRealPath: string
@@ -366,11 +392,11 @@ function resolveNodeLaunch(
   try {
     runtimeRealPath = context.fileSystem.realpath(runtime)
   } catch {
-    return { status: 'adapter-unavailable' }
+    return { status: 'adapter-unavailable', cause: 'runtime-not-found' }
   }
 
   if (isInsideEitherWorkspaceRoot(runtimeRealPath, program.rootRealPath, context)) {
-    return { status: 'adapter-unavailable' }
+    return { status: 'adapter-unavailable', cause: 'runtime-inside-workspace' }
   }
 
   const artifactId = entry.adapter?.artifact
@@ -381,12 +407,20 @@ function resolveNodeLaunch(
 
   const artifact = context.resolveAdapterArtifact(artifactId)
 
+  // 置かれていない（missing）と、置かれているが pin と違う（invalid / hash-mismatch）は準備の仕方が違う。
+  if (artifact.status === 'missing') {
+    return { status: 'adapter-unavailable', cause: 'adapter-not-found' }
+  }
+
+  if (artifact.status !== 'verified') {
+    return { status: 'adapter-unavailable', cause: 'adapter-not-verified' }
+  }
+
   if (
-    artifact.status !== 'verified' ||
     !isAbsolute(artifact.entryPath) ||
     isInsideEitherWorkspaceRoot(artifact.entryPath, program.rootRealPath, context)
   ) {
-    return { status: 'adapter-unavailable' }
+    return { status: 'adapter-unavailable', cause: 'adapter-inside-workspace' }
   }
 
   return { status: 'ok', runtimeExecutable: runtime, artifactEntryPath: artifact.entryPath }
@@ -403,42 +437,59 @@ function isInsideEitherWorkspaceRoot(
   )
 }
 
-function failed(reason: Exclude<DebugStartFailure, 'spawn-failed'>): DebugProfileResolution {
+function failed(
+  reason: Exclude<DebugStartFailure, 'spawn-failed' | 'adapter-unavailable'>
+): DebugProfileResolution {
   return { status: 'failed', reason }
 }
+
+function adapterUnavailable(
+  language: DebugProfileLanguage,
+  cause: DebugAdapterUnavailableCause
+): DebugProfileResolution {
+  return { status: 'failed', reason: 'adapter-unavailable', language, cause }
+}
+
+type AdapterWorkingDirectoryResolution =
+  | { readonly status: 'ok'; readonly path: string }
+  | { readonly status: 'unavailable'; readonly cause: DebugAdapterUnavailableCause }
 
 function resolveAdapterWorkingDirectory(
   language: DebugProfileLanguage,
   adapterExecutablePath: string,
   workspaceRootRealPath: string,
   context: DebugProfileResolverContext
-): string | null {
+): AdapterWorkingDirectoryResolution {
   const adapterCwd =
     language === 'csharp'
       ? dirnameForPlatform(adapterExecutablePath, context.platform)
       : context.adapterWorkingDirectory
 
+  /*
+    空 / 相対は Main の組み立ての誤りで、利用者が直せるものではない。出荷状態では userData と
+    netcoredbg のフォルダ（どちらも絶対パス）しか来ないため、現実に起きるのは「Workspace の中」になる。
+  */
   if (
     adapterCwd.length === 0 ||
     !isAbsolute(adapterCwd) ||
     isInsideWorkspace(workspaceRootRealPath, adapterCwd) ||
     isInsideWorkspace(context.workspaceRootPath, adapterCwd)
   ) {
-    return null
+    return { status: 'unavailable', cause: 'adapter-inside-workspace' }
   }
 
   if (language === 'csharp' && !isAsciiOnlyPath(adapterCwd)) {
-    return null
+    return { status: 'unavailable', cause: 'non-ascii-path' }
   }
 
-  return adapterCwd
+  return { status: 'ok', path: adapterCwd }
 }
 
 type CsharpLaunchResolution =
   | { readonly status: 'not-csharp' }
   | { readonly status: 'ok'; readonly runtimeExecutable: string }
   | { readonly status: 'invalid-profile' }
-  | { readonly status: 'adapter-unavailable' }
+  | { readonly status: 'adapter-unavailable'; readonly cause: DebugAdapterUnavailableCause }
 
 function resolveCsharpLaunch(
   language: DebugProfileLanguage,
@@ -461,7 +512,7 @@ function resolveCsharpLaunch(
   )
 
   if (runtimeExecutable === null) {
-    return { status: 'adapter-unavailable' }
+    return { status: 'adapter-unavailable', cause: 'runtime-not-found' }
   }
 
   const netcoredbgVisiblePaths = [
@@ -473,7 +524,7 @@ function resolveCsharpLaunch(
   ]
 
   if (!netcoredbgVisiblePaths.every(isAsciiOnlyPath)) {
-    return { status: 'adapter-unavailable' }
+    return { status: 'adapter-unavailable', cause: 'non-ascii-path' }
   }
 
   return { status: 'ok', runtimeExecutable }

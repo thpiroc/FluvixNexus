@@ -49,7 +49,7 @@ New-Item -ItemType Directory -Force $dest | Out-Null
 tar.exe -xzf js-debug-dap.tar.gz -C $dest                   # → $dest\js-debug\src\dapDebugServer.js
 ```
 
-- asset の SHA-256 が上と違えば展開しない。展開した木はアプリが起動のたびに tree hash（60 ファイル / `fdda8ebf…4933`）で確かめ、1バイトでも違えば Start は `adapter-unavailable` になる（理由は Main のログに `debug adapter artifact vscode-js-debug 1.117.0 is not usable (missing / invalid / hash-mismatch)` と出る）
+- asset の SHA-256 が上と違えば展開しない。展開した木はアプリが起動のたびに tree hash（60 ファイル / `fdda8ebf…4933`）で確かめ、1バイトでも違えば Start は `adapter-unavailable` になる（理由は Main のログに `debug adapter artifact vscode-js-debug 1.117.0 is not usable (missing / invalid / hash-mismatch)` と出る）。画面には、置かれていないときと中身が違うときで別の案内（「配置されていません」/「公式の配布物と一致しません」）が出る（Session 7-1C。docs/ARCHITECTURE.md §20.18）
 - 版を上げるときは `main/debug/adapterArtifact.ts` の表（版・URL・asset の SHA-256・tree hash・数・大きさ）を取り直す。tree hash の形はそのファイルの冒頭に書いてある
 - npm で `js-debug` を入れる必要は無い。Workspace の `node_modules` の中のものは使わない
 
@@ -214,9 +214,9 @@ Vitest を使い、**Electron に依存しない純粋なロジック**だけを
 
 Files の検証（`main/files/workspacePath.ts`）は Electron にも fs にも依存しない形に切り出してある。symlink による脱出だけはパス文字列では判断できないため、realpath を取ってから同じ関数へ通す側（`readWorkspaceDirectory.ts` / `readWorkspaceFile.ts` / `mutateWorkspaceEntry.ts`）が担う。
 
-#### 例外: 実ディスクを触るテスト（Session 3-5.1 / 3-6-2 / 3-6-4 / 3-6-5 / 3-8-2 / 3-8-3 / 3-8-4 / 3-8-5 / 3-8-6 / 3-8-9 / 3-8-10 / 3-8-11 / 3-8-12 / 3-8-13 / 3-8-14 / 3-8-15 / 3-8-16 / 3-8-17 / 3-8-18 / 3-8-19 / 3-8-20 / 3-8-22A / 4-3A）
+#### 例外: 実ディスクを触るテスト（Session 3-5.1 / 3-6-2 / 3-6-4 / 3-6-5 / 3-8-2 / 3-8-3 / 3-8-4 / 3-8-5 / 3-8-6 / 3-8-9 / 3-8-10 / 3-8-11 / 3-8-12 / 3-8-13 / 3-8-14 / 3-8-15 / 3-8-16 / 3-8-17 / 3-8-18 / 3-8-19 / 3-8-20 / 3-8-22A / 4-3A / 7-1C）
 
-「純粋なロジックだけを対象にする」方針に対する例外が24ある ── `mutateWorkspaceEntry.test.ts`（作成 / 改名 / 移動 / 削除）、`copyTree.test.ts`（再帰コピー）、`searchWorkspaceFiles.test.ts`（Workspace 全体の走査）、`searchWorkspaceFileContents.test.ts`（全文検索の走査）、`gitStatusRepository.test.ts`（本物の git の出力）、`gitStageRepository.test.ts`（本物の git への Stage / Unstage）、`gitCommitRepository.test.ts`（本物の git への Commit）、`gitSyncRepository.test.ts`（本物の git への Push / Pull）、`gitBranchRepository.test.ts`（本物の git へのブランチ操作）、`gitDiffRepository.test.ts`（本物の git から読む差分）、`gitDiscardRepository.test.ts`（本物の git に対する破棄）、`gitInitRepository.test.ts`（本物の git での初期化）、`publishRepository.test.ts`（本物の git での公開の一連）、`gitHistoryRepository.test.ts`（本物の git から読む履歴）、`gitCommitDetailRepository.test.ts`（本物の git から読む commit 1件の中身）、`gitStashRepository.test.ts`（本物の git に対する退避）、`gitRemoteRepository.test.ts`（本物の git に対する remote の管理）、`gitConflictRepository.test.ts`（本物の git に対する競合の解決）、`gitRemoteBranchRepository.test.ts`（本物の git での remote の枝からの作成）、`gitMergeRepository.test.ts`（本物の git に対するマージの開始 / 中止）、`gitConflictDiffRepository.test.ts`（本物の git から読む競合の ours / theirs）、`gitInProgressRepository.test.ts`（本物の git での途中の操作の検出と禁止。Session 3-8-22A）、`gitFetchRepository.test.ts`（本物の git への fetch。同）、`settingsStore.test.ts`（`settings.json` の読み書きと、旧3ファイルからの取り込み。Session 4-3A）。確かめたいのがパスの文字列処理ではなく **「実際にそこに在るものを操作できるか」** だからで、モックしたファイルシステムでは何も確かめられない ── 判定と実体がずれることこそが Session 3-5.1 で直した不具合の中身だった。`aux.ts` や末尾に空白を持つ名前を Windows がどう扱うかは実装ではなく OS が決めるため、写しを相手にするとその答えを自分で書くことになる。
+「純粋なロジックだけを対象にする」方針に対する例外が25ある ── `mutateWorkspaceEntry.test.ts`（作成 / 改名 / 移動 / 削除）、`copyTree.test.ts`（再帰コピー）、`searchWorkspaceFiles.test.ts`（Workspace 全体の走査）、`searchWorkspaceFileContents.test.ts`（全文検索の走査）、`gitStatusRepository.test.ts`（本物の git の出力）、`gitStageRepository.test.ts`（本物の git への Stage / Unstage）、`gitCommitRepository.test.ts`（本物の git への Commit）、`gitSyncRepository.test.ts`（本物の git への Push / Pull）、`gitBranchRepository.test.ts`（本物の git へのブランチ操作）、`gitDiffRepository.test.ts`（本物の git から読む差分）、`gitDiscardRepository.test.ts`（本物の git に対する破棄）、`gitInitRepository.test.ts`（本物の git での初期化）、`publishRepository.test.ts`（本物の git での公開の一連）、`gitHistoryRepository.test.ts`（本物の git から読む履歴）、`gitCommitDetailRepository.test.ts`（本物の git から読む commit 1件の中身）、`gitStashRepository.test.ts`（本物の git に対する退避）、`gitRemoteRepository.test.ts`（本物の git に対する remote の管理）、`gitConflictRepository.test.ts`（本物の git に対する競合の解決）、`gitRemoteBranchRepository.test.ts`（本物の git での remote の枝からの作成）、`gitMergeRepository.test.ts`（本物の git に対するマージの開始 / 中止）、`gitConflictDiffRepository.test.ts`（本物の git から読む競合の ours / theirs）、`gitInProgressRepository.test.ts`（本物の git での途中の操作の検出と禁止。Session 3-8-22A）、`gitFetchRepository.test.ts`（本物の git への fetch。同）、`settingsStore.test.ts`（`settings.json` の読み書きと、旧3ファイルからの取り込み。Session 4-3A）、`logFile.test.ts` の `nodeLogFileSystem`（一時フォルダでのログの書き出しと世代。Session 7-1C）。確かめたいのがパスの文字列処理ではなく **「実際にそこに在るものを操作できるか」** だからで、モックしたファイルシステムでは何も確かめられない ── 判定と実体がずれることこそが Session 3-5.1 で直した不具合の中身だった。`aux.ts` や末尾に空白を持つ名前を Windows がどう扱うかは実装ではなく OS が決めるため、写しを相手にするとその答えを自分で書くことになる。
 
 どれも一時フォルダを Workspace root に見立てる（`settingsStore.test.ts` だけは userData に見立てる ── 保存先をフォルダで受け取る形にしてあるのは、実際の `%APPDATA%` に触れずに確かめられるようにするため）。走査（検索）のテストでは、深い階層・大量ファイル・除外フォルダ・**外を指すジャンクション**を実際に作って、リンクの中へ潜っていないことを「指し先の中身が結果に出ていないこと」で確かめる ── 「潜らないつもり」を実物で確かめるため。上限（件数 / 深さ / 走査数）は引数で差し替えて小さくし、時間の上限だけは `now` を差し替えて固定する（実時間に依存させると、速いマシンでは通り遅いマシンでは落ちるテストになる）。
 
@@ -746,6 +746,13 @@ DAP の周りは 6-1 / 6-2 と同じ分け方で、**Electron も子プロセス
 - `src/renderer/src/settings/KeyboardShortcuts.dom.test.ts` / `src/renderer/src/keybindings/shortcutRows.test.ts` — 40件が1つ残らず出ること・割り当てのある18件が打鍵を出し、22件が未割り当てとして出ること・Debug の12件と既定の打鍵・言語を切り替えても40件・7グループのまま
 
 **「Debug パネルが前面のタブのときにだけ F5 / Shift+F5 / F10 / F11 / Shift+F11 が効く」は unit test では固定していない**（command の登録は所有者の mount で決まり、mount は dock の描画で決まる）。production build で実測している（§4 の Session 6-17）。
+
+#### Debug adapter の案内 / ログファイル（Session 7-1C）
+
+- `src/main/debug/profileResolver.test.ts` / `debugProfiles.test.ts` / `ipc/handlers/debug.test.ts` — `adapter-unavailable` が言語と閉じた集合の `cause` を持つこと（node: PATH に無い / `.cmd` の shim だけ / 相対の PATH 項目だけ / Workspace の中 / 実体が中 / 配布物が無い / 形が違う / hash が違う / 入り口が中、python: PATH に無い、csharp: netcoredbg が無い / dotnet が無い / netcoredbg が Workspace の中 / ASCII 以外のフォルダ / ASCII 以外の Workspace、全言語: cwd が Workspace の中 / catalog の行が別言語 / not-integrated）・**応答にパス / 実行ファイル名 / 配布物の語が載らないこと**
+- `src/renderer/src/debug/debugToolbarModel.test.ts` — 言語 × cause → 案内の key・その言語で起こらない組み合わせは言語ごとの総合の案内・閉じた集合の外（知らない言語 / `toString`）は安全な1文へ落ちること
+- `src/main/logger/logRedaction.test.ts` — ドライブ（空白 / `/` 区切り / Unicode のユーザー名）/ UNC / `\\?\` / file URI / POSIX / Python repr のパスを**断片も残さず**伏せる・引用符の後ろの文章と details の区切りは残す・URL / 相対パス / 普通の語を伏せない・URL の userinfo / GitHub token / Bearer / `password=` / `API_KEY=` を伏せる・制御文字で行を偽装させない・上限で切っても切れ目のパスを伏せる・Error は name / code / message だけ・object を辿らない
+- `src/main/logger/logFile.test.ts` — 最初の1行で作り、見出しは1度だけ・置き場所が null / 空 / 相対 / 例外なら**何も触らない**（テストの mock で `logs/` を作らない）・上限の手前で1世代へ回す・前回が上限なら新しいファイルから / 未満なら追記・書けない / フォルダを作れないとき1度だけ知らせて以後は書かず投げない・**実ディスク**で入れ子のフォルダを作り、回したあとも両方が上限以内
 
 ### 整形
 
@@ -2353,6 +2360,16 @@ Session 6-5 / 6-8 / 6-14 / 6-16 はこの節に確認の記録が無かった（
 - **netcoredbg の breakpoint は `setBreakpoints` の応答の時点では verified が false のことがある**（Session 6-14 の調査。module の読み込みの後の `breakpoint` event で true になり、Main がそれを当てる）。verified は止まった後に読む
 - **C# の題材は Workspace の中で build する。** PDB に書かれた source path と Workspace の Program.cs が一致しないと breakpoint が pending のまま止まらない。題材も netcoredbg も ASCII-only のパスに置く
 
+### Session 7-1C（Debug adapter の案内 / ログファイルの production 確認）
+
+`npm run build` した out/ をそのまま（bundle の差し替え無し）、`_electron.launch` に `--user-data-dir=<一時フォルダ>` を渡して起動した。利用者の本物の userData には触れていない（確認後に `logs` が作られていないことも見た）。**98 項目すべて PASS**。
+
+- **案内（ja）**: Debug Toolbar で Profile を作り、Start を押して `.fx-debug-toolbar__message` を読んだ。Main の `process.env.PATH` を `app.evaluate` で差し替え、中身の無い `node.exe` / `netcoredbg.exe` と改変した配布物を置いて、node（PATH に無い / 配布物が無い / 配布物が違う / Workspace の中の node.exe）・python（PATH に無い）・csharp（netcoredbg が無い / ASCII 以外のパス）の7通りで、それぞれの文言が出ること・IPC の戻り値が `status / reason / language / cause` の4欄だけでパスを含まないこと・Debug Session が始まらないこと。`program-not-found` の文言と戻り値は変わっていない
+- **案内（en）**: `settings.json` を English にして起動し直し、node（配布物が無い）と csharp（ASCII 以外）の英語の文言
+- **ログ**: 前回ぶんの 1.1 MiB の `main.log` を置いて起動 → それが `main.old.log` になり新しい `main.log` から始まる・先頭が版 / Electron / platform / pid だけの見出し・全行が日時付きの INFO / WARN / ERROR（DEBUG 無し）・`workspace opened: <path>` と7通りの `adapter-unavailable (<language>: <cause>)`・配布物の `is not usable (missing / hash-mismatch): <path>`・**一時フォルダ / Workspace / ユーザー名（Unicode）/ `USERPROFILE` / コンピューター名 / `System32` / ドライブ付きのパス / adapter のコマンドラインが1つも無い**。console には従来どおり生のパスが出る。2回目の起動で見出しが2つになり、前の行はそのまま残る
+- **書けないとき**: userData の `logs` をファイルにして起動 → 起動時に1度だけ警告が出てアプリは動き続ける（起動直後の出力は `_electron.launch` では拾えないので、`spawn` で直接起こして数えた）。起動中に `logs` をファイルへ差し替え → 警告は1度だけで、その後もログの行が出る操作と IPC が普通に通り、差し替えたファイルは書き換えられない
+- **境界**: `window.fluvix.debug` は22関数のまま・`window.fluvix` にログ / ファイルシステムの口は無い・`process` / `require` / `electron` / `ipcRenderer` は undefined・build 後の CSP は source と同一で違反 0件。**Renderer の `fetch('file:///…')` はログも `C:\Windows\win.ini` も読めた**（既存の性質。docs/ARCHITECTURE.md §4 の既知の制約）
+
 ---
 
 ## 5. 進め方
@@ -2389,6 +2406,7 @@ STEP 1 では **`electron-builder` の導入は行わず、準備だけ**を済�
 - `electron` を `devDependencies` へ移動（`electron-builder` は electron 自体をアプリの依存として同梱しない）
 - ビルド成果物を `out/main` `out/preload` `out/renderer` に分離済み
 - ユーザーデータの保存先を `app.getPath('userData')` に統一（インストール先に書き込まない）
+- Main のログを `%APPDATA%\Fluvix Nexus\logs\main.log`（上限 1 MiB + `main.old.log` の1世代）に残す（Session 7-1C。docs/ARCHITECTURE.md §4）。配布版で問題が起きたら、このフォルダの2ファイルを受け取る。絶対パスと認証情報は書き出す前に伏せてある
 
 着手時に必要になるもの:
 

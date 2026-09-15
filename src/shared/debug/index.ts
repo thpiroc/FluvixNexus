@@ -134,6 +134,7 @@ export {
 
 export type {
   CsharpDebugProfileDraft,
+  DebugAdapterUnavailableCause,
   DebugProfile,
   DebugProfileDeleteOutcome,
   DebugProfileDraft,

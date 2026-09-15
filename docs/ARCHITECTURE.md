@@ -137,7 +137,10 @@ src/
 │   │   ├── legacySettings.ts           旧 3 ファイルからの取り込み（同上・§12.4）
 │   │   ├── settingsStore.ts            settings.json の読み書き（フォルダを受け取る・テスト対象・§12.4）
 │   │   └── settings.ts                 設定の保存先（userData 配下・§12.4）
-│   ├── logger/index.ts       Main 側のログ出力
+│   ├── logger/
+│   │   ├── index.ts          Main 側のログ出力（console とログファイル。§4）
+│   │   ├── logFile.ts        userData/logs への書き出し・上限と世代（テスト対象・§4）
+│   │   └── logRedaction.ts   ファイルへ書く行の伏せ字と1行化（テスト対象・§4）
 │   └── platform/
 │       ├── index.ts          OS 依存判定の抽象化
 │       └── executablePath.ts PATH の辿り方（Terminal と Git が共有・テスト対象・§13.2・§14.1）
@@ -437,6 +440,27 @@ Renderer            window.fluvix.files.onChanged(listener) → 解除の関数
 
 メインウィンドウの参照は `windows/mainWindow.ts` が保持する。「もう開いているか」を `BrowserWindow.getAllWindows()` で判定していないのは、GitHub パネルを独立ウィンドウ化した時点で意味が変わるため。
 
+### ログファイル（Session 7-1C）
+
+配布版で問題が起きたときに利用者から受け取れるよう、Main のログを `userData/logs/main.log`（Windows では `%APPDATA%/Fluvix Nexus/logs/main.log`）にも書く。JSON の保存とは別の経路（`logger/logFile.ts`）で、Workspace にもインストール先にも書かない。
+
+| 項目       | 決めたこと                                                                                                                                                                                              |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 出力先     | console（従来どおり。開発時は debug 以上 / 配布版は info 以上・加工しない）と、ファイル（開発時も配布版も info 以上）                                                                                   |
+| 上限       | 1 MiB。超える前に `main.old.log` へ回し、1世代だけ残す（合計 2 MiB 程度で止まる）                                                                                                                       |
+| 伏せるもの | 絶対パス（ドライブ / UNC / POSIX / file URI）→ `<path>`。URL の userinfo・GitHub token・Bearer / Basic・`token=` / `password=` / `secret=` / `api_key=` の値 → `<redacted>`（`logger/logRedaction.ts`） |
+| details    | Error は name / code / message だけ（stack は書かない）。object は `[object]` とだけ書き、spawn の options や環境変数の表を辿らない                                                                     |
+| 1行        | 制御文字を空白へ畳み、4,000 文字で切る。起動ごとに版・Electron・platform・pid だけの1行を置く                                                                                                           |
+| 書き方     | 同期の追記。書けなければそのセッションの間はファイルへ書くのをやめ、console に1度だけ知らせる（アプリは止めない）                                                                                       |
+
+**呼び出し側で伏せさせない。** 既存の `log.*` の多くはパスを含めて書いており、1箇所ずつ直すと書き漏れが残る ── ファイルへの出口で一律に伏せる。方針は `stopInfo.ts`（§20.21）と同じく**伏せすぎは許し、伏せ漏れは許さない**で、パスは引用符・行末までを1つとして読む（空白を含むユーザー名の後半を残さないため。後ろに続く語を巻き込むことは受け入れる）。console を伏せないのは、開発時に手元で原因を追う手段まで失う理由が無いため。
+
+**Renderer から読む口・開く口は作らない。** 置き場所は Main が決め、IPC にもメニューにも出していない。CSP も変えていない。
+
+**既知の制約（Session 7-1C の production 確認で実測。既存の性質で、ログに限らない）。** `file://` で読み込まれた Renderer は、`fetch('file:///…')` でローカルのファイルを読める（`main.log` も `C:\Windows\win.ini` も読めた）。口を足していないので「Renderer から読む口が無い」は文字どおりには成り立たない ── ログの伏せ字は、この前提でも中身が漏れないようにするためのものでもある。塞ぐのは Renderer の読み込み元（`file://` の扱い）を見直す別の Session の仕事で、7-1C の範囲（CSP を変えない）には入れていない。
+
+置き場所が絶対パスで取れないとき（Electron を差し替えたテストの `app.getPath`）は黙って書かない ── 作業ディレクトリに `logs/` を作らないため。
+
 ---
 
 ## 5. セキュリティの現状
@@ -467,6 +491,7 @@ Renderer            window.fluvix.files.onChanged(listener) → 解除の関数
 | Monaco の Worker                     | アプリにバンドルしたものだけ。blob: も外部 CDN も経由しない（§11.2。Diff Editor も同じ）           |
 | シェルの起動                         | 起動する実行ファイルは Main の表が決める。PATH は辿って絶対パスで起動する（§13.1・§13.2）          |
 | git の実行                           | コマンド・引数・作業ディレクトリを Renderer から渡せない（要求は `void`。§14.2）                   |
+| ログファイル                         | Main だけが userData/logs に書く。絶対パス・認証情報を伏せ、Renderer から読む / 開く口は無い（§4） |
 | git 本体の解決                       | PATH に任せず辿る。作業ディレクトリの中の `git.exe` は起動されない（§14.1）                        |
 
 ガードは webContents 単位（`app.on('web-contents-created')`）で掛けている。ウィンドウが増えても掛け忘れが起きない形にするため。
@@ -7553,27 +7578,28 @@ Session 6-15A で **DAP 接続の id（`connectionId`）** を足した。1つ�
 
 §19.8 の表をそのまま引き継ぎ、DAP 固有の3行を足す。
 
-| 渡さないもの                          | どう閉じているか                                                                                |
-| ------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| 絶対パス                              | Profile も応答も **workspace-relative path** だけ。変換は Main の中                             |
-| file URI                              | 組み立てるのも解くのも Main の中だけ                                                            |
-| adapter の実行ファイル / 引数 / cwd   | catalog が持つ。Profile にも IPC にも欄が無い（§20.4）                                          |
-| interpreter / runtime の実行ファイル  | PATH から Main が解決する。Profile に欄が無い                                                   |
-| 任意の DAP request 名                 | 口は機能ごとに分かれている。method 名を渡す口が無い                                             |
-| 任意の adapter 選択                   | 行き先は `language`（3つの閉じた集合）だけで決まる                                              |
-| 任意の Workspace の profile           | `debug:list-profiles` の要求は `void`。key を渡す口が無い（§20.5）                              |
-| **`runInTerminal`（逆方向要求）**     | **拒否する。** `initialize` で `supportsRunInTerminalRequest: false` を名乗る                   |
-| **`startDebugging`（逆方向要求）**    | 子セッションを受けるセッションだけが Main で検証して答える。Renderer へは出ない（§20.23）       |
-| **adapter の port / socket / pid**    | `socketDebugAdapter.ts` の外へ出さない（§20.23）                                                |
-| **adapter の配布物（script）**        | userData の下の pin した木だけを走らせる。置き場所 / 版 / hash は Main の表とログだけ（§20.24） |
-| **adapter が root へ書く出力**        | 表が名乗る category だけを Debug Console へ通す（js-debug は stdout / stderr。§20.24）          |
-| **Workspace 外の program**            | `programRelativePath` を Files と同じ2段（パス文字列 → realpath）で検証して断る                 |
-| **adapter が返す stack frame source** | Main が Workspace 相対へ正規化し、Workspace 外 / missing / malformed は開けない                 |
-| **`variablesReference`**              | Main の handle 表に控え、Renderer へは Main が発行した handle だけを渡す（§20.15）              |
-| **evaluate の文脈**                   | 閉じた集合（`repl` / `watch`）だけ。任意の文字列を渡す欄が無い（§20.16）                        |
-| **stopped event / exceptionInfo**     | 閉じた集合の理由と、パスを伏せた型名 / メッセージだけを snapshot に載せる（§20.21）             |
-| **例外で止まる条件（filter）**        | Main の表と adapter が名乗った filter の積。Renderer に欄が無い（§20.21）                       |
-| **実行を差し替える環境変数**          | 下記                                                                                            |
+| 渡さないもの                          | どう閉じているか                                                                                           |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| 絶対パス                              | Profile も応答も **workspace-relative path** だけ。変換は Main の中                                        |
+| file URI                              | 組み立てるのも解くのも Main の中だけ                                                                       |
+| adapter の実行ファイル / 引数 / cwd   | catalog が持つ。Profile にも IPC にも欄が無い（§20.4）                                                     |
+| interpreter / runtime の実行ファイル  | PATH から Main が解決する。Profile に欄が無い                                                              |
+| 任意の DAP request 名                 | 口は機能ごとに分かれている。method 名を渡す口が無い                                                        |
+| 任意の adapter 選択                   | 行き先は `language`（3つの閉じた集合）だけで決まる                                                         |
+| 任意の Workspace の profile           | `debug:list-profiles` の要求は `void`。key を渡す口が無い（§20.5）                                         |
+| **`runInTerminal`（逆方向要求）**     | **拒否する。** `initialize` で `supportsRunInTerminalRequest: false` を名乗る                              |
+| **`startDebugging`（逆方向要求）**    | 子セッションを受けるセッションだけが Main で検証して答える。Renderer へは出ない（§20.23）                  |
+| **adapter の port / socket / pid**    | `socketDebugAdapter.ts` の外へ出さない（§20.23）                                                           |
+| **adapter の配布物（script）**        | userData の下の pin した木だけを走らせる。置き場所 / 版 / hash は Main の表とログだけ（§20.24）            |
+| **adapter が無い理由**                | 言語と閉じた集合の `cause` だけを応答に載せる。どのパス / 実行ファイルだったかは Main のログだけ（§20.18） |
+| **adapter が root へ書く出力**        | 表が名乗る category だけを Debug Console へ通す（js-debug は stdout / stderr。§20.24）                     |
+| **Workspace 外の program**            | `programRelativePath` を Files と同じ2段（パス文字列 → realpath）で検証して断る                            |
+| **adapter が返す stack frame source** | Main が Workspace 相対へ正規化し、Workspace 外 / missing / malformed は開けない                            |
+| **`variablesReference`**              | Main の handle 表に控え、Renderer へは Main が発行した handle だけを渡す（§20.15）                         |
+| **evaluate の文脈**                   | 閉じた集合（`repl` / `watch`）だけ。任意の文字列を渡す欄が無い（§20.16）                                   |
+| **stopped event / exceptionInfo**     | 閉じた集合の理由と、パスを伏せた型名 / メッセージだけを snapshot に載せる（§20.21）                        |
+| **例外で止まる条件（filter）**        | Main の表と adapter が名乗った filter の積。Renderer に欄が無い（§20.21）                                  |
+| **実行を差し替える環境変数**          | 下記                                                                                                       |
 
 #### `runInTerminal` を拒否する
 
@@ -8350,6 +8376,25 @@ Session 6-12 で python 行を `python -m debugpy.adapter`、Session 6-14 で cs
 - **adapter のプロセスの cwd は Workspace の外**（§20.20）。python は `userData` を使う。C# は Windows 版 netcoredbg の Unicode path 不具合を踏まえ、`userData` が Unicode になりうるため `netcoredbg.exe` のある ASCII-only フォルダを cwd にする。どちらも Workspace root / Workspace 内なら `adapter-unavailable` で断る
 - vscode-js-debug は transport（stdio / TCP）が未確定のまま（§20.7）── Session 6-15B で TCP（socket）に確定（§20.24）
 - launch の `type` / 追加で要る欄（C# の `stopAtEntry` など）は、言語の枝に欄を足すのではなく `profileResolver.ts` の表 / 組み立てで閉じるのが既定（§20.10）
+
+#### adapter が無いときの分類（Session 7-1C）
+
+`adapter-unavailable` の1語だけでは、Node / Python / C# のどれの何が足りないのかが画面から分からなかった。応答は `{ status: 'failed', reason: 'adapter-unavailable', language, cause }` に広げ、`cause` は閉じた集合にしてある（`shared/debug/profile.ts`）。他の失敗の形は変えていない。
+
+| cause                      | 起きる場所（`profileResolver.ts`）                                                                           | 言語          |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------ | ------------- |
+| `not-integrated`           | catalog の行が別の言語 / integrated でない                                                                   | 全部          |
+| `runtime-not-found`        | PATH に node.exe（`.cmd` の shim だけを含む）/ python が無い・node の realpath が取れない・dotnet.exe が無い | 全部          |
+| `adapter-not-found`        | PATH に netcoredbg が無い・vscode-js-debug の配布物が置かれていない（`missing`）                             | csharp / node |
+| `adapter-not-verified`     | 配布物が `invalid` / `hash-mismatch`                                                                         | node          |
+| `runtime-inside-workspace` | PATH の node.exe（実体を含む）が Workspace の中                                                              | node          |
+| `adapter-inside-workspace` | adapter の cwd（userData / netcoredbg のフォルダ）・配布物の入り口が Workspace の中                          | 全部          |
+| `non-ascii-path`           | netcoredbg が触るパス（adapter / dotnet / DLL / Workspace / cwd）に ASCII 以外の文字                         | csharp        |
+
+- **増えたのは分類だけ**で、パス・実行ファイル名・配布物の置き場所や hash は載らない（§20.9）。`language` は保存された profile から Main が読んだ値で、Renderer の選択を信じたものではない
+- 画面の文言は Renderer の固定の翻訳（`debug.operation.adapterGuidance.<language>.<cause>`。`debugToolbarModel.ts`）で、Main から届いた値を文言へ差し込まない。その言語で起こらない組み合わせは言語ごとの総合の案内へ、言語が読めなければ従来の1文へ落とす
+- debugpy が入っているかは解決の時点では見ない（§20.17）。そのため Python の案内には常に `pip install debugpy` を含めてある
+- Main のログは `debug profile <id> was not started: adapter-unavailable (<language>: <cause>).` になる。どのパスが原因だったかは、配布物なら `debug adapter artifact … is not usable` の行に残る（ファイルへ書くときはパスが伏せられる。§4）
 
 #### 入れていないもの（Session 6-10）
 

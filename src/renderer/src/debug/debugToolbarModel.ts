@@ -1,5 +1,6 @@
 import {
   DEBUG_PROFILE_LANGUAGES,
+  type DebugAdapterUnavailableCause,
   type DebugControlFailure,
   type DebugControlOutcome,
   type DebugControlRejection,
@@ -186,8 +187,56 @@ export function debugStartOutcomeKey(outcome: DebugStartOutcome): TranslationKey
     case 'rejected':
       return debugStartRejectionKey(outcome.reason)
     case 'failed':
-      return debugStartFailureKey(outcome.reason)
+      return outcome.reason === 'adapter-unavailable'
+        ? debugAdapterUnavailableKey(outcome.language, outcome.cause)
+        : debugStartFailureKey(outcome.reason)
   }
+}
+
+/**
+ * adapter が無いときに「何を準備すればよいか」の案内（Session 7-1C）。
+ *
+ * 言語ごとに、その言語で起こりうる cause だけを持つ。表に無い組み合わせは言語ごとの
+ * 総合の案内に落とし、言語そのものが読めなければ従来の1文に落とす。**文言は固定の
+ * 翻訳だけ**で、Main から届いた値を文言へ差し込まない（届くのは閉じた集合の分類だけ）。
+ */
+const DEBUG_ADAPTER_GUIDANCE_KEYS: Readonly<
+  Record<
+    DebugProfileLanguage,
+    Readonly<Partial<Record<DebugAdapterUnavailableCause, TranslationKey>>>
+  >
+> = {
+  node: {
+    'runtime-not-found': 'debug.operation.adapterGuidance.node.runtimeNotFound',
+    'adapter-not-found': 'debug.operation.adapterGuidance.node.adapterNotFound',
+    'adapter-not-verified': 'debug.operation.adapterGuidance.node.adapterNotVerified',
+    'runtime-inside-workspace': 'debug.operation.adapterGuidance.node.runtimeInsideWorkspace',
+    'adapter-inside-workspace': 'debug.operation.adapterGuidance.node.adapterInsideWorkspace'
+  },
+  python: {
+    'runtime-not-found': 'debug.operation.adapterGuidance.python.runtimeNotFound',
+    'adapter-inside-workspace': 'debug.operation.adapterGuidance.python.adapterInsideWorkspace'
+  },
+  csharp: {
+    'runtime-not-found': 'debug.operation.adapterGuidance.csharp.runtimeNotFound',
+    'adapter-not-found': 'debug.operation.adapterGuidance.csharp.adapterNotFound',
+    'adapter-inside-workspace': 'debug.operation.adapterGuidance.csharp.adapterInsideWorkspace',
+    'non-ascii-path': 'debug.operation.adapterGuidance.csharp.nonAsciiPath'
+  }
+}
+
+export function debugAdapterUnavailableKey(
+  language: DebugProfileLanguage,
+  cause: DebugAdapterUnavailableCause
+): TranslationKey {
+  if (!isDebugProfileLanguageChoice(language)) {
+    return 'debug.operation.failed.adapterUnavailable'
+  }
+
+  const byCause = DEBUG_ADAPTER_GUIDANCE_KEYS[language]
+  const specific = Object.hasOwn(byCause, cause) ? byCause[cause] : undefined
+
+  return specific ?? `debug.operation.adapterGuidance.${language}.unavailable`
 }
 
 export function debugControlOutcomeKey(outcome: DebugControlOutcome): TranslationKey {
@@ -216,7 +265,9 @@ function debugStartRejectionKey(reason: DebugStartRejection): TranslationKey {
   }
 }
 
-function debugStartFailureKey(reason: DebugStartFailure): TranslationKey {
+function debugStartFailureKey(
+  reason: Exclude<DebugStartFailure, 'adapter-unavailable'>
+): TranslationKey {
   switch (reason) {
     case 'invalid-profile':
       return 'debug.operation.failed.invalidProfile'
@@ -224,8 +275,6 @@ function debugStartFailureKey(reason: DebugStartFailure): TranslationKey {
       return 'debug.operation.failed.programNotFound'
     case 'program-outside-workspace':
       return 'debug.operation.failed.programOutsideWorkspace'
-    case 'adapter-unavailable':
-      return 'debug.operation.failed.adapterUnavailable'
     case 'spawn-failed':
       return 'debug.operation.failed.spawnFailed'
   }

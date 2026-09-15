@@ -1236,12 +1236,48 @@ export const jaMessages = {
         invalidProfile: '保存済みの Profile が正しくありません。',
         programNotFound: 'プログラムのファイルが見つかりません。',
         programOutsideWorkspace: 'プログラムは Workspace の中にある必要があります。',
-        adapterUnavailable: 'Debug adapter はまだ利用できません。',
+        adapterUnavailable: 'Debug adapter を利用できません。',
         spawnFailed: 'Debug adapter を起動できませんでした。',
         adapterRejected: 'Debug adapter がこの操作を拒否しました。',
         sessionEnded: '操作の完了前に Debug Session が終了しました。',
         noThread: 'この操作に使える Debug thread がありません。',
         timeout: 'Debug adapter から時間内に応答がありませんでした。'
+      },
+      adapterGuidance: {
+        node: {
+          unavailable:
+            'Node.js の Debug adapter を利用できません。Node.js（node.exe）を PATH に追加し、vscode-js-debug 1.117.0 をアプリのデータフォルダの debug-adapters に配置してください。',
+          runtimeNotFound:
+            'Node.js が見つかりません。Node.js をインストールして node.exe を PATH に追加し、Fluvix Nexus を再起動してください。',
+          adapterNotFound:
+            'Node.js 用の Debug adapter（vscode-js-debug 1.117.0）が配置されていません。公式の配布物 js-debug-dap-v1.117.0 を、アプリのデータフォルダの debug-adapters に展開してください。',
+          adapterNotVerified:
+            'Node.js 用の Debug adapter（vscode-js-debug 1.117.0）の中身が公式の配布物と一致しません。配置したフォルダを削除し、公式の配布物を展開し直してください。',
+          runtimeInsideWorkspace:
+            'Workspace の中にある node.exe は安全のため使えません。Workspace の外にインストールした Node.js を PATH に設定してください。',
+          adapterInsideWorkspace:
+            'アプリのデータフォルダが Workspace の中にあるため、Node.js の Debug adapter を起動できません。別のフォルダを Workspace として開いてください。'
+        },
+        python: {
+          unavailable:
+            'Python の Debug adapter を利用できません。Python を PATH に追加し、pip install debugpy で debugpy をインストールしてください。',
+          runtimeNotFound:
+            'Python が見つかりません。Python をインストールして PATH に追加し、pip install debugpy を実行してから Fluvix Nexus を再起動してください。',
+          adapterInsideWorkspace:
+            'アプリのデータフォルダが Workspace の中にあるため、Python の Debug adapter を起動できません。別のフォルダを Workspace として開いてください。'
+        },
+        csharp: {
+          unavailable:
+            'C# の Debug adapter を利用できません。netcoredbg を PATH に追加し、.NET をインストールしてください。関係するパスは ASCII 文字だけにしてください。',
+          runtimeNotFound:
+            '.NET（dotnet.exe）が見つかりません。.NET をインストールしてから Fluvix Nexus を再起動してください。',
+          adapterNotFound:
+            'C# 用の Debug adapter（netcoredbg）が見つかりません。netcoredbg を ASCII 文字だけのフォルダへ展開してそのフォルダを PATH に追加し、Fluvix Nexus を再起動してください。',
+          adapterInsideWorkspace:
+            'Workspace の中にある netcoredbg は安全のため使えません。Workspace の外に置いた netcoredbg を PATH に設定してください。',
+          nonAsciiPath:
+            'netcoredbg は日本語などの ASCII 以外の文字を含むパスを扱えません。netcoredbg・.NET・対象の DLL・Workspace を ASCII 文字だけのパスに置いてください。'
+        }
       },
       ipcFailed: 'Debug の通信に失敗しました。もう一度お試しください。'
     },

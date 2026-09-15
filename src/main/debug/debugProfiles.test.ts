@@ -428,9 +428,13 @@ describe('debug profiles — start', () => {
     expect(verifications).toEqual(['vscode-js-debug'])
   })
 
-  it.each(['missing', 'invalid', 'hash-mismatch'] as const)(
-    'is adapter-unavailable without starting anything when the artifact is %s (Session 6-15B)',
-    (status) => {
+  it.each([
+    ['missing', 'adapter-not-found'],
+    ['invalid', 'adapter-not-verified'],
+    ['hash-mismatch', 'adapter-not-verified']
+  ] as const)(
+    'is adapter-unavailable without starting anything when the artifact is %s (Session 6-15B / 7-1C)',
+    (status, cause) => {
       const { service, started, profileId } = withProfile({
         getCatalogEntry: () => ({
           ...integratedNode,
@@ -440,8 +444,15 @@ describe('debug profiles — start', () => {
       })
       const outcome = service.start(profileId)
 
-      expect(outcome).toEqual({ status: 'failed', reason: 'adapter-unavailable' })
-      expect(JSON.stringify(outcome)).not.toMatch(/debug-adapters|js-debug|hash|sha/i)
+      expect(outcome).toEqual({
+        status: 'failed',
+        reason: 'adapter-unavailable',
+        language: 'node',
+        cause
+      })
+      expect(JSON.stringify(outcome)).not.toMatch(
+        /debug-adapters|js-debug|hash|sha|[\\/]|node\.exe/i
+      )
       expect(started).toEqual([])
     }
   )
@@ -455,7 +466,12 @@ describe('debug profiles — start', () => {
       })
     })
 
-    expect(service.start(profileId)).toEqual({ status: 'failed', reason: 'adapter-unavailable' })
+    expect(service.start(profileId)).toEqual({
+      status: 'failed',
+      reason: 'adapter-unavailable',
+      language: 'node',
+      cause: 'not-integrated'
+    })
     expect(started).toEqual([])
   })
 

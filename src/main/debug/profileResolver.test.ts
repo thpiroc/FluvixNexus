@@ -224,7 +224,9 @@ describe('resolveDebugProfile', () => {
     ])('is adapter-unavailable when it is %s', (_label, adapterWorkingDirectory) => {
       expect(resolveDebugProfile(profile, context({ adapterWorkingDirectory }))).toEqual({
         status: 'failed',
-        reason: 'adapter-unavailable'
+        reason: 'adapter-unavailable',
+        language: profile.language,
+        cause: 'adapter-inside-workspace'
       })
     })
   })
@@ -319,7 +321,12 @@ describe('resolveDebugProfile', () => {
 
     it('is adapter-unavailable when python is not on PATH', () => {
       expect(resolveDebugProfile(pythonProfile, { ...pythonContext, exists: () => false })).toEqual(
-        { status: 'failed', reason: 'adapter-unavailable' }
+        {
+          status: 'failed',
+          reason: 'adapter-unavailable',
+          language: 'python',
+          cause: 'runtime-not-found'
+        }
       )
     })
 
@@ -427,8 +434,63 @@ describe('resolveDebugProfile', () => {
 
     it('is adapter-unavailable when netcoredbg is not on PATH', () => {
       expect(resolveDebugProfile(csharpProfile, { ...csharpContext, exists: () => false })).toEqual(
-        { status: 'failed', reason: 'adapter-unavailable' }
+        {
+          status: 'failed',
+          reason: 'adapter-unavailable',
+          language: 'csharp',
+          cause: 'adapter-not-found'
+        }
       )
+    })
+
+    /** Session 7-1C ── 利用者が「何を準備すればよいか」を分けられるだけの分類を返す。 */
+    it('tells a missing dotnet apart from a missing netcoredbg', () => {
+      expect(
+        resolveDebugProfile(csharpProfile, {
+          ...csharpContext,
+          exists: (path) => path === 'C:\\tools\\netcoredbg\\netcoredbg.exe'
+        })
+      ).toEqual({
+        status: 'failed',
+        reason: 'adapter-unavailable',
+        language: 'csharp',
+        cause: 'runtime-not-found'
+      })
+    })
+
+    it('is adapter-inside-workspace when netcoredbg comes from a folder inside the workspace', () => {
+      expect(
+        resolveDebugProfile(csharpProfile, {
+          ...csharpContext,
+          parentEnv: { PATH: 'D:\\proj\\tools', SystemRoot: 'C:\\Windows' },
+          exists: (path) =>
+            path === 'D:\\proj\\tools\\netcoredbg.exe' ||
+            path === 'C:\\Program Files\\dotnet\\dotnet.exe'
+        })
+      ).toEqual({
+        status: 'failed',
+        reason: 'adapter-unavailable',
+        language: 'csharp',
+        cause: 'adapter-inside-workspace'
+      })
+    })
+
+    it('is non-ascii-path when netcoredbg itself is in a non-ASCII folder', () => {
+      const outcome = resolveDebugProfile(csharpProfile, {
+        ...csharpContext,
+        parentEnv: { PATH: 'C:\\ツール\\netcoredbg', SystemRoot: 'C:\\Windows' },
+        exists: (path) =>
+          path === 'C:\\ツール\\netcoredbg\\netcoredbg.exe' ||
+          path === 'C:\\Program Files\\dotnet\\dotnet.exe'
+      })
+
+      expect(outcome).toEqual({
+        status: 'failed',
+        reason: 'adapter-unavailable',
+        language: 'csharp',
+        cause: 'non-ascii-path'
+      })
+      expect(JSON.stringify(outcome)).not.toMatch(/ツール|netcoredbg\.exe|[\\/]/)
     })
 
     it('is invalid-profile when the C# target is not a built DLL', () => {
@@ -481,7 +543,12 @@ describe('resolveDebugProfile', () => {
           ...csharpContext,
           fileSystem: unicodeFileSystem
         })
-      ).toEqual({ status: 'failed', reason: 'adapter-unavailable' })
+      ).toEqual({
+        status: 'failed',
+        reason: 'adapter-unavailable',
+        language: 'csharp',
+        cause: 'non-ascii-path'
+      })
     })
   })
 
@@ -528,13 +595,20 @@ describe('resolveDebugProfile', () => {
             })
           })
         )
-      ).toEqual({ status: 'failed', reason: 'adapter-unavailable' })
+      ).toEqual({
+        status: 'failed',
+        reason: 'adapter-unavailable',
+        language: 'node',
+        cause: 'not-integrated'
+      })
     })
 
     it('is unavailable when the executable is not on PATH', () => {
       expect(resolveDebugProfile(profile, context({ exists: () => false }))).toEqual({
         status: 'failed',
-        reason: 'adapter-unavailable'
+        reason: 'adapter-unavailable',
+        language: 'node',
+        cause: 'runtime-not-found'
       })
     })
 
@@ -547,13 +621,20 @@ describe('resolveDebugProfile', () => {
             exists: (path) => path.endsWith('node.exe')
           })
         )
-      ).toEqual({ status: 'failed', reason: 'adapter-unavailable' })
+      ).toEqual({
+        status: 'failed',
+        reason: 'adapter-unavailable',
+        language: 'node',
+        cause: 'runtime-not-found'
+      })
     })
 
     it('is unavailable when the catalog row belongs to another language', () => {
       expect(resolveDebugProfile({ ...profile, language: 'python' }, context())).toEqual({
         status: 'failed',
-        reason: 'adapter-unavailable'
+        reason: 'adapter-unavailable',
+        language: 'python',
+        cause: 'not-integrated'
       })
     })
   })
@@ -774,14 +855,15 @@ describe('resolveDebugProfile', () => {
       }
     )
 
-    it.each(['missing', 'invalid', 'hash-mismatch'] as const)(
-      'is adapter-unavailable when the pinned artifact is %s',
-      (status) => {
-        expect(
-          resolveDebugProfile(profile, nodeContext({ resolveAdapterArtifact: () => ({ status }) }))
-        ).toEqual({ status: 'failed', reason: 'adapter-unavailable' })
-      }
-    )
+    it.each([
+      ['missing', 'adapter-not-found'],
+      ['invalid', 'adapter-not-verified'],
+      ['hash-mismatch', 'adapter-not-verified']
+    ] as const)('is adapter-unavailable when the pinned artifact is %s', (status, cause) => {
+      expect(
+        resolveDebugProfile(profile, nodeContext({ resolveAdapterArtifact: () => ({ status }) }))
+      ).toEqual({ status: 'failed', reason: 'adapter-unavailable', language: 'node', cause })
+    })
 
     it('is adapter-unavailable when the verified entry is inside the workspace', () => {
       expect(
@@ -795,7 +877,12 @@ describe('resolveDebugProfile', () => {
             })
           })
         )
-      ).toEqual({ status: 'failed', reason: 'adapter-unavailable' })
+      ).toEqual({
+        status: 'failed',
+        reason: 'adapter-unavailable',
+        language: 'node',
+        cause: 'adapter-inside-workspace'
+      })
     })
 
     it('does not trust a node.exe inside the workspace, even from an absolute PATH entry', () => {
@@ -810,7 +897,12 @@ describe('resolveDebugProfile', () => {
             exists: (path) => path === 'D:\\proj\\tools\\node.exe' || path === NODE
           })
         )
-      ).toEqual({ status: 'failed', reason: 'adapter-unavailable' })
+      ).toEqual({
+        status: 'failed',
+        reason: 'adapter-unavailable',
+        language: 'node',
+        cause: 'runtime-inside-workspace'
+      })
     })
 
     it('does not trust a node.exe whose real path is inside the workspace', () => {
@@ -822,7 +914,12 @@ describe('resolveDebugProfile', () => {
             exists: (path) => path === 'C:\\links\\node.exe'
           })
         )
-      ).toEqual({ status: 'failed', reason: 'adapter-unavailable' })
+      ).toEqual({
+        status: 'failed',
+        reason: 'adapter-unavailable',
+        language: 'node',
+        cause: 'runtime-inside-workspace'
+      })
     })
 
     it('is adapter-unavailable when node is only a .cmd shim or not on PATH', () => {
@@ -834,10 +931,17 @@ describe('resolveDebugProfile', () => {
             exists: (path) => path === 'C:\\shims\\node.cmd'
           })
         )
-      ).toEqual({ status: 'failed', reason: 'adapter-unavailable' })
+      ).toEqual({
+        status: 'failed',
+        reason: 'adapter-unavailable',
+        language: 'node',
+        cause: 'runtime-not-found'
+      })
       expect(resolveDebugProfile(profile, nodeContext({ exists: () => false }))).toEqual({
         status: 'failed',
-        reason: 'adapter-unavailable'
+        reason: 'adapter-unavailable',
+        language: 'node',
+        cause: 'runtime-not-found'
       })
     })
 

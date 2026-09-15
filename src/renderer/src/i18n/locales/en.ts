@@ -1275,12 +1275,48 @@ export const enMessages = {
         invalidProfile: 'The saved profile is no longer valid.',
         programNotFound: 'The program file could not be found.',
         programOutsideWorkspace: 'The program must stay inside the Workspace.',
-        adapterUnavailable: 'The debug adapter is not available yet.',
+        adapterUnavailable: 'The debug adapter is not available.',
         spawnFailed: 'The debug adapter could not be started.',
         adapterRejected: 'The debug adapter rejected the command.',
         sessionEnded: 'The debug session ended before the command completed.',
         noThread: 'No debug thread is available for that command.',
         timeout: 'The debug adapter did not answer in time.'
+      },
+      adapterGuidance: {
+        node: {
+          unavailable:
+            'The Node.js debug adapter is not available. Add Node.js (node.exe) to PATH and place vscode-js-debug 1.117.0 in the debug-adapters folder of the app data folder.',
+          runtimeNotFound:
+            'Node.js was not found. Install Node.js, add node.exe to PATH, and restart Fluvix Nexus.',
+          adapterNotFound:
+            'The Node.js debug adapter (vscode-js-debug 1.117.0) is not installed. Extract the official js-debug-dap-v1.117.0 release into the debug-adapters folder of the app data folder.',
+          adapterNotVerified:
+            'The Node.js debug adapter (vscode-js-debug 1.117.0) does not match the official release. Delete the installed folder and extract the official release again.',
+          runtimeInsideWorkspace:
+            'For safety, a node.exe inside the Workspace cannot be used. Put a Node.js installed outside the Workspace on PATH.',
+          adapterInsideWorkspace:
+            'The Node.js debug adapter cannot start because the app data folder is inside the Workspace. Open a different folder as the Workspace.'
+        },
+        python: {
+          unavailable:
+            'The Python debug adapter is not available. Add Python to PATH and install debugpy with pip install debugpy.',
+          runtimeNotFound:
+            'Python was not found. Install Python, add it to PATH, run pip install debugpy, and restart Fluvix Nexus.',
+          adapterInsideWorkspace:
+            'The Python debug adapter cannot start because the app data folder is inside the Workspace. Open a different folder as the Workspace.'
+        },
+        csharp: {
+          unavailable:
+            'The C# debug adapter is not available. Add netcoredbg to PATH, install .NET, and keep the related paths ASCII-only.',
+          runtimeNotFound:
+            '.NET (dotnet.exe) was not found. Install .NET and restart Fluvix Nexus.',
+          adapterNotFound:
+            'The C# debug adapter (netcoredbg) was not found. Extract netcoredbg into an ASCII-only folder, add that folder to PATH, and restart Fluvix Nexus.',
+          adapterInsideWorkspace:
+            'For safety, a netcoredbg inside the Workspace cannot be used. Put a netcoredbg placed outside the Workspace on PATH.',
+          nonAsciiPath:
+            'netcoredbg cannot handle paths that contain non-ASCII characters. Place netcoredbg, .NET, the target DLL, and the Workspace on ASCII-only paths.'
+        }
       },
       ipcFailed: 'Debug communication failed. Try again.'
     },

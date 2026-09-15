@@ -61,7 +61,12 @@ const profiles = vi.hoisted(() => ({
   createDebugProfile: vi.fn((): unknown => ({ status: 'rejected', reason: 'no-workspace' })),
   updateDebugProfile: vi.fn((): unknown => ({ status: 'rejected', reason: 'no-workspace' })),
   deleteDebugProfile: vi.fn((): unknown => ({ status: 'rejected', reason: 'no-workspace' })),
-  startDebugProfile: vi.fn((): unknown => ({ status: 'failed', reason: 'adapter-unavailable' }))
+  startDebugProfile: vi.fn((): unknown => ({
+    status: 'failed',
+    reason: 'adapter-unavailable',
+    language: 'node',
+    cause: 'runtime-not-found'
+  }))
 }))
 
 vi.mock('../../debug/debugProfiles', () => profiles)
@@ -329,7 +334,12 @@ describe('debug IPC handlers — profiles and start (Session 6-10)', () => {
         program: 'C:\\evil.js',
         command: 'launch'
       })
-    ).toEqual({ status: 'failed', reason: 'adapter-unavailable' })
+    ).toEqual({
+      status: 'failed',
+      reason: 'adapter-unavailable',
+      language: 'node',
+      cause: 'runtime-not-found'
+    })
 
     expect(profiles.startDebugProfile).toHaveBeenCalledWith(id)
   })

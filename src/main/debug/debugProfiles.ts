@@ -324,11 +324,17 @@ export function createDebugProfileService(
     })
 
     if (resolution.status === 'failed') {
+      const cause =
+        resolution.reason === 'adapter-unavailable'
+          ? ` (${resolution.language}: ${resolution.cause})`
+          : ''
+
       dependencies.log?.(
         'warn',
-        `debug profile ${profileId} was not started: ${resolution.reason}.`
+        `debug profile ${profileId} was not started: ${resolution.reason}${cause}.`
       )
-      return { status: 'failed', reason: resolution.reason }
+      // 応答に載るのは分類（adapter が無いときは言語と閉じた集合の cause。Session 7-1C）だけ。
+      return resolution
     }
 
     const { configuration } = resolution

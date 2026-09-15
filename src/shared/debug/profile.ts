@@ -215,10 +215,44 @@ export type DebugStartFailure =
   | 'adapter-unavailable'
   | 'spawn-failed'
 
+/**
+ * `adapter-unavailable` の中身（Session 7-1C）。利用者に「何を準備すればよいか」を出すための分類。
+ *
+ * ```
+ * not-integrated           … この版はその言語の adapter を起動できない
+ * runtime-not-found        … node.exe / python / dotnet が見つからない
+ * adapter-not-found        … netcoredbg が PATH に無い / vscode-js-debug が置かれていない
+ * adapter-not-verified     … 置かれた vscode-js-debug が pin した中身と一致しない
+ * runtime-inside-workspace … PATH の node.exe（の実体）が Workspace の中にある
+ * adapter-inside-workspace … adapter の置き場所（userData / netcoredbg のフォルダ）が Workspace の中にある
+ * non-ascii-path           … netcoredbg が触るパスに ASCII 以外の文字がある
+ * ```
+ *
+ * **閉じた集合だけを返す。** どのパスの・どの実行ファイルが原因だったかは Main のログにだけ残す（§20.9）。
+ */
+export type DebugAdapterUnavailableCause =
+  | 'not-integrated'
+  | 'runtime-not-found'
+  | 'adapter-not-found'
+  | 'adapter-not-verified'
+  | 'runtime-inside-workspace'
+  | 'adapter-inside-workspace'
+  | 'non-ascii-path'
+
 export type DebugStartOutcome =
   | { readonly status: 'started' }
   | { readonly status: 'rejected'; readonly reason: DebugStartRejection }
-  | { readonly status: 'failed'; readonly reason: DebugStartFailure }
+  | {
+      readonly status: 'failed'
+      readonly reason: Exclude<DebugStartFailure, 'adapter-unavailable'>
+    }
+  | {
+      readonly status: 'failed'
+      readonly reason: 'adapter-unavailable'
+      /** 起動しようとした profile の言語（保存された profile から Main が読んだ値）。 */
+      readonly language: DebugProfileLanguage
+      readonly cause: DebugAdapterUnavailableCause
+    }
 
 /* ---------------------------------------------------------- 純粋な判定 */
 
