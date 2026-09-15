@@ -94,8 +94,10 @@
 .fx-git__bar {
   display: flex;
   flex: none;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--fx-space-2);
+  min-width: 0;
   min-height: var(--fx-bar-height);
   padding: 0 var(--fx-space-1) 0 var(--fx-space-3);
   border-bottom: 1px solid var(--fx-color-border);
@@ -119,8 +121,8 @@
  * 縮む指定はそちらと両方に要る）。
  */
 .fx-git__bar .fx-menu {
-  flex: 1 1 auto;
-  min-width: 0;
+  flex: 1 1 128px;
+  min-width: 72px;
 }
 
 .fx-git__branch-button {
@@ -590,9 +592,12 @@
  * 残ることになる（欠けた数字は、無いより悪い）。
  */
 .fx-git__upstream {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-width: 0;
   color: var(--fx-color-text-muted);
   font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
   cursor: default;
 }
 
@@ -745,6 +750,7 @@
   top: 0;
   align-items: center;
   gap: var(--fx-space-2);
+  min-width: 0;
   margin: 0;
   padding: var(--fx-space-1) var(--fx-space-3);
   color: var(--fx-color-text-muted);
@@ -754,6 +760,8 @@
 }
 
 .fx-git__group-label {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1051,8 +1059,10 @@
 /* 一言（左）と Commit（右）。 */
 .fx-git__commit-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--fx-space-2);
+  min-width: 0;
 }
 
 /*
@@ -1087,7 +1097,8 @@
  * 利用者が最後に押す場所そのものにあたる。
  */
 .fx-git__commit-action {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-width: max-content;
   padding: var(--fx-space-1) var(--fx-space-4);
   color: var(--fx-color-text-strong);
   background: var(--fx-color-surface-raised);
@@ -1146,13 +1157,14 @@
 .fx-git__sync {
   display: flex;
   flex: none;
+  flex-wrap: wrap;
   gap: var(--fx-space-2);
   padding: 0 var(--fx-space-3) var(--fx-space-2);
 }
 
 .fx-git__sync-action {
   flex: 1 1 0;
-  min-width: 0;
+  min-width: max-content;
   padding: var(--fx-space-1) var(--fx-space-2);
   color: var(--fx-color-text-strong);
   background: var(--fx-color-surface-raised);

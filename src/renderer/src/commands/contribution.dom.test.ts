@@ -6,6 +6,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EditorContext } from '../editor/context'
 import type { EditorController } from '../editor/useEditorSession'
+import { FileTreeStateProvider } from '../files/FileTreeStateProvider'
 import { FilesView } from '../files/FilesView'
 import type { FilesLayoutController } from '../files/useFilesLayout'
 import { GitCommands } from '../git/GitCommands'
@@ -356,7 +357,11 @@ describe('Files の検索 command（Session 4-7B）', () => {
         createElement(
           EditorContext.Provider,
           { value: mockEditor() },
-          createElement(FilesView, { workspace, layout: mockLayout() })
+          createElement(
+            FileTreeStateProvider,
+            null,
+            createElement(FilesView, { workspace, layout: mockLayout() })
+          )
         )
       )
     )

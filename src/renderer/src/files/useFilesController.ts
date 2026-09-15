@@ -51,6 +51,7 @@ import { useFileTree, type FileTreeController } from './useFileTree'
  * この hook は自分でリセットしない。FilesPanel が Workspace の id を key にして
  * 中身ごと作り直すため、選んでいた位置も、開いていたカラムも、移動 / コピーの
  * 途中の状態も React が破棄する（ARCHITECTURE.md §9.6）。
+ * 展開状態だけは FileTreeStateProvider が Workspace 単位で持つ。
  * **表示方式（ツリー / カラム）だけは key の外側**にあり、パネルの見え方として
  * 残る（useFilesLayout.ts）── それは Workspace の持ち物ではないため。
  */
@@ -129,7 +130,11 @@ export function useFilesController({
   mode,
   revealTarget
 }: UseFilesControllerInput): FilesController {
-  const tree = useFileTree({ workspaceId: workspace.id, rootName: workspace.displayName })
+  const tree = useFileTree({
+    workspaceId: workspace.id,
+    workspaceStateKey: workspace.rootPath,
+    rootName: workspace.displayName
+  })
   const actions = useFileActions()
   const { openFile } = useEditorContext()
 
@@ -343,11 +348,16 @@ export function useFilesController({
       }
 
       tree.cancelDraft()
-      // 作ったものを選んでおく。続けて開く / 名前を変えるのがそのまま行える。
+      // 作ったものを選び、ファイルなら Editor でも開く。以降の操作の入口を揃える。
       select(entry.id)
+
+      if (entry.type === 'file') {
+        openEntry(entry)
+      }
+
       return true
     },
-    [actions, tree, select]
+    [actions, tree, select, openEntry]
   )
 
   const startRename = useCallback(

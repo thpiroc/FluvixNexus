@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { WORKSPACE_ROOT_RELATIVE_PATH, type FileEntry, type FileEntryType } from '@shared/files'
+import type { FileEntry, FileEntryType } from '@shared/files'
 import { fluvix } from '../api/fluvix'
 import { applyChangesToDirectories, applyChangesToExpanded } from './fileChanges'
 import { toFileTreeErrorReason } from './filesError'
+import { useFileTreeExpanded } from './FileTreeStateProvider'
 import {
   ancestorRelativePaths,
   findEntryById,
@@ -39,16 +40,19 @@ import {
  * 変わったフォルダの欄を捨てるだけで、上の effect が読み直す。
  * ツリー全体を読み直さないため、Session 3-2 の Lazy Load はそのまま保たれる。
  *
- * ## Workspace が変わったときの破棄は呼び出し側が行う
+ * ## 展開状態だけは Panel の外へ逃がす
  *
- * この hook は自分でリセットしない。FilesPanel が Workspace の id を key にして
- * ツリーごと作り直す（＝以前の Workspace の状態は React が破棄する）。
- * 「切り替わったら消す」処理を書くより、消し忘れが構造的に起きない。
+ * directories / 選択 / draft はこの hook の寿命でよいが、expanded は Files Panel の
+ * タブ切り替えや Dock の都合で作り直されても残す必要がある。そこで expanded だけ
+ * FileTreeStateProvider に持たせる。Workspace 単位の key で分けるため、別 Workspace の
+ * 展開状態は混ざらない。
  */
 
 interface UseFileTreeInput {
   /** 今開いている Workspace の id。応答・通知が別の Workspace のものでないかの照合に使う。 */
   readonly workspaceId: string
+  /** Panel の mount / unmount を越えて残す UI 状態の Workspace 単位キー。 */
+  readonly workspaceStateKey: string
   /** root 行に出す名前。 */
   readonly rootName: string
 }
@@ -89,12 +93,15 @@ export interface FileTreeController {
 }
 
 /** 起動直後は root だけを開いた状態にする（Workspace 直下がすぐ見える）。 */
-const INITIAL_EXPANDED: ReadonlySet<string> = new Set([WORKSPACE_ROOT_RELATIVE_PATH])
 const EMPTY_DIRECTORIES: FileTreeDirectories = new Map()
 
-export function useFileTree({ workspaceId, rootName }: UseFileTreeInput): FileTreeController {
+export function useFileTree({
+  workspaceId,
+  workspaceStateKey,
+  rootName
+}: UseFileTreeInput): FileTreeController {
   const [directories, setDirectories] = useState<FileTreeDirectories>(EMPTY_DIRECTORIES)
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(INITIAL_EXPANDED)
+  const { expanded, setExpanded } = useFileTreeExpanded(workspaceStateKey)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [draft, setDraft] = useState<FileTreeDraft | null>(null)
 

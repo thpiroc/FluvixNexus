@@ -18,6 +18,7 @@ import { GitHubPublishForm } from './GitHubPublishForm'
 import { GitInitConfirm } from './GitInitConfirm'
 import { GitRemoteOverlay } from './GitRemoteOverlay'
 import { GitStashOverlay } from './GitStashOverlay'
+import { useGitCommitDraft } from './GitDraftProvider'
 import { DiffIcon, DiscardIcon, ResolveIcon, StageIcon, UnstageIcon } from './GitIcons'
 import {
   canDiscardGitChange,
@@ -222,6 +223,7 @@ export function GitView(): JSX.Element {
   */
   const { workspace } = useWorkspaceFolder()
   const workspaceName = workspace?.displayName ?? ''
+  const workspaceDraftKey = workspace?.rootPath ?? ''
 
   /*
     初期化の確認を出しているか（Session 3-8-10）。
@@ -240,10 +242,11 @@ export function GitView(): JSX.Element {
     書きかけの文章**にあたる ── 一覧を読み直すたびに触れる場所へ置くと、
     いつか読み直しの都合で消える。
 
-    パネルを畳めば消える（＝ Editor の未保存の中身とは扱いが違う）。
-    Commit メッセージは書き直せるもので、閉じるまでの間だけ持てば足りる。
+    Panel のタブ切り替えや Dock の都合で GitView が作り直されても消さない。
+    GitDraftProvider が Workspace 単位で持ち、Commit が通ったときだけ下の
+    clearIfUnchanged で空へ戻す。
   */
-  const [message, setMessage] = useState('')
+  const { message, setMessage } = useGitCommitDraft(workspaceDraftKey)
 
   /*
     マージに入ったら、git が用意した文章を**空の欄にだけ**入れる

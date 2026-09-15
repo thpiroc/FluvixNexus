@@ -14,11 +14,13 @@ import { useWorkspaceFolder } from '../../workspaceFolder/context'
  *   開いている … Files の中身（一覧 / 検索。files/FilesView.tsx）
  *
  * `key` に Workspace の id を渡しているのが要点。Workspace が切り替わると
- * 中身は作り直され、前の Workspace で読み込んだ内容も展開状態も、
+ * 中身は作り直され、前の Workspace で読み込んだ内容も、
  * **選んでいた位置も開いていたカラムも**、**走っている検索も**
  * （useFileSearch.ts の破棄で取り消される）React が破棄する。
  * 「切り替わったら消す」処理を書くより、消し忘れが起こらない
  * （id は開いた記録ごとに変わるため、同じフォルダを開き直した場合も作り直しになる）。
+ * 展開状態だけは Panel の mount / unmount を越える UI 状態なので、
+ * FileTreeStateProvider が Workspace 単位で持つ。
  *
  * ## パネルの形の観測は、この器1か所（Session 3-6-7）
  *
