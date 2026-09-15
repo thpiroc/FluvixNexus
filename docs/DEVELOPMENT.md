@@ -1,6 +1,6 @@
 # 開発ガイド
 
-> 対象: Session 7-1D（Documentation Synchronization）時点
+> 対象: Session 7-2A（v1.0.0 Release metadata）時点
 > 最終更新: 2026-09-16
 
 ---
@@ -98,16 +98,20 @@ Session 6-15B で **Node.js（vscode-js-debug 1.117.0）が3つ目の実 adapter
 
 ## 2. コマンド
 
-| コマンド               | 内容                                                      |
-| ---------------------- | --------------------------------------------------------- |
-| `npm run dev`          | 開発起動（Vite dev server + Electron、HMR あり）          |
-| `npm run build`        | `out/` へビルド                                           |
-| `npm run typecheck`    | 型検査（Main/Preload/shared と Renderer/shared を別々に） |
-| `npm test`             | ユニットテスト（1回実行）                                 |
-| `npm run test:watch`   | ユニットテスト（監視）                                    |
-| `npm run format`       | Prettier で整形                                           |
-| `npm run format:check` | 整形漏れの検査                                            |
-| `npm run verify`       | `format:check` → `typecheck` → `test` をまとめて実行      |
+| コマンド                | 内容                                                                   |
+| ----------------------- | ---------------------------------------------------------------------- |
+| `npm run dev`           | 開発起動（Vite dev server + Electron、HMR あり）                       |
+| `npm run build`         | `out/` へビルド                                                        |
+| `npm run typecheck`     | 型検査（Main/Preload/shared と Renderer/shared を別々に）              |
+| `npm test`              | ユニットテスト（1回実行）                                              |
+| `npm run test:watch`    | ユニットテスト（監視）                                                 |
+| `npm run format`        | Prettier で整形                                                        |
+| `npm run format:check`  | 整形漏れの検査                                                         |
+| `npm run notices`       | `THIRD_PARTY_NOTICES.txt` を作り直す（docs/RELEASE.md §4）             |
+| `npm run notices:check` | `THIRD_PARTY_NOTICES.txt` が今の依存と一致するかの検査                 |
+| `npm run verify`        | `format:check` → `typecheck` → `notices:check` → `test` をまとめて実行 |
+
+依存を足す / 版を上げる / Renderer や Main で新しいパッケージを import したときは `npm run notices` を実行して、`THIRD_PARTY_NOTICES.txt` も一緒に commit する（しないと `verify` が落ちる）。
 
 作業の区切りでは `npm run verify` と `npm run build` の両方を通すこと。
 
@@ -2399,6 +2403,15 @@ Dogfooding B6（ドキュメントと実装の食い違い）への対応。対�
 - Main のログは `userData/logs/main.log`（1 MiB + `main.old.log` 1世代）。Renderer にログ API は無く、ファイル出力では絶対パスと認証情報を伏せる
 - 現在残っている v1.0.0 Release 前の問題は DESIGN.md §14 / docs/ARCHITECTURE.md §20.28 を正とする
 
+### Session 7-2A（v1.0.0 Release metadata）
+
+v1.0.0 の配布仕様とメタデータを確定した。electron-builder の導入と installer の生成は 7-2B。Renderer / Main / preload / shared のコードと security boundary は変えていない。
+
+- `package.json`: version `1.0.0`・author `Piroshi`・license `MIT`・`notices` / `notices:check` を追加し、`verify` に `notices:check` を入れた（`package-lock.json` の root の version / license も合わせた）
+- ルートに `LICENSE`（MIT）・`README.md`（利用者向け）・`THIRD_PARTY_NOTICES.txt`（`tools/third-party-notices.mjs` が生成）を追加
+- `docs/RELEASE.md` を新設: 確定事項・Session 7-2 の分割・変えてはいけない識別子・第三者ライセンスの決め方・electron-builder の設計（7-2B で実装）・アイコンの方針・公開前の確認（7-2A 時点の結果と再確認の手順）・Release notes の項目・installer の確認項目
+- 決めたこと: appId `studio.fluvix.fluvixnexus`・NSIS / per-user / x64・repository は v1.0.0 公開時に Public・自動更新 / コード署名 / adapter の自動取得は含めない・Renderer の `file://` 読み込みは v1.0.0 の既知の制約
+
 ---
 
 ## 5. 進め方
@@ -2427,6 +2440,8 @@ STEP 5 の実測では、LSP の機能追加5 Session（5-5 〜 5-9）が次の9
 
 ## 6. exe 化に向けて残っている作業
 
+**v1.0.0 の配布仕様・electron-builder の設計・Release の手順は [docs/RELEASE.md](RELEASE.md) を正とする**（Session 7-2A）。この節は STEP 1 から積み上げてきた前提の記録として残す。
+
 STEP 1 では **`electron-builder` の導入は行わず、準備だけ**を済ませている。
 
 済んでいること:
@@ -2437,13 +2452,15 @@ STEP 1 では **`electron-builder` の導入は行わず、準備だけ**を済�
 - ユーザーデータの保存先を `app.getPath('userData')` に統一（インストール先に書き込まない）
 - Main のログを `%APPDATA%\Fluvix Nexus\logs\main.log`（上限 1 MiB + `main.old.log` の1世代）に残す（Session 7-1C。docs/ARCHITECTURE.md §4）。配布版で問題が起きたら、このフォルダの2ファイルを受け取る。絶対パスと認証情報は書き出す前に伏せてある
 
-着手時に必要になるもの:
+- `package.json` の version `1.0.0`・`author`・`license`、`LICENSE`・`README.md`・`THIRD_PARTY_NOTICES.txt`（Session 7-2A）
+- `appId`（`studio.fluvix.fluvixnexus`）と installer の形（NSIS / per-user / x64）の決定（Session 7-2A。docs/RELEASE.md §1）
 
-- `package.json` の `author`（NSIS の発行元表示に使われる）とライセンス表記
-- `appId`（例: `com.<組織名>.fluvix-nexus`）の決定
-- アプリアイコン（`.ico`、256x256 を含むもの）
+着手時に必要になるもの（Session 7-2B 以降。設計は docs/RELEASE.md §5）:
+
+- アプリアイコン（`resources/icon.ico`、256x256 を含むもの。docs/RELEASE.md §5.3。素材は未作成）
 - `electron-builder.yml`（`files` に `out/**` と `package.json`、target は NSIS）
   - **`dependencies` を同梱する必要がある。** Session 3-7-1 で `@lydell/node-pty`（native モジュール）が入り、これが最初の `dependencies` になった。`externalizeDepsPlugin` により Main のバンドルには含まれないため、`node_modules` 側の実体が要る。electron-builder は既定で `dependencies` を拾うが、`files` を絞り込む場合はここを外さないこと
   - prebuilt はプラットフォームごとに別パッケージ（`@lydell/node-pty-win32-x64` など）として入る。`optionalDependencies` 経由なので、**ビルドする OS / アーキテクチャのものしか入っていない**
-- バージョン付けの運用と GitHub Releases の準備
-- 自動更新（`electron-updater`）と、コード署名 / SmartScreen 対策の方針決定（DESIGN.md §7）
+  - installer では `node_modules/@lydell/**` を asar の外へ出し、`.pdb` は同梱しない（docs/RELEASE.md §5.4）
+- GitHub Releases の準備（docs/RELEASE.md §6〜§8）
+- 自動更新（`electron-updater`）と、コード署名 / SmartScreen 対策は v1.0.0 に含めない（Session 7-2A。DESIGN.md §7.5）

@@ -1,12 +1,14 @@
 # Fluvix Nexus 設計ドキュメント
 
-> ステータス: STEP 1（基盤構築）完了 / STEP 2（Dockable Workspace 基盤）完了 / STEP 3（各パネルの本機能）完了 / STEP 4（日常使用の土台）完了 / STEP 5（LSP）完了 / **STEP 6（Debugger / DAP）完了** / **STEP 7（v1.0.0 Release 前 Dogfooding / 整合）進行中（Session 7-1D Documentation Synchronization 完了）**
+> ステータス: STEP 1（基盤構築）完了 / STEP 2（Dockable Workspace 基盤）完了 / STEP 3（各パネルの本機能）完了 / STEP 4（日常使用の土台）完了 / STEP 5（LSP）完了 / **STEP 6（Debugger / DAP）完了** / **STEP 7（v1.0.0 Release 前 Dogfooding / 整合）進行中（Session 7-2A v1.0.0 Release metadata 完了）**
 > 最終更新: 2026-09-16
 
 このドキュメントは**製品としての設計方針**を扱う。実装の構造と開発手順は以下を参照。
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — 現在の実装構造、IPC の作法、セキュリティの状態
-- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — コマンド、品質基盤の方針、動作確認の手順、exe 化の残作業
+- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — コマンド、品質基盤の方針、動作確認の手順
+- [docs/RELEASE.md](docs/RELEASE.md) — v1.0.0 の配布仕様（appId・installer・electron-builder の設計・公開前の確認）
+- [README.md](README.md) — 利用者向けの説明
 
 ## 1. 目的
 
@@ -202,12 +204,14 @@ Profile は Main が `userData` 配下に Workspace 単位で持ち、Renderer �
 
 - 最終的に Windows の `.exe` として配布する。
 - Installer / アプリアイコン / バージョン管理 / GitHub Releases 対応を見据えた構成にしておく。
-- **electron-builder** を前提とする。STEP 1 では導入せず、それを妨げない構成（`productName` の設定、`electron` の devDependencies 化、`out/` への成果物分離、ユーザーデータを `userData` 配下へ統一）までを済ませている。残作業は [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) §6 を参照。
+- **electron-builder** を前提とする。STEP 1 では導入せず、それを妨げない構成（`productName` の設定、`electron` の devDependencies 化、`out/` への成果物分離、ユーザーデータを `userData` 配下へ統一）までを済ませている。
+- **v1.0.0 の配布仕様は Session 7-2A で確定した**（appId `studio.fluvix.fluvixnexus`・NSIS / per-user / x64・MIT。§7.5）。仕様と electron-builder の設計は [docs/RELEASE.md](docs/RELEASE.md)。
 
 ### 7.2 自動更新（方針）
 
 - **electron-updater** を前提候補とする。
 - 配布形式・署名方式などの詳細は将来対応として整理し、現時点では確定しない。
+- **v1.0.0 には含めない**（Session 7-2A）。v1.0.0 の利用者は新しい版を手でダウンロードして上書きインストールする。
 
 ### 7.3 更新通知 UI（方針）
 
@@ -219,6 +223,17 @@ Profile は Main が `userData` 配下に Workspace 単位で持ち、Renderer �
 - ユーザーには無料で提供する方針。
 - 配布は **GitHub Releases** を基本とする。
 - Windows SmartScreen 対策やコード署名（証明書の取得・運用）は、**将来対応**として切り分ける（v1 の必須要件にはしない）。
+
+### 7.5 v1.0.0 で確定した配布仕様（Session 7-2A）
+
+| 項目                       | 決めたこと                                                                                          |
+| -------------------------- | --------------------------------------------------------------------------------------------------- |
+| version / appId            | `1.0.0` / `studio.fluvix.fluvixnexus`                                                               |
+| LICENSE                    | MIT。同梱する第三者ソフトウェアのライセンスは `THIRD_PARTY_NOTICES.txt`（`npm run notices` が作る） |
+| Windows installer          | NSIS / per-user / x64                                                                               |
+| repository                 | v1.0.0 公開時に Public へ変える。直前に秘密情報・不要ファイルを確認し直す（docs/RELEASE.md §6）     |
+| v1.0.0 に含めないもの      | 自動更新・コード署名・Debug Adapter の同梱 / 自動取得                                               |
+| Renderer の `file://` 読込 | v1.0.0 では既知の制約として残す（Release blocker にしない。docs/ARCHITECTURE.md §4）                |
 
 ---
 
@@ -2302,12 +2317,13 @@ STEP 7 は v1.0.0 Release 前に、実際に使ったときの不便・崩れ・
 
 現在の位置:
 
-| Session | 状態 | 内容                                                                                                                                                                                                                      |
-| ------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 7-1A    | 完了 | Debug の実行 command と Profile 選択の所有を `DebugProvider` へ移し、Debug パネルの mount / unmount に依存しないようにした。STEP 6 Closing の「F5 系 keybinding は Debug パネル前面だけ」という制約は現在仕様では解消済み |
-| 7-1B    | 完了 | Files ツリーの展開状態と Git commit message draft を Panel の寿命より長く持たせた。Git パネルの狭い幅での折り返し / 省略も調整した                                                                                        |
-| 7-1C    | 完了 | Debug adapter が無い / 検証に失敗したときの案内を言語・原因ごとの固定文言へ分けた。Main のログを `userData/logs/main.log` へ残し、ファイル出力では絶対パスと認証情報を伏せるようにした                                    |
-| 7-1D    | 完了 | Documentation Synchronization。現在の実装と DESIGN.md / docs/ARCHITECTURE.md / docs/DEVELOPMENT.md の食い違い（Dogfooding B6）を解消した。コード変更はしていない                                                          |
+| Session | 状態 | 内容                                                                                                                                                                                                                           |
+| ------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 7-1A    | 完了 | Debug の実行 command と Profile 選択の所有を `DebugProvider` へ移し、Debug パネルの mount / unmount に依存しないようにした。STEP 6 Closing の「F5 系 keybinding は Debug パネル前面だけ」という制約は現在仕様では解消済み      |
+| 7-1B    | 完了 | Files ツリーの展開状態と Git commit message draft を Panel の寿命より長く持たせた。Git パネルの狭い幅での折り返し / 省略も調整した                                                                                             |
+| 7-1C    | 完了 | Debug adapter が無い / 検証に失敗したときの案内を言語・原因ごとの固定文言へ分けた。Main のログを `userData/logs/main.log` へ残し、ファイル出力では絶対パスと認証情報を伏せるようにした                                         |
+| 7-1D    | 完了 | Documentation Synchronization。現在の実装と DESIGN.md / docs/ARCHITECTURE.md / docs/DEVELOPMENT.md の食い違い（Dogfooding B6）を解消した。コード変更はしていない                                                               |
+| 7-2A    | 完了 | v1.0.0 Release metadata。version `1.0.0`・author・MIT LICENSE・利用者向け README・第三者ライセンス表記（生成と verify での検査）・docs/RELEASE.md（配布仕様・electron-builder の設計・公開前の確認）。installer は作っていない |
 
 現在仕様として見るべきこと:
 
@@ -2321,21 +2337,31 @@ STEP 7 は v1.0.0 Release 前に、実際に使ったときの不便・崩れ・
 
 v1.0.0 Release 前にまだ残っている主な問題:
 
-| 項目                                   | 状態                                                                                                                                                     |
-| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `runInTerminal` を断る代償             | debuggee は本物の端末を持たない。標準入力・端末サイズ・色を見るプログラムは Debug Console では同じように動かない                                         |
-| breakpoint は編集に付いて回らない      | 行を挿入しても印は置いた行に留まる                                                                                                                       |
-| 起動後の失敗理由が画面に出ない         | Start が `started` を返した後に adapter が終わる場合は starting → idle に戻り、理由は Main のログに残る                                                  |
-| Variables の続きを読めない             | 1応答 500件・1停止の handle 5,000件で切る。「さらに読む」は無い                                                                                          |
-| Debug Console の一覧に件数上限が無い   | 出力し続けるプログラムでは一覧が伸び続ける。1 entry は 10,000 字で切る                                                                                   |
-| C# は ASCII-only の path だけ          | netcoredbg の Windows 版の制約。adapter / dotnet / DLL / Workspace / cwd のいずれかが Unicode path なら `adapter-unavailable`                            |
-| vscode-js-debug の振る舞い             | Pause の理由が `step`、`exceptionInfo` の型名欄に `Error: <メッセージ>`、breakMode が出ない、ESM top-level の例外で止まらない                            |
-| 停止で Editor を開くとフォーカスも移る | 既存の `openFileAt` を通るため                                                                                                                           |
-| adapter は利用者が置く                 | js-debug の配布物・debugpy・netcoredbg は同梱も自動入手もしない                                                                                          |
-| 使われていない `EvaluateView.tsx`      | Debug Console に置き換わった単独の Evaluate 面が残っている。動作には影響しない                                                                           |
-| Renderer の `file://` 読み込み元       | production build の Renderer から `fetch('file:///...')` でローカルファイルを読めることを Session 7-1C で実測。ログ専用の問題ではなく、別 Session で扱う |
+| 項目                                   | 状態                                                                                                                                                                                                |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `runInTerminal` を断る代償             | debuggee は本物の端末を持たない。標準入力・端末サイズ・色を見るプログラムは Debug Console では同じように動かない                                                                                    |
+| breakpoint は編集に付いて回らない      | 行を挿入しても印は置いた行に留まる                                                                                                                                                                  |
+| 起動後の失敗理由が画面に出ない         | Start が `started` を返した後に adapter が終わる場合は starting → idle に戻り、理由は Main のログに残る                                                                                             |
+| Variables の続きを読めない             | 1応答 500件・1停止の handle 5,000件で切る。「さらに読む」は無い                                                                                                                                     |
+| Debug Console の一覧に件数上限が無い   | 出力し続けるプログラムでは一覧が伸び続ける。1 entry は 10,000 字で切る                                                                                                                              |
+| C# は ASCII-only の path だけ          | netcoredbg の Windows 版の制約。adapter / dotnet / DLL / Workspace / cwd のいずれかが Unicode path なら `adapter-unavailable`                                                                       |
+| vscode-js-debug の振る舞い             | Pause の理由が `step`、`exceptionInfo` の型名欄に `Error: <メッセージ>`、breakMode が出ない、ESM top-level の例外で止まらない                                                                       |
+| 停止で Editor を開くとフォーカスも移る | 既存の `openFileAt` を通るため                                                                                                                                                                      |
+| adapter は利用者が置く                 | js-debug の配布物・debugpy・netcoredbg は同梱も自動入手もしない                                                                                                                                     |
+| 使われていない `EvaluateView.tsx`      | Debug Console に置き換わった単独の Evaluate 面が残っている。動作には影響しない                                                                                                                      |
+| Renderer の `file://` 読み込み元       | production build の Renderer から `fetch('file:///...')` でローカルファイルを読めることを Session 7-1C で実測。**v1.0.0 では既知の制約として残す**（Session 7-2A で決定。Release blocker にしない） |
 
-Session 7-1D ではこの節と [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) / [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) の現在状態だけを同期した。Session 7-2 Release には進んでいない。
+上の表は v1.0.0 の既知の制約として Release notes / README に載せる（Release を止めるものではない）。
+
+v1.0.0 Release は Session 7-2A〜7-2E に分けて進める（docs/RELEASE.md §2）。**Session 7-2A 時点で残っている Release blocker**:
+
+| blocker                                                                                 | 片付ける Session                    |
+| --------------------------------------------------------------------------------------- | ----------------------------------- |
+| installer を作る仕組みが無い                                                            | 7-2B                                |
+| アプリアイコンの素材が無い                                                              | 7-2E の公開まで（素材の用意が必要） |
+| installer で入れたアプリが未検証                                                        | 7-2C                                |
+| clean Windows での確認が未実施                                                          | 7-2D                                |
+| repository が Private（公開直前の再確認と、commit の author e-mail の扱いの判断を含む） | 7-2E                                |
 
 ### Session 6-0 時点の Session 割り当て（予定）と実際
 

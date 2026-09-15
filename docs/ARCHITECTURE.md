@@ -1,6 +1,6 @@
 # アーキテクチャ
 
-> 対象: Session 7-1D（Documentation Synchronization）時点の実装
+> 対象: Session 7-2A（v1.0.0 Release metadata）時点の実装
 > 最終更新: 2026-09-16
 
 製品としての方向性は [DESIGN.md](../DESIGN.md) を参照。このドキュメントは「現在のコードがどう組まれているか」と「機能を足すときにどこへ書くか」を扱う。
@@ -436,6 +436,8 @@ Renderer            window.fluvix.files.onChanged(listener) → 解除の関数
 
 保存されるものはどれも `app.getPath('userData')`（Windows では `%APPDATA%/Fluvix Nexus`）配下の小さな JSON になる。インストール先にもプロジェクトフォルダにも書かない。
 
+フォルダ名は `package.json` の `productName` から決まる。v1.0.0 を出した後に変えると既存の利用者の保存内容が見えなくなるため、`productName` は変えない（docs/RELEASE.md §3）。
+
 | ファイル                | 内容                                | 検証（Electron 非依存）            | 保存を決める場所           |
 | ----------------------- | ----------------------------------- | ---------------------------------- | -------------------------- |
 | `window-state.json`     | ウィンドウのサイズ・位置・最大化    | `store/windowBounds.ts`            | `store/windowState.ts`     |
@@ -484,34 +486,35 @@ Renderer            window.fluvix.files.onChanged(listener) → 解除の関数
 
 ## 5. セキュリティの現状
 
-| 項目                                 | 状態                                                                                               |
-| ------------------------------------ | -------------------------------------------------------------------------------------------------- |
-| contextIsolation                     | 有効                                                                                               |
-| nodeIntegration                      | 無効                                                                                               |
-| sandbox                              | 有効                                                                                               |
-| webviewTag                           | 無効（attach も拒否）                                                                              |
-| Renderer から見える Node / Electron  | なし（`window.require` / `window.process` ともに undefined）                                       |
-| 外部サイトへの遷移                   | 拒否（メインフレーム・サブフレームとも）                                                           |
-| `window.open` / 新規ウィンドウ       | 拒否                                                                                               |
-| Web 権限（通知・位置情報・カメラ等） | 既定拒否（要求・確認の両経路 + デバイス権限）                                                      |
-| CSP                                  | `default-src 'self'` を基本に、`object-src` / `frame-src` / `base-uri` / `form-action` を `'none'` |
-| IPC の送信元                         | アプリのウィンドウ以外からの呼び出しを拒否                                                         |
-| ファイルへの書き込み                 | 用途を限定した API のみ（パスは Renderer から指定できない）                                        |
-| 開くフォルダの指定                   | Renderer から渡せない（選ぶのはネイティブのダイアログだけ。§8.4）                                  |
-| フォルダの中身を読む                 | 現在の Workspace の中だけ。root は Renderer から渡せない（§9.3）                                   |
-| ファイルの作成 / 改名 / 削除         | 現在の Workspace の中だけ。読む側と同じ検証を通す（§10.2）                                         |
-| ファイルの保存（上書き）             | 現在の Workspace の中だけ。**対象自身**の実体を確かめる（§11.6）                                   |
-| 別名で保存（書き出す先）             | Renderer から渡せない。決めるのはネイティブの保存ダイアログだけ（§12.9）                           |
-| 削除の方式                           | OS のごみ箱へ送るのみ。完全削除の経路を公開しない（§10.2）                                         |
-| ファイルの監視                       | Main だけ。Renderer に filesystem の API を渡さず、届くのは相対位置だけ（§12.1）                   |
-| 設定の保存                           | 用途専用の API のみ。保存先のパスもファイル名も Renderer から指定できない（§12.4）                 |
-| ウィンドウを閉じる / アプリ終了      | Renderer から始められない。返事を返す口だけを公開する（§12.7）                                     |
-| Main → Renderer のイベント           | 契約にあるチャンネルだけ購読できる。Electron の event は Preload が剥がす（§3.3）                  |
-| Monaco の Worker                     | アプリにバンドルしたものだけ。blob: も外部 CDN も経由しない（§11.2。Diff Editor も同じ）           |
-| シェルの起動                         | 起動する実行ファイルは Main の表が決める。PATH は辿って絶対パスで起動する（§13.1・§13.2）          |
-| git の実行                           | コマンド・引数・作業ディレクトリを Renderer から渡せない（要求は `void`。§14.2）                   |
-| ログファイル                         | Main だけが userData/logs に書く。絶対パス・認証情報を伏せ、Renderer から読む / 開く口は無い（§4） |
-| git 本体の解決                       | PATH に任せず辿る。作業ディレクトリの中の `git.exe` は起動されない（§14.1）                        |
+| 項目                                 | 状態                                                                                                                   |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| contextIsolation                     | 有効                                                                                                                   |
+| nodeIntegration                      | 無効                                                                                                                   |
+| sandbox                              | 有効                                                                                                                   |
+| webviewTag                           | 無効（attach も拒否）                                                                                                  |
+| Renderer から見える Node / Electron  | なし（`window.require` / `window.process` ともに undefined）                                                           |
+| 外部サイトへの遷移                   | 拒否（メインフレーム・サブフレームとも）                                                                               |
+| `window.open` / 新規ウィンドウ       | 拒否                                                                                                                   |
+| Web 権限（通知・位置情報・カメラ等） | 既定拒否（要求・確認の両経路 + デバイス権限）                                                                          |
+| CSP                                  | `default-src 'self'` を基本に、`object-src` / `frame-src` / `base-uri` / `form-action` を `'none'`                     |
+| IPC の送信元                         | アプリのウィンドウ以外からの呼び出しを拒否                                                                             |
+| ファイルへの書き込み                 | 用途を限定した API のみ（パスは Renderer から指定できない）                                                            |
+| 開くフォルダの指定                   | Renderer から渡せない（選ぶのはネイティブのダイアログだけ。§8.4）                                                      |
+| フォルダの中身を読む                 | 現在の Workspace の中だけ。root は Renderer から渡せない（§9.3）                                                       |
+| ファイルの作成 / 改名 / 削除         | 現在の Workspace の中だけ。読む側と同じ検証を通す（§10.2）                                                             |
+| ファイルの保存（上書き）             | 現在の Workspace の中だけ。**対象自身**の実体を確かめる（§11.6）                                                       |
+| 別名で保存（書き出す先）             | Renderer から渡せない。決めるのはネイティブの保存ダイアログだけ（§12.9）                                               |
+| 削除の方式                           | OS のごみ箱へ送るのみ。完全削除の経路を公開しない（§10.2）                                                             |
+| ファイルの監視                       | Main だけ。Renderer に filesystem の API を渡さず、届くのは相対位置だけ（§12.1）                                       |
+| 設定の保存                           | 用途専用の API のみ。保存先のパスもファイル名も Renderer から指定できない（§12.4）                                     |
+| ウィンドウを閉じる / アプリ終了      | Renderer から始められない。返事を返す口だけを公開する（§12.7）                                                         |
+| Main → Renderer のイベント           | 契約にあるチャンネルだけ購読できる。Electron の event は Preload が剥がす（§3.3）                                      |
+| Monaco の Worker                     | アプリにバンドルしたものだけ。blob: も外部 CDN も経由しない（§11.2。Diff Editor も同じ）                               |
+| シェルの起動                         | 起動する実行ファイルは Main の表が決める。PATH は辿って絶対パスで起動する（§13.1・§13.2）                              |
+| git の実行                           | コマンド・引数・作業ディレクトリを Renderer から渡せない（要求は `void`。§14.2）                                       |
+| ログファイル                         | Main だけが userData/logs に書く。絶対パス・認証情報を伏せ、Renderer から読む / 開く口は無い（§4）                     |
+| git 本体の解決                       | PATH に任せず辿る。作業ディレクトリの中の `git.exe` は起動されない（§14.1）                                            |
+| Renderer の `file://` 読み込み       | **既知の制約。** `fetch('file:///…')` でローカルファイルを読める（§4）。v1.0.0 ではこのまま出す（Session 7-2A で決定） |
 
 ガードは webContents 単位（`app.on('web-contents-created')`）で掛けている。ウィンドウが増えても掛け忘れが起きない形にするため。
 
@@ -3166,6 +3169,8 @@ OS へ聞く往復ぶん、× を押してから閉じるまでに間が空く�
 `@lydell/node-pty` は本家 `node-pty` の再配布で、**現在のプラットフォーム向けの prebuilt だけ**を入れる（Windows では ConPTY のみ。winpty は含まれない）。Electron 43（ABI 148）でリビルド無しに読み込めることを実機で確認済み。
 
 これがこのプロジェクトで最初の `dependencies`（＝配布物に同梱される依存）になる。`externalizeDepsPlugin` により Main のバンドルからは external 扱いのままなので構成は変わらないが、**exe 化（DEVELOPMENT.md §6）では `node_modules` を成果物に含める必要が出る。**
+
+installer（Session 7-2B）では `node_modules/@lydell/**` を asar の外へ出す（docs/RELEASE.md §5.4）。node-pty は ConPTY の出力を読む Worker の script を、`__dirname` の `node_modules.asar` だけを置き換えて探すため、electron-builder の `app.asar` の中に置くと見つけられない。`.pdb` は同梱しない。
 
 xterm（`@xterm/xterm` / `@xterm/addon-fit`）は Renderer にバンドルされるため `devDependencies` に置く（monaco-editor と同じ扱い）。
 

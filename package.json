@@ -1,10 +1,11 @@
 {
   "name": "fluvix-nexus",
   "productName": "Fluvix Nexus",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "description": "Lightweight Windows code editor with dockable panels",
   "private": true,
-  "author": "",
+  "author": "Piroshi",
+  "license": "MIT",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
@@ -16,7 +17,9 @@
     "test:watch": "vitest",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "verify": "npm run format:check && npm run typecheck && npm run test"
+    "notices": "node tools/third-party-notices.mjs",
+    "notices:check": "node tools/third-party-notices.mjs --check",
+    "verify": "npm run format:check && npm run typecheck && npm run notices:check && npm run test"
   },
   "devDependencies": {
     "@types/node": "26.2.0",
