@@ -1,7 +1,7 @@
 # 開発ガイド
 
-> 対象: Session 5-13（STEP 5 LSP Closing）完了時点 ＋ Session 6-14（STEP 6 C# Debug Adapter / netcoredbg）＋ Session 6-15A（STEP 6 Socket DAP / Child Session Foundation）＋ Session 6-15B（STEP 6 Node.js Debug Adapter / vscode-js-debug）
-> 最終更新: 2026-09-14
+> 対象: Session 6-17（STEP 6 Debugger Closing）完了時点
+> 最終更新: 2026-09-15
 
 ---
 
@@ -30,11 +30,13 @@
 
 Language Server と同じく**アプリの開発・テスト・ビルドには要らない**し、同梱もしない（docs/ARCHITECTURE.md §20.7）。
 
-| 言語    | Debug Adapter 候補                               | 入手経路                                        | 状態                              |
-| ------- | ------------------------------------------------ | ----------------------------------------------- | --------------------------------- |
-| Node.js | vscode-js-debug 1.117.0 の standalone DAP server | 公式 GitHub Release の asset を userData へ展開 | **Session 6-15B で `integrated`** |
-| Python  | `debugpy`（`python -m debugpy.adapter`）         | `pip install debugpy`                           | **Session 6-12 で `integrated`**  |
-| C#      | `netcoredbg --interpreter=vscode`                | 配布バイナリ                                    | **Session 6-14 で `integrated`**  |
+| 言語    | Debug Adapter                                    | 入手経路                                        | 状態                              | Closing で確かめた版         |
+| ------- | ------------------------------------------------ | ----------------------------------------------- | --------------------------------- | ---------------------------- |
+| Node.js | vscode-js-debug 1.117.0 の standalone DAP server | 公式 GitHub Release の asset を userData へ展開 | **Session 6-15B で `integrated`** | 1.117.0（Node v24）          |
+| Python  | `debugpy`（`python -m debugpy.adapter`）         | `pip install debugpy`                           | **Session 6-12 で `integrated`**  | 1.8.21（CPython 3.14.7）     |
+| C#      | `netcoredbg --interpreter=vscode`                | Samsung/netcoredbg の公式 release zip           | **Session 6-14 で `integrated`**  | 3.2.0-1092（.NET 8 runtime） |
+
+3つとも Status Bar の既定は「待機中」になり、adapter が見つからないことは Start の応答（`adapter-unavailable`）でだけ分かる（docs/ARCHITECTURE.md §20.17）。
 
 Node.js は **PATH のネイティブの `node.exe`** と、**pin した vscode-js-debug の配布物が userData の決まった場所にあること**が条件（docs/ARCHITECTURE.md §20.24）。debuggee も同じ node.exe で動く。v1 は `.js` / `.mjs` / `.cjs` の launch だけ。アプリは配布物を取りに行かないので、使うときだけ手で置く（Windows / PowerShell。`$env:APPDATA\Fluvix Nexus` はアプリの userData）:
 
@@ -53,33 +55,42 @@ tar.exe -xzf js-debug-dap.tar.gz -C $dest                   # → $dest\js-debug
 
 Python は **PATH の `python` で `import debugpy` できること**が条件（Workspace の中・相対の PATH 項目は探さない）。debuggee も同じ interpreter で動く。
 
-C# は **PATH の `netcoredbg` と trusted `dotnet.exe` を解決できること**が条件（Workspace の中・相対の PATH 項目は探さない）。Debug Profile の `programRelativePath` には、あらかじめ build 済みの `.dll` を指定する。Windows 版 netcoredbg（3.2.0-1092 / 3.1.3-1062）は Unicode path で `configurationDone` が 0x80004005 になるため、Session 6-14 では netcoredbg が直接触る adapter / dotnet / target DLL / Workspace cwd が ASCII-only である場合だけ C# Start を許可する。
+C# は **PATH の `netcoredbg` と trusted `dotnet.exe` を解決できること**が条件（Workspace の中・相対の PATH 項目は探さない。`dotnet.exe` は `C:\Program Files\dotnet` → `C:\Program Files (x86)\dotnet` → PATH の順）。Debug Profile の `programRelativePath` には、あらかじめ build 済みの `.dll` を指定する（source と PDB が同じ Workspace にある build 成果物でないと breakpoint が pending のままになる）。Windows 版 netcoredbg（3.2.0-1092 / 3.1.3-1062）は Unicode path で `configurationDone` が 0x80004005 になるため、netcoredbg が直接触る adapter / dotnet / target DLL / Workspace cwd が ASCII-only である場合だけ C# Start を許可する。netcoredbg も ASCII-only のフォルダに置くこと（Windows / PowerShell）:
+
+```powershell
+curl.exe -L -o netcoredbg-win64.zip "https://github.com/Samsung/netcoredbg/releases/download/3.2.0-1092/netcoredbg-win64.zip"
+(Get-FileHash netcoredbg-win64.zip -Algorithm SHA256).Hash   # 3C410A45FA502415203A94FCB88654AF65BF8E3DAC158A5527A722E7A6B9274A
+Expand-Archive netcoredbg-win64.zip -DestinationPath C:\tools   # → C:\tools\netcoredbg\netcoredbg.exe（ASCII-only のフォルダ）
+# C:\tools\netcoredbg を PATH に足す
+```
+
+- SHA-256 は GitHub の release asset の `digest` と同じ値。3.2.0-1092 の Windows x64 zip は 3,524,161 バイトで、`netcoredbg --version` は `NET Core debugger 3.2.0-1 (9744e1f, Release)` を返す
+- アプリは netcoredbg を pin しない（js-debug と違って hash を確かめない）── PATH から解くだけなので、上の値は手で置くときの確認用
 
 **vsdbg は使わない**（ライセンス上 Visual Studio / VS Code 以外から利用できない）。C# は netcoredbg を前提にする。
 
-この PC の現状は **Node のみ利用可能**で、Python / .NET SDK / netcoredbg はシステムには入っていない。Python / C# を実機で確かめるときは、STEP 5 の C# と同じく一時ディレクトリへ置き、起動する Electron の `env` にだけ PATH を足す（§4）。
+この PC の現状（Session 6-17 時点）は、システムに **Node.js と .NET の runtime（SDK 無し）** だけが入っていて、Python・debugpy・netcoredbg・.NET SDK は入っていない。Python / C# を実機で確かめるときは、STEP 5 の C# と同じく一時ディレクトリへ置き、起動する Electron の `env` にだけ PATH を足す（§4）。netcoredbg と C# の題材は ASCII-only の一時パス（`D:\fx617` のような場所）に置く ── 作業用ディレクトリ（`%TEMP%` の下）はユーザー名が Unicode のため使えない。
 
-Session 6-1 で `main/debug/` の wire protocol / process foundation が入り、Session 6-2 で Main-owned Debug Session lifecycle / state machine が入った。`initialize` / `launch` / `initialized` / `configurationDone` の lifecycle foundation、単一 session 制限、generation による stale callback rejection、Workspace switch / app quit cleanup は `src/main/debug/debugSessionManager.ts` と unit test で固定している。
+#### STEP 6 Closing 時点で揃っているもの
 
-Session 6-3 で **Breakpoint** が入った。Monaco の glyph margin での追加 / 削除、Workspace ごとの保存（`userData/debug-breakpoints.json`）、`initialized` → `setBreakpoints` → `configurationDone` の同期、verified / unverified の反映までが揃っている（docs/ARCHITECTURE.md §20.12）。**実 adapter がまだ無いので、実機で見えるのは常に「答え待ち」の赤い丸**になる ── verified / unverified の色分けは mock adapter でのみ確認できる。
+Debug パネル（View メニュー → Debug）に、上から Toolbar（Profile の選択と編集・Start / Continue / Pause / Step Over / Step Into / Step Out / Stop）・停止理由・Call Stack・Variables・Debug Console が並ぶ。ステータスバーに Debug の状態が1語で出る。adapter を1つでも置けば、次の流れが production build でそのまま通る（Session 6-17 で3言語とも実測。§4）。
 
-Session 6-4 で **実行制御**（Continue / Pause / Step Over / Step Into / Step Out / Stop）が入った。typed IPC 6つ（要求はどれも `void`）と、その裏の状態ごとの許可 / 拒否・DAP への翻訳・`terminate` → `disconnect` → kill の Stop（docs/ARCHITECTURE.md §20.13）。**押すボタンもキーもまだ無く**、Debug Session を起動する口（Debug Profile）も無いので、実機で制御を通せるのは mock adapter を Main から立てた確認だけになる（§4）。
+| 操作                          | 入口                                                                                                  | 詳細                                 |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| Debug Profile の作成 / 編集   | Debug パネルの Profile editor（名前・言語・Workspace 相対の program・引数・環境変数・入口で止めるか） | docs/ARCHITECTURE.md §20.18 / §20.19 |
+| Breakpoint                    | Editor の glyph margin の click / **F9**（Editor に focus）                                           | §20.12 / §20.26                      |
+| Start / Continue              | Toolbar / **F5**（状態で切り替わる）                                                                  | §20.13 / §20.26                      |
+| Step Over / Into / Out / Stop | Toolbar / **F10** / **F11** / **Shift+F11** / **Shift+F5**                                            | §20.13 / §20.26                      |
+| Pause                         | Toolbar（打鍵は無い）                                                                                 | §20.13                               |
+| Call Stack / 実行位置         | 止まると Editor が最上段の行を開き、印を出す。frame を押すと Variables がその frame を読む            | §20.14 / §20.21                      |
+| Variables / Evaluate          | Variables の tree / Debug Console の入力欄                                                            | §20.15 / §20.16 / §20.25             |
+| 例外で止まる                  | 捕まえられなかった例外（言語ごとの固定の表）                                                          | §20.21                               |
 
-Session 6-5 で **Call Stack** が入った。`stopped` event から Main が `threads` → `stackTrace` を読み、`source.path` / 絶対パス / file URI / `sourceReference` を落とした safe domain model を Renderer へ配る（docs/ARCHITECTURE.md §20.14）。Workspace 内 source だけが `relativePath` を持ち、Workspace 外 / missing / malformed source は frame を残したまま開けない。frame 選択は既存の `EditorContext.openFileAt` に乗る。Debug panel は Call Stack だけを置く最小実装で、6-8 の Toolbar はまだ無い。
+- 保存先は userData の `debug-profiles.json` / `debug-breakpoints.json`（Workspace の絶対パスで引く）。**Workspace の中には何も書かない**
+- **F5 / Shift+F5 / F10 / F11 / Shift+F11 は Debug パネルが dock の前面タブのときだけ効く**（STEP 6 v1 の既知の制約。docs/ARCHITECTURE.md §20.26）。Files などを前面にしている間は Toolbar のボタンと同じく command が登録されず、打鍵は何も起こさない。F9 は Editor の器が持つので影響を受けない
+- Debug Session は同時に1本。Workspace を切り替える・アプリを閉じると、動いているセッションは終わり adapter と debuggee のプロセスも消える
 
-Session 6-6 で **Variables / Scopes** が入った。Call Stack で選んだ frame の Scope と Variable を lazy に辿る。DAP の `variablesReference` は Main の handle 表に控え、Renderer へは Main が発行した handle だけを渡す（docs/ARCHITECTURE.md §20.15）。Workspace 外の frame も選べる（Variables を読むため）が、開きはしない。
-
-Session 6-9 で **Debug の状態**がステータスバーに出るようになった（`debug:get-status` / `debug:status-changed`。docs/ARCHITECTURE.md §20.17）。実 adapter がまだ統合されていないので、**実機では常に「デバッグ: 利用不可」**になる ── starting / running / 一時停止中 / 終了中 が見えるのは mock adapter を Main から立てた確認だけ。Debug の Settings section は作っていない。
-
-Session 6-10 で **Debug Profile の保存と `debug:start`** が入った（`debug:list-profiles` / `create-profile` / `update-profile` / `delete-profile` / `start`。docs/ARCHITECTURE.md §20.18）。保存先は `userData/debug-profiles.json`（Workspace root の realpath で引く）。Renderer が渡せるのは6欄と Main が発番した `profileId` だけで、解決した program の絶対パス・adapter の実行ファイル / 引数・cwd は Main の中（`ResolvedLaunchConfiguration`）で閉じる。**catalog の行はすべて `not-integrated` のままなので、実機の `debug:start` は常に `adapter-unavailable`** ── 起動が通るのは catalog を mock adapter に差し替えた確認だけ（§4）。
-
-Session 6-11 で **Debug Toolbar と Debug Profile editor** が Debug Panel の中に入った（docs/ARCHITECTURE.md §20.19）。Toolbar は `DebugSessionStatus` だけから Start / Continue / Pause / Step / Stop の活性を決め、同じ条件で `debug.*` command を登録する。Profile editor は Session 6-10 の6欄だけを編集し、Start は選択済み `profileId` だけを `debug:start` へ渡す。Settings section は作っていない。実 adapter 統合はまだ無い。
-
-Session 6-12 で **Python（debugpy）が最初の実 adapter** になった（docs/ARCHITECTURE.md §20.20）。catalog の python 行が `integrated` になったので、**出荷状態のステータスは「待機中」**になり、PATH の `python` に debugpy が入っていれば Debug Profile → Start → breakpoint → Continue / Pause / Step → Call Stack / Variables / Debug Console → Stop が実機で通る。adapter のプロセスの cwd は userData（Workspace の外）、launch には `subProcess: false` が固定で載る。python が PATH に無ければ Start は `adapter-unavailable`、debugpy の無い python では starting から idle へ戻るだけになる。
-
-Session 6-14 で **C#（netcoredbg）が2つ目の実 adapter** になった（docs/ARCHITECTURE.md §20.22）。catalog の csharp 行は `netcoredbg --interpreter=vscode`、launch type は `coreclr`。C# launch は実証済みの `dotnet.exe + build 済み DLL` に限定し、profile の `programRelativePath` が `.dll` でなければ起動しない。entry stop は profile の `stopOnEntry` から `stopAtEntry` へ写し、C# launch には共通欄の `stopOnEntry` は載せない。netcoredbg では `launch` 応答前に breakpoint 仕込みへ進めると debuggee が即終了することがあるため、C# だけ `launch` 応答を待ってから configuration に入る。Windows 版 netcoredbg の Unicode path 不具合を踏まえ、netcoredbg が触る path が ASCII-only でない場合は Start を `adapter-unavailable` で止める。条件を満たせば breakpoint → Call Stack / Variables / Evaluate → Stop が実機で通り、未処理例外は `user-unhandled` filter で止まる。Node は未統合のまま。
-
-Session 6-15A で **socket で DAP を話す adapter と、`startDebugging` による子セッションの generic な土台**が Main に入った（docs/ARCHITECTURE.md §20.23）。vscode-js-debug のための準備で、**Node の実 adapter はまだ統合していない** ── catalog の node 行は `not-integrated` のままなので、出荷状態の Node Profile の Start は `adapter-unavailable` になる。Python / C# は stdio のまま何も変わらない。
+Session ごとの経緯（何をどの順に入れたか）は DESIGN.md §13、構造は docs/ARCHITECTURE.md §20 にある。Closing 時点の既知の制約は DESIGN.md §13 の Session 6-17 と docs/ARCHITECTURE.md §20.27。
 
 Session 6-15B で **Node.js（vscode-js-debug 1.117.0）が3つ目の実 adapter** になった（docs/ARCHITECTURE.md §20.24）。PATH の `node.exe` で、userData に置いた pin 済みの `dapDebugServer.js` を socket の server として立て、root に届く `startDebugging` で primary child を張る。launch は Main が組み（`runtimeExecutable` は同じ node.exe・`sourceMaps: false`・`autoAttachChildProcesses: false`・`outputCapture: 'std'`）、`.js` / `.mjs` / `.cjs` 以外は `invalid-profile`。配布物が無い / 改変されている・node が PATH に無い（または Workspace の中にある）なら `adapter-unavailable`。条件を満たせば Profile → Start → breakpoint → Continue / Pause / Step → Call Stack / Variables / Evaluate / Debug Console → 未処理例外で停止 → Stop / 完走が実機で通る。
 
@@ -634,7 +645,7 @@ DAP の周りは 6-1 / 6-2 と同じ分け方で、**Electron も子プロセス
 - `src/main/debug/variables.test.ts` — handle 表（有効な handle・未知の handle・**生の `variablesReference` を拒否**・stale session generation / stop generation / Workspace / frame・Call Stack snapshot の差し替えで無効・handle の上限）、lifecycle（stopped の間だけ・running / terminating / idle で clear・新しい stopped・Workspace switch・応答が返る前に再開 / 次の停止 / Workspace switch が起きたら handle を発行しないこと）
 - `src/main/debug/debugSessionVariables.test.ts` — Manager を通した Variables channel（stopped の間だけ開くこと・次の停止 / `continued` / cleanup で古い channel が閉じること・paging capability の読み取り）と、**本物の stdio mock adapter** で initialize → launch → initialized → setBreakpoints → configurationDone → stopped → threads → stackTrace → scopes → variables → 入れ子 → continue → 次の停止（同じ番号の再利用）で古い handle が `stale` になり adapter へ届かないこと
 - `src/main/ipc/handlers/debug.test.ts` — `debug:list-scopes` / `debug:list-variables` の形の検査（正の整数でない `frameId`・文字列でない `handle` は INVALID_REQUEST、`frameId` / `handle` 以外を Main の処理へ渡さないこと）
-- `src/preload/api/debug.test.ts` — 13関数になったこと、`listScopes` / `listVariables` が `frameId` / `handle` 以外を送らないこと、evaluate / setVariable / memory を名乗る関数が無いこと
+- `src/preload/api/debug.test.ts` — `listScopes` / `listVariables` が `frameId` / `handle` 以外を送らないこと、setVariable / memory を名乗る関数が無いこと（関数の数は 6-6 時点で13。Closing 時点のテストは22を確かめる）
 - `src/renderer/src/debug/callStackSelection.test.ts` — 既定の frame（止まった thread の最上段）、選択を snapshot の版に結び付けること
 - `src/renderer/src/debug/variablesTreeModel.test.ts` — lazy expansion・閉じても控えること・empty / truncated / unavailable・遅れた応答を当てないこと
 - `src/renderer/src/debug/VariablesView.dom.test.ts` — Scope / Variable 表示、入れ子の展開 / 折り畳み、loading / empty / unavailable、snapshot の差し替えで clear・遅れた応答を捨てること、frame 選択への追従、ARIA tree とキーボード
@@ -646,7 +657,7 @@ DAP の周りは 6-1 / 6-2 と同じ分け方で、**Electron も子プロセス
 - `src/main/debug/sessionStatus.test.ts` — 起動時は配らないこと・**payload が1語だけ**であること・同じ tick の変化を1本にまとめてその時点の状態を送ること・同じ語を続けて送らないこと・公開するのが読む関数と配り始める関数だけであること・既定が `idle`（Session 6-12 で python 行が統合されたため。6-9〜6-11 は `unavailable`）
 - `src/main/debug/adapterCatalog.test.ts` — `hasIntegratedDebugAdapter`（統合された行が無ければ false、1行でもあれば true。出荷状態は python が統合されているので true）
 - `src/main/ipc/handlers/debug.test.ts` — `debug:get-status` が要求に何が載っていても読まず、`{ status }` だけを返すこと
-- `src/preload/api/debug.test.ts` — 17関数になったこと、`getStatus` が何を渡されてもチャンネル名だけを送ること
+- `src/preload/api/debug.test.ts` — `getStatus` が何を渡されてもチャンネル名だけを送ること（関数の数は 6-9 時点で17）
 - `src/renderer/src/debug/debugStatusLabels.test.ts` — 6語すべてに日英の言葉があること・言い回しが重ならないこと・**`stopped` を Paused / 一時停止中 と書き、Stopped / 停止中 と書かないこと**
 - `src/renderer/src/debug/DebugStatusItem.dom.test.ts` — 最初の1回を読む・通知で置き換わる・**先に届いた通知が遅れた読み込みに勝つ**・読めなければ何も出さない（既定の語を作らない）・**閉じた集合の外の語やパスを描かない**・押せない・表示言語の切り替えに追従する・外すと購読も外れる
 
@@ -667,8 +678,8 @@ DAP の周りは 6-1 / 6-2 と同じ分け方で、**Electron も子プロセス
 
 - `src/renderer/src/debug/debugToolbarModel.test.ts` — status ごとの Toolbar button matrix・Profile form ↔ draft の変換・`programArgs` を shell 文字列として扱わないこと・safe な message key への変換
 - `src/renderer/src/debug/DebugToolbar.dom.test.ts` — Profile selector が名前と言語だけを表示すること・raw path / adapter 情報を描画しないこと・Start が `profileId` だけを渡すこと・create / update / delete・validation failure・unavailable・accessibility・Command Registry の登録条件
-- `src/renderer/src/commands/registry.test.ts` / `commandLocalization.test.ts` — `debug.*` command 10件と debug category の登録・日英の command 名
-- `src/renderer/src/settings/KeyboardShortcuts.dom.test.ts` — Debug command が Keyboard Shortcuts 一覧に未割り当てとして並ぶこと
+- `src/renderer/src/commands/registry.test.ts` / `commandLocalization.test.ts` — `debug.*` command と debug category の登録・日英の command 名（6-11 で10件、6-16 で12件）
+- `src/renderer/src/settings/KeyboardShortcuts.dom.test.ts` — Debug command が Keyboard Shortcuts 一覧に並ぶこと（6-11 時点ではすべて未割り当て。6-16 で6件に打鍵が付いた）
 
 #### Exception Stop / Current Execution Location（Session 6-13）
 
@@ -700,6 +711,41 @@ DAP の周りは 6-1 / 6-2 と同じ分け方で、**Electron も子プロセス
 - `src/main/debug/debugSessionChildSessions.test.ts` — **ready の子の `terminated` / `exited` で terminating に進み、Continue を断り、root の stderr を Debug Console へ流し、root の `terminated` で子 → root → server を片付けること**（error のログを出さない）・root が終わらなければ猶予で片付けること・待つ間の子の接続 / adapter の close を終わり方として扱うこと・待つ間の Stop が同じ終わりを待つこと・設定中の子の `terminated` は即座に片付けること・**`supportsTerminateRequest: false` の子へ Stop が `disconnect`（`terminateDebuggee: true`）を直接送ること**・root の `output` を表の category だけ通すこと（子を受ける前の `console` / `telemetry` / category なし / `important` を落とし、子の `console` は通す）・表に欄が無ければ / root だけのセッションでは全部通すこと・**thread id 0 の `thread` / `stopped` で Pause / Continue が子へ `threadId: 0` 付きで届くこと**
 - `src/main/debug/dapThreads.test.ts` / `callStack.test.ts` / `ipc/handlers/debug.test.ts` — **thread id 0 と frame id 0（実 js-debug の振り方）を通し、frame 0 に handle が発行されること**・負 / 小数 / 安全でない整数は従来どおり断ること（production 確認で見つけた不具合の回帰）
 - `src/main/debug/console.test.ts` — `telemetry` の output を Debug Console へ出さないこと（js-debug の `js-debug/dap/operation`・debugpy）
+
+#### Evaluate（Session 6-7）
+
+- `src/main/debug/dapEvaluate.test.ts` — 要求が式・Main が確かめた frame id・翻訳した文脈の3欄だけであること・式を加工しないこと・`variablesReference` を Renderer 形から切り離す（無い / 読めない値は 0 ＝ 葉）・空の結果を保つ・知らない presentationHint を `other` に畳む・値の制御文字と長さ・空 / 読めない型を落とす・文脈の表が閉じた集合を覆うこと
+- `src/main/debug/evaluate.test.ts` — 呼び手が名指した frame で評価する・**結果の reference を 6-6 と同じ handle 表に載せ、`listVariables` で展開できる**・Scope と handle 番号を共有しない・葉 / 表が一杯なら handle 無しで答える・Workspace が無い / 今の Call Stack に無い frame は送る前に断る・Workspace 外の frame でも評価する・**Continue / 次の停止 / Workspace 切り替え（通知の前を含む）/ セッションの入れ替え / 終了の後に届いた答えを捨てる**・adapter の失敗の文言を Main のログにだけ残す・答えない adapter の `timeout` と、その後に届いた答えに handle を発行しないこと・DAP の command / adapter / パスを Renderer へ出さない・別の接続の frame / handle を通さない（6-15A）
+- `src/main/debug/debugSessionEvaluate.test.ts` — Evaluate の口が stopped の間だけ開き、次の停止 / 終了で閉じ、Variables の口とは別であること
+- `src/main/debug/variables.test.ts` / `src/renderer/src/debug/variablesTreeModel.test.ts` — evaluate の結果を同じ表へ登録すること・Scope から始まらない入口（`flattenVariablesSubtree`）
+- `src/main/ipc/handlers/debug.test.ts` / `src/shared/debug/evaluate.test.ts` / `src/preload/api/debug.test.ts` — 3欄以外を送らないこと・形の壊れた要求（空の式・長さ・NUL・`frameId`・閉じた集合の外の文脈）が INVALID_REQUEST
+- `src/renderer/src/debug/EvaluateView.dom.test.ts` — 6-7 の単独の Evaluate の面（Closing 時点で Debug パネルに mount されていないが、テストはコンポーネントと一緒に残っている。docs/ARCHITECTURE.md §20.16）
+
+#### Debug Console（Session 6-8）
+
+- `src/main/debug/console.test.ts` — stdout を Workspace 相対の source 付きで畳み、生の DAP の欄を載せないこと・Workspace 外の source を unavailable にして絶対パスを出さないこと・壊れた body と長い文字列の上限・今の Workspace へ送り、セッションの終わりを system の1行で知らせること・`telemetry` を出さないこと（6-15B）
+- `src/renderer/src/debug/DebugConsoleView.dom.test.ts` — 入力を safe な `repl` の evaluate で評価すること・止まって frame を選ぶまで入力を disabled に保つこと・**今の Workspace の出力だけを描き、Workspace 切り替えで消すこと**・履歴を保ったまま Clear で entry だけを消すこと・結果の handle を Variables の API で展開し、生の handle を描かないこと・評価の失敗を error の entry として出すこと
+- `src/main/debug/debugSessionManager.test.ts` / `src/preload/api/debug.test.ts` — output の listener と `onConsoleEntry` の経路
+
+#### C#（netcoredbg。Session 6-14）
+
+- `src/main/debug/profileResolver.test.ts` — 出荷状態の csharp 行が `netcoredbg --interpreter=vscode`（adapter の cwd は Workspace の外）に解けること・Profile に載せた C# 固有の設定を運ばないこと・PATH に netcoredbg が無ければ `adapter-unavailable`・target が build 済み DLL でなければ `invalid-profile`・**netcoredbg から見える path のどれかが ASCII-only でなければ `adapter-unavailable`**
+- `src/main/debug/adapterCatalog.test.ts` — csharp 行が PATH の `netcoredbg.exe` へ解けること
+- `src/main/debug/dapBreakpoints.test.ts` / `breakpointModel.test.ts` — **後から届く `breakpoint` event** の verified と source path を読むこと・adapter の文言を `setBreakpoints` の応答と同じ上限で切ること・`removed` と壊れた event を読まないこと・source と line で当てる（adapter が動かした行にも、line が無くてもそのファイルに1件だけなら当てる）・曖昧な event は当てないこと
+- `src/main/debug/debugSessionBreakpoints.test.ts` — adapter から後で届いた breakpoint event を購読できること
+- `src/main/debug/debugSessionControl.test.ts` — `thread` event で覚えたスレッドへ Pause を送ること
+- `src/main/debug/debugSessionManager.test.ts` — `launch` の応答を待ってから設定の窓へ進む互換フラグ
+- `src/main/debug/dapStackTrace.test.ts` — netcoredbg が返す frame id 0 を保つこと
+
+#### Debug Command / Keybinding（Session 6-16）
+
+- `src/renderer/src/keybindings/defaults.test.ts` — F5 / Shift+F5 / F9 / F10 / F11 / Shift+F11 を持つこと・F9 は Editor に focus があるときだけ・実行制御は端末と Settings の背面で走らせないこと
+- `src/renderer/src/commands/registry.test.ts` / `commandLocalization.test.ts` — Profile と実行制御と breakpoint の12件と日英の名前
+- `src/renderer/src/debug/DebugToolbar.dom.test.ts` — **`debug.startOrContinue` が idle では Start、stopped では Continue を既存の操作として呼ぶ**こと
+- `src/renderer/src/editor/debug/breakpointGlyphs.test.ts` — カーソルのある行を入れ替えの対象にすること・Model / 位置が無い / 範囲外の行では何もしないこと
+- `src/renderer/src/settings/KeyboardShortcuts.dom.test.ts` / `src/renderer/src/keybindings/shortcutRows.test.ts` — 40件が1つ残らず出ること・割り当てのある18件が打鍵を出し、22件が未割り当てとして出ること・Debug の12件と既定の打鍵・言語を切り替えても40件・7グループのまま
+
+**「Debug パネルが前面のタブのときにだけ F5 / Shift+F5 / F10 / F11 / Shift+F11 が効く」は unit test では固定していない**（command の登録は所有者の mount で決まり、mount は dock の描画で決まる）。production build で実測している（§4 の Session 6-17）。
 
 ### 整形
 
@@ -2079,7 +2125,7 @@ Session 4-5 / 4-7 は**境界を1つも動かしていない**ことを、両ス
 **production build 版 105項目、全項目 PASS。** 使い捨ての Workspace 2つ（ws1 / ws2）・Workspace の外のフォルダ・使い捨ての `--user-data-dir` で起動し、`npm run build` 後の `out/main/index.js` 末尾へ `FLUVIX_VERIFY_DEBUG=1` で開く数行（**catalog の `node` 行を mock adapter の行へ差し替える関数**を globalThis に置くだけ）を確認のあいだだけ足した。6-9 までと違い**セッションは Main から立てていない** ── 起動は Renderer の `window.fluvix.debug.start({ profileId })` から通した。確認の後は `npm run build` で out/ を作り直している（hook の残りが 0 件であることを grep で確認）。1回の node プロセスで2回起動し、2回目は hook を開かずに（出荷状態の catalog で）起動した。
 
 - 面 / 境界: `debug` の関数が22個（17 + 5）、adapter / spawn / exec / process / attach / command / request / launch / runtime / cwd を名乗る関数が無い、`require` / `process` / `electron` / `Buffer` の非露出
-- 出荷状態: ステータスが「利用不可」、node 行が `not-integrated`、`start` は `{ status: 'failed', reason: 'adapter-unavailable' }` の2欄だけで adapter のプロセスは立たない（要求に `adapter` / `cwd` / `program` を載せても同じ）、未知の id は `profile-not-found`
+- 出荷状態（6-10 時点。→ 6-12 以降は「待機中」、node 行は 6-15B で統合）: ステータスが「利用不可」、node 行が `not-integrated`、`start` は `{ status: 'failed', reason: 'adapter-unavailable' }` の2欄だけで adapter のプロセスは立たない（要求に `adapter` / `cwd` / `program` を載せても同じ）、未知の id は `profile-not-found`
 - 作成 / 検証: id が `dp-<uuid>` で発番され、相対位置は `src/app.js` に正規化され、応答は7欄だけで Workspace のパスも adapter の名残も無い／要求と draft に `profileId` / `cwd` / `runtimeExecutable`（cmd.exe）/ `adapter` / `adapterArgs` / `console` / `preLaunchTask` / `request: attach` / `processId` を載せても7欄だけが保存され、id は Main のもの／値で断る17通り（`PATH` / `Path` / `NODE_OPTIONS` / `ELECTRON_RUN_AS_NODE` / `pythonpath` / `DOTNET_STARTUP_HOOKS` / `LD_PRELOAD` / 名前の形 / 大文字小文字違いの重複 / `..` / 絶対パス（cmd.exe・Workspace 内を指す絶対パス）/ file URI / UNC / **Workspace 外を指すジャンクション経由** / `pwa-node` / 文字列の programArgs）で何も保存されない／形の壊れた要求6通りが INVALID_REQUEST／更新で id が変わらない・削除・消した id の再削除は `profile-not-found`
 - 起動（catalog を mock に差し替え）: ステータスが「待機中」へ移る／まだ無い program の profile は保存でき、起動は `program-not-found`／**保存時には無かったフォルダを後から外向きのジャンクションにすると、起動は `program-outside-workspace`**／どちらも adapter は立たない／起動は `{ status: 'started' }` の1欄、通知は starting → running → stopped、stopped 中の2回目は `already-running`
 - adapter 側で見えたもの: argv が `[node.exe の絶対パス, mock, ログ]` の3つだけで programArgs は1語も無い、cwd は Workspace root の realpath、環境に `ELECTRON_RUN_AS_NODE` / `NODE_OPTIONS` が無く **profile の env（`APP_MODE`）も無い**、`initialize` は `adapterID: pwa-node` / `supportsRunInTerminalRequest: false`、順序は initialize → launch → configurationDone、launch の欄は9つ（program は realpath・args は `&&` / `|` / `%PATH%` / 前後の空白を含めてそのまま・cwd は root・env は profile の2つ・`console: internalConsole`）
@@ -2178,7 +2224,7 @@ fake server は 127.0.0.1 の空いた port で待ち受けて stdout に1行で
 - ready の失敗: 起動直後に exit（75ms で starting → idle）・接続拒否（82ms）・合図を出さない（**10 秒の timeout で idle**）、どれもプロセス 0 でアプリは応答し続ける
 - 境界の走査: Renderer が受けた IPC event・invoke の結果・Debug パネルの DOM のどれにも、port・fixture のパス・`127.0.0.1`・`__pendingTargetId` / target id・`startDebugging` / `runInTerminal`・`connectionId` / `child-1` / `/root`・`calc.exe`・絶対パスが無い
 - Python（実 debugpy 1.8.21）の回帰（2回目の起動）: breakpoint（main.py:6）・Variables（items）・Evaluate（`len(items)` = 3）・Step Into（helper.py:2）・Continue で完走し Debug Console に出力・loop.py の Pause → Stop・CSP 違反 0・各段で python のプロセス 0
-- C#（netcoredbg）の production 回帰は**この PC では行えなかった**（.NET SDK が無く build 済み DLL を作れない・netcoredbg が無い）。unit test の回帰（resolver / profiles / manager）だけ
+- C#（netcoredbg）の production 回帰は**この Session では行えなかった**（.NET SDK が無く build 済み DLL を作れない・netcoredbg が無い）。unit test の回帰（resolver / profiles / manager）だけ（→ Session 6-17 で netcoredbg と題材を ASCII-only の一時パスに置いて実施した）
 
 #### 確認スクリプトを書くときに踏んだこと（Session 6-15A）
 
@@ -2209,7 +2255,7 @@ fake server は 127.0.0.1 の空いた port で待ち受けて stdout に1行で
 - アプリ終了: loop.js を running のまま `app.close()` → プロセス / port / pipe 0
 - B（node が PATH に無い）: node の profile の Start は `adapter-unavailable`・idle・プロセス 0
 - Python（実 debugpy 1.8.21）の回帰（B）: breakpoint（main.py:6）・Variables（items）・Evaluate（`len(items)` = 3）・Step Into（helper.py:2）・Continue で Debug Console に `total 7`（root だけのセッションは output を絞らない）・CSP 違反 0・完走 / 終了で python のプロセス 0
-- C#（netcoredbg）の production 回帰はこの PC では行えない（.NET SDK / netcoredbg が無い。6-15A と同じ）。unit test の回帰（resolver / profiles / manager）だけ
+- C#（netcoredbg）の production 回帰はこの Session では行えなかった（.NET SDK / netcoredbg が無い。6-15A と同じ）。unit test の回帰（resolver / profiles / manager）だけ（→ Session 6-17 で実施）
 
 #### 確認で見つけて直したもの（Session 6-15B）
 
@@ -2223,6 +2269,89 @@ fake server は 127.0.0.1 の空いた port で待ち受けて stdout に1行で
 - **`fs.cpSync` がこの PC のユーザー名（Unicode）の下で `EIO: Access is denied` になる。** 配布物は readdir + copyFileSync で写す
 - **境界の走査に invoke の label を混ぜると FAIL に見える。** label は確認スクリプト自身の説明文（例 `tampered bootloader`）で、走査するのは戻り値だけにする（6-15A の「自分が送った式」と同じ型）
 - Main のログは `app.process().stdout` を `main-*.log` へ書き出すと、落ちた確認の原因（どこまで進んだか）がすぐ読める。失敗時に `window.__statuses` / Debug Console / 最後の Call Stack を JSON で吐いておくと、id 0 の不具合はその1回で特定できた
+
+### Session 6-17（STEP 6 Debugger Closing の production app 統合確認）
+
+**production build 版 179項目、全項目 PASS。実 vscode-js-debug・実 debugpy・実 netcoredbg で、bundle の差し替えも hook も mock / fake adapter も使っていない**（`npm run build` の `out/` をそのまま起動し、スクリプト1が bundle に pin した js-debug の tree hash が入っていて hook / fixture の名残が無いことを確かめる）。3本に分けてある ── 落ちたときに「どの言語の話か」を切り分けるため。どれも使い捨ての `--user-data-dir` で `_electron.launch` から起動し、Workspace は `dialog.showOpenDialog` を差し替えて上部バーの Workspace メニューから開いた。操作は Debug パネル（Profile editor / Toolbar / Debug Console）・既定の打鍵・`window.fluvix.debug` からだけ通した。
+
+| スクリプト | 範囲                                                                             | 項目 |
+| ---------- | -------------------------------------------------------------------------------- | ---: |
+| 1          | Node.js（実 vscode-js-debug 1.117.0）+ Debug keybinding の実測と既知の制約の確認 |   83 |
+| 2          | Python（実 debugpy 1.8.21）                                                      |   48 |
+| 3          | C#（実 netcoredbg 3.2.0-1）                                                      |   48 |
+
+Session 6-5 / 6-8 / 6-14 / 6-16 はこの節に確認の記録が無かった（6-5 / 6-8 は後の Session の回帰に含まれ、6-14 / 6-16 は production build での確認をしていなかった）。C# と keybinding の production build での確認は、この Session が最初の記録になる。
+
+#### 検証環境（リポジトリにも、システムの PATH / レジストリにも何も入れていない）
+
+| 対象            | 取得元                                                                                                    | 版                            | 確かめ方                                                                                                                                 | 置き場所                                                                                                 |
+| --------------- | --------------------------------------------------------------------------------------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| vscode-js-debug | 公式 GitHub Release `microsoft/vscode-js-debug` の `js-debug-dap-v1.117.0.tar.gz`（6-15B で取得したもの） | 1.117.0                       | asset の SHA-256 `ad8d04ed…0772`・展開した木の tree hash `fdda8ebf…4933`（60 ファイル）がアプリの表と一致                                | 作業用ディレクトリで展開 → 使い捨ての userData の `debug-adapters/js-debug-dap-v1.117.0/js-debug` へ写す |
+| Node.js         | システム                                                                                                  | v24.14.0                      | —                                                                                                                                        | `C:\Program Files\nodejs`                                                                                |
+| debugpy         | PyPI（`pip install debugpy`。6-12 で作った venv）                                                         | 1.8.21 / CPython 3.14.7（uv） | venv の python で `import debugpy` の版                                                                                                  | 作業用ディレクトリの venv。起動する Electron の PATH の先頭にだけ `Scripts` を足す                       |
+| netcoredbg      | 公式 GitHub Release `Samsung/netcoredbg` の `3.2.0-1092` / `netcoredbg-win64.zip`                         | 3.2.0-1（`9744e1f`）          | SHA-256 `3c410a45fa502415203a94fcb88654af65bf8e3dac158a5527a722e7a6b9274a` が GitHub の asset の `digest` と一致・`netcoredbg --version` | **ASCII-only の一時パス** `D:\fx617\tools\netcoredbg`。起動する Electron の PATH の先頭にだけ足す        |
+| .NET            | runtime はシステム（`C:\Program Files\dotnet`・8.0.13）、SDK は STEP 5 で一時ディレクトリに置いた 8.0.424 | —                             | —                                                                                                                                        | 題材 `D:\fx617\ws-cs`（net8.0 の Console。`dotnet build` の DLL / PDB を source の隣に）                 |
+
+作業用ディレクトリ（`%TEMP%` の下）はユーザー名が Unicode なので、netcoredbg と C# の題材だけは ASCII-only の `D:\fx617` に置いた。確認の後も一時パスとして残してあり、リポジトリとは無関係。
+
+#### 測ったこと
+
+スクリプト1（Node.js + keybinding）:
+
+- 面 / 境界: `window.fluvix.debug` が22関数（adapter / spawn / process / request / dap / runtime / port を名乗る関数が無い）、`process` / `require` / `electron` / `Buffer` / `module` / `ipcRenderer` の非露出、build の CSP が source と同じ、ステータスが「待機中」
+- Profile: editor から3つ作成（7欄だけが保存される）
+- **F9**（Editor に focus・カーソルが 13 行目）で breakpoint が入り glyph が描かれる → もう一度で外れる → もう一度で1件だけ戻る
+- **F5**（idle・Profile 選択済み）で starting → running → stopped、プロセスの木は userData の配布物の js-debug server + debuggee + watchdog、main.js:13 に reason `breakpoint`・verified、Editor の実行位置の印、停止理由の画面、Call Stack の画面（相対位置・実行位置は1つ・node internals は unavailable）
+- Variables（画面 + `local.inner.value = 42` を `dv-N` の handle で）・Evaluate（`45`・未知の frame は `stale`・生の数の `variablesReference` と `hover` の文脈は INVALID_REQUEST）・Debug Console の入力欄（`FLUVIX`）と stdout / stderr の出力
+- **F11**（add:4・`a = 1` / `b = 2`・前の停止の handle は `stale`）→ **Shift+F11**（main へ戻る）→ **F10**（次の行・印が追う）→ **F5**（Continue で完走・印 / 停止理由 / Call Stack が消え、出力と「Debug session ended.」）
+- Toolbar の Pause → `ticks > 0` → **F5**（running へ）→ **Shift+F5**（running の Stop）/ breakpoint で止まったまま **Shift+F5**
+- **既知の制約の実測**（下記）
+- 例外: throw.js の捕まえない例外だけで止まる（捕まえた方の出力が先）・Editor が追う・停止理由に `boom uncaught`・絶対パスが無い → F5 で完走し node の stderr が Debug Console に届く
+- 配布物の `bootloader.js` を同じ大きさのまま1バイト変えると `adapter-unavailable` でプロセスが立たない
+- Workspace 切り替え（止まったまま）・アプリ終了（running のまま）
+
+スクリプト2（Python）:
+
+- 面 / 境界・ステータス・Profile の作成（`PYTHONPATH` の環境変数と Workspace の外の program は値で `invalid`）
+- Toolbar の Start → main.py:6 に reason `breakpoint`・verified・Editor の印・Call Stack の画面（`main` → `<module>`）・Variables（`items = [1, 2, 3]` を展開）・Evaluate（`len(items) * 10` = 30）・Debug Console の入力欄（`sum(items)` = 6）
+- Step Into（helper.py:2）→ Step Over（helper.py:3・`doubled = 6`）→ Step Out（main へ）→ Continue で完走し `total 7 verify`
+- Pause（reason `pause`・「手動で一時停止中」・`count > 0` = `True`）→ Continue → Stop
+- 例外: 捕まえた KeyError では止まらず、FileNotFoundError（exc.py:9）で止まる・停止理由のメッセージに `no_such_dir` が残り絶対パス / file URI が無い（伏せられている）・breakMode が出る → 止まったまま Stop
+- Workspace 切り替え（止まったまま。ws2 に ws1 の Profile が見えない）・アプリ終了（running のまま）・**Workspace に置いた `debugpy/__init__.py` が一度も読み込まれない**・Workspace に増えたのは CPython の `__pycache__` だけ
+
+スクリプト3（C#）:
+
+- 面 / 境界・ステータス・Profile の作成（`Program.cs` を指す Profile の Start は `invalid-profile`）
+- **F5** → プロセスは `netcoredbg --interpreter=vscode`（ASCII の install dir）+ `dotnet Probe.dll`（引数は Profile のまま）→ Program.cs:25 に reason `breakpoint`・止まった時点で breakpoint が verified・Editor の印・Call Stack の画面
+- Variables（`label = "fluvix"`・`items` を展開）・Evaluate（`items.Count + 1` = 4）・Debug Console の入力欄（`label.ToUpper()` の結果に `FLUVIX`）・breakpoint の前の stdout
+- **F11**（Add）→ **Shift+F11**（Main へ）→ **F10**（後の行・印が追う）→ **F5** で完走し `result 7` / `args alpha beta|--flag mode verify`
+- 例外（`user-unhandled`）: 捕まえた例外では止まらず、Boom の Program.cs:17 で止まる・型名 `InvalidOperationException`・メッセージ `boom uncaught`・breakMode `unhandled`・絶対パスが無い → Continue で idle
+- Pause（reason `pause`。最上段は `Thread.Sleep` で unavailable、その下に Program.cs:35 の Main）→ Stop
+- **Unicode path の Workspace（`ws-ユニコード`）では Start が `adapter-unavailable` でプロセスが立たない**
+- Workspace 切り替え（止まったまま）・アプリ終了（running のまま）・Workspace のファイル一覧と大きさが前後で同じ
+- 2回目の起動: PATH に netcoredbg が無いと Start は `adapter-unavailable`・idle・プロセス 0
+
+3本に共通:
+
+- **片付け**: 完走・Stop・Workspace 切り替え・アプリ終了のそれぞれの後に、adapter と debuggee のプロセスが 0（node は js-debug server / debuggee / watchdog と、その port が接続を拒否すること。python は venv / uv の python。C# は netcoredbg と `dotnet Probe.dll`）。最後に Fluvix Nexus の electron も残らない
+- **Security boundary**: Renderer が受けた IPC event（status / call stack / breakpoints）・invoke の戻り値・Debug パネルの DOM とステータスバーに、絶対パス・file URI・UNC・adapter / runtime の実行ファイル名・adapter の引数・port・`__pendingTargetId` / `startDebugging` / `runInTerminal` / `connectionId`・userData・`variablesReference` が無い。Debug Console に絶対パスが出るのはプログラム自身の出力（node / dotnet の未処理例外の stderr）だけ（§20.9 の例外）
+- CSP 違反 0件・Renderer の console エラー / page error 0件
+
+#### 既知の制約の実測（Debug keybinding は Debug パネルが前面のときだけ）
+
+スクリプト1で、main.js:13 に止まったまま Files のタブを前面にし（Debug Toolbar が DOM から消えることを確認）、F10 / F11 / Shift+F11 / F5 / Shift+F5 を1つずつ押して 1.2 秒待った。**どれも状態（stopped）も停止の通し番号も変えなかった。** 同じ状態で F9 は 15 行目に breakpoint を入れて外せた（Editor の器の command）。Debug のタブを前面に戻すと F10 で 14 行目へ進み、Shift+F5 で終わった。idle で Files を前面にしたまま F5 を押しても起動しなかった（プロセス 0）。docs/ARCHITECTURE.md §20.26 の記述どおりで、STEP 6 v1 の既知の制約として記録してある。
+
+#### 確認スクリプトを書くときに踏んだこと（Session 6-17）
+
+どれもアプリの不具合ではなく**測り方の側の問題**だった。1回目の実行で2つの FAIL が出て、どちらも直した後に全体を走らせ直している。
+
+- **このマシンのアプリは日本語で起動する。** 停止理由の画面を `/manually/` で待つと「手動で一時停止中」に当たらず FAIL になった（snapshot の `stop.reason` は `pause` で正しかった）。文言で判定するなら両言語を書くか、reason を snapshot で見る
+- **breakpoint の glyph の class は `fx-breakpoint`**（`fx-breakpoint--verified` など）。`fx-debug-*` で探すと「glyph が描かれない」に見える。`fx-debug-*` なのは実行位置の印（`fx-debug-execution-line` / `-glyph`）のほう
+- **F9 は Editor に focus があるときだけ効く。** `.view-lines` の中を本物の click で押し、`document.activeElement` が `[data-panel-body="editor"]` の中に入るまで待ってから押す（`editorFocused` は DOM の focus で決まる）
+- **Files のタブを前面にすると Debug Toolbar ごと外れる。** 戻した後に F5 を押す確認では、Profile の選択を持ち越す前提にせず選び直してから押す
+- **netcoredbg の Pause は最上段が `System.Threading.Thread.Sleep()`（unavailable）になる。** 最上段の位置で待たず、stack の中に Main の frame があるかで見る
+- **netcoredbg の breakpoint は `setBreakpoints` の応答の時点では verified が false のことがある**（Session 6-14 の調査。module の読み込みの後の `breakpoint` event で true になり、Main がそれを当てる）。verified は止まった後に読む
+- **C# の題材は Workspace の中で build する。** PDB に書かれた source path と Workspace の Program.cs が一致しないと breakpoint が pending のまま止まらない。題材も netcoredbg も ASCII-only のパスに置く
 
 ---
 

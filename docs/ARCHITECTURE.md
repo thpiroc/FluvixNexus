@@ -1,7 +1,7 @@
 # アーキテクチャ
 
-> 対象: Session 5-13（STEP 5 LSP Closing）完了時点の実装 ＋ Session 6-11（STEP 6 DAP Debug Toolbar / Profile editor）
-> 最終更新: 2026-09-13
+> 対象: Session 6-17（STEP 6 Debugger Closing）完了時点の実装
+> 最終更新: 2026-09-15
 
 製品としての方向性は [DESIGN.md](../DESIGN.md) を参照。このドキュメントは「現在のコードがどう組まれているか」と「機能を足すときにどこへ書くか」を扱う。
 
@@ -6494,7 +6494,7 @@ Session 3-7-5 では、下書きを持って Enter / blur で確定する欄は 
 | Keyboard Shortcuts   | **Session 4-7C で入った**（§18.6）。**値を持たない最初のカテゴリ**で、section は増えていない                                    |
 | Workspace ごとの設定 | 入れていない。プロジェクトフォルダの中には何も書かない方針のまま                                                                |
 | LSP / DAP の設定     | 入れていない。**実行ファイルのパスを Renderer から保存して Main が実行する形は作らない** ── 安全設計ごと STEP 5 / STEP 6 で行う |
-| 設定の検索           | 置いていない。**Keyboard Shortcuts の一覧だけは自前の絞り込みを持つ**（27件並ぶため。§18.6）                                    |
+| 設定の検索           | 置いていない。**Keyboard Shortcuts の一覧だけは自前の絞り込みを持つ**（Session 6-17 時点で40件並ぶため。§18.6）                 |
 | 既定へ戻す           | 置いていない。項目ごとに範囲と既定が説明文に出ている                                                                            |
 | `settings:changed`   | 要らない（単一 Renderer が Context で同期している。§12.4）                                                                      |
 
@@ -6796,7 +6796,7 @@ Session 4-7A が基盤（Command Registry・Keybinding・`when`・一覧の行�
 ### 18.1 Command Registry（そういう操作がある、という表）
 
 ```
-commands/commandIds.ts   id の閉じた集合（27件）
+commands/commandIds.ts   id の閉じた集合（40件）
 commands/registry.ts     Record<CommandId, CommandDescriptor>
 ```
 
@@ -6812,18 +6812,19 @@ Panel Registry（§7.3）と同じ形にしてある。
 
 並びの正本は `COMMAND_IDS` の配列で、`listCommands()` はその順に返す。表の見た目の順序には依存しない ── 依存させると、行を足す場所で一覧の見え方が変わる。
 
-27件の内訳は次のとおり。
+40件の内訳は次のとおり（Session 6-17 時点）。
 
-| カテゴリ    | 件数 | 入った Session      |
-| ----------- | ---: | ------------------- |
-| `workspace` |    2 | 4-7A                |
-| `editor`    |    8 | 4-7A（2）/ 5-12（6) |
-| `view`      |    5 | 4-7A                |
-| `settings`  |    2 | 4-7A                |
-| `git`       |    7 | 4-7B                |
-| `files`     |    3 | 4-7B                |
+| カテゴリ    | 件数 | 入った Session        |
+| ----------- | ---: | --------------------- |
+| `workspace` |    2 | 4-7A                  |
+| `editor`    |    8 | 4-7A（2）/ 5-12（6）  |
+| `view`      |    6 | 4-7A（5）/ 6-5（1）   |
+| `settings`  |    2 | 4-7A                  |
+| `debug`     |   12 | 6-11（10）/ 6-16（2） |
+| `git`       |    7 | 4-7B                  |
+| `files`     |    3 | 4-7B                  |
 
-`editor` が8件あるのは、Session 5-12 で Language Server の6操作が加わったため（§19.9）。**カテゴリは1つも増えていない** ── 増えたのは既存の `editor` の行数だけで、`CommandCategory` も `COMMAND_CATEGORY_ORDER` も 4-7C のままになる。
+`editor` が8件あるのは、Session 5-12 で Language Server の6操作が加わったため（§19.9）。STEP 5 まではカテゴリが増えていなかったが、**Session 6-11 で `debug` カテゴリが1つ増えた**（`COMMAND_CATEGORY_ORDER` では `settings` と `git` の間）。`view` の6件目は Session 6-5 で Debug パネルが Panel Registry に入ったときの `view.togglePanel.debug`。Debug の12件は §20.26。
 
 ### 18.2 内部 id と、画面に出す名前を分ける
 
@@ -6835,7 +6836,7 @@ descriptor は3つを持つ。
 | `title`    | `'Commit'`。開発上の識別名（英語・固定） | ✕            |
 | `titleKey` | `'command.git.commit'`。翻訳キー         | ○            |
 
-`titleKey` は **`command.<CommandId>` に1対1**で対応させてある。機械的に決まる形にしておくと、足し忘れも綴り違いも実数で拾える（`commands/commandLocalization.test.ts` が27件すべてを確かめる）。**Session 4-7C で全件を一度に入れた** ── 一部だけ埋めると `commandTitle()` が「翻訳されるものとされないものが混ざった一覧」を返し、その半端さを画面を作る側が引き継ぐ。
+`titleKey` は **`command.<CommandId>` に1対1**で対応させてある。機械的に決まる形にしておくと、足し忘れも綴り違いも実数で拾える（`commands/commandLocalization.test.ts` が全件 ── Session 6-17 時点で40件 ── を確かめる）。**Session 4-7C で全件を一度に入れた** ── 一部だけ埋めると `commandTitle()` が「翻訳されるものとされないものが混ざった一覧」を返し、その半端さを画面を作る側が引き継ぐ。
 
 `title` を消していないのは、ログとテストが読むもので、画面に出るのは `commandTitle()` を通った `titleKey` の側だから。型の上で `titleKey` を任意のままにしてあるのも意図的で、必須にすると `commandTitle()` の「無ければ `title`」という分岐が死に、翻訳を持たない descriptor をテストで組み立てられなくなる。
 
@@ -6924,6 +6925,8 @@ resolveKeybindings([...DEFAULT_KEYBINDINGS, ...userRules, ...workspaceRules]) //
 
 `Ctrl+P` / `Ctrl+Shift+P` は**空けてある**（Command Palette の席。§18.8）。
 
+上の7件は Session 4-7A の時点のもの。その後 Session 5-12 で Language Server の5件（F12 / Shift+F12 / F2 / Shift+Alt+F / Ctrl+Space。§19.9）、Session 6-16 で Debug の6件（F5 / Shift+F5 / F9 / F10 / F11 / Shift+F11。§20.26）が加わり、**既定の割り当ては18件**になった。どちらも上の4つの規則の中で選んである。
+
 **`editor.save` に条件が無いのは「端末の中でも保存される」という意味ではない。** 端末に focus があるとき `Ctrl+S` は `window` まで上がってこない（xterm が `stopPropagation` する）── 移設前も同じ形の listener だったので、端末の中で `Ctrl+S` が効かないのは以前からそうだったことになる。この前提は Session 4-8A で実機に測って確かめてある（DEVELOPMENT.md §4）。
 
 ### 18.5 条件（`when`）と、打鍵を受ける場所
@@ -7011,7 +7014,7 @@ Session 4-7C まで、Settings のカテゴリは `SettingsSectionId` と ID も
 | ---------- | ----------- | --------------------------------------------------------------------- |
 | Command    | ○           | `titleKey` 経由の翻訳                                                 |
 | Category   | ○           | 見出しに畳む                                                          |
-| Keybinding | ○           | 未割り当ては専用の見せ方（27件中15件が未割り当て）                    |
+| Keybinding | ○           | 未割り当ては専用の見せ方（40件中22件が未割り当て。Session 6-17 時点） |
 | When       | ✕           | `'!terminalFocused'` のような**内部の名前**をそのまま見せることになる |
 | Source     | ✕           | 既定しか無い今、**全行に同じ語を並べるだけ**になる                    |
 | 競合表示   | ✕           | 既定同士は競合しない                                                  |
@@ -7019,11 +7022,11 @@ Session 4-7C まで、Settings のカテゴリは `SettingsSectionId` と ID も
 
 型から**外していない**のは、User / Workspace の割り当てが入ったとき変わるのが画面だけで済むようにするため。翻訳キー（`settings.keyboard.sources.*`）も先に置いてあるが、**まだ画面に出ていない。**
 
-未割り当ての14件は、`defaults.ts` が「割り当ての無い command」として挙げる中核の4件（`workspace.closeFolder` / `view.togglePanel.editor` / `view.resetLayout` / `settings.close`）と、Git / Files の10件からなる。`settings.close` に打鍵を割り当てないのは **Esc が既に持っている**ためで、既存の Esc 17箇所には触らないという Session 4-7A の前提による（同じ操作の入口を二重に持たない）。
+未割り当ての22件（Session 6-17 時点）は、`defaults.ts` が「割り当ての無い command」として挙げる中核の5件（`workspace.closeFolder` / `view.togglePanel.editor` / `view.togglePanel.debug` / `view.resetLayout` / `settings.close`）、`editor.showHover`（§19.9）、Debug の6件（Profile の追加 / 編集 / 削除と、F5 が代わりに持つ `debug.start` / `debug.continue`、`debug.pause`。§20.26）、Git / Files の10件からなる（Session 4-7C の時点では中核の4件と Git / Files の10件の14件だった）。`settings.close` に打鍵を割り当てないのは **Esc が既に持っている**ためで、既存の Esc 17箇所には触らないという Session 4-7A の前提による（同じ操作の入口を二重に持たない）。
 
 #### 持つ state は検索の文字列だけ
 
-それも保存しない（`SettingsOverlay` が開いているカテゴリを保存しないのと同じ）── 次に開いたときに前の絞り込みが残っていると、一覧が欠けているように見える。カテゴリを列ではなく見出しにしてあるのは、27件のうち Git だけで7件あり、列にすると同じ語が7回並ぶため。機械が読む側には各行の `data-category` が残してある。
+それも保存しない（`SettingsOverlay` が開いているカテゴリを保存しないのと同じ）── 次に開いたときに前の絞り込みが残っていると、一覧が欠けているように見える。カテゴリを列ではなく見出しにしてあるのは、Debug だけで12件・Git だけで7件あり、列にすると同じ語が何度も並ぶため。機械が読む側には各行の `data-category` が残してある。
 
 ### 18.7 Session 4-7 が触っていない境界
 
@@ -7315,7 +7318,9 @@ Session 5-13 で実際に測った範囲は次のとおり。
 
 ## 20. Debug（DAP。STEP 6）
 
-Session 6-0 で設計を確定し、Session 6-1 で Main 内の最下層（DAP message / connection、adapter process、adapter catalog）を実装し、Session 6-2 で Main-owned Debug Session lifecycle / state machine を追加し、Session 6-3 で Breakpoint（Monaco の glyph margin・保存・`setBreakpoints`）を入れ（§20.12）、Session 6-4 で実行制御（Continue / Pause / Step Over / Step Into / Step Out / Stop）を入れ（§20.13）、Session 6-5 で Call Stack（`threads` / `stackTrace` と safe source normalization）を入れた（§20.14）。Session 6-9 で Debug の状態（ステータスバー）を入れた（§20.17）。Session 6-10 で Debug Profile の保存と `debug:start`（Profile → ResolvedLaunchConfiguration → Debug Session）を入れた（§20.18）。Session 6-11 で Debug Panel 上部の Toolbar と Profile editor を Renderer に入れた（§20.19）。Session 6-12 で python 行を実 debugpy に繋いだ（§20.20）。Session 6-13 で例外停止と現在の実行位置を入れた（§20.21）。ここに書いていない口・欄・経路を実装側で足すときは、足す前にこの節へ戻ること。
+Session 6-0 で設計を確定し、Session 6-1 で Main 内の最下層（DAP message / connection、adapter process、adapter catalog）を実装し、Session 6-2 で Main-owned Debug Session lifecycle / state machine を追加し、Session 6-3 で Breakpoint（Monaco の glyph margin・保存・`setBreakpoints`）を入れ（§20.12）、Session 6-4 で実行制御（Continue / Pause / Step Over / Step Into / Step Out / Stop）を入れ（§20.13）、Session 6-5 で Call Stack（`threads` / `stackTrace` と safe source normalization）を入れた（§20.14）。Session 6-9 で Debug の状態（ステータスバー）を入れた（§20.17）。Session 6-10 で Debug Profile の保存と `debug:start`（Profile → ResolvedLaunchConfiguration → Debug Session）を入れた（§20.18）。Session 6-11 で Debug Panel 上部の Toolbar と Profile editor を Renderer に入れた（§20.19）。Session 6-12 で python 行を実 debugpy に繋いだ（§20.20）。Session 6-13 で例外停止と現在の実行位置を入れた（§20.21）。Session 6-7 で Evaluate（§20.16）、Session 6-8 で Debug Console（§20.25）、Session 6-14 で csharp 行を実 netcoredbg に繋ぎ（§20.22）、Session 6-15A で socket transport と子セッションの土台（§20.23）、Session 6-15B で node 行を実 vscode-js-debug に繋ぎ（§20.24）、Session 6-16 で Debug の command と keybinding を入れた（§20.26）。**Session 6-17 で STEP 6 を閉じた**（§20.27）。ここに書いていない口・欄・経路を実装側で足すときは、足す前にこの節へ戻ること。
+
+§20.12 以降の Session ごとの節は**その Session を閉じた時点の記録**で、「入れていないもの」の多くは後の Session で入っている（入ったものには後の節への矢印を付けてある）。**STEP 6 Closing 時点で残っている制約は §20.27 だけを正とする。**
 
 DESIGN.md §5 の11機能（Breakpoint / Continue / Pause / Step Over / Step Into / Step Out / Stop / Variables / Call Stack / Debug Console / エラー位置へのジャンプ）を、Terminal（§13）と LSP（§19）が固めた「**Main が長命な子プロセスを持ち、Renderer は app-domain の言葉だけで話す**」形の上に載せる。
 
@@ -7357,7 +7362,7 @@ Debug Profile を作る / 選ぶ
                                  dapConnection     Content-Length フレーミング
                                  debugSession      状態機械（initialize → … → running）
       ▲
-      │ debug:status-changed / stopped / output / breakpoints-changed（§3.3 の経路）
+      │ debug:status-changed / call-stack-changed / console-entry / breakpoints-changed（§3.3 の経路）
       │
    画面を描く
 ```
@@ -7450,23 +7455,21 @@ Workspace の絶対パスが key として保存ファイルに載るが、**こ
 - Windows の `.cmd` は `cmd.exe /c <絶対パス>` で包み、その `cmd.exe` も `%SystemRoot%` から組み立てる
 - adapter の引数は**表の側**が持つ
 
-Session 6-1 では catalog の基盤だけを置き、`node` / `python` / `csharp` の固定行を `not-integrated` として持つ。`debugpy` / `vscode-js-debug` / `netcoredbg` の実 adapter 統合は後続 Session で行う。Renderer から任意 adapter、実行ファイル、引数、cwd を指定する口は作っていない。
+Session 6-1 では catalog の基盤だけを置き、`node` / `python` / `csharp` の固定行を `not-integrated` として持っていた。`debugpy` / `vscode-js-debug` / `netcoredbg` の実 adapter 統合は後続 Session で行った（下記。Closing 時点で `not-integrated` の行は無い）。Renderer から任意 adapter、実行ファイル、引数、cwd を指定する口は作っていない。
 
 **Session 6-12 で python 行を `integrated` にした**（§20.20）。**Session 6-14 で csharp 行を `integrated` にした**（§20.22）。**Session 6-15B で node 行を `integrated` にした**（§20.24。PATH の実行ファイルではなく、pin した配布物の script を PATH の `node.exe` で走らせる）。
 
-繋ぐ相手（**入手経路と stdio 対応は Session 6-1 で実機確認する**）:
+Session 6-0 では「入手経路と stdio 対応は Session 6-1 で実機確認する」としていたが、実際に確定したのは各 adapter を繋いだ Session だった。STEP 6 Closing 時点で繋いでいる相手:
 
-| 言語    | Debug Adapter 候補            | 入手経路             | 6-1 で確かめること            |
-| ------- | ----------------------------- | -------------------- | ----------------------------- |
-| Node.js | vscode-js-debug の DAP server | 未確定（同梱しない） | **stdio か TCP か**・入手経路 |
+| 言語    | Debug Adapter                                                   | transport         | 入手経路（同梱しない）                                              | 確かめた版            | 繋いだ Session  |
+| ------- | --------------------------------------------------------------- | ----------------- | ------------------------------------------------------------------- | --------------------- | --------------- |
+| Node.js | vscode-js-debug の standalone DAP server（`dapDebugServer.js`） | **TCP（socket）** | 公式 GitHub Release の asset を userData へ展開（版と hash を pin） | 1.117.0               | 6-15B（§20.24） |
+| Python  | `debugpy`（`python -m debugpy.adapter`）                        | stdio             | `pip install debugpy`（PATH の `python`）                           | 1.8.21                | 6-12（§20.20）  |
+| C#      | `netcoredbg --interpreter=vscode`                               | stdio             | Samsung/netcoredbg の公式 release zip（PATH の `netcoredbg`）       | 3.2.0-1（3.2.0-1092） | 6-14（§20.22）  |
 
-> Node.js の行は Session 6-15B で確定した: 公式 GitHub Release の `js-debug-dap-v1.117.0.tar.gz` を userData へ展開したものを pin し、**TCP（socket）**で繋ぐ（§20.24）。
-> | Python | `debugpy`（`python -m debugpy.adapter`） | `pip install debugpy` | 起動と `initialize` の往復 |
-> | C# | `netcoredbg --interpreter=vscode` | 配布バイナリ | 同上。**vsdbg は使わない** |
+**vsdbg（Visual Studio の debugger）はライセンス上 Visual Studio / VS Code 以外から使えない。** C# は netcoredbg を前提とし、入手できない PC では Start が `adapter-unavailable` になるだけに留める。
 
-**vsdbg（Visual Studio の debugger）はライセンス上 Visual Studio / VS Code 以外から使えない。** C# は netcoredbg を前提とし、入手できない PC では「未インストール」に留める（LSP の csharp-ls と同じ扱い。§19.6 の状態表がそのまま使える）。
-
-この PC の現状: **Node のみ利用可能**（Python / .NET SDK / netcoredbg はシステムには未導入。STEP 5 Closing 時点と同じ）。Python / C# の実機確認は STEP 5 と同じく一時ディレクトリ + 起動する Electron の `env` にだけ PATH を足す形で行う（DEVELOPMENT.md §4）。Session 6-12 の debugpy は、uv が置いた CPython 3.14.7 から一時ディレクトリに venv を作り、その `Scripts` を起動する Electron の PATH の先頭にだけ足して確かめた。Session 6-14 の netcoredbg は公式 release zip を一時ディレクトリへ展開し、起動する Electron / probe の PATH にだけ足して確かめた。
+この PC の現状（Session 6-17 時点）: システムに入っているのは Node.js（v24）と .NET の runtime（SDK 無し）だけで、Python・debugpy・netcoredbg・.NET SDK はシステムには入れていない。Python / C# の実機確認は STEP 5 と同じく一時ディレクトリ + 起動する Electron の `env` にだけ PATH を足す形で行う（DEVELOPMENT.md §4）。debugpy は uv が置いた CPython 3.14.7 から一時ディレクトリに venv を作り、その `Scripts` を足した。netcoredbg は公式 release zip を **ASCII-only の一時パス**へ展開して足し（Unicode path の不具合。§20.22）、題材の DLL は一時ディレクトリの .NET SDK で build した。
 
 #### framing と transport を分ける
 
@@ -7488,6 +7491,16 @@ main/debug/dapStackTrace.ts        stackTrace response の検証（Session 6-5�
 main/debug/stackFrameSource.ts     stack frame の source を Workspace 相対 / unavailable へ畳む（Session 6-5）
 main/debug/stopInfo.ts             stopped event / exceptionInfo を停止理由へ畳み、パスを伏せる（Session 6-13）
 main/debug/dapExceptionBreakpoints.ts  setExceptionBreakpoints の filter を表と adapter の積にする（Session 6-13）
+main/debug/breakpoint*.ts / dapBreakpoints.ts / breakpoints.ts   行 breakpoint の正本・保存・同期（Session 6-3。§20.12）
+main/debug/dapVariables.ts / variables.ts   scopes / variables と handle 表（Session 6-6。§20.15）
+main/debug/dapEvaluate.ts / evaluate.ts     evaluate（Session 6-7。§20.16）
+main/debug/console.ts              output event → Debug Console の entry（Session 6-8。§20.25）
+main/debug/sessionStatus.ts        ステータスバーの1語（Session 6-9。§20.17）
+main/debug/debugProfiles.ts / profile*.ts / programPath.ts / environmentPolicy.ts / resolvedLaunch.ts
+                                   Debug Profile の保存・検証・解決（Session 6-10。§20.18）
+main/debug/adapterTransport.ts / socketDebugAdapter.ts / dapStartDebugging.ts
+                                   socket transport と子セッション（Session 6-15A。§20.23）
+main/debug/adapterArtifact.ts      pin した vscode-js-debug の配布物の検証（Session 6-15B。§20.24）
 ```
 
 `jsonRpcConnection.ts`（§19.2）が子プロセスの stdio に直接結びついているのに対し、**`dapConnection.ts` は stream を受け取る形にする**。TCP の adapter が来たときに層を作り直さずに済む唯一の分け方になる。
@@ -7587,9 +7600,24 @@ adapter の `output` event が運ぶのは**デバッグ対象プログラム自
 
 境界に反しない理由は、この節が守っているものが「Renderer が**何を起こせるか**」であって「Renderer が**何を目にするか**」ではないため。文字列として画面に出るだけのものに、Renderer が起動できる経路は付いていない。逆に加工すれば、利用者にとって最も必要な情報が読めなくなる。
 
-#### 切る口の一覧（STEP 6 の予定。増やすときは設計へ戻る）
+#### 切る口の一覧（増やすときは設計へ戻る）
+
+STEP 6 Closing 時点の実装（`window.fluvix.debug` は**22関数**）:
 
 ```
+要求(18): listProfiles createProfile updateProfile deleteProfile start
+          stop continue pause stepOver stepInto stepOut
+          listBreakpoints toggleBreakpoint
+          getStatus listCallStack listScopes listVariables evaluate
+購読(4):  onStatusChanged onCallStackChanged onConsoleEntry onBreakpointsChanged
+```
+
+チャンネルは `debug:list-profiles` / `debug:create-profile` / `debug:update-profile` / `debug:delete-profile` / `debug:start` / `debug:stop` / `debug:continue` / `debug:pause` / `debug:step-over` / `debug:step-into` / `debug:step-out` / `debug:list-breakpoints` / `debug:toggle-breakpoint` / `debug:get-status` / `debug:list-call-stack` / `debug:list-scopes` / `debug:list-variables` / `debug:evaluate`、通知は `debug:status-changed` / `debug:call-stack-changed` / `debug:console-entry` / `debug:breakpoints-changed`。
+
+以下は Session 6-0 時点の予定の一覧と、各 Session での動きの記録になる。
+
+```
+（予定）
 要求(18): listProfiles createProfile updateProfile deleteProfile
           start stop continue pause stepOver stepInto stepOut
           listBreakpoints toggleBreakpoint
@@ -7601,19 +7629,21 @@ Session 6-0 の予定では breakpoint の口は `setBreakpoints` 1つだった�
 2つに分けた**（17 → 18）。理由は §20.12。要点だけ言うと、**一覧を丸ごと渡す口を
 作らない**ためで、`setBreakpoints` という名前も DAP の request 名と1対1に見えるので使わない。
 
-Session 6-4 で `continue` / `pause` / `stepOver` / `stepInto` / `stepOut` / `stop` の6つが入った（チャンネルは `debug:continue` / `debug:pause` / `debug:step-over` / `debug:step-into` / `debug:step-out` / `debug:stop`）。**どれも要求が `void`** で、予定の数（18）は動いていない。`getState` / `onStateChanged` はまだ無い ── 状態を画面に出すのは Debug パネル（Session 6-8）で、それまでは制御の応答に載る `state` だけが Renderer に届く。
+Session 6-4 で `continue` / `pause` / `stepOver` / `stepInto` / `stepOut` / `stop` の6つが入った（チャンネルは `debug:continue` / `debug:pause` / `debug:step-over` / `debug:step-into` / `debug:step-out` / `debug:stop`）。**どれも要求が `void`** で、予定の数（18）は動いていない。`getState` / `onStateChanged` はこの時点ではまだ無く、制御の応答に載る `state` だけが Renderer に届いていた（→ Session 6-9 で `getStatus` / `onStatusChanged` として入った）。
 
-Session 6-5 で `getStack` は実際の名前を `debug:list-call-stack` / `listCallStack` として入れた。要求は `void` で、応答は Main が持つ現在 Workspace の Call Stack snapshot だけになる。変化通知として `debug:call-stack-changed` / `onCallStackChanged` を足したため購読は5本になった。`onStopped` は Main 内部の lifecycle listener で、Renderer の購読口としてはまだ出していない。
+Session 6-5 で `getStack` は実際の名前を `debug:list-call-stack` / `listCallStack` として入れた。要求は `void` で、応答は Main が持つ現在 Workspace の Call Stack snapshot だけになる。変化通知として `debug:call-stack-changed` / `onCallStackChanged` を足した（予定の5本の枠の1つ）。`onStopped` は Main 内部の lifecycle listener で、Renderer の購読口としては**最後まで出していない** ── 止まった位置は Call Stack の snapshot が、止まった理由は Session 6-13 で snapshot に足した `stop` が運ぶ。そのため実装の購読は予定より1本少ない4本で閉じた。
 
 Session 6-6 で `getScopes` / `getVariables` を実際の名前 `debug:list-scopes` / `listScopes`・`debug:list-variables` / `listVariables` として入れた（6-5 の `list-call-stack` と揃えた）。要求に載るのは `{ frameId }` / `{ handle }` の1欄だけで、予定の数（18）は動いていない（§20.15）。
 
 Session 6-7 で `evaluate` を `debug:evaluate` / `evaluate` として入れた。要求に載るのは `{ expression, frameId, context }` の3欄で、`context` は閉じた集合（`repl` / `watch`）── **DAP の request 名も raw `variablesReference` も載る場所が無い**。予定の数（18）は動いていない（§20.16）。名前が DAP の `evaluate` と同じ綴りなのは `continue` / `pause` と同じ事情で、**口の名前で操作が決まる**形は変わらない。
 
-Session 6-9 で `getState` / `onStateChanged` を実際の名前 `debug:get-status` / `getStatus`・`debug:status-changed` / `onStatusChanged` として入れた。**名前を state から status に変えたのは、返すのが遷移表の状態そのものではなく、adapter の有無を重ねた画面用の1語だから**で、`lsp:get-status` / `lsp:status-changed` と揃えてある。要求は `void`、応答も通知も `{ status }` の1欄だけ。予定の数（要求18 / 購読5 ── 6-8 の `onConsoleEntry` は `onOutput` の枠）は動いていない（§20.17）。
+Session 6-9 で `getState` / `onStateChanged` を実際の名前 `debug:get-status` / `getStatus`・`debug:status-changed` / `onStatusChanged` として入れた。**名前を state から status に変えたのは、返すのが遷移表の状態そのものではなく、adapter の有無を重ねた画面用の1語だから**で、`lsp:get-status` / `lsp:status-changed` と揃えてある。要求は `void`、応答も通知も `{ status }` の1欄だけ。予定の数（要求18 / 購読5 ── 6-8 の `onConsoleEntry` は `onOutput` の枠）は動いていない（§20.17。`onStopped` を出さなかったため、実装の購読は最終的に4本で閉じた）。
 
 Session 6-10 で `listProfiles` / `createProfile` / `updateProfile` / `deleteProfile` / `start` を `debug:list-profiles` / `debug:create-profile` / `debug:update-profile` / `debug:delete-profile` / `debug:start` として入れた。**これで予定の要求18本がすべて揃った**（数は動いていない）。profile の変化通知は足していない ── 変えるのは Renderer 自身の要求だけで、応答に保存後の全件が載る（§20.18）。
 
 Session 6-13 は**口を1本も足していない**。停止理由と例外は `debug:call-stack-changed` / `debug:list-call-stack` の snapshot に `stop` を1欄足して運ぶ（§20.21）。例外で止まる条件（`setExceptionBreakpoints`）も Main の表で決まり、Renderer から渡す欄は無い。
+
+Session 6-8（`debug:console-entry` / `onConsoleEntry`。予定の `onOutput` の枠）以降、6-12 / 6-14 / 6-15A / 6-15B / 6-16 はどれも口を足していない。**STEP 6 は要求18・購読4（22関数）で閉じた**（Session 6-17 で production build に22関数であることを実測）。
 
 **プロセスを操作する口は1つも無い**（§19.2 と同じ）。`start` に載るのは `profileId` だけで、`stop` は `void` になる。
 
@@ -7653,6 +7683,8 @@ v1: node / python / csharp のどの枝も固有欄を持たない
 | `cwd` の指定                        | 入れない。常に Workspace root（§20.3）                                                                                         |
 | 変数展開（`${workspaceFolder}` 等） | 入れない。展開の仕組みは、書ける文字列が増える仕組みにほかならない                                                             |
 | Problems panel との連携             | 入れない。診断は STEP 5 のまま（§19.11）                                                                                       |
+
+この表は Session 6-0 の判断で、STEP 6 Closing（§20.27）でもすべてそのまま維持している。
 
 ### 20.12 Breakpoint（Session 6-3）
 
@@ -7784,7 +7816,7 @@ Renderer へ返さないものが2つある。
 
 ### 20.13 Execution Control（Session 6-4）
 
-Main が持つ Debug Session に、Continue / Pause / Step Over / Step Into / Step Out / Stop を足した。Renderer 側の面（ボタン・キー）はまだ無く、入ったのは **typed IPC の6つと、その裏の判断**だけになる（ボタンは Debug Toolbar の Session 6-8、キーは 6-12）。
+Main が持つ Debug Session に、Continue / Pause / Step Over / Step Into / Step Out / Stop を足した。Renderer 側の面（ボタン・キー）はこの Session ではまだ無く、入ったのは **typed IPC の6つと、その裏の判断**だけになる（→ ボタンは Session 6-11 の Debug Toolbar、キーは Session 6-16。§20.19 / §20.26）。
 
 #### 責務の分け方
 
@@ -7885,7 +7917,7 @@ disconnect ─┬ 応答 / adapter が自分で閉じた ─→ kill → idle
 
 #### orphan process について
 
-終わり方はどれも最後に `adapterProcess.dispose()`（adapter の kill）へ落ちる。**debuggee を終わらせるのは adapter の仕事**で、Stop が `disconnect` の答えを待つのはそのためにある。一方、アプリの終了は `will-quit` の中で同期に片付けるため、`disconnect` を書いた直後に adapter を kill する（6-2 のまま）── debuggee が adapter の孫プロセスとして残るかどうかは adapter の作りに依存する。実 adapter（Session 6-10 / 6-11）を繋ぐときに、終了時に debuggee が残らないことを実機で確かめる。
+終わり方はどれも最後に `adapterProcess.dispose()`（adapter の kill）へ落ちる。**debuggee を終わらせるのは adapter の仕事**で、Stop が `disconnect` の答えを待つのはそのためにある。一方、アプリの終了は `will-quit` の中で同期に片付けるため、`disconnect` を書いた直後に adapter を kill する（6-2 のまま）── debuggee が adapter の孫プロセスとして残るかどうかは adapter の作りに依存する。実 adapter を繋ぐときに、終了時に debuggee が残らないことを実機で確かめる（→ debugpy は 6-12、vscode-js-debug は 6-15B、netcoredbg は 6-17 で、Stop・Workspace 切り替え・アプリ終了の後に adapter と debuggee のプロセスが残らないことを実測した）。
 
 #### 停止行は 6-5 へ送った
 
@@ -7969,7 +8001,7 @@ Call Stack snapshot は stopped の瞬間だけ生きる。次の場合は空に
 
 #### Renderer
 
-Session 6-5 では最小の Debug panel を登録し、Call Stack だけを置いた。6-8 の Debug Toolbar や状態表示は先取りしない。frame 選択は `EditorContext.openFileAt({ relativePath, line, column })` を使い、Files / editor opener の既存経路へ乗せる。Monaco へ直接ファイルを開く新しい口は作らない。
+Session 6-5 では最小の Debug panel を登録し、Call Stack だけを置いた。Debug Toolbar や状態表示は先取りしない（→ 状態は 6-9、Toolbar は 6-11 で入った）。frame 選択は `EditorContext.openFileAt({ relativePath, line, column })` を使い、Files / editor opener の既存経路へ乗せる。Monaco へ直接ファイルを開く新しい口は作らない。
 
 ### 20.15 Variables / Scopes（Session 6-6）
 
@@ -8061,7 +8093,7 @@ DebugVariable { handle | null, name, value, type, kind, namedCount, indexedCount
 
 `start` / `count` は **`supportsVariablePaging` を名乗る adapter にだけ**載せる（`start: 0, count: 501`。1件多く頼むのは超えたかどうかを長さで知るため）。名乗らない adapter は全件を返しうるので、どちらの場合も読む側で 500 に切り、`truncated` を立てる。
 
-**「さらに読む」は入れていない。** 続きを読むには `filter`（named / indexed）と範囲の仮想ノード（`[0..99]` のようなもの）が要り、adapter ごとの差が大きい。実 adapter（6-10 / 6-11）で挙動を見てから決める。handle の上限に達した停止では、それ以上の展開を adapter へ送らずに `limit` で断る（上限を超えた子は開けない葉として見せる）。
+**「さらに読む」は入れていない。** 続きを読むには `filter`（named / indexed）と範囲の仮想ノード（`[0..99]` のようなもの）が要り、adapter ごとの差が大きい。実 adapter で挙動を見てから決める（STEP 6 Closing 時点でも入れておらず、§20.27 の既知の制約として STEP 7 以降へ送った）。handle の上限に達した停止では、それ以上の展開を adapter へ送らずに `limit` で断る（上限を超えた子は開けない葉として見せる）。
 
 #### Renderer
 
@@ -8158,6 +8190,8 @@ DebugEvaluateValue { handle | null, value, type, kind, namedCount, indexedCount 
 
 Session 6-8 の Debug Console を先取りしない。持つのは**「今の式」と「今の結果」だけ**で、履歴も、`output` event の取り込みも、複数行入力も、Watch の一覧も無い。
 
+> **Session 6-8 で、この面（`EvaluateView.tsx`）は Debug パネルから外れた。** 評価の入力は Debug Console（§20.25）が持ち、同じ `debug:evaluate` と同じ tree model を使う。`EvaluateView.tsx` とそのテストはどこからも mount されないまま残っている（STEP 6 Closing で確認。動作には影響しないので消しておらず、§20.27 で STEP 7 の整理の候補にしてある）。以下の箇条書きは 6-7 時点の面の記録。
+
 - Debug パネルの Call Stack / Variables の下に置き、**同じ選択 frame**を使う（`useCallStack`）
 - tree は 6-6 の `variablesTreeModel` をそのまま使う。入口だけ増やしてある（`flattenVariablesSubtree`）── Scope から始まらないだけで、その下は同じ構造になる
 - 面は snapshot の版 × frame を key に作り直す（6-6 と同じ）。停止 / Workspace / セッションの変化と frame の選択変更は、これで結果ごと捨てられる
@@ -8197,7 +8231,7 @@ renderer/src/debug/DebugStatusItem.tsx        LSP の隣に1つ出す（押せ�
 - **`unavailable` は `idle` の上にだけ乗る。** セッションが立っていれば adapter はそこに在るので、動いている間は adapter の有無を見ない。受け取った側は `unavailable` を「セッションは無い」と読める
 - **状態機械に語を足していない。** `unavailable` も表示用の派生で、6-2 の遷移表は 6-3 〜 6-8 のすべてが依存しているため触らない
 - **`failed`（起動失敗）を状態にしない。** 失敗したセッションは idle へ戻るのが Main の事実で、ステータスバーはそれだけを出す。「さっき失敗した」を出し続けるには、いつ消えるかを決めた2つめの状態が Main に要る。失敗の理由は起動を頼んだ操作への答えとして返す（起動の口を入れる Session の仕事）
-- この版では catalog のどの行も `not-integrated` なので、実アプリの既定は **Unavailable**。6-10 / 6-11 が行を `integrated` にすれば、状態の側は1行も変わらずに Idle へ移る。**PATH の探索はしない**（それは実 adapter を繋ぐ Session の仕事で、状態を読むたびにファイルシステムへ触らない）
+- Session 6-9 の版では catalog のどの行も未統合だったので、実アプリの既定は **Unavailable** だった。行を `integrated` にすれば、状態の側は1行も変わらずに Idle へ移る（→ Session 6-12 で python 行が統合され、そのとおり出荷状態の既定は Idle になった。STEP 6 Closing 時点では3行とも統合済み）。**PATH の探索はしない**（それは実 adapter を繋ぐ Session の仕事で、状態を読むたびにファイルシステムへ触らない）
 
 #### 通知の形
 
@@ -8363,7 +8397,7 @@ Continue / Pause / Step / Stop は Session 6-4 の typed Debug API（`debug:cont
 
 #### Command Registry
 
-Session 6-11 で次の command を追加した。正式な F5 / Shift+F5 / F10 / F11 / Shift+F11 の keybinding はまだ追加していない（後続 Session の担当）。
+Session 6-11 で次の command を追加した。正式な F5 / Shift+F5 / F10 / F11 / Shift+F11 の keybinding はこの Session では追加していない（→ Session 6-16 で `debug.startOrContinue` / `debug.toggleBreakpoint` と一緒に入った。§20.26）。
 
 - `debug.addProfile`
 - `debug.editProfile`
@@ -8378,11 +8412,11 @@ Session 6-11 で次の command を追加した。正式な F5 / Shift+F5 / F10 /
 
 #### 入れていないもの（Session 6-11）
 
-実 adapter の統合（Node / Python / C#）/ Node adapter の調査 / Debug keybinding の正式割り当て / profile の変化通知 / Settings section / native file dialog から絶対パスを Renderer へ返す導線 / arbitrary DAP method / raw launch configuration / `launch.json` の読み込み / attach / `cwd` の指定。
+~~実 adapter の統合（Node / Python / C#）~~（→ 6-15B / 6-12 / 6-14）/ ~~Node adapter の調査~~（→ 6-15A / 6-15B）/ ~~Debug keybinding の正式割り当て~~（→ 6-16）/ profile の変化通知 / Settings section / native file dialog から絶対パスを Renderer へ返す導線 / arbitrary DAP method / raw launch configuration / `launch.json` の読み込み / attach / `cwd` の指定。
 
 ### 20.20 Python（debugpy）── 最初の実 adapter（Session 6-12）
 
-catalog の python 行を `integrated` にし、`python -m debugpy.adapter` を stdio で立てる。**変えたのは Main の中の3ファイル（`adapterCatalog.ts` / `profileResolver.ts`・`resolvedLaunch.ts` / `debugProfiles.ts`）だけ**で、Renderer・preload・IPC の口（要求18・購読5）・Session Manager の lifecycle（§20.8）は変えていない。
+catalog の python 行を `integrated` にし、`python -m debugpy.adapter` を stdio で立てる。**変えたのは Main の中の3ファイル（`adapterCatalog.ts` / `profileResolver.ts`・`resolvedLaunch.ts` / `debugProfiles.ts`）だけ**で、Renderer・preload・IPC の口（要求18・購読4。§20.9）・Session Manager の lifecycle（§20.8）は変えていない。
 
 #### 先に実 debugpy で確かめたこと
 
@@ -8415,7 +8449,7 @@ exited → terminated
 
 - 採った形: **python の adapter プロセスの cwd = `app.getPath('userData')`**（Main が作って持つフォルダ）。`profileResolver.ts` は、渡された cwd が空・相対・Workspace root の中（realpath / 元の表記の両方）なら `adapter-unavailable` で断る。C# は §20.22 の通り、netcoredbg の Unicode path 不具合を避けるため `netcoredbg.exe` のある ASCII-only フォルダを cwd にする
 - 採らなかった形: `-I`（isolated mode）は user site-packages と `PYTHONPATH` も捨てるので `pip install --user debugpy` が見えなくなる。`-P` は Python 3.11 以降にしか無い
-- **cwd の決めは adapter ごとの実害で分ける**。python は `-m` の module 探索を避けるため userData、csharp は netcoredbg が Unicode path に弱いため adapter の ASCII-only install dir。node はまだ `not-integrated`
+- **cwd の決めは adapter ごとの実害で分ける**。python は `-m` の module 探索を避けるため userData、csharp は netcoredbg が Unicode path に弱いため adapter の ASCII-only install dir、node（Session 6-15B で統合）は python と同じ userData（§20.24）
 - **プログラムの cwd（launch の `cwd`）は Workspace root のまま**（§20.3）。変わったのは adapter のプロセスだけ
 
 userData に同名パッケージを置けば同じことが起きる（確認で再現した）。userData は Main の設定ファイルを置く場所で、そこへ書ける者は既に設定を書き換えられる ── 新しい境界を開けてはいない。
@@ -8424,11 +8458,11 @@ userData に同名パッケージを置けば同じことが起きる（確認�
 
 §20.10 の既定どおり、言語の枝に欄を足さず `profileResolver.ts` の閉じた表に置いた。**profile の欄からは作らない**（Profile に `subProcess` / `justMyCode` / `python` を載せても launch に届かないことをテストで固定）。
 
-| 言語   | 欄                  | 理由                                                                                                                                                              |
-| ------ | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| python | `subProcess: false` | 既定の true では、debuggee の子プロセスが `debugpyAttach` に応える2本目のセッションを待って止まる（`subprocess.run` が返らなかった）。v1 は同時セッション1本      |
-| node   | なし                | 未統合                                                                                                                                                            |
-| csharp | なし                | netcoredbg 3.2.0-1 では固定欄なしで launch / breakpoint / variables / evaluate が通った。entry stop は `stopAtEntry` として profile の `stopOnEntry` から別途写す |
+| 言語   | 欄                    | 理由                                                                                                                                                              |
+| ------ | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| python | `subProcess: false`   | 既定の true では、debuggee の子プロセスが `debugpyAttach` に応える2本目のセッションを待って止まる（`subprocess.run` が返らなかった）。v1 は同時セッション1本      |
+| node   | §20.24 の launch 構成 | Session 6-15B で統合。`runtimeExecutable` / `sourceMaps` / `outFiles` / `autoAttachChildProcesses` / `outputCapture` を Main が載せる                             |
+| csharp | なし                  | netcoredbg 3.2.0-1 では固定欄なしで launch / breakpoint / variables / evaluate が通った。entry stop は `stopAtEntry` として profile の `stopOnEntry` から別途写す |
 
 載せていないもの: `python`（interpreter。adapter と同じ `sys.executable` で debuggee が動く）/ `justMyCode`（既定の true）/ `redirectOutput`（`internalConsole` での既定が true）/ C# の `pipeTransport` や `debuggerPath`（adapter は catalog で決まる）。
 
@@ -8442,11 +8476,11 @@ userData に同名パッケージを置けば同じことが起きる（確認�
 
 #### 入れていないもの（Session 6-12）
 
-仮想環境 / interpreter の選択 / `justMyCode` の切り替え / 子プロセスのデバッグ（`subProcess`）/ 起動後の失敗理由の表示 / 条件付き breakpoint・logpoint（debugpy は名乗るが §20.11 のまま）/ attach / Node・C# adapter / 正式 keybinding。
+仮想環境 / interpreter の選択 / `justMyCode` の切り替え / 子プロセスのデバッグ（`subProcess`）/ 起動後の失敗理由の表示 / 条件付き breakpoint・logpoint（debugpy は名乗るが §20.11 のまま）/ attach / ~~Node・C# adapter~~（→ 6-15B / 6-14）/ ~~正式 keybinding~~（→ 6-16）。
 
 ### 20.21 Exception Stop / Current Execution Location（Session 6-13）
 
-「どこで止まったか」（最上段の frame の位置）と「なぜ止まったか」（停止理由と例外）を画面に出す。**新しい IPC チャンネルは作っていない。** `debug:call-stack-changed` / `debug:list-call-stack` の snapshot に `stop` を1欄足しただけで、要求18・購読5は動いていない。
+「どこで止まったか」（最上段の frame の位置）と「なぜ止まったか」（停止理由と例外）を画面に出す。**新しい IPC チャンネルは作っていない。** `debug:call-stack-changed` / `debug:list-call-stack` の snapshot に `stop` を1欄足しただけで、口の数（要求18・購読4。§20.9）は動いていない。
 
 ```
 Adapter                        Main                                        Renderer
@@ -8502,7 +8536,7 @@ stopped { reason, text,   ──▶  debugSessionManager
 | 決めたこと    | 内容                                                                                                     |
 | ------------- | -------------------------------------------------------------------------------------------------------- |
 | 何を送るか    | 言語ごとの閉じた表（`DEBUG_EXCEPTION_BREAKPOINT_FILTERS`）∩ `initialize` の `exceptionBreakpointFilters` |
-| 表            | python: `uncaught` / csharp: `user-unhandled` / node: なし                                               |
+| 表            | python: `uncaught` / csharp: `user-unhandled`（Session 6-14）/ node: `uncaught`（Session 6-15B）         |
 | いつ送るか    | `initialized` の後、breakpoint の仕込みの後、`configurationDone` の前                                    |
 | 送らない場合  | 積が空（表が空・adapter が名乗らない）なら `await` も踏まない ── 6-12 までの lifecycle は変わらない      |
 | 断られたら    | Main のログに残し、Debug Session は続ける                                                                |
@@ -8526,7 +8560,7 @@ v1 に切り替えの設定は無い。実 debugpy で3つの filter を比べ�
 
 #### 入れていないもの（Session 6-13）
 
-例外で止まる条件の切り替え / 例外設定の UI（`exceptionOptions`・filter の条件式）/ 例外のスタックトレースの表示 / `innerException` / 停止で Editor を開くときにフォーカスを移さない選択肢 / Node の例外 filter / 正式 keybinding。
+例外で止まる条件の切り替え / 例外設定の UI（`exceptionOptions`・filter の条件式）/ 例外のスタックトレースの表示 / `innerException` / 停止で Editor を開くときにフォーカスを移さない選択肢 / ~~Node の例外 filter~~（→ 6-15B で `uncaught`）/ ~~正式 keybinding~~（→ 6-16）。
 
 ### 20.22 C# Debug Adapter / netcoredbg（Session 6-14）
 
@@ -8563,11 +8597,15 @@ netcoredbg 3.2.0-1（release tag `3.2.0-1092` の Windows x64 zip）へ、本物
 
 #### 入れていないもの（Session 6-14）
 
-.NET SDK / netcoredbg の同梱やインストール支援 / `dotnet build` の preLaunchTask / `.csproj` から出力 DLL を自動推測すること / `launchSettings.json` / attach / `justMyCode` などの C# 固有設定 UI / 条件付き breakpoint・logpoint / 正式 keybinding。
+.NET SDK / netcoredbg の同梱やインストール支援 / `dotnet build` の preLaunchTask / `.csproj` から出力 DLL を自動推測すること / `launchSettings.json` / attach / `justMyCode` などの C# 固有設定 UI / 条件付き breakpoint・logpoint / ~~正式 keybinding~~（→ 6-16）。
+
+#### production build での確認（Session 6-17）
+
+Session 6-14 の commit には production build での確認の記録が無かった。STEP 6 Closing で、公式 release zip の netcoredbg 3.2.0-1092 を ASCII-only の一時パスへ展開し、`dotnet.exe`（`C:\Program Files\dotnet` の .NET 8 runtime）+ build 済み DLL の題材で、breakpoint（止まった時点で verified）・F5 / F10 / F11 / Shift+F11・Call Stack・Variables・Evaluate・Debug Console・`user-unhandled` での例外停止（型名 `InvalidOperationException` / breakMode `unhandled`）・Pause・Stop・Workspace 切り替え・アプリ終了の後にプロセスが残らないこと・Unicode path の Workspace と PATH に netcoredbg が無い場合の `adapter-unavailable` を実測した（48項目。DEVELOPMENT.md §4）。
 
 ### 20.23 Socket DAP transport / child session foundation（Session 6-15A）
 
-vscode-js-debug を後の Session で繋ぐための **generic な土台だけ**を Main に入れた。**Node の実 adapter はまだ統合していない**（catalog の node 行は `not-integrated` のまま）。Renderer・preload・IPC の口（要求18・購読5）・CSP・Python / C# の lifecycle は変えていない。
+vscode-js-debug を後の Session で繋ぐための **generic な土台だけ**を Main に入れた。**この Session では Node の実 adapter を統合していない**（node 行はこの時点で未統合。→ 6-15B で統合。§20.24）。Renderer・preload・IPC の口（要求18・購読4）・CSP・Python / C# の lifecycle は変えていない。
 
 前提にしたのは過去の read-only 調査の結果で、この Session では実物を再実行していない（この PC に vscode-js-debug が無い）: standalone server は stdio ではなく TCP / named pipe で DAP を話す / 1回の launch で DAP 接続が複数張られうる（root から `startDebugging` が来て、target ごとに別の接続になる）/ `runInTerminal` を拒否しても launch できる / `autoAttachChildProcesses: false` でも root target の `startDebugging` は来る / server は session の終了後も常駐しうる。
 
@@ -8653,15 +8691,15 @@ root だけのセッション（debugpy / netcoredbg、子を受けない adapte
 
 #### catalog → resolver
 
-`DebugAdapterExecutable` に `transport` と `childSessions: { targetIdKey }` を足し、resolver が `adapterCommand.transport` と `ResolvedLaunchConfiguration.childSessions`（`launchType` は言語の `type`）へ写す。**行が持たなければ欄ごと載らない**（出荷状態の python / csharp は stdio、node は未統合）。Profile の欄からは作らない。
+`DebugAdapterExecutable` に `transport` と `childSessions: { targetIdKey }` を足し、resolver が `adapterCommand.transport` と `ResolvedLaunchConfiguration.childSessions`（`launchType` は言語の `type`）へ写す。**行が持たなければ欄ごと載らない**（出荷状態の python / csharp は stdio。node は 6-15A の時点では未統合で、6-15B から socket と `childSessions` を持つ）。Profile の欄からは作らない。
 
 #### 入れていないもの（Session 6-15A）
 
-vscode-js-debug の catalog 統合と入手経路 / Node Profile の実起動 / named pipe / 2本目以降の子（worker・子プロセス）/ worker・子プロセスの UI / attach / `runInTerminal` / TypeScript・sourceMaps・outFiles / 実 js-debug での debuggee プロセスの木の片付けの確認 / 正式 keybinding。
+~~vscode-js-debug の catalog 統合と入手経路~~（→ 6-15B）/ ~~Node Profile の実起動~~（→ 6-15B）/ named pipe / 2本目以降の子（worker・子プロセス）/ worker・子プロセスの UI / attach / `runInTerminal` / TypeScript・sourceMaps・outFiles / ~~実 js-debug での debuggee プロセスの木の片付けの確認~~（→ 6-15B）/ ~~正式 keybinding~~（→ 6-16）。
 
 ### 20.24 Node.js Debug Adapter（vscode-js-debug。Session 6-15B）
 
-§20.23 の土台へ実 vscode-js-debug を繋ぎ、catalog の node 行を `integrated` にした。**v1 は JavaScript の launch だけ**。Renderer・preload・IPC の口（要求18・購読5）・CSP・Debug Profile の7欄（§20.3）は変えていない。値はすべて、実装の前に実 vscode-js-debug 1.117.0 へ Content-Length フレーミングの DAP を直接送る probe で確かめた。
+§20.23 の土台へ実 vscode-js-debug を繋ぎ、catalog の node 行を `integrated` にした。**v1 は JavaScript の launch だけ**。Renderer・preload・IPC の口（要求18・購読4）・CSP・Debug Profile の7欄（§20.3）は変えていない。値はすべて、実装の前に実 vscode-js-debug 1.117.0 へ Content-Length フレーミングの DAP を直接送る probe で確かめた。
 
 #### artifact（`adapterArtifact.ts`）
 
@@ -8743,4 +8781,126 @@ Profile に `runtimeExecutable` / `runtimeArgs` / `runtimeVersion` / `sourceMaps
 
 #### 入れていないもの（Session 6-15B）
 
-TypeScript / source map / outFiles / attach / npm・yarn・pnpm の script / runtimeVersion・nvm / 任意の runtimeExecutable・cwd / worker・子プロセスの UI と2本目以降の子 / artifact の自動ダウンロード・展開 UI / 正式 keybinding。
+TypeScript / source map / outFiles / attach / npm・yarn・pnpm の script / runtimeVersion・nvm / 任意の runtimeExecutable・cwd / worker・子プロセスの UI と2本目以降の子 / artifact の自動ダウンロード・展開 UI / ~~正式 keybinding~~（→ 6-16）。
+
+### 20.25 Debug Console（Session 6-8）
+
+adapter の `output` event（利用者のプログラムの出力）と §20.16 の Evaluate を、Debug パネルの**1つの面**に並べる。Session 6-7 の単独の Evaluate の面（`EvaluateView.tsx`）はここで Debug パネルから外した。
+
+```
+Adapter                          Main                                                   Renderer
+───────                          ────                                                   ────────
+output { category, output,  ──▶  debugSessionManager（onDebugSessionOutput）
+         source?, line? }          root / child の output（root は §20.24 の category で絞る）
+                                 debug/console.ts
+                                   telemetry を捨てる（Session 6-15B）
+                                   category → kind（stdout / stderr / console。important も console）
+                                   source を stackFrameSource.ts で Workspace 相対 / unavailable へ
+                                   NUL を落とし 10,000 字で切る
+                                   セッションが idle へ戻ったら system の1行「Debug session ended.」
+        debug:console-entry { workspaceId, entry } ─────────────────────────────▶ DebugConsoleView
+                                                                                    入力 → debug:evaluate（repl・選択中の frame）
+                                                                                    結果 → 6-6 の tree model で展開
+```
+
+#### safe domain model（`shared/debug/console.ts`）
+
+```
+DebugConsoleEntry { id, kind, text, timestamp, source, handle }
+```
+
+- `kind` は閉じた集合（`input` / `result` / `stdout` / `stderr` / `console` / `error` / `system`）。Main が作るのは `stdout` / `stderr` / `console` / `system` で、`input` / `result` / `error` は Renderer が評価のときに自分の一覧に足す
+- `id` は Main が発行する `dc-<generation>-<通し番号>`
+- `source` は §20.14 と同じ `workspace` / `unavailable` の形。絶対パスは載らない
+- `handle` は output event の `variablesReference` を将来安全に載せるための欄で、**v1 では常に null**
+- 通知は `workspaceId` を持つ（source の相対位置が Workspace によって別のファイルを指すため。§20.17 の説明のとおり）。Renderer は今の Workspace の entry だけを描き、Workspace が変われば一覧を捨てる
+
+#### 決めたこと
+
+- **出力の文字列は加工しない**（§20.9 の例外）。パスを伏せるのは停止理由の型名 / メッセージの欄だけ（§20.21）
+- **入力は shell を通さない。** 評価できるのは止まっていて frame を選んでいるときだけで（それまで入力欄は disabled）、答えは §20.16 の値（`not-stopped` / `stale` / `failed` / `timeout`）が error の entry として並ぶ
+- 入力の履歴（↑↓）と Clear は Renderer の中だけで、保存しない。Clear は entry だけを消し、履歴は残す
+- 口は `debug:console-entry` / `onConsoleEntry` の1本（予定の `onOutput` の枠。§20.9）
+- 一覧の件数に上限は持たない（1 entry の長さだけを切る）
+
+#### 入れていないもの（Session 6-8）
+
+Watch の一覧 / 複数行入力 / 補完 / 出力の検索・絞り込み / 出力の保存 / output event の `variablesReference` の展開（`handle` の欄だけ用意）/ 一覧の件数の上限。
+
+### 20.26 Command / Keybinding（Session 6-16）
+
+Session 6-11 の `debug.*` command（10件）に `debug.startOrContinue` / `debug.toggleBreakpoint` を足し、6つに既定の打鍵を当てた。**新しい IPC・preload の口・`shared/`・Main・CSP は1つも変えていない**（Command Registry と Keybinding の基盤は §18 のまま）。
+
+| command                  | 所有者（登録する場所）                               | 登録される条件                                   | 既定の打鍵 |
+| ------------------------ | ---------------------------------------------------- | ------------------------------------------------ | ---------- |
+| `debug.addProfile`       | `DebugToolbar`                                       | Workspace があり、保存 / 削除の最中でない        | —          |
+| `debug.editProfile`      | `DebugToolbar`                                       | 上に加えて Profile を選んでいる                  | —          |
+| `debug.deleteProfile`    | `DebugToolbar`                                       | 同上                                             | —          |
+| `debug.startOrContinue`  | `DebugToolbar`                                       | Start か Continue のボタンが押せる               | F5         |
+| `debug.start`            | `DebugToolbar`                                       | Start が押せる（idle かつ Profile を選んでいる） | —          |
+| `debug.continue`         | `DebugToolbar`                                       | stopped                                          | —          |
+| `debug.pause`            | `DebugToolbar`                                       | running                                          | —          |
+| `debug.stepOver`         | `DebugToolbar`                                       | stopped                                          | F10        |
+| `debug.stepInto`         | `DebugToolbar`                                       | stopped                                          | F11        |
+| `debug.stepOut`          | `DebugToolbar`                                       | stopped                                          | Shift+F11  |
+| `debug.stop`             | `DebugToolbar`                                       | running / stopped                                | Shift+F5   |
+| `debug.toggleBreakpoint` | Monaco の器（`editor/debug/useBreakpointGlyphs.ts`） | Editor が出ている                                | F9         |
+
+打鍵の条件（`when`）は、F9 が `editorFocused` / `!terminalFocused` / `!settingsOpen`、残りの5つが `workspaceOpen` / `!terminalFocused` / `!settingsOpen`。
+
+- **F5 は状態で Start / Continue を切り替える。** `debug.startOrContinue` は Toolbar の Start / Continue と同じ活性の値を読み、押せる方の既存の handler を呼ぶだけ ── 操作を二重に持たない
+- **押せる条件を書き直さない。** 実行制御の command は Toolbar のボタンが押せるときだけ登録され（§20.19）、打鍵はその有無に従う。押せない状態の打鍵は `execute` が false を返し、ブラウザの既定にそのまま通る（§18.3）
+- **F9 はカーソルのある行**に glyph の click と同じ経路で breakpoint を入れ替える（`resolveCurrentBreakpointToggleLine`）。Model や位置が無い・範囲外なら何もしない
+- Pause（VS Code の F6）と Profile の操作には打鍵を当てていない。`debug.start` / `debug.continue` は F5 が代わりに持つ
+
+#### 既知の制約: F5 / Shift+F5 / F10 / F11 / Shift+F11 は Debug パネルが前面のときだけ効く
+
+command は**所有者が mount している間だけ**登録され（§18.3）、実行制御の所有者 `DebugToolbar` は Debug パネルの中にある。dock のタブ群では前面のパネルしか mount されないので、Debug パネルと同じ dock にある Files などを前面にすると Toolbar が外れ、実行制御の command が表から消える ── **打鍵は何も起こさない**。条件は「Debug パネルが mount されているか」であって、状態や focus ではない。
+
+- F9 は Editor の器が持つので、Debug パネルの有無に依らず効く
+- Session 6-17 で production build に実測した: breakpoint で止まったまま Files のタブを前面にすると、F10 / F11 / Shift+F11 / F5 / Shift+F5 のどれも状態も停止の通し番号も変えない。idle で Files を前面にしたまま F5 を押しても起動しない。F9 はそのまま効き、Debug パネルを前面に戻すと F10 がまた効く
+- **STEP 6 v1 の既知の制約として受け入れる。** 常に効かせるには、押せる条件（`DebugSessionStatus` と Profile の選択）を読む所有者を常に mount されている場所へ移すことになり、Toolbar と2箇所で同じ判定を持つ形を避ける設計が要る。STEP 6 Closing には含めず、**STEP 7 の dogfooding で必要性を見てから再評価する**（§20.27）
+
+### 20.27 STEP 6 Closing（Session 6-17）
+
+Session 6-17 はコードを変えていない。production build で STEP 6 全体を実 adapter 3つに対して確かめ（179項目。DEVELOPMENT.md §4）、この章と DESIGN.md §13 を実装へ追従させた。
+
+#### 最終形
+
+| 項目                       | STEP 6 Closing 時点                                                                                                                          |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `window.fluvix.debug`      | **22関数**（要求18・購読4。§20.9）。production build で実測                                                                                  |
+| `window.fluvix` の名前空間 | 12（`debug` / `env` / `files` / `git` / `github` / `lsp` / `settings` / `system` / `terminal` / `window` / `workspace` / `workspaceFolder`） |
+| Command                    | 40件（うち `debug` 12件。§18.1）                                                                                                             |
+| 既定の keybinding          | 18件（うち Debug 6件。§18.4 / §20.26）                                                                                                       |
+| userData に書くもの        | `debug-profiles.json` / `debug-breakpoints.json`（Workspace の絶対パスで引く）。js-debug の配布物は利用者が `debug-adapters/` に置く         |
+| Workspace に書くもの       | **無い**（debuggee 自身が書くもの ── CPython の `__pycache__` など ── を除く）                                                               |
+| CSP                        | STEP 1 から変えていない（production build の `index.html` が source と同じ・違反 0件を3言語で実測）                                          |
+
+| 言語    | adapter の起動                                                | transport           | adapter の cwd                       | launch `type` | 例外 filter      | 子セッション        |
+| ------- | ------------------------------------------------------------- | ------------------- | ------------------------------------ | ------------- | ---------------- | ------------------- |
+| Node.js | PATH の `node.exe` + pin した `dapDebugServer.js 0 127.0.0.1` | socket（127.0.0.1） | userData                             | `pwa-node`    | `uncaught`       | primary child の1本 |
+| Python  | PATH の `python` + `-m debugpy.adapter`                       | stdio               | userData                             | `debugpy`     | `uncaught`       | 受けない            |
+| C#      | PATH の `netcoredbg` + `--interpreter=vscode`                 | stdio               | `netcoredbg.exe` のフォルダ（ASCII） | `coreclr`     | `user-unhandled` | 受けない            |
+
+#### 既知の制約（STEP 6 Closing 時点で残っているもの）
+
+Session ごとの節の「入れていないもの」「残したもの」のうち、**今も残っている**ものだけを並べる。どれも STEP 6 の完了を止めるものではなく、STEP 7 以降へ送る。§20.11 の「入れないもの」は制約ではなく設計の判断なので、ここには重ねない。
+
+| 項目                                             | 内容                                                                                                                               | 詳細                      |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| Debug keybinding は Debug パネルが前面のときだけ | F5 / Shift+F5 / F10 / F11 / Shift+F11。STEP 7 の dogfooding で再評価する                                                           | §20.26                    |
+| `runInTerminal` を断る代償                       | debuggee は本物の端末を持たない（標準入力・端末の大きさ / 色）                                                                     | §20.9                     |
+| breakpoint は編集に付いて回らない                | 行を挿入しても印は置いた行に留まる                                                                                                 | §20.12                    |
+| 起動後の失敗理由が画面に出ない                   | Start が `started` を返した後に adapter が終わると、starting → idle に戻るだけ（理由は Main のログ）                               | §20.20                    |
+| Variables の続きを読めない                       | 1応答 500件・1停止の handle 5,000件で切る                                                                                          | §20.15                    |
+| Debug Console の一覧に件数の上限が無い           | 出力し続けるプログラムでは一覧が伸び続ける（1 entry は 10,000 字で切る）                                                           | §20.25                    |
+| C# は ASCII-only の path だけ                    | netcoredbg の Windows 版の不具合。どれかが Unicode path なら `adapter-unavailable`                                                 | §20.22                    |
+| vscode-js-debug の振る舞い                       | Pause の理由が `step`・`exceptionInfo` の型名の欄に `Error: <メッセージ>`・breakMode が出ない・ESM の top-level の例外で止まらない | §20.24                    |
+| 停止で Editor を開くとフォーカスも移る           | `openFileAt` を通るため                                                                                                            | §20.21                    |
+| adapter は利用者が置く                           | js-debug の配布物・debugpy・netcoredbg を同梱も自動入手もしない                                                                    | §20.7 / DEVELOPMENT.md §1 |
+| 使われていない `EvaluateView.tsx`                | 6-8 で Debug Console に置き換わった面がテストと一緒に残っている。動作には影響しない                                                | §20.16                    |
+
+Debug Console の出力・Variables の値・Evaluate の結果に絶対パスが出ることは制約ではなく**設計どおり**（利用者のプログラム自身の出力と値。§20.9 の例外）。
+
+**`pyright-no-file-watching`（§19.10）は STEP 5 の既知の制約で、STEP 6 では動いていない。**
