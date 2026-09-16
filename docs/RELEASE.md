@@ -1,6 +1,6 @@
 # リリース
 
-> 対象: v1.0.0（Session 7-2A でメタデータと仕様を確定。Session 7-2B で electron-builder を入れ、ローカルで installer を作った。Session 7-2C でその installer をこの PC に入れて検証した。Session 7-2D でこの PC でできる clean Windows 相当の確認をし、Release notes を確定した。その後、正式アイコンを組み込んで installer を作り直した。公開はしていない）
+> 対象: v1.0.0（Session 7-2A でメタデータと仕様を確定。Session 7-2B で electron-builder を入れ、ローカルで installer を作った。Session 7-2C でその installer をこの PC に入れて検証した。Session 7-2D でこの PC でできる clean Windows 相当の確認をし、Release notes を確定した。その後、正式アイコンを組み込んで installer を作り直した。Session 7-2E で公開前の再確認・`SHA256SUMS.txt`・`v1.0.0` tag までを済ませた。repository の Public 化と Release の公開は利用者が行う（§9））
 > 最終更新: 2026-09-16
 
 v1.0.0 を配布するための仕様と手順を扱う。製品としての配布方針は [DESIGN.md](../DESIGN.md) §7、利用者向けの説明は [README.md](../README.md)、開発時のコマンドは [DEVELOPMENT.md](DEVELOPMENT.md) にある。
@@ -31,7 +31,7 @@ security boundary（contextIsolation / sandbox / CSP / IPC / preload）は 7-2A 
 | 7-2B    | electron-builder の導入と設定（§5）、ローカルで installer を作る（公開しない）       | 完了                                                                |
 | 7-2C    | installer で入れたアプリの検証（この PC・Unicode のユーザーパス。§8 / §8.1）         | 完了                                                                |
 | 7-2D    | clean Windows での検証（§8）と Release notes の確定（§7）                            | 完了（この PC でできる範囲。別 PC / VM の項目は §8.2 の未確認事項） |
-| 7-2E    | §6 の再確認 → repository を Public → `v1.0.0` tag → draft Release → 確認して公開     | 未着手                                                              |
+| 7-2E    | §6 の再確認 → `SHA256SUMS.txt` → `v1.0.0` tag → draft Release → Public → 公開（§9）  | 準備完了（tag まで。draft 以降の GitHub 上の操作は利用者が行う）    |
 
 ## 3. 後から変えてはいけない識別子
 
@@ -142,7 +142,7 @@ publish: null # 自動更新は入れない。GitHub へのアップロードは
 | 実行中の窓                            | インストール版の窓のクラスアイコン（タスクバーと Alt+Tab が使う）が正式アイコン。`main.log` に ERROR 0 件。修正版では、シェルが返す Start Menu / Desktop の `.lnk`・uninstaller のアイコンと窓のアイコンの角が alpha 0 であることも確かめた（最初の版の `icon.ico` は角が不透明の黒なので、アイコンキャッシュの古い絵なら見分けられる） |
 | 後片付け                              | 確認後に `/S` でアンインストール（インストール先・ショートカットは消え、userData は残る）                                                                                                                                                                                                                                               |
 
-installer は作り直したので、§5.5 の 7-2B の数値と §8.1 / §8.2 の SHA-256（`B4D80D13…`）は**アイコン無しの旧 installer のもの**。正式アイコンの修正版で作り直した installer は 103,066,939 bytes（この PC の結果。Release に載せる `SHA256SUMS.txt` は 7-2E で公開する installer から作る）。
+installer は作り直したので、§5.5 の 7-2B の数値と §8.1 / §8.2 の SHA-256（`B4D80D13…`）は**アイコン無しの旧 installer のもの**。正式アイコンの修正版で作り直した installer は 103,066,939 bytes。**7-2E でこれを作り直さずに Release に載せると決めた**（§9.2）。
 
 `.gitattributes` は `*.png` / `*.ico` を既に binary 扱いにしている。
 
@@ -200,15 +200,15 @@ npm run dist    # electron-vite build → electron-builder（NSIS / x64 / --publ
 
 対象は全 commit の履歴と、7-2A の変更を含む作業ツリー。
 
-| 観点                                                   | 結果                                                                                                                                                            | 判断                                                                                                                                                      |
-| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| token / 秘密鍵のパターン（全履歴）                     | 当たるのは `src/main/logger/logRedaction.test.ts` の**伏せ字のテスト用に作った偽の値**（`ghp_ABCDEF…` / `github_pat_11ABCDEFG…`）と、それを探す正規表現だけ     | 問題なし                                                                                                                                                  |
-| `.env` / 鍵 / 証明書 / `settings.local.json`（全履歴） | 一度も commit されていない。`.gitignore` が除外している                                                                                                         | 問題なし                                                                                                                                                  |
-| 削除済みファイル（全履歴）                             | 設定の旧 store（Session 4-3A で統合）と `WorkspaceMenu.tsx` だけ                                                                                                | 問題なし                                                                                                                                                  |
-| **commit の author e-mail**                            | **全 commit の author が個人の e-mail アドレス**。Public にすると誰でも読める                                                                                   | **要判断**（そのまま公開する / 以後の commit を GitHub の noreply にする。履歴の書き換えは commit hash が変わり、記録済みの hash と食い違うので勧めない） |
-| `.claude/settings.json` / `.claude/launch.json`        | commit 済み。中身は `npm run verify` の許可と `npm run dev` の起動設定だけ                                                                                      | 公開して害は無い。残すかは任意                                                                                                                            |
-| 開発 PC 固有の記述                                     | docs/DEVELOPMENT.md に検証用の一時パス（`D:\fx617`）と「Windows のユーザー名が Unicode」という記述。`logRedaction.test.ts` にユーザー名に似た文字列（テスト用） | 秘密情報ではない。気になる場合だけ直す                                                                                                                    |
-| 大きなファイル / バイナリ                              | 無い（最大は docs/ARCHITECTURE.md の約 1 MB）                                                                                                                   | 問題なし                                                                                                                                                  |
+| 観点                                                   | 結果                                                                                                                                                            | 判断                                                                                                                                                                               |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| token / 秘密鍵のパターン（全履歴）                     | 当たるのは `src/main/logger/logRedaction.test.ts` の**伏せ字のテスト用に作った偽の値**（`ghp_ABCDEF…` / `github_pat_11ABCDEFG…`）と、それを探す正規表現だけ     | 問題なし                                                                                                                                                                           |
+| `.env` / 鍵 / 証明書 / `settings.local.json`（全履歴） | 一度も commit されていない。`.gitignore` が除外している                                                                                                         | 問題なし                                                                                                                                                                           |
+| 削除済みファイル（全履歴）                             | 設定の旧 store（Session 4-3A で統合）と `WorkspaceMenu.tsx` だけ                                                                                                | 問題なし                                                                                                                                                                           |
+| **commit の author e-mail**                            | **全 commit の author が個人の e-mail アドレス**。Public にすると誰でも読める                                                                                   | **要判断**（そのまま公開する / 以後の commit を GitHub の noreply にする。履歴の書き換えは commit hash が変わり、記録済みの hash と食い違うので勧めない）→ **7-2E で決定（§9.2）** |
+| `.claude/settings.json` / `.claude/launch.json`        | commit 済み。中身は `npm run verify` の許可と `npm run dev` の起動設定だけ                                                                                      | 公開して害は無い。残すかは任意                                                                                                                                                     |
+| 開発 PC 固有の記述                                     | docs/DEVELOPMENT.md に検証用の一時パス（`D:\fx617`）と「Windows のユーザー名が Unicode」という記述。`logRedaction.test.ts` にユーザー名に似た文字列（テスト用） | 秘密情報ではない。気になる場合だけ直す                                                                                                                                             |
+| 大きなファイル / バイナリ                              | 無い（最大は docs/ARCHITECTURE.md の約 1 MB）                                                                                                                   | 問題なし                                                                                                                                                                           |
 
 ### 6.2 Public にする直前（7-2E）にやり直すこと
 
@@ -229,10 +229,10 @@ git ls-files | grep -iE '\.exe$|\.blockmap$|^release/|\.asar$'
 
 ## 7. Release notes に書くこと（7-2D で確定）
 
-**原稿は [release-notes/v1.0.0.md](release-notes/v1.0.0.md)**（7-2D）。GitHub Release の本文にはこれを貼る。7-2E で残っているのは次の2つだけ。
+**原稿は [release-notes/v1.0.0.md](release-notes/v1.0.0.md)**（7-2D）。GitHub Release の本文には、先頭の HTML コメントを除いた残りを貼る。7-2D で残っていた次の2つは 7-2E で済ませた（§9）。
 
-- 「不具合の報告」の節（原稿に HTML コメントで印を付けてある）を公開先に合わせて書く
-- 正式アイコンで作り直した installer から `SHA256SUMS.txt` を作る（下記）。**hash は本文に書かない**
+- 「不具合の報告」の節を GitHub Issues にした（README にも同じ節を足した）
+- 正式アイコンで作り直した installer から `SHA256SUMS.txt` を作った（下記）。**hash は本文に書かない**
 
 `SHA256SUMS.txt` の作り方（`release\` で PowerShell。`sha256sum -c` と同じ書式・BOM なし・LF。7-2D で作成と照合、1 byte 変えた写しが不一致になることを確認）:
 
@@ -254,7 +254,7 @@ $hash = (Get-FileHash $name -Algorithm SHA256).Hash.ToLowerInvariant()
 | データとログ   | `%APPDATA%\Fluvix Nexus`・`logs\main.log`。アンインストールしても残ること                                                                                                                                          |
 | 既知の制約     | DESIGN.md §14 の表（Debug の制約・adapter は利用者が置く・Renderer の `file://`）                                                                                                                                  |
 | ライセンス     | MIT・THIRD_PARTY_NOTICES.txt                                                                                                                                                                                       |
-| 不具合の報告先 | 7-2E で決める（Public にした repository の Issues を使うか）                                                                                                                                                       |
+| 不具合の報告先 | GitHub Issues（`https://github.com/thpiroc/FluvixNexus/issues`。7-2E で決定）                                                                                                                                      |
 | 7-2D で追加    | 上書きインストールで設定が残り、起動中のアプリは閉じて起動し直されること・Smart App Control でブロックされうること・アンインストール後に残る `fluvix-nexus-updater`・TypeScript は 6 系（7 では LSP が起動しない） |
 
 GitHub Release に上げるのは `Fluvix-Nexus-Setup-1.0.0.exe` と `SHA256SUMS.txt` だけ。自動更新を入れないので `.blockmap` / `latest.yml` は上げない。`win-unpacked/` も上げない。
@@ -336,12 +336,68 @@ updater の installer の写しは、7-2D で v1.0.0 の既知の制約とした
 
 **別 PC / VM でしか確かめられない未確認事項**（v1.0.0 ではここを確かめずに出す。Release notes はどれも「起こりうる」前提で書いてある）:
 
-| 項目                                                            | この PC で確かめられない理由                                                                                                                                                                                                                    |
-| --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| SmartScreen の警告画面の表示と「詳細情報」→「実行」             | この PC では MOTW 付きでも警告が出なかった                                                                                                                                                                                                      |
-| Smart App Control が有効（評価モード / オン）の PC での実行可否 | この PC は Off（オンに戻すには Windows の再インストールが要る）                                                                                                                                                                                 |
-| ブラウザで GitHub から実際にダウンロードしたファイル            | Release を公開していない（7-2E）                                                                                                                                                                                                                |
-| .NET が入っていない PC での C# の案内（`runtime-not-found`）    | .NET は `C:\Program Files\dotnet` を固定で探し、この PC には入っている                                                                                                                                                                          |
-| Git / Node.js を実際にインストールしてからの検出                | この PC には入っている（A1 は PATH と環境変数を削った擬似確認）                                                                                                                                                                                 |
-| ASCII のユーザー名・新しいユーザープロファイル・英語版 Windows  | この PC は Unicode のユーザー名・日本語の表示。新しいユーザーの作成には管理者の承認が要る                                                                                                                                                       |
-| タスクバーのピン留め / グループ化の目視                         | 自動操作を途中でやめた（A6）。インストールし、実行中のボタンからピン留め → 閉じる → ピンから起動して、ボタンが1つにまとまるかを見る。2つに分かれたら `app.setAppUserModelId('studio.fluvix.fluvixnexus')` を足す（コード変更。7-2E の前に判断） |
+| 項目                                                            | この PC で確かめられない理由                                                                                                                                                                                                                                                           |
+| --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| SmartScreen の警告画面の表示と「詳細情報」→「実行」             | この PC では MOTW 付きでも警告が出なかった                                                                                                                                                                                                                                             |
+| Smart App Control が有効（評価モード / オン）の PC での実行可否 | この PC は Off（オンに戻すには Windows の再インストールが要る）                                                                                                                                                                                                                        |
+| ブラウザで GitHub から実際にダウンロードしたファイル            | Release を公開していない（公開後に利用者が §9.4 の手順 7 で確かめる）                                                                                                                                                                                                                  |
+| .NET が入っていない PC での C# の案内（`runtime-not-found`）    | .NET は `C:\Program Files\dotnet` を固定で探し、この PC には入っている                                                                                                                                                                                                                 |
+| Git / Node.js を実際にインストールしてからの検出                | この PC には入っている（A1 は PATH と環境変数を削った擬似確認）                                                                                                                                                                                                                        |
+| ASCII のユーザー名・新しいユーザープロファイル・英語版 Windows  | この PC は Unicode のユーザー名・日本語の表示。新しいユーザーの作成には管理者の承認が要る                                                                                                                                                                                              |
+| タスクバーのピン留め / グループ化の目視                         | 自動操作を途中でやめた（A6）。インストールし、実行中のボタンからピン留め → 閉じる → ピンから起動して、ボタンが1つにまとまるかを見る。2つに分かれたら `app.setAppUserModelId('studio.fluvix.fluvixnexus')` を足す（コード変更）。**7-2E で、v1.0.0 では変えずに未確認のまま出すと決定** |
+
+## 9. Session 7-2E（公開の準備）
+
+7-2E では、GitHub 上で公開する直前までを済ませた。**repository の Public 化と Release の公開は利用者が GitHub の画面で行う**（Claude Code は行わない。この PC に GitHub CLI は入れていない）。コード・`electron-builder.yml`・依存・installer は変えていない。
+
+### 9.1 §6.2 の再確認（7-2E の直前・全履歴 73 commit）
+
+| 観点                             | 結果                                                                                                                 | 判断        |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ----------- |
+| token / 秘密鍵のパターン         | 当たるのは `logRedaction.test.ts` の偽の値・`logRedaction.ts` の正規表現・本書に載せた検索コマンドと 7-2A の記録だけ | 問題なし    |
+| 秘密情報になりうる名前のファイル | `themeTokens.ts` / `themeTokens.test.ts`（名前に `token` を含むだけ）                                                | 問題なし    |
+| 削除済みファイル                 | 7-2A と同じ（設定の旧 store と `WorkspaceMenu.tsx`）                                                                 | 問題なし    |
+| commit の author / committer     | 73 commit すべて `Piroshi` と個人の e-mail アドレス                                                                  | §9.2 で決定 |
+| installer / asar / `release/`    | commit されていない                                                                                                  | 問題なし    |
+| 大きなファイル                   | 最大は `resources/icon.png`（約 1.3 MB）                                                                             | 問題なし    |
+| `npm run verify`                 | 通過（テスト 4613 passed / 1 skipped）                                                                               | 問題なし    |
+
+### 9.2 7-2E で決めたこと
+
+| 項目                              | 決めたこと                                                                                                                                                                                           |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| commit の author e-mail           | **過去の履歴は書き換えずに公開する。** 7-2E の commit 以降は GitHub の noreply アドレス（`272251618+thpiroc@users.noreply.github.com`）を使う。このリポジトリの `.git/config`（`--local`）に設定した |
+| 不具合の報告先                    | GitHub Issues。Release notes と README に書いた                                                                                                                                                      |
+| GitHub 上の操作                   | draft Release の作成・Public 化・公開は利用者が画面で行う（§9.4）                                                                                                                                    |
+| タスクバーのピン留め / グループ化 | v1.0.0 では `setAppUserModelId` を足さない。§8.2 の未確認事項のまま出す                                                                                                                              |
+| 公開する installer                | 正式アイコンの修正版で作った installer（§5.3）を**作り直さずに**使う                                                                                                                                 |
+
+### 9.3 公開する installer の確認
+
+作り直さずに、installer の中身が tag を打つ commit のソースから作られたものであることを確かめた。
+
+| 観点             | 結果                                                                                                                                                                                                         |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| ファイル         | `Fluvix-Nexus-Setup-1.0.0.exe` 103,066,939 bytes                                                                                                                                                             |
+| payload          | 7-Zip（electron-builder の cache の `7za.exe`）で installer を展開し、`release/win-unpacked` と全ファイル一致                                                                                                |
+| `app.asar`       | 展開した `out/` がリポジトリの `out/` と全ファイル一致。`package.json` は version `1.0.0`・`dependencies` が同じ。`out/` より新しい `src` のファイルは無く、`src` / 依存は 7-2B の commit 以降変わっていない |
+| ライセンス       | `resources\LICENSE`・`resources\THIRD_PARTY_NOTICES.txt` がリポジトリのものとバイト一致                                                                                                                      |
+| `SHA256SUMS.txt` | §7 の手順で `release/` に作成（95 bytes・BOM なし・LF）。`sha256sum -c` が `OK`、Release notes の PowerShell の照合が `True`                                                                                 |
+
+SHA-256 は `8caf663785834a016ca78fc6b74dee94ae7468cefcdf1ffd5c10abd81d25ec7c`（Release notes の本文には書かない）。
+
+### 9.4 利用者が行う公開の手順
+
+tag `v1.0.0` は 7-2E の commit に付けて push 済み。GitHub の画面で次を行う。
+
+| 順  | 操作                                                                                                                                      |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Releases → Draft a new release。tag は既存の `v1.0.0`、タイトルは `Fluvix Nexus v1.0.0`                                                   |
+| 2   | 本文に `docs/release-notes/v1.0.0.md` の先頭の HTML コメントを除いた残りを貼る（`release/release-body-v1.0.0.md` に用意した）             |
+| 3   | `release/` の `Fluvix-Nexus-Setup-1.0.0.exe` と `SHA256SUMS.txt` の2つだけを添付する                                                      |
+| 4   | 「Set as the latest release」を選び、「Save draft」。Preview で本文と添付を確かめる                                                       |
+| 5   | Settings → General → Danger Zone → Change visibility → Public。Features の Issues が有効であることも確かめる                              |
+| 6   | draft を開き「Publish release」                                                                                                           |
+| 7   | ログインしていないブラウザで Release から2つをダウンロードし、Release notes の PowerShell で `True` を確かめる（§8.2 の未確認事項の一つ） |
+
+公開後の記録（Release の URL・ダウンロードでの照合結果）は、次の commit で docs に残す。

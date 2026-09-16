@@ -126,6 +126,10 @@ Fluvix Nexus は [MIT License](LICENSE) で配布しています。
 
 同梱している第三者ソフトウェアのライセンスは [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt) にあります。Electron / Chromium のライセンスはインストール先の `LICENSE.electron.txt` / `LICENSES.chromium.html` にあります。
 
+## 不具合の報告
+
+不具合や要望は [GitHub Issues](https://github.com/thpiroc/FluvixNexus/issues) で受け付けています。報告するときは、`%APPDATA%\Fluvix Nexus\logs` の `main.log` と `main.old.log` を添えてください。
+
 ## 開発者向け
 
 - [DESIGN.md](DESIGN.md) — 製品としての設計方針
@@ -147,3 +151,4 @@ Fluvix Nexus is a lightweight code editor for Windows with dockable Files, Edito
 - **Data:** settings and logs are stored in `%APPDATA%\Fluvix Nexus`; nothing is written into the opened folder.
 - **UI language:** Japanese and English (Settings → General).
 - **License:** [MIT](LICENSE). Third-party licenses: [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt).
+- **Bug reports:** [GitHub Issues](https://github.com/thpiroc/FluvixNexus/issues) (attach `main.log` / `main.old.log` from `%APPDATA%\Fluvix Nexus\logs`).

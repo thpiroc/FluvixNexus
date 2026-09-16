@@ -1,6 +1,6 @@
 # 開発ガイド
 
-> 対象: Session 7-2D（clean Windows 相当の最終確認と Release notes）時点
+> 対象: Session 7-2E（v1.0.0 公開の準備）時点
 > 最終更新: 2026-09-16
 
 ---
@@ -2459,6 +2459,14 @@ docs/RELEASE.md §5 の設計どおりに electron-builder を入れ、ローカ
 - exe に入ったアイコンの確認は、`ExtractAssociatedIcon` の見た目ではなく PE の RT_GROUP_ICON / RT_ICON を読んで `icon.ico` の各エントリとバイト比較した。素の `electron.exe`（`%LOCALAPPDATA%\electron\Cache` の zip から取り出す）で「不一致」になることも確かめておく
 - **`/S`（silent）で入れても installer は完了後にアプリを起動する**（既定 userData）。確認後は窓を閉じてから `Uninstall Fluvix Nexus.exe /currentuser /S` で片付ける
 
+### Session 7-2E（v1.0.0 公開の準備）
+
+公開する直前まで（公開前の再確認・`SHA256SUMS.txt`・Release notes の不具合の報告先・`v1.0.0` tag）を済ませた。結果・決定・利用者が行う公開の手順は docs/RELEASE.md §9。コード・`electron-builder.yml`・依存・installer は変えていない。
+
+- **installer を作り直さずに中身を確かめる:** electron-builder の cache にある `7za.exe`（`%LOCALAPPDATA%\electron-builder\Cache\7zip@1.0.0\…\bin\7za.exe`）で NSIS installer をそのまま展開でき、`win-unpacked` と同じ木が出る。`app.asar` は `node_modules/@electron/asar/bin/asar.js extract` で展開して `out/` と `diff -rq` する。`app.asar.unpacked` の `@lydell/node-pty/package.json` が `node_modules` のものと違うのは electron-builder がフィールドを落とすためで、差ではない
+- **commit の e-mail:** このリポジトリの `.git/config` に `user.email = 272251618+thpiroc@users.noreply.github.com` を設定した（`--global` は変えていない）。別の clone で作業するときは同じ設定を入れる
+- **Release notes の HTML コメントの中に `<!--` / `-->` を書かない。** コメントがそこで閉じ、Prettier が後ろの行を本文として整形する
+
 ---
 
 ## 5. 進め方
@@ -2507,10 +2515,10 @@ STEP 1 では **`electron-builder` の導入は行わず、準備だけ**を済�
 残っているもの（設計は docs/RELEASE.md §5〜§8）:
 
 - installer で入れたアプリの確認: この PC（7-2C）と、この PC でできる clean Windows 相当の確認（7-2D）は完了。別 PC / VM でしか確かめられない項目は docs/RELEASE.md §8.2 の未確認事項に残した
-- Release notes の原稿: `docs/release-notes/v1.0.0.md`（7-2D）。不具合の報告先と `SHA256SUMS.txt` は 7-2E
+- Release notes の原稿: `docs/release-notes/v1.0.0.md`（7-2D）。不具合の報告先（GitHub Issues）と `SHA256SUMS.txt` は 7-2E で済ませた
 - `electron-builder.yml` を触るときに外してはいけないこと（Session 7-2B で入れた）
   - **`dependencies` を同梱する必要がある。** Session 3-7-1 で `@lydell/node-pty`（native モジュール）が入り、これが最初の `dependencies` になった。`externalizeDepsPlugin` により Main のバンドルには含まれないため、`node_modules` 側の実体が要る。electron-builder は既定で `dependencies` を拾うが、`files` を絞り込む場合はここを外さないこと
   - prebuilt はプラットフォームごとに別パッケージ（`@lydell/node-pty-win32-x64` など）として入る。`optionalDependencies` 経由なので、**ビルドする OS / アーキテクチャのものしか入っていない**
   - installer では `node_modules/@lydell/**` を asar の外へ出し、`.pdb` は同梱しない（docs/RELEASE.md §5.4）
-- GitHub Releases の準備（docs/RELEASE.md §6〜§8）
+- GitHub Releases: 準備は 7-2E で済ませた。draft Release の作成・repository の Public 化・公開は利用者が行う（docs/RELEASE.md §9.4）
 - 自動更新（`electron-updater`）と、コード署名 / SmartScreen 対策は v1.0.0 に含めない（Session 7-2A。DESIGN.md §7.5）
