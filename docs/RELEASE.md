@@ -1,6 +1,6 @@
 # リリース
 
-> 対象: v1.0.0（Session 7-2A でメタデータと仕様を確定。Session 7-2B で electron-builder を入れ、ローカルで installer を作った。Session 7-2C でその installer をこの PC に入れて検証した。Session 7-2D でこの PC でできる clean Windows 相当の確認をし、Release notes を確定した。その後、正式アイコンを組み込んで installer を作り直した。Session 7-2E で公開前の再確認・`SHA256SUMS.txt`・`v1.0.0` tag までを済ませた。repository の Public 化と Release の公開は利用者が行う（§9））
+> 対象: v1.0.0（Session 7-2A でメタデータと仕様を確定。Session 7-2B で electron-builder を入れ、ローカルで installer を作った。Session 7-2C でその installer をこの PC に入れて検証した。Session 7-2D でこの PC でできる clean Windows 相当の確認をし、Release notes を確定した。その後、正式アイコンを組み込んで installer を作り直した。Session 7-2E で公開前の再確認・`SHA256SUMS.txt`・`v1.0.0` tag までを済ませ、利用者が repository を Public にして Release を公開した（2026-09-16。§9.5））
 > 最終更新: 2026-09-16
 
 v1.0.0 を配布するための仕様と手順を扱う。製品としての配布方針は [DESIGN.md](../DESIGN.md) §7、利用者向けの説明は [README.md](../README.md)、開発時のコマンドは [DEVELOPMENT.md](DEVELOPMENT.md) にある。
@@ -25,13 +25,13 @@ security boundary（contextIsolation / sandbox / CSP / IPC / preload）は 7-2A 
 
 ## 2. Session 7-2 の分割
 
-| Session | 内容                                                                                 | 状態                                                                |
-| ------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------- |
-| 7-2A    | Release 仕様とメタデータ（version・author・LICENSE・README・第三者ライセンス・本書） | 完了                                                                |
-| 7-2B    | electron-builder の導入と設定（§5）、ローカルで installer を作る（公開しない）       | 完了                                                                |
-| 7-2C    | installer で入れたアプリの検証（この PC・Unicode のユーザーパス。§8 / §8.1）         | 完了                                                                |
-| 7-2D    | clean Windows での検証（§8）と Release notes の確定（§7）                            | 完了（この PC でできる範囲。別 PC / VM の項目は §8.2 の未確認事項） |
-| 7-2E    | §6 の再確認 → `SHA256SUMS.txt` → `v1.0.0` tag → draft Release → Public → 公開（§9）  | 準備完了（tag まで。draft 以降の GitHub 上の操作は利用者が行う）    |
+| Session | 内容                                                                                 | 状態                                                                      |
+| ------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------- |
+| 7-2A    | Release 仕様とメタデータ（version・author・LICENSE・README・第三者ライセンス・本書） | 完了                                                                      |
+| 7-2B    | electron-builder の導入と設定（§5）、ローカルで installer を作る（公開しない）       | 完了                                                                      |
+| 7-2C    | installer で入れたアプリの検証（この PC・Unicode のユーザーパス。§8 / §8.1）         | 完了                                                                      |
+| 7-2D    | clean Windows での検証（§8）と Release notes の確定（§7）                            | 完了（この PC でできる範囲。別 PC / VM の項目は §8.2 の未確認事項）       |
+| 7-2E    | §6 の再確認 → `SHA256SUMS.txt` → `v1.0.0` tag → draft Release → Public → 公開（§9）  | 完了（draft 以降の GitHub 上の操作は利用者が行った。公開後の確認は §9.5） |
 
 ## 3. 後から変えてはいけない識別子
 
@@ -340,15 +340,15 @@ updater の installer の写しは、7-2D で v1.0.0 の既知の制約とした
 | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | SmartScreen の警告画面の表示と「詳細情報」→「実行」             | この PC では MOTW 付きでも警告が出なかった                                                                                                                                                                                                                                             |
 | Smart App Control が有効（評価モード / オン）の PC での実行可否 | この PC は Off（オンに戻すには Windows の再インストールが要る）                                                                                                                                                                                                                        |
-| ブラウザで GitHub から実際にダウンロードしたファイル            | Release を公開していない（公開後に利用者が §9.4 の手順 7 で確かめる）                                                                                                                                                                                                                  |
+| ブラウザで GitHub から実際にダウンロードしたファイル            | 公開後、未認証のダウンロードでの hash の照合は済んだ（§9.5）。ブラウザ経由の MOTW と SmartScreen の表示は未確認                                                                                                                                                                        |
 | .NET が入っていない PC での C# の案内（`runtime-not-found`）    | .NET は `C:\Program Files\dotnet` を固定で探し、この PC には入っている                                                                                                                                                                                                                 |
 | Git / Node.js を実際にインストールしてからの検出                | この PC には入っている（A1 は PATH と環境変数を削った擬似確認）                                                                                                                                                                                                                        |
 | ASCII のユーザー名・新しいユーザープロファイル・英語版 Windows  | この PC は Unicode のユーザー名・日本語の表示。新しいユーザーの作成には管理者の承認が要る                                                                                                                                                                                              |
 | タスクバーのピン留め / グループ化の目視                         | 自動操作を途中でやめた（A6）。インストールし、実行中のボタンからピン留め → 閉じる → ピンから起動して、ボタンが1つにまとまるかを見る。2つに分かれたら `app.setAppUserModelId('studio.fluvix.fluvixnexus')` を足す（コード変更）。**7-2E で、v1.0.0 では変えずに未確認のまま出すと決定** |
 
-## 9. Session 7-2E（公開の準備）
+## 9. Session 7-2E（公開の準備と公開後の確認）
 
-7-2E では、GitHub 上で公開する直前までを済ませた。**repository の Public 化と Release の公開は利用者が GitHub の画面で行う**（Claude Code は行わない。この PC に GitHub CLI は入れていない）。コード・`electron-builder.yml`・依存・installer は変えていない。
+7-2E では、GitHub 上で公開する直前までを済ませ、利用者の公開後に §9.5 を確かめた。**repository の Public 化と Release の公開は利用者が GitHub の画面で行う**（Claude Code は行わない。この PC に GitHub CLI は入れていない）。コード・`electron-builder.yml`・依存・installer は変えていない。
 
 ### 9.1 §6.2 の再確認（7-2E の直前・全履歴 73 commit）
 
@@ -400,4 +400,19 @@ tag `v1.0.0` は 7-2E の commit に付けて push 済み。GitHub の画面で�
 | 6   | draft を開き「Publish release」                                                                                                           |
 | 7   | ログインしていないブラウザで Release から2つをダウンロードし、Release notes の PowerShell で `True` を確かめる（§8.2 の未確認事項の一つ） |
 
-公開後の記録（Release の URL・ダウンロードでの照合結果）は、次の commit で docs に残す。
+利用者が 1〜6 を行い、2026-09-16 22:01（JST。`published_at` `2026-09-16T13:01:04Z`）に公開した。7 は §9.5 で確かめた。
+
+### 9.5 公開後の確認
+
+**v1.0.0 は https://github.com/thpiroc/FluvixNexus/releases/tag/v1.0.0 で公開済み。** 確認はどれも認証を付けずに行った（GitHub API と `releases/download/` の URL）。
+
+| 観点                 | 結果                                                                                                                                                         |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| repository           | `visibility: public`・Issues 有効・license `MIT`。トップ・Release・Issues のページが未ログインで 200                                                         |
+| Release              | tag `v1.0.0`・タイトル `Fluvix Nexus v1.0.0`・draft / prerelease でない・`releases/latest` が v1.0.0 を指す。Release は v1.0.0 の1件だけ                     |
+| tag                  | リモートの `v1.0.0` は 7-2E で push した annotated tag のまま（commit `db8d80c` を指す）。GitHub 上で作り直されていない                                      |
+| 本文                 | `release/release-body-v1.0.0.md` と一致（改行の差を除く）。HTML コメントは入っておらず、Issues へのリンクがある                                              |
+| 添付                 | `Fluvix-Nexus-Setup-1.0.0.exe`（103,066,939 bytes・GitHub の `digest` が §9.3 の SHA-256 と同じ）と `SHA256SUMS.txt`（95 bytes）の2つだけ                    |
+| ダウンロードでの照合 | 未認証で2つをダウンロードし、Release notes の PowerShell の照合が `True`。どちらも `release/` のファイルとバイト一致。installer は `NotSigned`（方針どおり） |
+
+未確認のまま残るもの: ブラウザでダウンロードしたときの MOTW と SmartScreen の表示（`Invoke-WebRequest` は MOTW を付けない。§8.2 のとおり、この PC では MOTW 付きでも警告が出なかった）。
