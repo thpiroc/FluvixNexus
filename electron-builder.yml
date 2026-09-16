@@ -29,8 +29,9 @@ win:
     - target: nsis
       arch:
         - x64
-  # icon は素材（resources/icon.ico）が入るまで書かない。それまでは Electron の既定アイコンになる。
-  # 7-2E の公開までに必須（docs/RELEASE.md §5.3）
+  # 正式アイコン（7-2D の後・7-2E の前に組み込み）。exe・installer / uninstaller・ショートカット・タスクバーはこれを使う。
+  # 原本は resources/icon.png、.ico は tools/generate-app-icon.ps1 で作る（docs/RELEASE.md §5.3）
+  icon: resources/icon.ico
 
 nsis:
   oneClick: true # electron-builder の既定。per-user で入る

@@ -1,6 +1,6 @@
 # リリース
 
-> 対象: v1.0.0（Session 7-2A でメタデータと仕様を確定。Session 7-2B で electron-builder を入れ、ローカルで installer を作った。Session 7-2C でその installer をこの PC に入れて検証した。Session 7-2D でこの PC でできる clean Windows 相当の確認をし、Release notes を確定した。公開はしていない）
+> 対象: v1.0.0（Session 7-2A でメタデータと仕様を確定。Session 7-2B で electron-builder を入れ、ローカルで installer を作った。Session 7-2C でその installer をこの PC に入れて検証した。Session 7-2D でこの PC でできる clean Windows 相当の確認をし、Release notes を確定した。その後、正式アイコンを組み込んで installer を作り直した。公開はしていない）
 > 最終更新: 2026-09-16
 
 v1.0.0 を配布するための仕様と手順を扱う。製品としての配布方針は [DESIGN.md](../DESIGN.md) §7、利用者向けの説明は [README.md](../README.md)、開発時のコマンドは [DEVELOPMENT.md](DEVELOPMENT.md) にある。
@@ -106,7 +106,7 @@ win:
     - target: nsis
       arch:
         - x64
-  # icon: resources/icon.ico ← 素材が入るまでは書かない（§5.3）
+  icon: resources/icon.ico # 正式アイコン（7-2D の後に追加。§5.3）
 
 nsis:
   oneClick: true # electron-builder の既定。per-user で入る
@@ -121,13 +121,28 @@ publish: null # 自動更新は入れない。GitHub へのアップロードは
 
 ### 5.3 アイコン
 
-| 項目       | 決めたこと                                                                                                                                                                         |
-| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 置き場所   | `resources/`（リポジトリに commit する。`build/` は `.gitignore` の対象なので置いても commit されない）                                                                            |
-| 原本       | `resources/icon.png`（1024×1024、背景透過）。SVG で描いた場合は `resources/icon.svg` も置く                                                                                        |
-| Windows 用 | `resources/icon.ico`（16 / 20 / 24 / 32 / 40 / 48 / 64 / 256 px を含む。256 は PNG 圧縮）                                                                                          |
-| 使われ方   | exe・installer / uninstaller・ショートカット・タスクバー。Windows のウィンドウは exe のアイコンを使うため、`BrowserWindow` の `icon` は足さない                                    |
-| 状態       | **素材は未作成**。7-2B の installer は素材無しで作った（ビルドログに `default Electron icon is used`）。**正式アイコンへの差し替えは 7-2E の公開前に必須**。仮のアイコンは作らない |
+| 項目       | 決めたこと                                                                                                                                                                                                                                  |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 置き場所   | `resources/`（リポジトリに commit する。`build/` は `.gitignore` の対象なので置いても commit されない）                                                                                                                                     |
+| 原本       | `resources/icon.png`（**1254×1254・RGB・背景は不透過**。利用者が確定した正式アイコン。7-2A で想定した「1024×1024・背景透過」とは違うが、絵は変えずにそのまま使う）                                                                          |
+| Windows 用 | `resources/icon.ico`（16 / 20 / 24 / 32 / 40 / 48 / 64 / 256 px。256 は PNG 圧縮、それ以外は 32bit BGRA の DIB）                                                                                                                            |
+| 作り方     | `powershell -NoProfile -ExecutionPolicy Bypass -File tools/generate-app-icon.ps1`。Windows 標準の .NET（System.Drawing）で縮小するだけで、依存は足していない。出力は毎回同じバイト列になる。原本を替えたら流し直し、2つを一緒に commit する |
+| 設定       | `electron-builder.yml` の `win.icon`。NSIS の installer / uninstaller のアイコンは electron-builder がここから取る（`nsis.installerIcon` などは書かない）                                                                                   |
+| 使われ方   | exe・installer / uninstaller・ショートカット・タスクバー。Windows のウィンドウは exe のアイコンを使うため、`BrowserWindow` の `icon` は足さない                                                                                             |
+| 開発時     | `npm run dev` は素の `electron.exe` で動くので、窓とタスクバーは Electron の既定アイコンのまま（意図どおり）                                                                                                                                |
+
+**確認の結果（7-2D の後。コード・依存・security boundary・設定 / userData の仕様は変えていない）:**
+
+| 観点                                  | 結果                                                                                                                                                                                                                                                                               |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `icon.ico` の中身                     | 8 エントリを独立に読み戻して全サイズがデコードできる。16 px でも絵が崩れていないことを目視                                                                                                                                                                                         |
+| ビルド                                | `npm run verify` 通過・`npm run dist` のログに `default Electron icon is used` が出ない                                                                                                                                                                                            |
+| 埋め込まれたアイコン                  | PE の RT_GROUP_ICON / RT_ICON を読み、`win-unpacked\Fluvix Nexus.exe`・`Fluvix-Nexus-Setup-1.0.0.exe`・インストール先の exe・`Uninstall Fluvix Nexus.exe` の4つとも **8 サイズが `icon.ico` とバイト一致**。同じ比較で素の `electron.exe` は不一致になる（比較が空振りしていない） |
+| ショートカット / アンインストール情報 | Start Menu・Desktop の `.lnk` の IconLocation と HKCU の `DisplayIcon` はどれもインストール先の `Fluvix Nexus.exe,0`                                                                                                                                                               |
+| 実行中の窓                            | インストール版の窓のクラスアイコン（タスクバーと Alt+Tab が使う）が正式アイコン。`main.log` に ERROR 0 件                                                                                                                                                                          |
+| 後片付け                              | 確認後に `/S` でアンインストール（インストール先・ショートカットは消え、userData は残る）                                                                                                                                                                                          |
+
+installer は作り直したので、§5.5 の 7-2B の数値と §8.1 / §8.2 の SHA-256（`B4D80D13…`）は**アイコン無しの旧 installer のもの**。作り直した installer は 103,191,140 bytes（この PC の結果。Release に載せる `SHA256SUMS.txt` は 7-2E で公開する installer から作る）。
 
 `.gitattributes` は `*.png` / `*.ico` を既に binary 扱いにしている。
 

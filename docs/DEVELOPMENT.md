@@ -2450,6 +2450,15 @@ docs/RELEASE.md §5 の設計どおりに electron-builder を入れ、ローカ
 - タスクバーのボタンは「結合しない」設定（`TaskbarGlomLevel=2`）だと AutomationId が `Window: 0x…` になり AppID が読めない。ピン留めを UI Automation で押す確認は、利用者のデスクトップで作業中の窓を奪うため途中でやめた（§8.2）
 - 使い捨ての Workspace / userData は `D:\fx72d`、TypeScript の LSP の確認用 prefix は scratchpad の `npmg`（TypeScript 7.0.2）/ `npmg6`（6.0.3）
 
+### 正式アイコンの組み込み（7-2D の後）
+
+`resources/icon.png`（利用者が確定した原本）から `tools/generate-app-icon.ps1` で `resources/icon.ico` を作り、`electron-builder.yml` の `win.icon` に設定した。結果の表は docs/RELEASE.md §5.3。
+
+- **`tools/generate-app-icon.ps1` は UTF-8 の BOM 付きで保存する。** Windows PowerShell 5.1 は BOM の無いスクリプトを CP932 で読み、日本語のコメントが後ろの改行や引用符を巻き込んで壊れうる
+- `System.Drawing.Icon(path, 256, 256).ToBitmap()` は PNG 圧縮の 256 エントリを読めず 64 px を返す。256 の確認は該当エントリを PNG として直接デコードする
+- exe に入ったアイコンの確認は、`ExtractAssociatedIcon` の見た目ではなく PE の RT_GROUP_ICON / RT_ICON を読んで `icon.ico` の各エントリとバイト比較した。素の `electron.exe`（`%LOCALAPPDATA%\electron\Cache` の zip から取り出す）で「不一致」になることも確かめておく
+- **`/S`（silent）で入れても installer は完了後にアプリを起動する**（既定 userData）。確認後は窓を閉じてから `Uninstall Fluvix Nexus.exe /currentuser /S` で片付ける
+
 ---
 
 ## 5. 進め方
@@ -2497,7 +2506,6 @@ STEP 1 では **`electron-builder` の導入は行わず、準備だけ**を済�
 
 残っているもの（設計は docs/RELEASE.md §5〜§8）:
 
-- アプリアイコン（`resources/icon.ico`、256x256 を含むもの。docs/RELEASE.md §5.3。素材は未作成。7-2E の公開前に必須）
 - installer で入れたアプリの確認: この PC（7-2C）と、この PC でできる clean Windows 相当の確認（7-2D）は完了。別 PC / VM でしか確かめられない項目は docs/RELEASE.md §8.2 の未確認事項に残した
 - Release notes の原稿: `docs/release-notes/v1.0.0.md`（7-2D）。不具合の報告先と `SHA256SUMS.txt` は 7-2E
 - `electron-builder.yml` を触るときに外してはいけないこと（Session 7-2B で入れた）
