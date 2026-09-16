@@ -2452,7 +2452,7 @@ docs/RELEASE.md §5 の設計どおりに electron-builder を入れ、ローカ
 
 ### 正式アイコンの組み込み（7-2D の後）
 
-`resources/icon.png`（利用者が確定した原本）から `tools/generate-app-icon.ps1` で `resources/icon.ico` を作り、`electron-builder.yml` の `win.icon` に設定した。結果の表は docs/RELEASE.md §5.3。
+`resources/icon.png`（利用者が確定した原本）から `tools/generate-app-icon.ps1` で `resources/icon.ico` を作り、`electron-builder.yml` の `win.icon` に設定した。その後、原本を修正版（背景透過の RGBA）に差し替え、同じ手順で `icon.ico` と installer を作り直した。結果の表は docs/RELEASE.md §5.3。
 
 - **`tools/generate-app-icon.ps1` は UTF-8 の BOM 付きで保存する。** Windows PowerShell 5.1 は BOM の無いスクリプトを CP932 で読み、日本語のコメントが後ろの改行や引用符を巻き込んで壊れうる
 - `System.Drawing.Icon(path, 256, 256).ToBitmap()` は PNG 圧縮の 256 エントリを読めず 64 px を返す。256 の確認は該当エントリを PNG として直接デコードする

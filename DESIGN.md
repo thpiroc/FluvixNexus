@@ -2328,7 +2328,7 @@ STEP 7 は v1.0.0 Release 前に、実際に使ったときの不便・崩れ・
 | 7-2B    | 完了 | electron-builder 26.15.3 と `electron-builder.yml`・`npm run dist`。`npm ci` からローカルで NSIS installer（`Fluvix-Nexus-Setup-1.0.0.exe`・未署名・既定アイコン）を作り、asar / node-pty の unpack / `.pdb` 除外 / LICENSE 同梱と win-unpacked の起動 smoke を確かめた。公開・tag はしていない                                                                                                    |
 | 7-2C    | 完了 | 7-2B の installer をこの PC に per-user で入れ、インストール先の exe で全機能（Terminal / Git / LSP 3言語 / Debug 3言語 / 再起動・アンインストール）を確かめた。Release blocker 0 件。docs だけ更新                                                                                                                                                                                                |
 | 7-2D    | 完了 | この PC でできる clean Windows 相当の確認（ツールが無い状態の案内・初回起動・上書きインストール・アンインストール後に残るもの・MOTW 付きの起動・VC++ ランタイム依存）と、Release notes の原稿 `docs/release-notes/v1.0.0.md`。README の TypeScript LSP の手順を `typescript@6` に直した。別 PC / VM でしか確かめられない項目は docs/RELEASE.md §8.2 に未確認事項として残した。コードは変えていない |
-| 7-2D 後 | 完了 | 正式アイコンの組み込み。`resources/icon.png` から `tools/generate-app-icon.ps1` で `resources/icon.ico` を作り `win.icon` に設定。exe・installer・uninstaller・ショートカット・実行中の窓のアイコンを確かめた（docs/RELEASE.md §5.3）。アプリのコードは変えていない                                                                                                                                |
+| 7-2D 後 | 完了 | 正式アイコンの組み込み。`resources/icon.png` から `tools/generate-app-icon.ps1` で `resources/icon.ico` を作り `win.icon` に設定。exe・installer・uninstaller・ショートカット・実行中の窓のアイコンを確かめた。原本は後で背景透過の修正版に差し替えて作り直した（docs/RELEASE.md §5.3）。アプリのコードは変えていない                                                                              |
 
 現在仕様として見るべきこと:
 
