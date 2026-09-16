@@ -21,7 +21,7 @@ Node.js・Python・.NET SDK・Git はアプリに同梱していません。使�
 2. 実行するとユーザー単位でインストールされます（管理者権限は不要です）。
 3. スタートメニューまたはデスクトップのショートカットから起動します。
 
-- **コード署名をしていません。** 初回は Windows SmartScreen の警告が出ることがあります。「詳細情報」→「実行」で続行できます。
+- **コード署名をしていません。** 初回は Windows SmartScreen の警告が出ることがあります。「詳細情報」→「実行」で続行できます。Smart App Control が有効な PC では実行がブロックされることがあります。
 - **自動更新はありません。** 新しい版は Releases からダウンロードして、同じ手順で上書きインストールしてください。
 
 ## 主な機能
@@ -55,11 +55,13 @@ Fluvix Nexus は開いたフォルダの中にある実行ファイルを起動�
 
 | 言語                    | インストール                                          |
 | ----------------------- | ----------------------------------------------------- |
-| JavaScript / TypeScript | `npm i -g typescript-language-server typescript`      |
+| JavaScript / TypeScript | `npm i -g typescript-language-server typescript@6`    |
 | Python                  | `npm i -g pyright`                                    |
 | C#                      | `dotnet tool install -g csharp-ls`（.NET SDK が必要） |
 
 言語ごとの有効 / 無効は Settings の LSP から切り替えられます。
+
+TypeScript は **6 系**を入れてください。TypeScript 7 には `typescript-language-server` が使う `tsserver` が含まれていないため、JavaScript / TypeScript の LSP が起動しません。
 
 ### Debug Adapter
 
@@ -102,9 +104,13 @@ SHA-256 が一致しないファイルは展開しないでください。Fluvix
 
 Windows の「設定」→「アプリ」→「インストールされているアプリ」から Fluvix Nexus をアンインストールします。設定などのデータ（`%APPDATA%\Fluvix Nexus`）は残ります。完全に削除する場合は、このフォルダも削除してください。
 
+インストーラーが置く自分自身の写し（`%LOCALAPPDATA%\fluvix-nexus-updater\installer.exe`、約 98 MB）もアンインストール後に残ります。自動更新が無いため使われません。削除して問題ありません。
+
 ## 既知の制約（v1.0.0）
 
 - 自動更新・コード署名はありません。Debug Adapter の同梱・自動ダウンロードもありません
+- アンインストール後も `%LOCALAPPDATA%\fluvix-nexus-updater\installer.exe` が残ります
+- JavaScript / TypeScript の LSP は TypeScript 7 では起動しません（6 系を使ってください）
 - Debug 対象のプログラムは本物の端末を持ちません。標準入力・端末サイズ・色を使うプログラムは Debug Console では同じように動きません
 - Breakpoint は行の挿入・削除に追従しません
 - Debug を開始した後に Adapter が終了した場合、理由は画面ではなくログに残ります
@@ -135,7 +141,8 @@ Fluvix Nexus is a lightweight code editor for Windows with dockable Files, Edito
 
 - **Requirements:** Windows 11 (x64). Node.js, Python, .NET SDK and Git are not bundled; install them only for the features you use and restart the app afterwards.
 - **Install:** download the Setup `.exe` from GitHub Releases. It installs per user (no administrator rights). The installer is not code-signed, so Windows SmartScreen may warn on first run. There is no auto-update.
-- **Language servers:** `typescript-language-server`, `pyright` and `csharp-ls` are detected from `PATH`.
+- **Language servers:** `typescript-language-server`, `pyright` and `csharp-ls` are detected from `PATH`. Install TypeScript 6 (`npm i -g typescript-language-server typescript@6`); TypeScript 7 does not ship `tsserver`.
+- **Uninstall:** `%APPDATA%\Fluvix Nexus` and `%LOCALAPPDATA%\fluvix-nexus-updater` (an unused copy of the installer) remain and can be deleted by hand.
 - **Debug adapters:** vscode-js-debug 1.117.0 (placed under `%APPDATA%\Fluvix Nexus\debug-adapters`, see the PowerShell steps above), `debugpy`, and `netcoredbg` (ASCII-only paths).
 - **Data:** settings and logs are stored in `%APPDATA%\Fluvix Nexus`; nothing is written into the opened folder.
 - **UI language:** Japanese and English (Settings → General).

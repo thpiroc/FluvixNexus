@@ -1,6 +1,6 @@
 # リリース
 
-> 対象: v1.0.0（Session 7-2A でメタデータと仕様を確定。Session 7-2B で electron-builder を入れ、ローカルで installer を作った。Session 7-2C でその installer をこの PC に入れて検証した。公開はしていない）
+> 対象: v1.0.0（Session 7-2A でメタデータと仕様を確定。Session 7-2B で electron-builder を入れ、ローカルで installer を作った。Session 7-2C でその installer をこの PC に入れて検証した。Session 7-2D でこの PC でできる clean Windows 相当の確認をし、Release notes を確定した。公開はしていない）
 > 最終更新: 2026-09-16
 
 v1.0.0 を配布するための仕様と手順を扱う。製品としての配布方針は [DESIGN.md](../DESIGN.md) §7、利用者向けの説明は [README.md](../README.md)、開発時のコマンドは [DEVELOPMENT.md](DEVELOPMENT.md) にある。
@@ -25,13 +25,13 @@ security boundary（contextIsolation / sandbox / CSP / IPC / preload）は 7-2A 
 
 ## 2. Session 7-2 の分割
 
-| Session | 内容                                                                                 | 状態   |
-| ------- | ------------------------------------------------------------------------------------ | ------ |
-| 7-2A    | Release 仕様とメタデータ（version・author・LICENSE・README・第三者ライセンス・本書） | 完了   |
-| 7-2B    | electron-builder の導入と設定（§5）、ローカルで installer を作る（公開しない）       | 完了   |
-| 7-2C    | installer で入れたアプリの検証（この PC・Unicode のユーザーパス。§8 / §8.1）         | 完了   |
-| 7-2D    | clean Windows での検証（§8）と Release notes の確定（§7）                            | 未着手 |
-| 7-2E    | §6 の再確認 → repository を Public → `v1.0.0` tag → draft Release → 確認して公開     | 未着手 |
+| Session | 内容                                                                                 | 状態                                                                |
+| ------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------- |
+| 7-2A    | Release 仕様とメタデータ（version・author・LICENSE・README・第三者ライセンス・本書） | 完了                                                                |
+| 7-2B    | electron-builder の導入と設定（§5）、ローカルで installer を作る（公開しない）       | 完了                                                                |
+| 7-2C    | installer で入れたアプリの検証（この PC・Unicode のユーザーパス。§8 / §8.1）         | 完了                                                                |
+| 7-2D    | clean Windows での検証（§8）と Release notes の確定（§7）                            | 完了（この PC でできる範囲。別 PC / VM の項目は §8.2 の未確認事項） |
+| 7-2E    | §6 の再確認 → repository を Public → `v1.0.0` tag → draft Release → 確認して公開     | 未着手                                                              |
 
 ## 3. 後から変えてはいけない識別子
 
@@ -143,7 +143,7 @@ publish: null # 自動更新は入れない。GitHub へのアップロードは
 | `app.isPackaged` の分岐     | ネイティブメニューが無くなる（DevTools も開けない）・ログが info 以上になる                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | Renderer / preload / Worker | asar の中から `file://` で読む。Renderer と preload が asar の中から読めることは 7-2B の smoke で確認。Monaco の Worker（editor / JSON / CSS / HTML / TS）が asar の中から起動することは 7-2C で確認（§8.1）                                                                                                                                                                                                                                                                                                                                                                                                    |
 | PATH                        | スタートメニューから起動したアプリは Explorer の環境変数を受け継ぐ。Node / Git / LSP などを後から入れたらアプリの再起動（場合によってはサインアウト）が要る。LSP / DAP / git は PATH を自分で辿って絶対パスで起動するので、インストール先には依存しない                                                                                                                                                                                                                                                                                                                                                         |
-| AppUserModelID              | NSIS はショートカットに appId を付けるが、アプリは `app.setAppUserModelId` を呼んでいない。7-2C で Start Menu / Desktop のショートカットの AppUserModelID が `studio.fluvix.fluvixnexus` であることを確認。タスクバーのピン留め・グループ化の目視は 7-2D。問題があるときだけ直す                                                                                                                                                                                                                                                                                                                                |
+| AppUserModelID              | NSIS はショートカットに appId を付けるが、アプリは `app.setAppUserModelId` を呼んでいない。7-2C で Start Menu / Desktop のショートカットの AppUserModelID が `studio.fluvix.fluvixnexus` であることを確認。7-2D で、ウィンドウには明示の AppUserModelID が付いていないこと（Electron の既定の書式 `electron.app.$1` は exe に入っている）を確認。タスクバーのピン留め・グループ化の目視は未了（§8.2）。問題があるときだけ直す                                                                                                                                                                                   |
 
 ### 5.5 ローカルで installer を作る（Session 7-2B の結果）
 
@@ -214,17 +214,33 @@ git ls-files | grep -iE '\.exe$|\.blockmap$|^release/|\.asar$'
 
 ## 7. Release notes に書くこと（7-2D で確定）
 
-| 項目           | 内容                                                                                                         |
-| -------------- | ------------------------------------------------------------------------------------------------------------ |
-| 概要           | 何のアプリか・v1.0.0 が最初の公開版であること                                                                |
-| 動作環境       | Windows 11 x64（7-2D で確かめた環境を書く）                                                                  |
-| ダウンロード   | `Fluvix-Nexus-Setup-1.0.0.exe` と `SHA256SUMS.txt`。SHA-256 の確かめ方（`Get-FileHash`）                     |
-| インストール   | per-user・管理者権限不要・**未署名のため SmartScreen の警告が出る**こと・**自動更新が無い**こと              |
-| 別途入れるもの | Git / GitHub CLI / Language Server / Debug Adapter と、入れた後にアプリを再起動すること（README へのリンク） |
-| データとログ   | `%APPDATA%\Fluvix Nexus`・`logs\main.log`。アンインストールしても残ること                                    |
-| 既知の制約     | DESIGN.md §14 の表（Debug の制約・adapter は利用者が置く・Renderer の `file://`）                            |
-| ライセンス     | MIT・THIRD_PARTY_NOTICES.txt                                                                                 |
-| 不具合の報告先 | 7-2E で決める（Public にした repository の Issues を使うか）                                                 |
+**原稿は [release-notes/v1.0.0.md](release-notes/v1.0.0.md)**（7-2D）。GitHub Release の本文にはこれを貼る。7-2E で残っているのは次の2つだけ。
+
+- 「不具合の報告」の節（原稿に HTML コメントで印を付けてある）を公開先に合わせて書く
+- 正式アイコンで作り直した installer から `SHA256SUMS.txt` を作る（下記）。**hash は本文に書かない**
+
+`SHA256SUMS.txt` の作り方（`release\` で PowerShell。`sha256sum -c` と同じ書式・BOM なし・LF。7-2D で作成と照合、1 byte 変えた写しが不一致になることを確認）:
+
+```powershell
+$name = 'Fluvix-Nexus-Setup-1.0.0.exe'
+$hash = (Get-FileHash $name -Algorithm SHA256).Hash.ToLowerInvariant()
+[IO.File]::WriteAllText((Join-Path (Get-Location) 'SHA256SUMS.txt'), "$hash  $name`n", (New-Object Text.UTF8Encoding($false)))
+```
+
+項目の対応（原稿はこの表を満たす）:
+
+| 項目           | 内容                                                                                                                                                                                                               |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 概要           | 何のアプリか・v1.0.0 が最初の公開版であること                                                                                                                                                                      |
+| 動作環境       | Windows 11 x64（7-2D で確かめた環境を書く）                                                                                                                                                                        |
+| ダウンロード   | `Fluvix-Nexus-Setup-1.0.0.exe` と `SHA256SUMS.txt`。SHA-256 の確かめ方（`Get-FileHash`）                                                                                                                           |
+| インストール   | per-user・管理者権限不要・**未署名のため SmartScreen の警告が出る**こと・**自動更新が無い**こと                                                                                                                    |
+| 別途入れるもの | Git / GitHub CLI / Language Server / Debug Adapter と、入れた後にアプリを再起動すること（README へのリンク）                                                                                                       |
+| データとログ   | `%APPDATA%\Fluvix Nexus`・`logs\main.log`。アンインストールしても残ること                                                                                                                                          |
+| 既知の制約     | DESIGN.md §14 の表（Debug の制約・adapter は利用者が置く・Renderer の `file://`）                                                                                                                                  |
+| ライセンス     | MIT・THIRD_PARTY_NOTICES.txt                                                                                                                                                                                       |
+| 不具合の報告先 | 7-2E で決める（Public にした repository の Issues を使うか）                                                                                                                                                       |
+| 7-2D で追加    | 上書きインストールで設定が残り、起動中のアプリは閉じて起動し直されること・Smart App Control でブロックされうること・アンインストール後に残る `fluvix-nexus-updater`・TypeScript は 6 系（7 では LSP が起動しない） |
 
 GitHub Release に上げるのは `Fluvix-Nexus-Setup-1.0.0.exe` と `SHA256SUMS.txt` だけ。自動更新を入れないので `.blockmap` / `latest.yml` は上げない。`win-unpacked/` も上げない。
 
@@ -272,3 +288,45 @@ v1.0.0 の Release blocker は見つからなかった。次は記録だけに�
 | `%LOCALAPPDATA%\fluvix-nexus-updater\installer.exe` が残る | electron-builder の NSIS がインストール時に installer の写し（98 MiB・同じ hash）を置き、アンインストールでは消さない。自動更新を入れないので使われない。Release notes で案内するか、7-2D 以降で扱いを決める |
 | `main.log` の見出しの時刻                                  | 起動の見出し（`started`）が、同じ起動で先に書かれた行より数 ms 後の時刻になっている。並びは見出しが先で、読むのに困らない                                                                                    |
 | 引き継ぎ                                                   | タスクバーのピン留め / グループ化の目視・ダウンロードしたファイルでの SmartScreen の表示・clean Windows での確認は 7-2D                                                                                      |
+
+updater の installer の写しは、7-2D で v1.0.0 の既知の制約とした（§8.2 A4）。
+
+### 8.2 Session 7-2D の結果（この PC でできる clean Windows 相当の確認）
+
+7-2B の `release/Fluvix-Nexus-Setup-1.0.0.exe`（7-2C と同じ SHA-256 `B4D80D13…2CEF12`）をそのまま使った。コード・`electron-builder.yml`・依存は変えていない。PC は Windows 11 Home 25H2（ビルド 26200）x64・Smart App Control は Off・ユーザー名は Unicode。VM の新規構築はしていない（利用者の決定）。確認の手順と罠は docs/DEVELOPMENT.md §4 の Session 7-2D。
+
+| #   | 観点                                  | 結果                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| --- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A1  | ツールが無い状態の案内 → 入れて再起動 | インストール版を、PATH を Windows の既定相当（System32 / Windows / Wbem / PowerShell / OpenSSH / WindowsApps）にし `%ProgramFiles%` 系を存在しないフォルダへ向け、新しい userData で起動（27/27）。Git パネル「Git が見つかりませんでした。」＋次の一手・GitHub CLI `cli-missing`・LSP 3言語とも `unavailable`（Status Bar「LSP: 未インストール」）・Terminal は PowerShell が動き Node / Claude Code は `available: false`・Debug は Node.js「Node.js が見つかりません。」/ Python「Python が見つかりません。」（WindowsApps の Store スタブを Python と誤認しない）/ C#「netcoredbg が見つかりません」。案内に絶対パス無し。同じ userData で PATH を戻して再起動すると Git `ready`・Pyright `ready`・Node の案内が「vscode-js-debug が配置されていません」へ進む |
+| A2  | 初回起動と保存場所                    | 起動 0.3〜0.4 秒・言語 `ja`・Theme `dark`・「Workspace 未選択」・ネイティブメニュー無し。CSP 違反 0 件・console error 0 件。`main.log` は見出しが `packaged`・INFO 以上・ERROR 0 件・絶対パス / ユーザー名 0 件（WARN は Debug を起動しなかった理由の3行だけ）。Workspace とインストール先への書き込み 0 件                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| A3  | 同じ版の上書きインストール            | 2回実施。インストール先 97 ファイルの hash 一致・アンインストール情報は1件のまま・ショートカットあり・既定 userData の JSON 4つの hash が変わらない。**アプリの起動中**に実行すると installer がアプリを終了させ（旧 Main とシェルは残らない）、完了後に起動し直す（約 36 秒）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| A4  | アンインストール後に残るもの          | `UninstallString /S` で 9.5 秒・終了コード 0。インストール先・HKCU のアンインストール情報・`HKCU\Software\898845d0-…`（InstallLocation）・Start Menu / Desktop のショートカットは消える。残るのは `%APPDATA%\Fluvix Nexus`（設計どおり。JSON は作業前と hash 一致）と `%LOCALAPPDATA%\fluvix-nexus-updater\installer.exe`（98 MiB。インストールのたびに書き直される）。後者は **v1.0.0 の既知の制約**とし、NSIS / build 設定は変えない（利用者の決定）。Release notes と README に載せた                                                                                                                                                                                                                                                                           |
+| A5  | SmartScreen                           | installer の写しに `Zone.Identifier`（`ZoneId=3`）を付けて Explorer から起動 → 約 9〜10 秒止まった後、**警告は出ずに** installer が起動し、Windows が `Zone.Identifier` を消した（HostUrl を変えて2回、同じ結果）。SmartScreen の設定・ポリシーで無効化された形跡は無い。この PC では警告の表示を確認できなかったため、文言は「表示された場合は『詳細情報』→『実行』」「Smart App Control ではブロックされることがある」とした。インストール先の exe には MOTW は付かない                                                                                                                                                                                                                                                                                          |
+| A6  | タスクバーのピン留め / グループ化     | ショートカットの AppUserModelID は `studio.fluvix.fluvixnexus`、ウィンドウに明示の AppUserModelID は無い、Electron の既定の書式 `electron.app.$1` が exe に入っている、までを確認。この PC は「結合しない」設定でボタンから AppID を読めず、UI Automation でのピン留めは利用者が作業中のデスクトップを奪うため途中でやめた。**目視は未了**（下の未確認事項）                                                                                                                                                                                                                                                                                                                                                                                                       |
+| A7  | VC++ ランタイム                       | 同梱の `conpty.node` / `conpty_console_list.node` / `Fluvix Nexus.exe` などは `vcruntime140` / `msvcp140` を import しない。`dxil.dll` が使うのは Windows 10 以降に標準の UCRT（`api-ms-win-crt-*`）だけ                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| A8  | Release notes と SHA-256              | 原稿を [release-notes/v1.0.0.md](release-notes/v1.0.0.md) に確定（§7）。`SHA256SUMS.txt` を §7 の手順で作り、Release notes の PowerShell 手順で `True`、Git Bash の `sha256sum -c` で `OK`、1 byte 変えた写しで `False`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+
+7-2D で見つかり、docs で直したもの（コードは変えていない）:
+
+| 項目                                      | 内容                                                                                                                                                                                                                                                                                                                                                                 |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| README の TypeScript LSP の手順が動かない | npm の `typescript` の `latest` が 7.0.2 になり `tsserver.js` を含まない。README どおり `npm i -g typescript-language-server typescript` で入れると、インストール版で `Could not find a valid TypeScript installation` → 立て直しを繰り返す。`typescript@6`（6.0.3）なら `ready`。README / DEVELOPMENT.md / Release notes を `typescript@6` にし、既知の制約に足した |
+
+`npm audit`（7-2B からの持ち越し）: `--omit=dev` は 0 件。全体の 4 件は次のとおりで、**v1.0.0 の Release blocker ではない**（依存は上げない。利用者の決定）。
+
+| パッケージ                                                        | 重大度         | 判断                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ----------------------------------------------------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `vitest` / `@vitest/mocker`                                       | moderate       | テストだけで使う。installer に入らない                                                                                                                                                                                                                                                                                                                                                                                 |
+| `dompurify` 3.4.8（monaco-editor 0.56.0 に同梱）/ `monaco-editor` | moderate / low | Renderer のバンドルに入る。4件の advisory は `IN_PLACE`・`setConfig()` / `clearConfig()`・`CUSTOM_ELEMENT_HANDLING` を使ったときの問題で、monaco の `domSanitize.js` は呼ぶたびに設定を渡し、これらを使わない（hook は毎回 `removeAllHooks()` で外す）。CSP は `script-src 'self'`。npm の提案する修正は monaco-editor 0.53.0 への major の後退なので採らない。monaco-editor が dompurify を上げた版を出したら追従する |
+
+**別 PC / VM でしか確かめられない未確認事項**（v1.0.0 ではここを確かめずに出す。Release notes はどれも「起こりうる」前提で書いてある）:
+
+| 項目                                                            | この PC で確かめられない理由                                                                                                                                                                                                                    |
+| --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| SmartScreen の警告画面の表示と「詳細情報」→「実行」             | この PC では MOTW 付きでも警告が出なかった                                                                                                                                                                                                      |
+| Smart App Control が有効（評価モード / オン）の PC での実行可否 | この PC は Off（オンに戻すには Windows の再インストールが要る）                                                                                                                                                                                 |
+| ブラウザで GitHub から実際にダウンロードしたファイル            | Release を公開していない（7-2E）                                                                                                                                                                                                                |
+| .NET が入っていない PC での C# の案内（`runtime-not-found`）    | .NET は `C:\Program Files\dotnet` を固定で探し、この PC には入っている                                                                                                                                                                          |
+| Git / Node.js を実際にインストールしてからの検出                | この PC には入っている（A1 は PATH と環境変数を削った擬似確認）                                                                                                                                                                                 |
+| ASCII のユーザー名・新しいユーザープロファイル・英語版 Windows  | この PC は Unicode のユーザー名・日本語の表示。新しいユーザーの作成には管理者の承認が要る                                                                                                                                                       |
+| タスクバーのピン留め / グループ化の目視                         | 自動操作を途中でやめた（A6）。インストールし、実行中のボタンからピン留め → 閉じる → ピンから起動して、ボタンが1つにまとまるかを見る。2つに分かれたら `app.setAppUserModelId('studio.fluvix.fluvixnexus')` を足す（コード変更。7-2E の前に判断） |

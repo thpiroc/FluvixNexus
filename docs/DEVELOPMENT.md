@@ -1,6 +1,6 @@
 # 開発ガイド
 
-> 対象: Session 7-2A（v1.0.0 Release metadata）時点
+> 対象: Session 7-2D（clean Windows 相当の最終確認と Release notes）時点
 > 最終更新: 2026-09-16
 
 ---
@@ -18,11 +18,13 @@
 
 | 言語                    | 入れ方                                              | 実行ファイル                 |
 | ----------------------- | --------------------------------------------------- | ---------------------------- |
-| TypeScript / JavaScript | `npm i -g typescript-language-server typescript`    | `typescript-language-server` |
+| TypeScript / JavaScript | `npm i -g typescript-language-server typescript@6`  | `typescript-language-server` |
 | Python                  | `npm i -g pyright`                                  | `pyright-langserver`         |
 | C#                      | `dotnet tool install -g csharp-ls`（.NET SDK 必須） | `csharp-ls`                  |
 
 いずれも **PATH から解決できること**が条件（csharp-ls だけは `~/.dotnet/tools` も見る）。Workspace の中は探さない。
+
+**`typescript` は版を付けて入れる。** npm の `latest` は 7.x（7.0.2）になり、`tsserver.js` を含まない。`npm i -g typescript-language-server typescript` のままだと TypeScript 7 が入り、`Could not find a valid TypeScript installation` で `initialize` が断られる（Session 7-2D でインストール版に対して実測。`typescript@6` なら `ready`）。
 
 **このリポジトリ自身を Workspace として開いても TypeScript のサーバは立たない。** `typescript` を 7.x（native preview）で pin しており、`node_modules/typescript/lib` に `tsserver.js` が無いため `initialize` が断られる。TS の LSP を実機で確かめるときは、`typescript@5` を入れた別の検証用フォルダを Workspace にすること（下記 §4）。
 
@@ -2435,6 +2437,19 @@ docs/RELEASE.md §5 の設計どおりに electron-builder を入れ、ローカ
 - 既定の `%APPDATA%\Fluvix Nexus` は消さない（開発版と共有していて、利用者の Workspace を復元する）。インストール直後の起動で増えたのは `logs` だけで、既存の JSON は変わっていない
 - 使い捨ての Workspace は `D:\fx72c`（C# の題材を ASCII のパスで build するため）
 
+### Session 7-2D（clean Windows 相当の最終確認 / Release notes）
+
+7-2B の installer（7-2C と同じ hash）で、この PC で確かめられる clean Windows 相当の項目を確認し、Release notes を `docs/release-notes/v1.0.0.md` に確定した（結果の表は docs/RELEASE.md §8.2）。コード・`electron-builder.yml`・依存は変えていない。正式アイコン・tag・GitHub Release・repository の公開は 7-2E。
+
+- **ダウンロード済みの印（MOTW）の付け方:** installer の写しを `Downloads` に置き、`Zone.Identifier` ストリームに `ZoneId=3` を書く。Explorer（`explorer.exe <file>`）/ Shell の `InvokeVerb('open')` から起こす。**一度実行すると Windows がストリームを消す**ので、2回目以降の確認では書き直すこと（書き直さずに「警告が出ない」と読むと確認になっていない）
+- **ツールが無い PC の再現:** Main へ渡す PATH を System32 / Windows / Wbem / PowerShell / OpenSSH / WindowsApps だけにするのに加え、**`ProgramFiles` / `ProgramW6432` / `ProgramFiles(x86)` を存在しないフォルダへ向ける**。Git と GitHub CLI は PATH に無くても `%ProgramFiles%\Git\cmd` などを探す（`src/main/git/gitExecutable.ts`）ため、PATH だけ削ると Git が見つかってしまう。.NET は `C:\Program Files\dotnet` を固定で見るので、この PC では「.NET が無い」は再現できない
+- WindowsApps の `python.exe` は Store へ誘導するスタブ（終了コード 49）。clean な Windows 11 にもあり、Debug は正しく `python: runtime-not-found` を返す
+- C# の LSP の状態は `.cs` を Editor で開くまで `stopped` のまま（`unavailable` にならない）。3言語を読むときは各言語のファイルを開いてから `lsp.getStatus` を読む
+- `git.getRepository()` の `data` は `{ workspaceId, repository: { status } }`。`data.status` を読むと undefined で FAIL に見える
+- 同じ userData を使い回すと `main.log` に前の起動の ERROR / WARN が残る。「ERROR 0件」を測るなら起動ごとに userData を分ける
+- タスクバーのボタンは「結合しない」設定（`TaskbarGlomLevel=2`）だと AutomationId が `Window: 0x…` になり AppID が読めない。ピン留めを UI Automation で押す確認は、利用者のデスクトップで作業中の窓を奪うため途中でやめた（§8.2）
+- 使い捨ての Workspace / userData は `D:\fx72d`、TypeScript の LSP の確認用 prefix は scratchpad の `npmg`（TypeScript 7.0.2）/ `npmg6`（6.0.3）
+
 ---
 
 ## 5. 進め方
@@ -2483,7 +2498,8 @@ STEP 1 では **`electron-builder` の導入は行わず、準備だけ**を済�
 残っているもの（設計は docs/RELEASE.md §5〜§8）:
 
 - アプリアイコン（`resources/icon.ico`、256x256 を含むもの。docs/RELEASE.md §5.3。素材は未作成。7-2E の公開前に必須）
-- installer で入れたアプリの確認: この PC（7-2C）は完了。clean Windows（7-2D）が残る
+- installer で入れたアプリの確認: この PC（7-2C）と、この PC でできる clean Windows 相当の確認（7-2D）は完了。別 PC / VM でしか確かめられない項目は docs/RELEASE.md §8.2 の未確認事項に残した
+- Release notes の原稿: `docs/release-notes/v1.0.0.md`（7-2D）。不具合の報告先と `SHA256SUMS.txt` は 7-2E
 - `electron-builder.yml` を触るときに外してはいけないこと（Session 7-2B で入れた）
   - **`dependencies` を同梱する必要がある。** Session 3-7-1 で `@lydell/node-pty`（native モジュール）が入り、これが最初の `dependencies` になった。`externalizeDepsPlugin` により Main のバンドルには含まれないため、`node_modules` 側の実体が要る。electron-builder は既定で `dependencies` を拾うが、`files` を絞り込む場合はここを外さないこと
   - prebuilt はプラットフォームごとに別パッケージ（`@lydell/node-pty-win32-x64` など）として入る。`optionalDependencies` 経由なので、**ビルドする OS / アーキテクチャのものしか入っていない**
