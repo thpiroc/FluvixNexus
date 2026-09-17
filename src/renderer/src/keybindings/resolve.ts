@@ -15,13 +15,13 @@ import { whenOverlaps, type WhenClause } from './when'
  * 将来の追加を「連結の順番」だけで済ませるため。
  *
  * ```ts
- * // v1（今）
+ * // v1
  * resolveKeybindings(DEFAULT_KEYBINDINGS)
- * // 将来
- * resolveKeybindings([...DEFAULT_KEYBINDINGS, ...userRules, ...workspaceRules])
+ * // Shortcuts S3（keybindings.json を読むようになった。KeybindingProvider.tsx）
+ * resolveKeybindings([...DEFAULT_KEYBINDINGS, ...userRules])
  * ```
  *
- * 型も、この関数も、呼ばれる側も1行も変わらない。逆に v1 で `source` を
+ * 型も、この関数も、呼ばれる側も変わらなかった（S3 で足したのは解除の rule だけ）。逆に v1 で `source` を
  * 持たせずに作ると、後から入れるときに**保存形式と解決順の両方**が変わる。
  *
  * ## 後勝ちにする単位
@@ -33,18 +33,36 @@ import { whenOverlaps, type WhenClause } from './when'
  * 条件が違えば別の rule として両方残る ── `ctrl+j` が
  * 「Terminal に focus が無いとき」と「あるとき」で違う command を指すのは、
  * 競合ではなく使い分けにあたる。
+ *
+ * ## 割り当ての解除（Shortcuts S3）
+ *
+ * `remove: true` の rule は割り当てを足さず、**それより前に並んでいる**
+ * 同じ command × 同じ打鍵の割り当てを外す（`keybindings.json` の
+ * `"-editor.save"`。VS Code と同じ）。
+ *
+ * 条件は見ない。ユーザーの割り当ては条件を書かず既定から引き継ぐ
+ * （userKeybindings.ts）ので、「この操作からこの打鍵を外す」で意味が足りる。
+ * 「前にあるものだけ」にしてあるのは、後勝ちの規則と揃えるため ──
+ * 解除の後ろに同じ割り当てを書き直せば、それが効く。
  */
 
-/** その割り当てがどこから来たか。**v1 が作るのは `'default'` だけ。** */
+/** その割り当てがどこから来たか。 */
 export type KeybindingSource = 'default' | 'user' | 'workspace'
 
-/** 割り当て1件（保存形式でもある。永続化は Session 4-7 の範囲外）。 */
+/**
+ * 割り当て1件。
+ *
+ * ディスクの形（`StoredKeybindingEntry`）とは別の型で、読み替えは
+ * userKeybindings.ts が受け持つ。
+ */
 export interface KeybindingRule {
   readonly commandId: CommandId
   /** `'ctrl+shift+s'`。読めない形は解決の時点で落ちる。 */
   readonly key: string
   readonly when?: readonly WhenClause[]
   readonly source: KeybindingSource
+  /** true なら割り当てを足さず、前にある同じ command × 同じ打鍵を外す。 */
+  readonly remove?: boolean
 }
 
 /** 解決済みの1件（打鍵が正規化され、表を引く鍵が付いたもの）。 */
@@ -63,9 +81,9 @@ export interface KeybindingResolution {
   /**
    * 打鍵として読めなかった rule。
    *
-   * 捨てずに返すのは、将来 `keybindings.json` を読むようになったとき
-   * **「書いたのに効かない」を利用者へ見せられる**ようにするため
-   * （Settings の一覧に出す想定。今は誰も読んでいない）。
+   * 捨てずに返すのは、**「書いたのに効かない」を利用者へ見せられる**ようにするため
+   * （Settings の一覧に出す想定。`keybindings.json` の行は userKeybindings.ts が
+   * 先に打鍵を確かめるので、ここへ来るのは主にテストで作った rule）。
    */
   readonly invalid: readonly KeybindingRule[]
 }
@@ -88,6 +106,17 @@ export function resolveKeybindings(rules: readonly KeybindingRule[]): Keybinding
     }
 
     const token = chordToken(chord)
+
+    if (rule.remove === true) {
+      // 前にある同じ command × 同じ打鍵を外す（このファイルの冒頭）。
+      for (let index = entries.length - 1; index >= 0; index -= 1) {
+        if (entries[index].commandId === rule.commandId && entries[index].token === token) {
+          entries.splice(index, 1)
+        }
+      }
+      continue
+    }
+
     const when = rule.when ?? []
 
     /*

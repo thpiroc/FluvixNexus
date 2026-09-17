@@ -39,6 +39,12 @@ vi.mock('../api/fluvix', () => ({
     settings: {
       load: settingsStore.load,
       saveSection: settingsStore.saveSection
+    },
+    // ユーザーの割り当ては返さない（既定だけの一覧を見る。Shortcuts S3）。
+    keybindings: {
+      load: () =>
+        Promise.resolve({ ok: true, data: { status: 'missing', entries: [], skippedCount: 0 } }),
+      save: () => Promise.resolve({ ok: true, data: undefined })
     }
   }
 }))

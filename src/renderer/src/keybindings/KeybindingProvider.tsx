@@ -1,12 +1,20 @@
-import { useCallback, useEffect, useMemo, useRef, type JSX, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type ReactNode } from 'react'
+import type { StoredKeybindingEntry } from '@shared/keybindings'
+import { fluvix } from '../api/fluvix'
 import { useCommands } from '../commands/context'
 import { useEditorContext } from '../editor/context'
 import { useWorkspaceFolder } from '../workspaceFolder/context'
 import { chordFromEvent } from './chord'
-import { KeybindingContext, type KeybindingController } from './context'
+import {
+  KeybindingContext,
+  type KeybindingController,
+  type UserKeybindingsState,
+  type UserKeybindingsStatus
+} from './context'
 import { DEFAULT_KEYBINDINGS } from './defaults'
 import { dispatchKeybinding } from './dispatch'
 import { resolveKeybindings } from './resolve'
+import { readUserKeybindings } from './userKeybindings'
 import { emptyWhenContext, type WhenContext, type WhenKey } from './when'
 
 /**
@@ -83,12 +91,39 @@ export function KeybindingProvider({ children }: { readonly children: ReactNode 
   const { workspace } = useWorkspaceFolder()
   const { activeTab } = useEditorContext()
 
+  const [stored, setStored] = useState<StoredFile>(INITIAL_STORED_FILE)
+
+  useEffect(() => {
+    let cancelled = false
+
+    void loadStoredFile().then((file) => {
+      if (!cancelled) {
+        setStored(file)
+      }
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const user = useMemo(() => readUserKeybindings(stored.entries), [stored.entries])
+
   /*
-    効く割り当ての表。v1 は Default だけなので実質1回しか作られない。
-    将来 User / Workspace が入ったら、ここの配列を連結するだけで済む
-    （resolve.ts の冒頭）。
+    効く割り当ての表（Shortcuts S3 で固定でなくなった）。
+
+    既定の後ろにユーザーの rule を連結するだけで、上書きも解除も
+    resolve.ts の後勝ちの規則から出る。**ユーザーの行が空なら v1 と同じ表になる**
+    （keybindings.dom.test.ts）。読み込みが返るまでは既定だけで動く ──
+    起動直後の打鍵を、ファイルを待つために捨てない。
+
+    作り直されるのは読み込みが返ったときと保存したときだけ。`entries` の参照は
+    それ以外で変わらない（Settings の一覧が依存に載せている）。
   */
-  const { entries } = useMemo(() => resolveKeybindings(DEFAULT_KEYBINDINGS), [])
+  const { entries } = useMemo(
+    () => resolveKeybindings([...DEFAULT_KEYBINDINGS, ...user.rules]),
+    [user.rules]
+  )
 
   /*
     DOM からは見て取れない条件（React が持つ真偽値）。
@@ -155,7 +190,46 @@ export function KeybindingProvider({ children }: { readonly children: ReactNode 
     }
   }, [])
 
-  const controller = useMemo<KeybindingController>(() => ({ entries, setFlag }), [entries, setFlag])
+  const storedRef = useRef(stored)
+  storedRef.current = stored
+
+  const saveUserKeybindings = useCallback(
+    async (next: readonly StoredKeybindingEntry[]): Promise<boolean> => {
+      if (!canSave(storedRef.current.status)) {
+        return false
+      }
+
+      const result = await fluvix.keybindings.save({ entries: next })
+
+      if (!result.ok) {
+        console.warn('[keybindings] キー割り当てを保存できませんでした。', result.error)
+        return false
+      }
+
+      /*
+        表を作り直すのは保存が受け付けられた後。先に差し替えると、Main が形で
+        拒んだとき「画面では効いているが、次の起動で消える」割り当てができる。
+      */
+      setStored({ status: 'loaded', entries: next, skippedCount: 0 })
+      return true
+    },
+    []
+  )
+
+  const userKeybindings = useMemo<UserKeybindingsState>(
+    () => ({
+      status: stored.status,
+      entries: stored.entries,
+      skippedCount: stored.skippedCount,
+      invalid: user.invalid
+    }),
+    [stored, user.invalid]
+  )
+
+  const controller = useMemo<KeybindingController>(
+    () => ({ entries, setFlag, userKeybindings, saveUserKeybindings }),
+    [entries, setFlag, userKeybindings, saveUserKeybindings]
+  )
 
   return <KeybindingContext.Provider value={controller}>{children}</KeybindingContext.Provider>
 }
@@ -206,4 +280,48 @@ function isFocusInsidePanel(panelId: 'editor' | 'terminal'): boolean {
   }
 
   return active.closest(`[data-panel-body="${panelId}"]`) !== null
+}
+
+/** `keybindings.json` から読んだもの（読み替える前）。 */
+interface StoredFile {
+  readonly status: UserKeybindingsStatus
+  readonly entries: readonly StoredKeybindingEntry[]
+  readonly skippedCount: number
+}
+
+const INITIAL_STORED_FILE: StoredFile = { status: 'loading', entries: [], skippedCount: 0 }
+
+/**
+ * `keybindings.json` を読む。**失敗しても投げない。**
+ *
+ * 割り当てが読めないことは、打鍵そのものを使えない理由にならない ──
+ * 既定の割り当てはそのまま効く（設定の useSettingsSection.ts と同じ扱い）。
+ */
+async function loadStoredFile(): Promise<StoredFile> {
+  try {
+    const result = await fluvix.keybindings.load()
+
+    if (result.ok) {
+      return result.data
+    }
+
+    console.warn('[keybindings] キー割り当てを読み込めませんでした。', result.error)
+  } catch (cause) {
+    // Preload が動いていない環境（fluvix.ts）。既定の割り当てだけで動く。
+    console.warn('[keybindings] キー割り当てを読み込めませんでした。', cause)
+  }
+
+  return { status: 'failed', entries: [], skippedCount: 0 }
+}
+
+/**
+ * 保存してよいか。
+ *
+ * 読み込みが返っていない・IPC が失敗した間は、ファイルに何が書いてあるか分からない。
+ * そこへ書くと利用者の割り当てを消しうるので保存しない。壊れたファイル
+ * （`unreadable`）は保存してよい ── Main が上書きの前に退避する
+ * （main/store/keybindingsStore.ts）。
+ */
+function canSave(status: UserKeybindingsStatus): boolean {
+  return status !== 'loading' && status !== 'failed'
 }

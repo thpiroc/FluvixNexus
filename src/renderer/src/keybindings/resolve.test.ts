@@ -105,6 +105,72 @@ describe('resolveKeybindings', () => {
   })
 })
 
+describe('割り当ての解除（Shortcuts S3）', () => {
+  it('前にある同じ command × 同じ打鍵を外す（条件は問わない）', () => {
+    const { entries, invalid } = resolveKeybindings([
+      { commandId: 'editor.save', key: 'ctrl+s', source: 'default' },
+      { commandId: 'editor.save', key: 'ctrl+s', when: ['editorFocused'], source: 'default' },
+      { commandId: 'settings.open', key: 'ctrl+,', source: 'default' },
+      { commandId: 'editor.save', key: 'shift+ctrl+s', source: 'user', remove: true }
+    ])
+
+    expect(invalid).toEqual([])
+    // 綴りの順序が違っても、正規化した打鍵で照らす（ctrl+shift+s は無いので何も外れない）。
+    expect(entries.map((entry) => entry.commandId)).toEqual([
+      'editor.save',
+      'editor.save',
+      'settings.open'
+    ])
+
+    const removed = resolveKeybindings([
+      { commandId: 'editor.save', key: 'ctrl+s', source: 'default' },
+      { commandId: 'editor.save', key: 'ctrl+s', when: ['editorFocused'], source: 'default' },
+      { commandId: 'settings.open', key: 'ctrl+,', source: 'default' },
+      { commandId: 'editor.save', key: 'Ctrl+S', source: 'user', remove: true }
+    ])
+
+    expect(removed.entries.map((entry) => entry.commandId)).toEqual(['settings.open'])
+  })
+
+  it('同じ打鍵でも別の command は外さない', () => {
+    const { entries } = resolveKeybindings([
+      { commandId: 'editor.save', key: 'ctrl+s', when: ['editorFocused'], source: 'default' },
+      { commandId: 'settings.open', key: 'ctrl+s', when: ['!editorFocused'], source: 'default' },
+      { commandId: 'editor.save', key: 'ctrl+s', source: 'user', remove: true }
+    ])
+
+    expect(entries.map((entry) => entry.commandId)).toEqual(['settings.open'])
+  })
+
+  it('後ろにある割り当ては外さない（解除の後に書き直せばそれが効く）', () => {
+    const { entries } = resolveKeybindings([
+      { commandId: 'editor.save', key: 'ctrl+s', source: 'default' },
+      { commandId: 'editor.save', key: 'ctrl+s', source: 'user', remove: true },
+      { commandId: 'editor.save', key: 'ctrl+s', source: 'user' }
+    ])
+
+    expect(entries).toHaveLength(1)
+    expect(entries[0].source).toBe('user')
+  })
+
+  it('読めない打鍵の解除は invalid へ回し、何も外さない', () => {
+    const broken: KeybindingRule = {
+      commandId: 'editor.save',
+      key: 'ctrl+notakey',
+      source: 'user',
+      remove: true
+    }
+
+    const { entries, invalid } = resolveKeybindings([
+      { commandId: 'editor.save', key: 'ctrl+s', source: 'default' },
+      broken
+    ])
+
+    expect(entries).toHaveLength(1)
+    expect(invalid).toEqual([broken])
+  })
+})
+
 describe('findKeybindingConflicts', () => {
   it('打鍵が違えば競合しない', () => {
     const { entries } = resolveKeybindings([

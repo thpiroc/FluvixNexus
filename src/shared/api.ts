@@ -70,6 +70,7 @@ import type {
   SaveLspDocumentRequest
 } from './ipc/contracts/lsp'
 import type { IpcEventListener, IpcEventUnsubscribe } from './ipc/event'
+import type { SaveKeybindingsRequest } from './ipc/contracts/keybindings'
 import type { SaveSettingsSectionRequest } from './ipc/contracts/settings'
 import type { PingRequest } from './ipc/contracts/system'
 import type {
@@ -157,6 +158,20 @@ export interface SettingsApi {
   readonly saveSection: (
     request: SaveSettingsSectionRequest
   ) => IpcInvokeResult<'settings:save-section'>
+}
+
+/**
+ * ユーザーのキー割り当て（`keybindings.json`）の永続化 API（Shortcuts S3）。
+ *
+ * 設定と同じく、保存先のパスもファイル名も Renderer からは指定できない。
+ * 渡せるのは行の並びだけで、Main が形を確かめてから書く
+ * （shared/ipc/contracts/keybindings.ts）。
+ */
+export interface KeybindingsApi {
+  /** 保存済みの割り当てを読む。無い・壊れている場合は行が空で、`status` で区別できる。 */
+  readonly load: () => IpcInvokeResult<'keybindings:load'>
+  /** 割り当てを丸ごと保存する。書き込みの間引きは Main 側が行う。 */
+  readonly save: (request: SaveKeybindingsRequest) => IpcInvokeResult<'keybindings:save'>
 }
 
 /**
@@ -1252,6 +1267,8 @@ export interface FluvixApi {
   readonly debug: DebugApi
   /** アプリの設定の永続化。 */
   readonly settings: SettingsApi
+  /** ユーザーのキー割り当ての永続化（Shortcuts S3）。 */
+  readonly keybindings: KeybindingsApi
 }
 
 /** `window` に API を公開する際のキー。Preload と Renderer の双方から参照する。 */

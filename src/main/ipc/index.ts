@@ -2,6 +2,7 @@ import { registerDebugHandlers } from './handlers/debug'
 import { registerFilesHandlers } from './handlers/files'
 import { registerGitHandlers } from './handlers/git'
 import { registerGitHubHandlers } from './handlers/github'
+import { registerKeybindingsHandlers } from './handlers/keybindings'
 import { registerLspHandlers } from './handlers/lsp'
 import { registerSettingsHandlers } from './handlers/settings'
 import { registerSystemHandlers } from './handlers/system'
@@ -24,6 +25,7 @@ const handlerRegistrations: readonly (() => void)[] = [
   registerWorkspaceFolderHandlers,
   registerFilesHandlers,
   registerSettingsHandlers,
+  registerKeybindingsHandlers,
   registerTerminalHandlers,
   registerGitHandlers,
   registerGitHubHandlers,

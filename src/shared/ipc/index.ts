@@ -119,6 +119,11 @@ export type {
   SettingsIpcContract
 } from './contracts/settings'
 export type {
+  KeybindingsIpcContract,
+  LoadKeybindingsResponse,
+  SaveKeybindingsRequest
+} from './contracts/keybindings'
+export type {
   AddGitRemoteRequest,
   CommitAndPushGitChangesRequest,
   CommitGitChangesRequest,

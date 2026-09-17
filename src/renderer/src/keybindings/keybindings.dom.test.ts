@@ -25,6 +25,14 @@ import { useWhenFlag } from './useWhenFlag'
  *   - Monaco / xterm と衝突しないための前提
  */
 
+/*
+  `keybindings.json` の読み込みは返さない（既定の割り当てだけで動く状態のまま）。
+  ユーザーの割り当てが絡む振る舞いは userKeybindings.dom.test.ts（Shortcuts S3）。
+*/
+vi.mock('../api/fluvix', () => ({
+  fluvix: { keybindings: { load: () => new Promise(() => {}), save: vi.fn() } }
+}))
+
 let container: HTMLDivElement
 let root: Root
 

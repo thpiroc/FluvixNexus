@@ -67,9 +67,9 @@ export function KeyboardShortcutsView(): JSX.Element {
   const [query, setQuery] = useState('')
 
   /*
-    `entries` は KeybindingProvider が `useMemo(..., [])` で作るので参照が安定し、
-    `t` は言語が変わったときだけ作り直される（i18n/LanguageProvider.tsx）──
-    つまりここが走り直すのは**言語を切り替えたときだけ**になる。
+    `entries` を KeybindingProvider が作り直すのは `keybindings.json` を読み終えたときと
+    保存したときだけ（Shortcuts S3）で、`t` は言語が変わったときだけ作り直される
+    （i18n/LanguageProvider.tsx）── つまりここが走り直すのは**それらのときだけ**になる。
     ja / en を切り替えると command の名前がその場で入れ替わるのはこのため。
   */
   const rows = useMemo(

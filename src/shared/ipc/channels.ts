@@ -104,7 +104,9 @@ export const IPC_CHANNELS = {
   DEBUG_DELETE_PROFILE: 'debug:delete-profile',
   DEBUG_START: 'debug:start',
   SETTINGS_LOAD: 'settings:load',
-  SETTINGS_SAVE_SECTION: 'settings:save-section'
+  SETTINGS_SAVE_SECTION: 'settings:save-section',
+  KEYBINDINGS_LOAD: 'keybindings:load',
+  KEYBINDINGS_SAVE: 'keybindings:save'
 } as const satisfies Record<string, IpcChannel>
 
 /**

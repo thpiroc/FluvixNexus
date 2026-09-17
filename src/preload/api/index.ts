@@ -4,6 +4,7 @@ import { envApi } from './env'
 import { filesApi } from './files'
 import { gitApi } from './git'
 import { githubApi } from './github'
+import { keybindingsApi } from './keybindings'
 import { lspApi } from './lsp'
 import { settingsApi } from './settings'
 import { systemApi } from './system'
@@ -38,5 +39,6 @@ export const api: FluvixApi = {
   github: githubApi,
   lsp: lspApi,
   debug: debugApi,
-  settings: settingsApi
+  settings: settingsApi,
+  keybindings: keybindingsApi
 }
