@@ -146,7 +146,8 @@ export function resolveKeybindings(rules: readonly KeybindingRule[]): Keybinding
   return { entries, invalid }
 }
 
-function sameWhen(a: readonly WhenClause[], b: readonly WhenClause[]): boolean {
+/** 2つの条件の並びが同じ意味か（並び順は問わない。keyWarnings.ts も使う）。 */
+export function sameWhen(a: readonly WhenClause[], b: readonly WhenClause[]): boolean {
   if (a.length !== b.length) {
     return false
   }

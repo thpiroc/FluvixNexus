@@ -3,6 +3,7 @@ import { createTranslator } from '../i18n/messages'
 import { listCommands } from '../commands/registry'
 import { commandTitle } from '../commands/types'
 import { DEFAULT_KEYBINDINGS } from './defaults'
+import { intendedKeybindings } from './keyWarnings'
 import { resolveKeybindings, type KeybindingRule } from './resolve'
 import { buildShortcutRows, filterShortcutRows } from './shortcutRows'
 
@@ -96,7 +97,54 @@ describe('buildShortcutRows', () => {
   it('Session 4-7A の既定は競合を1つも出さない', () => {
     for (const row of rows()) {
       expect(row.conflictsWith, row.commandId).toEqual([])
+      expect(row.conflict, row.commandId).toBeNull()
+      expect(row.reserved, row.commandId).toEqual([])
     }
+  })
+
+  /* Shortcuts S5。 */
+  it('intended を渡すと、同じ条件で取られた割り当ても行になり「一度も動かない」が付く', () => {
+    const rules: KeybindingRule[] = [
+      ...DEFAULT_KEYBINDINGS,
+      {
+        commandId: 'workspace.openFolder',
+        key: 'ctrl+,',
+        when: ['!terminalFocused'],
+        source: 'user'
+      }
+    ]
+    const withoutIntended = rows(rules)
+    const withIntended = buildShortcutRows(
+      listCommands(),
+      resolveKeybindings(rules).entries,
+      title,
+      new Set(),
+      intendedKeybindings(rules)
+    )
+
+    /* S4 までの見え方：取られた側は未割り当てに見える。 */
+    expect(withoutIntended.find((row) => row.commandId === 'settings.open')?.keybinding).toBeNull()
+
+    const settings = withIntended.find((row) => row.commandId === 'settings.open')
+    const open = withIntended.filter((row) => row.commandId === 'workspace.openFolder')
+
+    expect(settings?.key).toBe('ctrl+,')
+    expect(settings?.conflict).toEqual({
+      commandIds: ['workspace.openFolder'],
+      winner: 'workspace.openFolder',
+      overridden: true
+    })
+    expect(settings?.conflictsWith).toEqual(['workspace.openFolder'])
+    expect(open.find((row) => row.key === 'ctrl+,')?.conflict?.overridden).toBe(false)
+  })
+
+  it('予約キーに重なる行に理由が付く', () => {
+    const result = rows([
+      ...DEFAULT_KEYBINDINGS,
+      { commandId: 'git.push', key: 'ctrl+enter', source: 'user' }
+    ])
+
+    expect(result.find((row) => row.commandId === 'git.push')?.reserved).toEqual(['gitCommit'])
   })
 
   it('検索に要る文字列が揃っている（Command / Keybinding）', () => {

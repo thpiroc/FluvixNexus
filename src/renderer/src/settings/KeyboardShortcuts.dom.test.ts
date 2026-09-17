@@ -850,3 +850,229 @@ describe('keybindings.json の状態', () => {
     expect(savedEntries()).toEqual([{ key: 'ctrl+s', command: '-editor.save' }])
   })
 })
+
+/* ------------------------------------------------------------ 警告と読めない項目（S5） */
+
+function warningsOf(commandId: string): readonly string[] {
+  const row = byTestId(`settings-keyboard-row-${commandId}`)
+
+  return [...row.querySelectorAll<HTMLElement>('.fx-shortcuts__warning-item')].map(
+    (item) => item.dataset.warning ?? ''
+  )
+}
+
+describe('競合の警告', () => {
+  it('既定だけなら、どの行にも警告は無い', async () => {
+    await openKeyboard()
+
+    expect(container.querySelector('[data-testid="settings-keyboard-warnings"]')).toBeNull()
+    expect(container.querySelector('.fx-shortcuts__row[data-conflict]')).toBeNull()
+    expect(container.querySelector('.fx-shortcuts__row[data-reserved]')).toBeNull()
+  })
+
+  it('同じ条件で取られた側も行に残り、「動きません」と取った相手が出る', async () => {
+    loadEntries([{ key: 'ctrl+,', command: 'workspace.openFolder' }])
+    await openKeyboard()
+
+    const settings = byTestId('settings-keyboard-row-settings.open')
+    expect(settings.textContent).toContain('Ctrl+,')
+    expect(settings.dataset.unassigned).toBe('false')
+    expect(settings.dataset.conflict).toBe('overridden')
+    expect(settings.textContent).toContain(
+      '「フォルダを開く」が同じ場面で同じ打鍵を使っているため、この打鍵では動きません。'
+    )
+
+    const open = container.querySelector<HTMLElement>(
+      '[data-testid="settings-keyboard-row-workspace.openFolder"][data-key="ctrl+,"]'
+    )
+    expect(open?.dataset.conflict).toBe('overlap')
+    expect(open?.textContent).toContain('「設定を開く」にも同じ打鍵が割り当てられています')
+    expect(open?.textContent).toContain('こちらが動きます')
+  })
+
+  it('条件が違っても重なるなら、勝つ側の名前が入る', async () => {
+    loadEntries([{ key: 'ctrl+s', command: 'settings.open' }])
+    await openKeyboard()
+
+    expect(warningsOf('editor.save')).toEqual(['conflict-loses'])
+    expect(byTestId('settings-keyboard-row-editor.save').textContent).toContain(
+      '両方が効く場面では「設定を開く」が動きます。'
+    )
+  })
+
+  it('取られた側の打鍵も、その行から変更できる', async () => {
+    loadEntries([{ key: 'ctrl+,', command: 'workspace.openFolder' }])
+    await openKeyboard()
+    await click('settings-keyboard-change-settings.open-ctrl+,')
+    await press(CTRL_ALT_K)
+    await press(ENTER)
+
+    expect(savedEntries()).toEqual([
+      { key: 'ctrl+,', command: 'workspace.openFolder' },
+      { key: 'ctrl+,', command: '-settings.open' },
+      { key: 'ctrl+alt+k', command: 'settings.open' }
+    ])
+  })
+})
+
+describe('記録中の警告', () => {
+  it('別の操作の打鍵を押すと、確定したらどうなるかが出る。確定はできる', async () => {
+    await openKeyboard()
+    await click('settings-keyboard-change-workspace.openFolder-ctrl+o')
+    await press({ key: ',', code: 'Comma', ctrlKey: true })
+
+    const preview = byTestId('settings-keyboard-preview')
+    expect(preview.textContent).toContain('「設定を開く」にも割り当てられています。')
+    expect(preview.textContent).toContain('確定すると、両方が効く場面ではこちらが動きます。')
+    expect(byTestId<HTMLButtonElement>('settings-keyboard-recorder-confirm').disabled).toBe(false)
+
+    await press(ENTER)
+
+    expect(savedEntries()).toEqual([
+      { key: 'ctrl+o', command: '-workspace.openFolder' },
+      { key: 'ctrl+,', command: 'workspace.openFolder' }
+    ])
+    /* 確定後は、取られた側の行に今の状態の警告が出る。 */
+    expect(byTestId('settings-keyboard-row-settings.open').dataset.conflict).toBe('overridden')
+  })
+
+  it('予約キーを押すと理由が出る（Git の Ctrl+Enter）', async () => {
+    await openKeyboard()
+    await click('settings-keyboard-assign-git.push')
+    await press({ key: 'Enter', code: 'Enter', ctrlKey: true })
+
+    expect(recorderBox().textContent).toBe('Ctrl+Enter')
+    expect(byTestId('settings-keyboard-preview').textContent).toContain(
+      'Git の Commit メッセージ欄で Commit に使われている打鍵です。'
+    )
+  })
+
+  it('押し直して問題の無い打鍵にすると、警告が消える', async () => {
+    await openKeyboard()
+    await click('settings-keyboard-assign-git.push')
+    await press({ key: 'p', code: 'KeyP', ctrlKey: true })
+    expect(byTestId('settings-keyboard-preview').textContent).toContain('コマンドパレット')
+
+    await press({ key: 'p', code: 'KeyP', ctrlKey: true, altKey: true })
+    expect(container.querySelector('[data-testid="settings-keyboard-preview"]')).toBeNull()
+  })
+
+  it('割り当てられない打鍵では警告を出さない（断りの文言だけ）', async () => {
+    await openKeyboard()
+    await click('settings-keyboard-change-settings.open-ctrl+,')
+    await press({ key: 'a', code: 'KeyA' })
+
+    expect(container.querySelector('[data-testid="settings-keyboard-preview"]')).toBeNull()
+  })
+
+  it('記録中は、その行の今の警告を出さない。取り消すと戻る', async () => {
+    loadEntries([{ key: 'ctrl+,', command: 'workspace.openFolder' }])
+    await openKeyboard()
+    await click('settings-keyboard-change-settings.open-ctrl+,')
+
+    expect(warningsOf('settings.open')).toEqual([])
+
+    await press(ESCAPE)
+
+    expect(warningsOf('settings.open')).toEqual(['conflict-overridden'])
+  })
+})
+
+describe('予約キーの警告（一覧の行）', () => {
+  it('手で書いた予約キーの行に理由が出る', async () => {
+    loadEntries([{ key: 'ctrl+c', command: 'git.push' }])
+    await openKeyboard()
+
+    const row = byTestId('settings-keyboard-row-git.push')
+    expect(row.dataset.reserved).toBe('textEditing')
+    expect(row.textContent).toContain('入力欄でその操作ができなくなります。')
+  })
+})
+
+describe('読めない項目', () => {
+  it('項目ごとに書いてあった中身と理由が出る', async () => {
+    loadEntries([
+      { key: 'ctrl+1', command: 'nope.command' },
+      { key: 'ctrl+nope', command: 'editor.save' },
+      { key: 'ctrl+alt+x', command: 'editor.save', when: 'editorFocused' },
+      { key: 'ctrl+alt+k', command: 'settings.open' }
+    ])
+    await openKeyboard()
+
+    expect(byTestId('settings-keyboard-invalid-title').textContent).toBe(
+      'keybindings.json に読み込めなかった項目が 3 件あり、無視されています。'
+    )
+
+    const items = [
+      ...container.querySelectorAll<HTMLElement>('[data-testid="settings-keyboard-invalid-item"]')
+    ]
+    expect(items.map((item) => item.dataset.problem)).toEqual([
+      'unknownCommand',
+      'invalidKey',
+      'whenNotSupported'
+    ])
+    expect(items[0].textContent).toContain('"command": "nope.command"')
+    expect(items[0].textContent).toContain('この版には無い操作です')
+    expect(items[2].textContent).toContain('"when": "editorFocused"')
+    expect(byTestId('settings-keyboard-invalid').textContent).toContain(
+      '画面から打鍵を変更しても残ります'
+    )
+    expect(container.querySelector('[data-testid="settings-keyboard-skipped"]')).toBeNull()
+  })
+
+  it('形の合わない項目は数と、保存すると消えることを出す', async () => {
+    loadEntries([], 'loaded', 2)
+    await openKeyboard()
+
+    expect(byTestId('settings-keyboard-skipped').textContent).toContain('2 件')
+    expect(byTestId('settings-keyboard-skipped').textContent).toContain('ファイルから消えます')
+    expect(container.querySelector('[data-testid="settings-keyboard-invalid-title"]')).toBeNull()
+  })
+
+  it('読めない項目が無ければ何も出さない', async () => {
+    loadEntries([{ key: 'ctrl+alt+k', command: 'settings.open' }])
+    await openKeyboard()
+
+    expect(container.querySelector('[data-testid="settings-keyboard-invalid"]')).toBeNull()
+  })
+
+  it('「すべてデフォルトへ戻す」の後は消える', async () => {
+    loadEntries([{ key: 'ctrl+1', command: 'nope.command' }])
+    await openKeyboard()
+    await click('settings-keyboard-reset-all')
+    await click('settings-keyboard-reset-all-confirm')
+
+    expect(savedEntries()).toEqual([])
+    expect(container.querySelector('[data-testid="settings-keyboard-invalid"]')).toBeNull()
+  })
+})
+
+describe('警告と読めない項目の英語表示', () => {
+  it('English に切り替えると、警告・読めない項目の文言も英語になる', async () => {
+    loadEntries([
+      { key: 'ctrl+s', command: 'settings.open' },
+      { key: 'ctrl+1', command: 'nope.command' }
+    ])
+    await openKeyboard()
+    await click('settings-category-general')
+    await click('settings-general-language-en')
+    await click('settings-category-keyboard')
+
+    expect(byTestId('settings-keyboard-row-editor.save').textContent).toContain(
+      'Also assigned to “Open Settings”. Where both apply, “Open Settings” runs.'
+    )
+    expect(byTestId('settings-keyboard-invalid-title').textContent).toBe(
+      'keybindings.json has entries that could not be read and are ignored (1).'
+    )
+    expect(byTestId('settings-keyboard-invalid').textContent).toContain(
+      'Not a command in this version'
+    )
+
+    await click('settings-keyboard-assign-git.push')
+    await press({ key: 'Enter', code: 'Enter', ctrlKey: true })
+
+    expect(byTestId('settings-keyboard-preview').textContent).toContain(
+      'Used to commit from the Git commit message box.'
+    )
+  })
+})

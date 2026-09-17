@@ -325,12 +325,83 @@
  * 「Ctrl+S は何だったか」を上から追いやすいため。
  */
 .fx-shortcuts__row {
+  padding: var(--fx-space-1) 0;
+  border-bottom: 1px solid var(--fx-color-border);
+}
+
+/*
+ * 名前と打鍵の1行（Shortcuts S5 で行の中へ移した）。
+ *
+ * 注意は行の幅いっぱいに、この下へ別の段として出す ── 同じ flex に入れて折り返すと、
+ * 名前が長いときに打鍵の側が次の段へ落ちる。
+ */
+.fx-shortcuts__row-main {
   display: flex;
   gap: var(--fx-space-3);
   align-items: center;
   justify-content: space-between;
-  padding: var(--fx-space-1) 0;
-  border-bottom: 1px solid var(--fx-color-border);
+}
+
+/* 打鍵の注意（競合・予約キー）。Shortcuts S5。 */
+.fx-shortcuts__warnings {
+  margin: var(--fx-space-1) 0 0;
+  padding: 0 0 0 var(--fx-space-2);
+  border-left: 2px solid var(--fx-accent-orange);
+  list-style: none;
+}
+
+.fx-shortcuts__warning-item {
+  color: var(--fx-color-text);
+  font-size: var(--fx-font-size-sm);
+  line-height: 1.5;
+}
+
+.fx-shortcuts__row[data-conflict] .fx-shortcuts__key,
+.fx-shortcuts__row[data-reserved] .fx-shortcuts__key {
+  border-style: dashed;
+}
+
+/* keybindings.json の読めない項目。Shortcuts S5。 */
+.fx-shortcuts__invalid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-1);
+  padding: var(--fx-space-2);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 2px;
+  background: var(--fx-color-surface-sunken);
+}
+
+.fx-shortcuts__invalid .fx-shortcuts__note {
+  margin: 0;
+}
+
+.fx-shortcuts__invalid-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fx-shortcuts__invalid-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--fx-space-2);
+  align-items: baseline;
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-shortcuts__invalid-entry {
+  min-width: 0;
+  color: var(--fx-color-text-strong);
+  font-family: ui-monospace, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+
+.fx-shortcuts__invalid-problem {
+  color: var(--fx-color-text-muted);
 }
 
 .fx-shortcuts__row:last-child {

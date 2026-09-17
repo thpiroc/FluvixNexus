@@ -8,6 +8,7 @@ import { useI18n } from '../i18n/context'
 import type { TranslationKey } from '../i18n/messages'
 import { chordFromEvent, chordToken, formatKeybinding, type KeyChord } from '../keybindings/chord'
 import { useKeybindings, type UserKeybindingsStatus } from '../keybindings/context'
+import { DEFAULT_KEYBINDINGS } from '../keybindings/defaults'
 import {
   commandKeys,
   defaultCommandKeys,
@@ -17,10 +18,16 @@ import {
   withCommandKeys
 } from '../keybindings/editKeybindings'
 import {
+  intendedKeybindings,
+  previewKeyWarnings,
+  type KeyWarnings
+} from '../keybindings/keyWarnings'
+import {
   buildShortcutRows,
   filterShortcutRows,
   type ShortcutRow
 } from '../keybindings/shortcutRows'
+import type { InvalidUserKeybinding } from '../keybindings/userKeybindings'
 
 /**
  * Keyboard Shortcuts の一覧（Session 4-7C。Shortcuts S4 で編集できるようになった）。
@@ -54,9 +61,24 @@ import {
  * それらへ届かない（計画の「キー記録中はグローバルの打鍵処理と既存の Esc より
  * 先に受ける」）。既存の購読には1行も触っていない。
  *
- * ## 競合・予約キーの警告と、読めない行の表示は S5
+ * ## 警告と、読めない行（Shortcuts S5）
  *
- * ここでは出さない。行の `conflictsWith` はまだ画面に出ていない。
+ * 行の下に注意を出す。判定は keybindings/keyWarnings.ts と reservedKeys.ts。
+ *
+ *   競合     … 同じ打鍵を、同時に成り立ちうる条件で別の command も持っている。
+ *              どちらが動くかまで書く（「こちらが動く」「〇〇が動く」「この打鍵では動かない」）
+ *   予約キー … 割り当ての表の外で既に意味を持つ打鍵（入力欄のコピー・Git の Commit …）
+ *
+ * **記録中は、押した打鍵を確定したらどうなるか**を同じ場所に出す
+ * （`previewKeyWarnings`。保存と同じ書き直しで作ったファイルから判定する）。
+ * 警告は確定を止めない ── 計画どおり「警告」で、断るのは S4 の
+ * `isAssignableChord`（文字が打てなくなる打鍵）だけ。
+ *
+ * 同じ条件で別の command に取られた割り当ても行として出る（`intendedKeybindings`）。
+ * S4 までは取られた側が「未割り当て」に見えていた。
+ *
+ * `keybindings.json` の読めない項目（知らない command・読めない打鍵・when 付き）と、
+ * Main が形で落とした項目の数は、一覧の上にまとめて出す（`InvalidEntriesNote`）。
  *
  * ## 一覧の組み立て
  *
@@ -99,6 +121,21 @@ export function KeyboardShortcutsView(): JSX.Element {
 
   const modified = useMemo(() => modifiedCommandIds(userKeybindings.rules), [userKeybindings.rules])
 
+  /* 取られた割り当ても行にするための表（Shortcuts S5。このファイルの冒頭）。 */
+  const intended = useMemo(
+    () => intendedKeybindings([...DEFAULT_KEYBINDINGS, ...userKeybindings.rules]),
+    [userKeybindings.rules]
+  )
+
+  /* 警告の文言に相手の名前を入れる。 */
+  const titles = useMemo(
+    () =>
+      new Map<CommandId, string>(
+        listCommands().map((descriptor) => [descriptor.id, commandTitle(descriptor, t)])
+      ),
+    [t]
+  )
+
   /*
     `entries` / `userKeybindings` を KeybindingProvider が作り直すのは
     `keybindings.json` を読み終えたときと保存したときだけ（Shortcuts S3）で、
@@ -110,9 +147,10 @@ export function KeyboardShortcutsView(): JSX.Element {
         listCommands(),
         entries,
         (descriptor) => commandTitle(descriptor, t),
-        modified
+        modified,
+        intended
       ),
-    [entries, t, modified]
+    [entries, t, modified, intended]
   )
 
   const visible = useMemo(() => filterShortcutRows(rows, query), [rows, query])
@@ -186,9 +224,17 @@ export function KeyboardShortcutsView(): JSX.Element {
       },
       reset: (commandId) => {
         void setKeys(commandId, defaultCommandKeys(commandId))
-      }
+      },
+      preview: (target, chord) =>
+        previewKeyWarnings(
+          userKeybindings.entries,
+          target.commandId,
+          target.key,
+          chordToken(chord)
+        ),
+      titleOf: (commandId) => titles.get(commandId) ?? commandId
     }),
-    [editable, recording, setKeys, userKeybindings.rules]
+    [editable, recording, setKeys, userKeybindings.rules, userKeybindings.entries, titles]
   )
 
   const hasUserChanges = userKeybindings.entries.length > 0 || userKeybindings.skippedCount > 0
@@ -270,6 +316,11 @@ export function KeyboardShortcutsView(): JSX.Element {
 
       <StatusNote status={userKeybindings.status} />
 
+      <InvalidEntriesNote
+        invalid={userKeybindings.invalid}
+        skippedCount={userKeybindings.skippedCount}
+      />
+
       {error !== null && (
         <p className="fx-shortcuts__error" role="alert" data-testid="settings-keyboard-error">
           {t(error)}
@@ -328,6 +379,10 @@ interface RowActions {
   readonly confirmRecording: (chord: KeyChord) => void
   readonly remove: (commandId: CommandId, key: string) => void
   readonly reset: (commandId: CommandId) => void
+  /** 記録中の打鍵を確定したら付く警告（Shortcuts S5）。 */
+  readonly preview: (target: RecordingTarget, chord: KeyChord) => KeyWarnings
+  /** 警告の文言に入れる command の名前。 */
+  readonly titleOf: (commandId: CommandId) => string
 }
 
 /**
@@ -365,6 +420,145 @@ function StatusNote({ status }: { readonly status: UserKeybindingsStatus }): JSX
   }
 
   return null
+}
+
+/**
+ * `keybindings.json` の読めない項目（Shortcuts S5）。
+ *
+ * 書いたのに効かない理由を、項目ごとに出す。位置（何行目か）は出さない ──
+ * Main が形で落とした項目は数に入らないので、ファイルの中の位置と食い違う。
+ * 代わりに書いてあった `command` / `key` / `when` をそのまま見せ、ファイルの中で探せるようにする。
+ *
+ * 画面から変更したときの扱いが2種類で違うので、別々に断る。
+ *
+ *   読めない項目 … 残る（editKeybindings.ts）。「すべてデフォルトへ戻す」でだけ消える
+ *   形の合わない項目 … Renderer は中身を持っていないので、保存すると消える（S3 の注意）
+ */
+function InvalidEntriesNote({
+  invalid,
+  skippedCount
+}: {
+  readonly invalid: readonly InvalidUserKeybinding[]
+  readonly skippedCount: number
+}): JSX.Element | null {
+  const { t } = useI18n()
+
+  if (invalid.length === 0 && skippedCount === 0) {
+    return null
+  }
+
+  return (
+    <div className="fx-shortcuts__invalid" role="note" data-testid="settings-keyboard-invalid">
+      {invalid.length > 0 && (
+        <>
+          <p className="fx-shortcuts__warning" data-testid="settings-keyboard-invalid-title">
+            {t('settings.keyboard.invalid.title', { count: invalid.length })}
+          </p>
+          <ul className="fx-shortcuts__invalid-list">
+            {invalid.map((item) => (
+              <li
+                key={item.index}
+                className="fx-shortcuts__invalid-item"
+                data-testid="settings-keyboard-invalid-item"
+                data-problem={item.problem}
+              >
+                <code className="fx-shortcuts__invalid-entry">
+                  {describeStoredEntry(item.entry.command, item.entry.key, item.entry.when)}
+                </code>
+                <span className="fx-shortcuts__invalid-problem">
+                  {t(`settings.keyboard.invalid.problems.${item.problem}`)}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="fx-shortcuts__note">{t('settings.keyboard.invalid.note')}</p>
+        </>
+      )}
+      {skippedCount > 0 && (
+        <p className="fx-shortcuts__warning" data-testid="settings-keyboard-skipped">
+          {t('settings.keyboard.invalid.skipped', { count: skippedCount })}
+        </p>
+      )}
+    </div>
+  )
+}
+
+/** ファイルに書いてあった形に近い1行（JSON の見た目）。 */
+function describeStoredEntry(command: string, key: string, when: string | undefined): string {
+  const parts = [`"command": ${JSON.stringify(command)}`, `"key": ${JSON.stringify(key)}`]
+
+  if (when !== undefined) {
+    parts.push(`"when": ${JSON.stringify(when)}`)
+  }
+
+  return `{ ${parts.join(', ')} }`
+}
+
+/**
+ * 1つの打鍵に付く注意（Shortcuts S5）。
+ *
+ * `mode` が `preview` のときは記録中（確定したら）の言い回しになる。
+ */
+function KeyWarningList({
+  warnings,
+  mode,
+  titleOf,
+  label
+}: {
+  readonly warnings: KeyWarnings
+  readonly mode: 'row' | 'preview'
+  readonly titleOf: (commandId: CommandId) => string
+  readonly label: string
+}): JSX.Element | null {
+  const { t } = useI18n()
+  const { conflict, reserved } = warnings
+
+  if (conflict === null && reserved.length === 0) {
+    return null
+  }
+
+  const messages: { readonly id: string; readonly text: string }[] = []
+
+  if (conflict !== null) {
+    const group = mode === 'row' ? 'conflict' : 'preview'
+    const variant = conflict.overridden
+      ? 'overridden'
+      : conflict.commandIds.includes(conflict.winner)
+        ? 'loses'
+        : 'wins'
+    const values = {
+      commands: conflict.commandIds
+        .map(titleOf)
+        .join(t('settings.keyboard.warnings.commandSeparator')),
+      winner: titleOf(conflict.winner)
+    }
+
+    messages.push({
+      id: `conflict-${variant}`,
+      text: t(`settings.keyboard.warnings.${group}.${variant}`, values)
+    })
+  }
+
+  for (const reason of reserved) {
+    messages.push({
+      id: `reserved-${reason}`,
+      text: t(`settings.keyboard.warnings.reserved.${reason}`)
+    })
+  }
+
+  return (
+    <ul
+      className="fx-shortcuts__warnings"
+      aria-label={label}
+      data-testid={mode === 'row' ? 'settings-keyboard-warnings' : 'settings-keyboard-preview'}
+    >
+      {messages.map((message) => (
+        <li key={message.id} className="fx-shortcuts__warning-item" data-warning={message.id}>
+          {message.text}
+        </li>
+      ))}
+    </ul>
+  )
 }
 
 function ShortcutGroup({
@@ -431,6 +625,20 @@ function ShortcutRowView({
   const disabled = !actions.editable || actions.recording !== null
   const labelValues = { command: row.title, key: row.keybinding ?? '' }
 
+  /* 記録中に押された打鍵（確定したときの警告を出すため。Shortcuts S5）。 */
+  const [captured, setCaptured] = useState<KeyChord | null>(null)
+
+  useEffect(() => {
+    if (!isRecording) {
+      setCaptured(null)
+    }
+  }, [isRecording])
+
+  const preview =
+    isRecording && captured !== null && isAssignableChord(captured) && actions.recording !== null
+      ? actions.preview(actions.recording, captured)
+      : null
+
   return (
     <div
       className="fx-shortcuts__row"
@@ -443,90 +651,124 @@ function ShortcutRowView({
       data-unassigned={unassigned}
       data-modified={row.isModified}
       data-recording={isRecording}
+      data-conflict={
+        row.conflict === null ? undefined : row.conflict.overridden ? 'overridden' : 'overlap'
+      }
+      data-reserved={row.reserved.length > 0 ? row.reserved.join(' ') : undefined}
     >
-      <span className="fx-shortcuts__command">
-        {row.title}
-        {row.isModified && firstOfCommand && (
-          <span
-            className="fx-shortcuts__badge"
-            data-testid={`settings-keyboard-modified-${row.commandId}`}
-          >
-            {t('settings.keyboard.modified')}
-          </span>
-        )}
-      </span>
-
-      <span className="fx-shortcuts__binding">
-        {isRecording ? (
-          <KeyRecorder onConfirm={actions.confirmRecording} onCancel={actions.cancelRecording} />
-        ) : (
-          <>
-            {unassigned ? (
-              <span className="fx-shortcuts__key fx-shortcuts__key--unassigned">
-                {t('settings.keyboard.unassigned')}
-              </span>
-            ) : (
-              <kbd className="fx-shortcuts__key">{row.keybinding}</kbd>
-            )}
-
-            <span className="fx-shortcuts__actions">
-              {row.key === null ? (
-                <button
-                  type="button"
-                  className="fx-shortcuts__action"
-                  data-testid={`settings-keyboard-assign-${row.commandId}`}
-                  disabled={disabled}
-                  aria-label={t('settings.keyboard.actionLabels.assign', labelValues)}
-                  onClick={() => actions.startRecording({ commandId: row.commandId, key: null })}
-                >
-                  {t('settings.keyboard.actions.assign')}
-                </button>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    className="fx-shortcuts__action"
-                    data-testid={`settings-keyboard-change-${row.commandId}-${row.key}`}
-                    disabled={disabled}
-                    aria-label={t('settings.keyboard.actionLabels.change', labelValues)}
-                    onClick={() =>
-                      actions.startRecording({ commandId: row.commandId, key: row.key })
-                    }
-                  >
-                    {t('settings.keyboard.actions.change')}
-                  </button>
-                  <button
-                    type="button"
-                    className="fx-shortcuts__action"
-                    data-testid={`settings-keyboard-remove-${row.commandId}-${row.key}`}
-                    disabled={disabled}
-                    aria-label={t('settings.keyboard.actionLabels.remove', labelValues)}
-                    onClick={() => {
-                      if (row.key !== null) {
-                        actions.remove(row.commandId, row.key)
-                      }
-                    }}
-                  >
-                    {t('settings.keyboard.actions.remove')}
-                  </button>
-                </>
-              )}
-              {row.isModified && firstOfCommand && (
-                <button
-                  type="button"
-                  className="fx-shortcuts__action"
-                  data-testid={`settings-keyboard-reset-${row.commandId}`}
-                  disabled={disabled}
-                  aria-label={t('settings.keyboard.actionLabels.reset', labelValues)}
-                  onClick={() => actions.reset(row.commandId)}
-                >
-                  {t('settings.keyboard.actions.reset')}
-                </button>
-              )}
+      <div className="fx-shortcuts__row-main">
+        <span className="fx-shortcuts__command">
+          {row.title}
+          {row.isModified && firstOfCommand && (
+            <span
+              className="fx-shortcuts__badge"
+              data-testid={`settings-keyboard-modified-${row.commandId}`}
+            >
+              {t('settings.keyboard.modified')}
             </span>
-          </>
-        )}
-      </span>
+          )}
+        </span>
+
+        <span className="fx-shortcuts__binding">
+          {isRecording ? (
+            <KeyRecorder
+              onConfirm={actions.confirmRecording}
+              onCancel={actions.cancelRecording}
+              onCapture={setCaptured}
+            />
+          ) : (
+            <>
+              {unassigned ? (
+                <span className="fx-shortcuts__key fx-shortcuts__key--unassigned">
+                  {t('settings.keyboard.unassigned')}
+                </span>
+              ) : (
+                <kbd className="fx-shortcuts__key">{row.keybinding}</kbd>
+              )}
+
+              <span className="fx-shortcuts__actions">
+                {row.key === null ? (
+                  <button
+                    type="button"
+                    className="fx-shortcuts__action"
+                    data-testid={`settings-keyboard-assign-${row.commandId}`}
+                    disabled={disabled}
+                    aria-label={t('settings.keyboard.actionLabels.assign', labelValues)}
+                    onClick={() => actions.startRecording({ commandId: row.commandId, key: null })}
+                  >
+                    {t('settings.keyboard.actions.assign')}
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className="fx-shortcuts__action"
+                      data-testid={`settings-keyboard-change-${row.commandId}-${row.key}`}
+                      disabled={disabled}
+                      aria-label={t('settings.keyboard.actionLabels.change', labelValues)}
+                      onClick={() =>
+                        actions.startRecording({ commandId: row.commandId, key: row.key })
+                      }
+                    >
+                      {t('settings.keyboard.actions.change')}
+                    </button>
+                    <button
+                      type="button"
+                      className="fx-shortcuts__action"
+                      data-testid={`settings-keyboard-remove-${row.commandId}-${row.key}`}
+                      disabled={disabled}
+                      aria-label={t('settings.keyboard.actionLabels.remove', labelValues)}
+                      onClick={() => {
+                        if (row.key !== null) {
+                          actions.remove(row.commandId, row.key)
+                        }
+                      }}
+                    >
+                      {t('settings.keyboard.actions.remove')}
+                    </button>
+                  </>
+                )}
+                {row.isModified && firstOfCommand && (
+                  <button
+                    type="button"
+                    className="fx-shortcuts__action"
+                    data-testid={`settings-keyboard-reset-${row.commandId}`}
+                    disabled={disabled}
+                    aria-label={t('settings.keyboard.actionLabels.reset', labelValues)}
+                    onClick={() => actions.reset(row.commandId)}
+                  >
+                    {t('settings.keyboard.actions.reset')}
+                  </button>
+                )}
+              </span>
+            </>
+          )}
+        </span>
+      </div>
+
+      {/*
+        記録中は「確定したら」の注意だけを出す（今の注意と並べると、どちらの話か読み分けられない）。
+      */}
+      {isRecording ? (
+        preview !== null && (
+          <KeyWarningList
+            warnings={preview}
+            mode="preview"
+            titleOf={actions.titleOf}
+            label={t('settings.keyboard.warnings.label', {
+              command: row.title,
+              key: captured === null ? '' : formatKeybinding(captured)
+            })}
+          />
+        )
+      ) : (
+        <KeyWarningList
+          warnings={row}
+          mode="row"
+          titleOf={actions.titleOf}
+          label={t('settings.keyboard.warnings.label', labelValues)}
+        />
+      )}
     </div>
   )
 }
@@ -554,10 +796,13 @@ function ShortcutRowView({
  */
 function KeyRecorder({
   onConfirm,
-  onCancel
+  onCancel,
+  onCapture
 }: {
   readonly onConfirm: (chord: KeyChord) => void
   readonly onCancel: () => void
+  /** 打鍵を記録するたびに呼ぶ（行が警告を出すため。Shortcuts S5）。 */
+  readonly onCapture: (chord: KeyChord) => void
 }): JSX.Element {
   const { t } = useI18n()
   const [captured, setCaptured] = useState<KeyChord | null>(null)
@@ -569,6 +814,8 @@ function KeyRecorder({
   confirmRef.current = onConfirm
   const cancelRef = useRef(onCancel)
   cancelRef.current = onCancel
+  const captureRef = useRef(onCapture)
+  captureRef.current = onCapture
 
   const assignable = captured !== null && isAssignableChord(captured)
 
@@ -607,6 +854,7 @@ function KeyRecorder({
 
       if (chord !== null) {
         setCaptured(chord)
+        captureRef.current(chord)
       }
     }
 
