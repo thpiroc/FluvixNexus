@@ -984,7 +984,7 @@ export const jaMessages = {
       },
       keyboard: {
         title: 'キーボードショートカット',
-        description: 'アプリの操作に割り当てられている打鍵の一覧。この版は閲覧のみです。'
+        description: 'アプリの操作に割り当てる打鍵の一覧。変更はその場で保存され、すぐに効きます。'
       }
     },
     items: {
@@ -1103,7 +1103,36 @@ export const jaMessages = {
       searchPlaceholder: '操作名・打鍵で探す',
       searchClear: 'クリア',
       noResults: '「{query}」に当てはまる操作がありません。',
-      viewOnlyNote: 'この版では打鍵を変更できません。',
+      editNote:
+        '変更した打鍵は keybindings.json に保存されます。エディターの中では、エディター自身の打鍵（Ctrl+F など）が優先されます。',
+      modified: '変更済み',
+      actions: {
+        change: '変更',
+        assign: '割り当て',
+        remove: '解除',
+        reset: 'デフォルトへ戻す',
+        resetAll: 'すべてデフォルトへ戻す',
+        resetAllConfirm: '戻す',
+        confirm: '確定',
+        cancel: '取り消し'
+      },
+      actionLabels: {
+        change: '「{command}」の打鍵 {key} を変更',
+        assign: '「{command}」に打鍵を割り当て',
+        remove: '「{command}」から打鍵 {key} を解除',
+        reset: '「{command}」の打鍵をデフォルトへ戻す'
+      },
+      recorder: {
+        label: '打鍵の記録',
+        prompt: '割り当てるキーを押してください',
+        hint: 'Enter で確定・Esc で取り消し',
+        notAssignable: 'Ctrl / Alt と組み合わせるか、F1〜F24 を使ってください'
+      },
+      resetAllConfirm: '変更したすべての打鍵を破棄して、デフォルトへ戻しますか？',
+      saveFailed: '打鍵を保存できませんでした。変更は反映されていません。',
+      loadFailed: 'キー割り当てを読み込めなかったため、この画面からは変更できません。',
+      unreadableNote:
+        'keybindings.json を読み込めなかったため、デフォルトの打鍵で動いています。ここで変更を保存すると、元のファイルは別名で残されます。',
       terminalNote:
         'ターミナルの文字の大きさ（Ctrl と ＋ / － / 0）はターミナルパネルが受け持っており、ここには並びません。',
       columns: {

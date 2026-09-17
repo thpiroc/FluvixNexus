@@ -1001,7 +1001,7 @@ export const enMessages = {
       },
       keyboard: {
         title: 'Keyboard Shortcuts',
-        description: 'Keys assigned to app commands. This version is view-only.'
+        description: 'Keys assigned to app commands. Changes are saved and take effect immediately.'
       }
     },
     items: {
@@ -1125,7 +1125,36 @@ export const enMessages = {
       searchPlaceholder: 'Search by command or key',
       searchClear: 'Clear',
       noResults: 'No command matches “{query}”.',
-      viewOnlyNote: 'Shortcuts cannot be changed in this version.',
+      editNote:
+        'Changed shortcuts are saved to keybindings.json. Inside the editor, the editor’s own shortcuts (such as Ctrl+F) take precedence.',
+      modified: 'Modified',
+      actions: {
+        change: 'Change',
+        assign: 'Assign',
+        remove: 'Remove',
+        reset: 'Reset to Default',
+        resetAll: 'Reset All to Default',
+        resetAllConfirm: 'Reset',
+        confirm: 'Confirm',
+        cancel: 'Cancel'
+      },
+      actionLabels: {
+        change: 'Change shortcut {key} of “{command}”',
+        assign: 'Assign a shortcut to “{command}”',
+        remove: 'Remove shortcut {key} from “{command}”',
+        reset: 'Reset shortcuts of “{command}” to default'
+      },
+      recorder: {
+        label: 'Shortcut recorder',
+        prompt: 'Press the keys to assign',
+        hint: 'Enter to confirm, Esc to cancel',
+        notAssignable: 'Combine with Ctrl or Alt, or use F1–F24'
+      },
+      resetAllConfirm: 'Discard all changed shortcuts and reset to default?',
+      saveFailed: 'Could not save the shortcut. The change was not applied.',
+      loadFailed: 'Keyboard shortcuts could not be loaded, so they cannot be changed here.',
+      unreadableNote:
+        'keybindings.json could not be read, so default shortcuts are in use. Saving a change here keeps the original file under a different name.',
       terminalNote:
         'Terminal font size (Ctrl and Plus / Minus / 0) is handled by the Terminal panel and is not listed here.',
       columns: {

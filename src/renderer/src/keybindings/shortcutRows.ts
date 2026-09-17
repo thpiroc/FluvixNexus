@@ -24,7 +24,7 @@ import type { WhenClause } from './when'
  * | When       | `when`                                           | ✕ |
  * | Source     | `source`                                         | ✕（下記） |
  * | 競合表示   | `conflictsWith`                                  | ✕ |
- * | Reset      | `source !== 'default'`（v1 では常に false）      | ✕ |
+ * | 変更済み・Reset | `isModified`（Shortcuts S4）                  | ○ |
  *
  * **`source` / `when` / `conflictsWith` を v1 の画面が出さないのは、
  * 値が1種類しか無いか、内部の識別子だから**にほかならない ── 既定しか無い今、
@@ -50,12 +50,21 @@ export interface ShortcutRow {
   readonly title: string
   /** `'Ctrl+Shift+S'`。割り当てが無ければ null。 */
   readonly keybinding: string | null
+  /** `'ctrl+shift+s'`（`chordToken` の形。編集で「どの打鍵を変えるか」を指す）。割り当てが無ければ null。 */
+  readonly key: string | null
   readonly when: readonly WhenClause[]
   /** 割り当てが無い行は `'default'` を名乗らない。 */
   readonly source: KeybindingSource | null
   /** 同じ打鍵を、同時に成り立つ条件で持っている他の command。 */
   readonly conflictsWith: readonly CommandId[]
-  /** 既定から変えられているか（`Reset` の活性。v1 では常に false）。 */
+  /**
+   * その command の打鍵が既定から変えられているか（「変更済み」の印と
+   * 「デフォルトへ戻す」の活性。Shortcuts S4）。
+   *
+   * 行の `source` からは決めない ── 既定の打鍵を解除しただけの command は
+   * 行が「未割り当て」になり `source` を持たないが、変えられてはいる
+   * （editKeybindings.ts の `modifiedCommandIds`）。
+   */
   readonly isModified: boolean
 }
 
@@ -72,7 +81,8 @@ export interface ShortcutRow {
 export function buildShortcutRows(
   commands: readonly CommandDescriptor[],
   entries: readonly ResolvedKeybinding[],
-  title: (descriptor: CommandDescriptor) => string
+  title: (descriptor: CommandDescriptor) => string,
+  modifiedCommandIds: ReadonlySet<CommandId> = new Set()
 ): readonly ShortcutRow[] {
   const conflicts = findKeybindingConflicts(entries)
 
@@ -91,10 +101,11 @@ export function buildShortcutRows(
           category: descriptor.category,
           title: title(descriptor),
           keybinding: null,
+          key: null,
           when: [],
           source: null,
           conflictsWith: [],
-          isModified: false
+          isModified: modifiedCommandIds.has(descriptor.id)
         }
       ]
     }
@@ -104,10 +115,11 @@ export function buildShortcutRows(
       category: descriptor.category,
       title: title(descriptor),
       keybinding: formatKeybinding(entry.chord),
+      key: entry.token,
       when: entry.when,
       source: entry.source,
       conflictsWith: conflictsFor(descriptor.id, entry.token),
-      isModified: entry.source !== 'default'
+      isModified: modifiedCommandIds.has(descriptor.id)
     }))
   })
 }

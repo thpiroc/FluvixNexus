@@ -151,6 +151,7 @@ describe('読み込み', () => {
       status: 'missing',
       entries: [],
       skippedCount: 0,
+      rules: [],
       invalid: []
     })
   })

@@ -221,9 +221,10 @@ export function KeybindingProvider({ children }: { readonly children: ReactNode 
       status: stored.status,
       entries: stored.entries,
       skippedCount: stored.skippedCount,
+      rules: user.rules,
       invalid: user.invalid
     }),
-    [stored, user.invalid]
+    [stored, user]
   )
 
   const controller = useMemo<KeybindingController>(

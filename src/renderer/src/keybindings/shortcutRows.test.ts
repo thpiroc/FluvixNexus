@@ -60,12 +60,24 @@ describe('buildShortcutRows', () => {
     expect(save.map((row) => row.keybinding)).toEqual(['Ctrl+S', 'F2'])
   })
 
-  it('Default から変えられた行が分かる（Reset の活性）', () => {
-    const result = rows([{ commandId: 'editor.save', key: 'f2', source: 'user' }])
+  it('Default から変えられた command の行が分かる（Reset の活性。Shortcuts S4）', () => {
+    const result = buildShortcutRows(
+      listCommands(),
+      resolveKeybindings([{ commandId: 'editor.save', key: 'f2', source: 'user' }]).entries,
+      title,
+      new Set(['editor.save', 'git.push'])
+    )
     const save = result.find((row) => row.commandId === 'editor.save')
+    const push = result.find((row) => row.commandId === 'git.push')
+    const open = result.find((row) => row.commandId === 'settings.open')
 
     expect(save?.source).toBe('user')
+    expect(save?.key).toBe('f2')
     expect(save?.isModified).toBe(true)
+    /* 解除されて未割り当てになった command も「変更済み」になる。 */
+    expect(push?.keybinding).toBeNull()
+    expect(push?.isModified).toBe(true)
+    expect(open?.isModified).toBe(false)
   })
 
   it('競合している相手を出す', () => {

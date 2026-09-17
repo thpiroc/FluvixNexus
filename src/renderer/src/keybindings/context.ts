@@ -1,6 +1,6 @@
 import { createContext, useContext } from 'react'
 import type { KeybindingsFileStatus, StoredKeybindingEntry } from '@shared/keybindings'
-import type { ResolvedKeybinding } from './resolve'
+import type { KeybindingRule, ResolvedKeybinding } from './resolve'
 import type { InvalidUserKeybinding } from './userKeybindings'
 import type { WhenKey } from './when'
 
@@ -11,7 +11,8 @@ import type { WhenKey } from './when'
  *
  *   - 効いている割り当ての表（Settings の一覧が読む）
  *   - 条件を申告する口（`useWhenFlag`）
- *   - `keybindings.json` の中身と、それを保存する口（Shortcuts S3。画面は S4）
+ *   - `keybindings.json` の中身と、それを保存する口（Shortcuts S3。画面は S4 の
+ *     settings/KeyboardShortcutsView.tsx）
  *
  * **command を実行する口はここに無い。** 実行は `useCommands().execute` の
  * 一本で、打鍵はその呼び出し元の1つにすぎない。
@@ -32,6 +33,8 @@ export interface UserKeybindingsState {
   readonly entries: readonly StoredKeybindingEntry[]
   /** Main が形で読み飛ばした行の数。 */
   readonly skippedCount: number
+  /** 読めた行を rule へ読み替えたもの（並び順のまま。Settings の編集が読む。Shortcuts S4）。 */
+  readonly rules: readonly KeybindingRule[]
   /** 意味として読めなかった行（`entries` の中の位置と理由）。 */
   readonly invalid: readonly InvalidUserKeybinding[]
 }
