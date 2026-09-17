@@ -3,6 +3,15 @@ import { COMMAND_CATEGORY_ORDER, getCommandCategoryTitle } from '../commands/com
 import { listCommands } from '../commands/registry'
 import { commandTitle, type CommandCategory } from '../commands/types'
 import { useI18n } from '../i18n/context'
+import {
+  BUILTIN_SHORTCUT_GROUP_ORDER,
+  BUILTIN_SHORTCUTS,
+  buildBuiltinShortcutRows,
+  filterBuiltinShortcutRows,
+  getBuiltinShortcutGroupTitle,
+  type BuiltinShortcutGroup,
+  type BuiltinShortcutRow
+} from '../keybindings/builtinShortcuts'
 import { useKeybindings } from '../keybindings/context'
 import {
   buildShortcutRows,
@@ -42,6 +51,10 @@ import {
  * どちらも**この画面のために新しく作った口ではない** ── `entries` は
  * Session 4-7A から `KeybindingContext` にあり、読む相手がここで初めてできた。
  * 新しい IPC も、Main / preload / shared への変更も1つも無い。
+ *
+ * Shortcuts S2 から、Command の群の後ろに**組み込みの群**（編集・ターミナル）が
+ * 並ぶ。こちらは `keybindings/builtinShortcuts.ts` の静的な表から作り、
+ * `entries` とは関係しない（Monaco / 入力欄 / xterm が直接受け持つ打鍵）。
  *
  * ## `useCommands().isRegistered` を使わない
  *
@@ -88,6 +101,22 @@ export function KeyboardShortcutsView(): JSX.Element {
     [visible]
   )
 
+  /*
+    組み込みの行（S2）。Command の行とは別の表から作り、見出しも Command の
+    カテゴリの後ろへ別に並べる ── 変えられる行と変えられない行を同じ見出しに
+    混ぜると、S4 で編集できるようになったときにどれが押せるのか読み分けにくい。
+  */
+  const builtinRows = useMemo(() => buildBuiltinShortcutRows(BUILTIN_SHORTCUTS, t), [t])
+
+  const builtinGroups = useMemo(() => {
+    const matched = filterBuiltinShortcutRows(builtinRows, query)
+
+    return BUILTIN_SHORTCUT_GROUP_ORDER.map((group) => ({
+      group,
+      rows: matched.filter((row) => row.group === group)
+    })).filter((entry) => entry.rows.length > 0)
+  }, [builtinRows, query])
+
   return (
     <div className="fx-shortcuts" data-testid="settings-keyboard">
       <div className="fx-shortcuts__toolbar">
@@ -112,7 +141,7 @@ export function KeyboardShortcutsView(): JSX.Element {
         )}
       </div>
 
-      {groups.length === 0 ? (
+      {groups.length === 0 && builtinGroups.length === 0 ? (
         <p className="fx-shortcuts__empty" data-testid="settings-keyboard-empty">
           {t('settings.keyboard.noResults', { query })}
         </p>
@@ -125,20 +154,20 @@ export function KeyboardShortcutsView(): JSX.Element {
           {groups.map((group) => (
             <ShortcutGroup key={group.category} category={group.category} rows={group.rows} />
           ))}
+          {builtinGroups.map((group) => (
+            <BuiltinShortcutGroupView key={group.group} group={group.group} rows={group.rows} />
+          ))}
         </div>
       )}
 
       <div className="fx-shortcuts__notes">
         <p className="fx-shortcuts__note">{t('settings.keyboard.viewOnlyNote')}</p>
         {/*
-          端末の文字の大きさ（Ctrl と ＋ / － / 0）はこの一覧に出てこない。
-          あれは `terminal/terminalDisplay.ts` → `TerminalSurface.tsx` の
-          `onAppKey` が受け持っており、Command Registry を通っていない
-          （日本語配列のための `=` / `_` の読み替えを持つため。commandIds.ts）。
-          **実際に使われている打鍵が並ばない**ことは、黙っていると
-          「一覧が全部だ」という誤解になる ── 1行で断っておく。
+          S2 より前は「端末の文字の大きさはここに並ばない」と断っていた。
+          今はそれも組み込みの行として並ぶので、代わりに組み込みの行が
+          変えられない理由を1行で出す。
         */}
-        <p className="fx-shortcuts__note">{t('settings.keyboard.terminalNote')}</p>
+        <p className="fx-shortcuts__note">{t('settings.keyboard.builtinNote')}</p>
       </div>
     </div>
   )
@@ -205,6 +234,61 @@ function ShortcutRowView({ row }: { readonly row: ShortcutRow }): JSX.Element {
       ) : (
         <kbd className="fx-shortcuts__key">{row.keybinding}</kbd>
       )}
+    </div>
+  )
+}
+
+function BuiltinShortcutGroupView({
+  group,
+  rows
+}: {
+  readonly group: BuiltinShortcutGroup
+  readonly rows: readonly BuiltinShortcutRow[]
+}): JSX.Element {
+  const { t } = useI18n()
+
+  return (
+    <section className="fx-shortcuts__group" data-group={`builtin-${group}`} data-builtin="true">
+      <h3 className="fx-shortcuts__group-title">{getBuiltinShortcutGroupTitle(group, t)}</h3>
+
+      {rows.map((row) => (
+        <BuiltinShortcutRowView key={row.id} row={row} />
+      ))}
+    </section>
+  )
+}
+
+/**
+ * 組み込みの1行（S2）。
+ *
+ * Command の行と同じ `fx-shortcuts__row` で描き、`data-builtin` で見分ける。
+ * `data-command` を持たないので、Command の行だけを数える側
+ * （`[data-command]`）には混ざらない。打鍵が2つある操作（やり直す）は
+ * `kbd` を並べる。
+ */
+function BuiltinShortcutRowView({ row }: { readonly row: BuiltinShortcutRow }): JSX.Element {
+  const { t } = useI18n()
+
+  return (
+    <div
+      className="fx-shortcuts__row fx-shortcuts__row--builtin"
+      role="listitem"
+      data-testid={`settings-keyboard-builtin-${row.id}`}
+      data-builtin-id={row.id}
+      data-builtin="true"
+    >
+      <span className="fx-shortcuts__command">
+        {row.title}
+        {row.scope !== null && <span className="fx-shortcuts__scope">{row.scope}</span>}
+        <span className="fx-shortcuts__badge">{t('settings.keyboard.builtin.badge')}</span>
+      </span>
+      <span className="fx-shortcuts__keys">
+        {row.keybindings.map((keybinding) => (
+          <kbd key={keybinding} className="fx-shortcuts__key">
+            {keybinding}
+          </kbd>
+        ))}
+      </span>
     </div>
   )
 }

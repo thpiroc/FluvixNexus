@@ -374,6 +374,34 @@
   font-style: italic;
 }
 
+/*
+ * 組み込みの行（Shortcuts S2）。名前の後ろに効く場所と「変更不可」の印、
+ * 打鍵は複数並ぶことがある（やり直す = Ctrl+Y / Ctrl+Shift+Z）。
+ */
+.fx-shortcuts__scope {
+  margin-left: var(--fx-space-2);
+  color: var(--fx-color-text-muted);
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-shortcuts__badge {
+  margin-left: var(--fx-space-2);
+  padding: 0 var(--fx-space-1);
+  border: 1px solid var(--fx-color-border);
+  border-radius: 3px;
+  color: var(--fx-color-text-muted);
+  font-size: var(--fx-font-size-sm);
+  white-space: nowrap;
+}
+
+.fx-shortcuts__keys {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: var(--fx-space-1);
+  justify-content: flex-end;
+}
+
 .fx-shortcuts__empty {
   margin: 0;
   color: var(--fx-color-text-muted);
