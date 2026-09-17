@@ -914,6 +914,14 @@ export const enMessages = {
       message: 'No terminal is open. Use + to open a new one.'
     },
     loading: 'Preparing terminal…',
+    aiCli: {
+      badge: 'AI',
+      toggleLabel: 'AI CLI Mode',
+      titleOff:
+        'Turn on AI CLI Mode (this tab only): Enter / Shift+Enter inserts a newline, Ctrl+Enter sends, Ctrl+V pastes',
+      titleOn: 'Turn off AI CLI Mode (this tab only): Enter runs commands as usual again',
+      tabNote: 'AI CLI Mode'
+    },
     settings: {
       label: 'Terminal Settings',
       fontSize: 'Font size',

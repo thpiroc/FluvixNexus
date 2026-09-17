@@ -130,6 +130,33 @@ describe('updateTab', () => {
   })
 })
 
+/*
+  AI CLI モード（v1.1 S1）。PowerShell / Command Prompt の Enter を変えないため、
+  開いた時点では必ず OFF で、切り替えは1枚のタブにだけ効く。
+*/
+describe('aiCliMode', () => {
+  it('開いたタブは OFF（シェルの種類に関係なく）', () => {
+    let state = openTab(createTerminalTabsState(), 'default', 'PowerShell')
+    state = openTab(state, 'claude-code', 'Claude Code')
+
+    expect(state.tabs.map((tab) => tab.aiCliMode)).toEqual([false, false])
+  })
+
+  it('切り替えはそのタブだけに効く', () => {
+    const state = updateTab(withTabs(2), 'terminal-2', { aiCliMode: true })
+
+    expect(findTab(state, 'terminal-1')?.aiCliMode).toBe(false)
+    expect(findTab(state, 'terminal-2')?.aiCliMode).toBe(true)
+  })
+
+  it('状態が変わってもモードは残る（立て直し・終了）', () => {
+    let state = updateTab(withTabs(1), 'terminal-1', { aiCliMode: true })
+    state = updateTab(state, 'terminal-1', { status: 'exited', exitCode: 0 })
+
+    expect(findTab(state, 'terminal-1')?.aiCliMode).toBe(true)
+  })
+})
+
 describe('fillShellNames', () => {
   it('名前が分かっていないタブにだけ入れる', () => {
     let state = openTab(createTerminalTabsState(), 'default', null)

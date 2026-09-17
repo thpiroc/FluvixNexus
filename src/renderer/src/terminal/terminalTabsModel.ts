@@ -89,6 +89,19 @@ export interface TerminalTab {
    * 今開いているフォルダで起動するため。
    */
   readonly workspaceId: string | null
+  /**
+   * AI CLI モードか（v1.1 S1）。**既定は false で、開いた時点では必ず OFF。**
+   *
+   * ON の間だけ Enter / Shift+Enter が改行、Ctrl+Enter が送信、Ctrl+V が貼り付けに
+   * なる（terminalInputMode.ts）。タブごとに持つのは、同じパネルで PowerShell と
+   * Claude Code を並べて使うため ── 全体の設定にすると、片方のために
+   * もう片方の Enter が効かなくなる。
+   *
+   * シェルの種類（`shellId`）からは決めない。Claude Code は PowerShell のタブの
+   * 中で `claude` と打って起動することが多く、種類では見分けられない。
+   * 保存もしない（タブ自体が次の起動へ持ち越されない）。
+   */
+  readonly aiCliMode: boolean
 }
 
 export interface TerminalTabsState {
@@ -144,7 +157,9 @@ export function openTab(
     exitCode: null,
     error: null,
     // どの Workspace で立つかは、実際に立ってから Main が返す（useTerminalTabs.ts）。
-    workspaceId: null
+    workspaceId: null,
+    // 通常のシェルとして始まる（Enter で実行）。AI CLI モードは利用者が選んだときだけ。
+    aiCliMode: false
   }
 
   return {

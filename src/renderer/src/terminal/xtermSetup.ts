@@ -134,12 +134,28 @@ export function createTerminalScreen(handlers: TerminalScreenHandlers): Terminal
     見るのは keydown だけ。同じ組み合わせは keypress でも渡ってくるので、
     両方で数えると1回の打鍵で2段階動く。
   */
+  /*
+    直前の keydown をアプリが取ったか（v1.1 S1）。
+
+    keydown で false を返すと xterm はその打鍵を処理しないが、**続く keypress は
+    別に届く。** Enter の keypress は文字コード 13 を持つので、放っておくと
+    xterm がそこで `\r` を送る ── AI CLI モードで改行（`\n`）を送った直後に
+    送信が続く形になる。取った打鍵の keypress は、ここで一緒に止める。
+  */
+  let appHandledKeyDown = false
+
   terminal.attachCustomKeyEventHandler((event) => {
+    if (event.type === 'keypress') {
+      return !appHandledKeyDown
+    }
+
     if (event.type !== 'keydown') {
       return true
     }
 
-    return !handlers.onAppKey(event)
+    appHandledKeyDown = handlers.onAppKey(event)
+
+    return !appHandledKeyDown
   })
 
   let opened = false

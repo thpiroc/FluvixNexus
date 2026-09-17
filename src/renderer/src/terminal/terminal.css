@@ -122,6 +122,17 @@
   font-size: var(--fx-font-size-sm);
 }
 
+/*
+ * AI CLI モードの印（v1.1 S1）。Enter の意味が変わっていることを、
+ * 手前に出ていないタブでも見落とさないように色を付ける。
+ */
+.fx-terminal-tab__mode {
+  flex: 0 0 auto;
+  color: var(--fx-accent-blue);
+  font-size: var(--fx-font-size-sm);
+  font-weight: 600;
+}
+
 .fx-terminal-tab[data-status='failed'] .fx-terminal-tab__note {
   color: var(--fx-color-danger);
 }
@@ -171,6 +182,18 @@
 .fx-terminal-tabs__button[data-open='true'] {
   color: var(--fx-color-text-strong);
   background: var(--fx-color-surface-hover);
+}
+
+/* AI CLI モードの切り替え（TerminalTabs.tsx）。文字2つぶんの幅を取る。 */
+.fx-terminal-tabs__mode {
+  width: auto;
+  padding: 0 6px;
+  font-size: var(--fx-font-size-sm);
+  font-weight: 600;
+}
+
+.fx-terminal-tabs__mode[aria-pressed='true'] {
+  color: var(--fx-accent-blue);
 }
 
 /* 上限に達している（TerminalTabs.tsx）。押せないことが見えている方が早い。 */
