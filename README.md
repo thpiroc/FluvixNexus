@@ -26,31 +26,44 @@ Node.js・Python・.NET SDK・Git はアプリに同梱していません。使�
 
 ## 主な機能
 
-| 機能      | 内容                                                                                                                        |
-| --------- | --------------------------------------------------------------------------------------------------------------------------- |
-| Workspace | フォルダを開いて作業します。前回開いていたフォルダと、パネルの配置（分割・タブ・大きさ）は次回起動時に戻ります              |
-| Files     | ファイルツリー / カラム表示、作成・改名・移動・コピー・削除（ごみ箱へ）、ファイル名検索・全文検索                           |
-| Editor    | Monaco Editor、複数タブ、保存 / 別名で保存 / Auto Save、アプリの外での変更の検出                                            |
-| Terminal  | 複数タブ。PowerShell / Node / Claude Code を起動できます                                                                    |
-| Git       | 変更の一覧と差分、Stage / Commit / Push / Pull / Fetch、ブランチ、履歴、stash、remote、マージと競合の解決                   |
-| GitHub    | フォルダを GitHub のリポジトリとして公開します（GitHub CLI が必要）                                                         |
-| LSP       | JavaScript / TypeScript・Python・C# の補完、エラー表示、定義へ移動、参照、名前の変更、整形                                  |
-| Debug     | Node.js・Python・C# の Breakpoint、Continue / Pause / Step / Stop、Call Stack、Variables、Debug Console                     |
-| Settings  | 表示言語（日本語 / English）、Theme（Dark / Light）、Editor / Files / Terminal / LSP の設定、キーボードショートカットの変更 |
+| 機能      | 内容                                                                                                                          |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Workspace | フォルダを開いて作業します。前回開いていたフォルダと、パネルの配置（分割・タブ・大きさ）は次回起動時に戻ります                |
+| Files     | ファイルツリー / カラム表示、作成・改名・移動・コピー・削除（ごみ箱へ）、ファイル名検索・全文検索                             |
+| Editor    | Monaco Editor、複数タブ、保存 / 別名で保存 / Auto Save、アプリの外での変更の検出                                              |
+| Terminal  | 複数タブ。PowerShell / Node / Claude Code を起動できます。AI CLI モード（Enter で改行・Ctrl+Enter で送信。v1.0.0 の後に追加） |
+| Git       | 変更の一覧と差分、Stage / Commit / Push / Pull / Fetch、ブランチ、履歴、stash、remote、マージと競合の解決                     |
+| GitHub    | フォルダを GitHub のリポジトリとして公開します（GitHub CLI が必要）                                                           |
+| LSP       | JavaScript / TypeScript・Python・C# の補完、エラー表示、定義へ移動、参照、名前の変更、整形                                    |
+| Debug     | Node.js・Python・C# の Breakpoint、Continue / Pause / Step / Stop、Call Stack、Variables、Debug Console                       |
+| Settings  | 表示言語（日本語 / English）、Theme（Dark / Light）、Editor / Files / Terminal / LSP の設定、キーボードショートカットの変更   |
 
 ## キーボードショートカット
 
 Settings →「キーボードショートカット」で、操作ごとの打鍵を変更できます。
 
-> v1.0.0 の後に追加した機能です。v1.0.0 のインストーラーには含まれていません（v1.0.0 の一覧は読むだけです）。
+> この節と「AI CLI モード」は v1.0.0 の後に追加した機能です。v1.0.0 のインストーラーには含まれていません（v1.0.0 の一覧は読むだけです）。
 
 - 行の「変更」を押してから打鍵を押し、**Enter** で確定、**Esc** で取り消します。未割り当ての操作は「割り当て」、打鍵を外すときは「解除」です
 - 変更はその場で効き、次回起動後も残ります。「デフォルトへ戻す」（1行）/「すべてデフォルトへ戻す」で元に戻せます
 - 割り当てられるのは **Ctrl か Alt を含む打鍵か、F1〜F24** です（文字キーだけの打鍵は入力欄で文字が打てなくなるため）
 - 他の操作と同じ打鍵を使うと、どちらが動くかが行に表示されます。Ctrl+C / V / Z などの編集の打鍵、Git の Commit 欄の Ctrl+Enter、Files の F2 など、アプリがすでに使っている打鍵を選ぶと注意が表示されます（確定はできます）
-- エディターの中では、エディター自身の打鍵（Ctrl+F など）が優先されます。エディターの打鍵そのものは変更できません
+- エディターの中では、エディター自身の打鍵（Ctrl+F など）が優先されます。エディター・入力欄・ターミナルが直接受け持つ打鍵は、一覧の最後に「組み込み（変更不可）」として並びます
 
 変更は `%APPDATA%\Fluvix Nexus\keybindings.json` に保存されます。手で編集することもできます（VS Code と同じ `[{ "key": "ctrl+alt+k", "command": "settings.open" }]` の形。`"-settings.open"` は既定の割り当ての解除）。読み込めなかった項目は、理由とともに一覧の上に表示されます。JSON として読めないファイルは無視され、画面から保存したときに `keybindings.broken-<日時>.json` という名前で残してから書き直します。
+
+### ターミナルの AI CLI モード
+
+Claude Code などの AI CLI に複数行を入力するためのモードです。ターミナルのタブ列の右にある「AI」ボタンで、**手前のタブだけ**を切り替えます（名前の横に「AI」の印が出ます）。
+
+| 打鍵        | 通常のタブ                    | AI CLI モードのタブ        |
+| ----------- | ----------------------------- | -------------------------- |
+| Enter       | コマンドを実行                | 改行                       |
+| Shift+Enter | コマンドを実行                | 改行                       |
+| Ctrl+Enter  | コマンドを実行                | 送信                       |
+| Ctrl+V      | Ctrl+V をそのままシェルへ送る | クリップボードから貼り付け |
+
+新しく開いたタブは通常のタブで始まり、アプリを閉じるとモードは残りません。
 
 ## 別途インストールするもの
 
@@ -165,6 +178,7 @@ Fluvix Nexus is a lightweight code editor for Windows with dockable Files, Edito
 - **Debug adapters:** vscode-js-debug 1.117.0 (placed under `%APPDATA%\Fluvix Nexus\debug-adapters`, see the PowerShell steps above), `debugpy`, and `netcoredbg` (ASCII-only paths).
 - **Data:** settings and logs are stored in `%APPDATA%\Fluvix Nexus`; nothing is written into the opened folder.
 - **UI language:** Japanese and English (Settings → General).
-- **Keyboard shortcuts (added after v1.0.0; not in the v1.0.0 installer):** change, remove or reset keybindings in Settings → Keyboard Shortcuts. Bindings must include Ctrl or Alt, or be F1–F24. Conflicts and keys the app already uses (such as Ctrl+C or Ctrl+Enter in the Git commit box) are flagged. Changes are saved to `%APPDATA%\Fluvix Nexus\keybindings.json` (VS Code-style array; a `-command` entry removes a default binding).
+- **Terminal AI CLI mode (added after v1.0.0):** the "AI" button in the terminal tab bar switches the current tab so that Enter / Shift+Enter insert a new line, Ctrl+Enter sends, and Ctrl+V pastes. New tabs start in normal mode, and the mode is not saved.
+- **Keyboard shortcuts (added after v1.0.0; not in the v1.0.0 installer):** built-in editor, text field and terminal keys are listed as fixed. Change, remove or reset keybindings in Settings → Keyboard Shortcuts. Bindings must include Ctrl or Alt, or be F1–F24. Conflicts and keys the app already uses (such as Ctrl+C or Ctrl+Enter in the Git commit box) are flagged. Changes are saved to `%APPDATA%\Fluvix Nexus\keybindings.json` (VS Code-style array; a `-command` entry removes a default binding).
 - **License:** [MIT](LICENSE). Third-party licenses: [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt).
 - **Bug reports:** [GitHub Issues](https://github.com/thpiroc/FluvixNexus/issues) (attach `main.log` / `main.old.log` from `%APPDATA%\Fluvix Nexus\logs`).

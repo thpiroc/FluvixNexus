@@ -230,6 +230,7 @@ src/
 │       ├── terminal/           動いているシェルと、その画面（§13）
 │       │   ├── terminalTabsModel.ts   タブの並びの規則（React / DOM 非依存・テスト対象・§13.6.1）
 │       │   ├── terminalDisplay.ts     見え方の既定値・範囲・打鍵の判断（React / DOM 非依存・テスト対象・§13.4）
+│       │   ├── terminalInputMode.ts   AI CLI モードの打鍵の読み替え（同上・テスト対象・§13.6.2）
 │       │   ├── terminalSettings.ts    見え方 ↔ 保存形式の変換（同上・テスト対象・§13.4）
 │       │   ├── useTerminalSettings.ts 見え方の正本と永続化（いつ読み、いつ書くか・§13.4）
 │       │   ├── terminalScreenStore.ts xterm のインスタンスの持ち主（パネルより長く生きる・§13.6）
@@ -299,6 +300,7 @@ src/
 │       │   ├── resolve.ts             rule の並び → 効く割り当ての表（後勝ち・同上・§18.4）
 │       │   ├── defaults.ts            既定の割り当て18件（**既定の rule を作る唯一の場所**・§18.4）
 │       │   ├── dispatch.ts            打鍵 → command（確認ダイアログの裏では走らせない・同上・§18.5）
+│       │   ├── builtinShortcuts.ts    組み込みの打鍵の表（一覧に「変更不可」として見せるだけ・同上・§18.6）
 │       │   ├── userKeybindings.ts     `keybindings.json` の行 → rule（command 名の関門・条件の引き継ぎ・同上・§18.9）
 │       │   ├── editKeybindings.ts     画面の操作 → 既定との差分で書き直した行（割り当てられる打鍵・同上・§18.10）
 │       │   ├── keyWarnings.ts         競合の警告（意図した割り当てと効いている割り当ての突き合わせ・同上・§18.11）
@@ -3089,6 +3091,26 @@ TerminalTabs.tsx       タブ列と、開く入口
 #### 上限の数え方が Main と違う
 
 `TERMINAL_MAX_SESSIONS`（8）は本来「同時に動くプロセスの数」の歯止めで、終わったタブはプロセスを持たない。それでも Renderer 側ではタブの枚数で数えている ── タブ列そのものも無限には伸びてほしくないため。数え方が違うぶん**Renderer の側が厳しくなる**ので、緩い側に倒れることはない（断るのは常に Main。UI は迂回されうる）。
+
+### 13.6.2 AI CLI モード（Shortcuts S1）
+
+Claude Code のような AI CLI では、Enter で送ってしまわずに複数行を書きたい。xterm は Shift / Ctrl が付いても Enter を `\r` にし、Ctrl+V を `0x16` にして既定の貼り付けを取り消す（`@xterm/xterm` の `Keyboard.ts`）。そこで**タブごとに**打鍵を読み替えるモードを持つ。
+
+| 打鍵        | 通常のタブ（従来どおり） | AI CLI モードのタブ                           |
+| ----------- | ------------------------ | --------------------------------------------- |
+| Enter       | `\r`（実行）             | `\n`（改行）                                  |
+| Shift+Enter | `\r`                     | `\n`（改行）                                  |
+| Ctrl+Enter  | `\r`                     | `\r`（送信）                                  |
+| Ctrl+V      | `0x16`                   | クリップボードから貼り付け（bracketed paste） |
+
+- **タブ単位・手動で切り替え・保存しない。** タブ列右の「AI」ボタンが手前のタブに効き、ON のタブは名前の横に印が出る。新しいタブは必ず OFF。PowerShell の中で `claude` と打って起動することが多いので、シェルの種類からは自動で決めない（`terminalTabsModel.ts` の `aiCliMode`）
+- 読み替えは `terminalInputMode.ts` の純粋関数で決め、`TerminalSurface.tsx` の `onAppKey` が適用する。改行は `0x0A`（Claude Code で Ctrl+J と同じ扱いになることを実機で確認）
+- **Ctrl+V はブラウザの paste に任せる。** 既定の動作を止めず、xterm が paste イベントを bracketed paste で送る ── 複数行が1行ずつ実行されない
+- IME の変換中（`isComposing` / keyCode 229）は読み替えない。アプリの打鍵処理は xterm の変換処理より前に呼ばれるため
+- 横取りした打鍵は `stopPropagation` し、`xtermSetup.ts` で続く keypress も止める（keypress の `\r` が二重に送られないように）。**アプリ全体の割り当て（§18.5）へは上がらない**
+- 文字の大きさ（Ctrl + ± / 0）の判定は AI CLI モードより先に行い、こちらは従来どおり伝播させる
+
+Keyboard Shortcuts の一覧には、これらの打鍵が「AI CLI モードのタブ」と断った組み込みの行として並ぶ（§18.6）。
 
 ### 13.7 CSP を1文字も緩めていない
 
@@ -6853,19 +6875,22 @@ Theme と違い、**窓の初期色にあたるものは無い**（言語は色�
 
 ## 18. Command と Keyboard Shortcut
 
-Session 4-7A が基盤（Command Registry・Keybinding・`when`・一覧の行）を、4-7B が Git / Files の寄与を、4-7C が Settings の一覧を入れている。v1.0.0 の後、キーボードショートカット改善の S3〜S5 が User の割り当てを足した。
+Session 4-7A が基盤（Command Registry・Keybinding・`when`・一覧の行）を、4-7B が Git / Files の寄与を、4-7C が Settings の一覧を入れている。v1.0.0 の後、キーボードショートカット改善（S1〜S6）が組み込みの行と User の割り当てを足した。
 
-| 段                    | 入ったもの                                                                              | 節      |
-| --------------------- | --------------------------------------------------------------------------------------- | ------- |
-| Session 4-7（v1.0.0） | 既定の割り当てが効く。一覧は読むだけ                                                    | §18.1〜 |
-| Shortcuts S3          | `keybindings.json` の読み書き・解除の rule・Provider の表の作り直し（画面は変わらない） | §18.9   |
-| Shortcuts S4          | 一覧から打鍵を記録・変更・解除・割り当て・デフォルトへ戻す                              | §18.10  |
-| Shortcuts S5          | 競合と予約キーの警告、読めない項目の表示                                                | §18.11  |
-| Shortcuts S6          | production build での統合確認と、この章の追従（コードは変えていない）                   | §18.12  |
+| 段                    | 入ったもの                                                                              | 節            |
+| --------------------- | --------------------------------------------------------------------------------------- | ------------- |
+| Session 4-7（v1.0.0） | 既定の割り当てが効く。一覧は読むだけ                                                    | §18.1〜       |
+| Shortcuts S1          | Terminal の AI CLI モード（この章の外。打鍵の表は通らない）                             | §13.6.2       |
+| Shortcuts S2          | 組み込みの打鍵（Monaco・入力欄・xterm）を「変更不可」の行として一覧に並べる             | §18.6         |
+| Shortcuts S3          | `keybindings.json` の読み書き・解除の rule・Provider の表の作り直し（画面は変わらない） | §18.9         |
+| Shortcuts S4          | 一覧から打鍵を記録・変更・解除・割り当て・デフォルトへ戻す                              | §18.10        |
+| Shortcuts S5          | 競合と予約キーの警告、読めない項目の表示                                                | §18.11        |
+| Shortcuts S6          | production build での確認と、この章の追従（コードは変えていない）                       | §18.12        |
+| S1〜S6 の統合         | 組み込みの行に AI CLI モードの打鍵、予約キーの補い、組み込みと予約キーの突き合わせ      | §18.6・§18.11 |
 
-**Workspace の割り当てと Command Palette は今も入っていない**（§18.8・§18.12）。§18.1〜§18.8 は Session 4-7 の設計で、S3〜S5 で変わったところはその場で断ってある。
+**Workspace の割り当てと Command Palette は今も入っていない**（§18.8・§18.12）。§18.1〜§18.8 は Session 4-7 の設計で、S2〜S5 で変わったところはその場で断ってある。
 
-**S6 時点の積み上げは S3 → S4 → S5 → S6 だけで、main へは未 Merge。** Terminal の AI CLI モード（S1）と、組み込みの打鍵を一覧に並べる行（S2）は、どちらも main から別に分岐したブランチにあり、**この積み上げには含まれていない**。そのためこの章にも書いていない。S1 / S2 を統合するときに、この章へ足す（§18.12）。
+S1 と S2 は main から、S3 → S4 → S5 → S6 は順に積んで作り、`feat/shortcuts-integration` で1本にまとめた（main へは未 Merge。DEVELOPMENT.md §4）。
 
 ### 18.1 Command Registry（そういう操作がある、という表）
 
@@ -7057,6 +7082,28 @@ DOM を読む3つは**React が持っていない状態**にあたる ── foc
 Session 4-7C の一覧は読むだけで、`onClick` を持つのは検索欄と、それを消す `×` だけだった。Shortcuts S4 から、各行に「変更」「解除」（未割り当ての行は「割り当て」）と、変更済みの command に「デフォルトへ戻す」が付く（§18.10）。
 
 **今も、行を押して command が実行されることは無い。** ボタンが変えるのは割り当てで、実行の入口は打鍵と各パネルの UI のまま ── ここは一覧と、その割り当ての編集の場所にとどまる。
+
+#### 組み込みの行（Shortcuts S2・統合で AI CLI モードを追加）
+
+Command の群の後ろに「編集（組み込み）」「ターミナル（組み込み）」の2群が並ぶ。Command Registry を通らず、**Monaco・Chromium の入力欄・xterm（と `TerminalSurface.tsx`）が直接受け持つ打鍵**を「変更不可」の印付きで見せる。
+
+```
+keybindings/builtinShortcuts.ts   静的な表（KeybindingProvider はこの表を読まない）
+```
+
+| 群         | 行                                                                                                                                                                                 |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 編集       | コピー / 切り取り / 貼り付け / 元に戻す / やり直す / すべて選択（エディター・入力欄）、検索 / 置換（エディター）                                                                   |
+| ターミナル | 中断（Ctrl+C）/ 選択範囲をコピー / 貼り付け（Ctrl+Shift+V・Shift+Insert）/ Ctrl+V をシェルへ送る（通常のタブ）/ 改行・送信・貼り付け（AI CLI モードのタブ。§13.6.2）/ 文字の大きさ |
+
+- **行を消しても足しても打鍵の動きは変わらない。** 表は動きの説明で、載せるのは実機で確かめた打鍵だけ（Terminal の Ctrl+Shift+C は何もしないので載せていない）
+- 打鍵は `parseKeybinding` が読める形で持ち、表示は Command の行と同じ `formatKeybinding` を通す
+- **組み込みの行には編集のボタンを出さない。** 行は `data-builtin` を持ち `data-command` を持たないので、Command の行の数え方に混ざらない
+- 同じ Ctrl+V がタブのモードで違う動きをするので、ターミナルの行は効く場所（通常のタブ / AI CLI モードのタブ）を併記する
+- 検索は組み込みの行にも効き、「該当なし」は Command と組み込みの両方が0件のときだけ
+- 一覧の下の注記は「`keybindings.json` に保存される・エディターの中ではエディター自身の打鍵が優先」と「組み込みの打鍵は変更できない」の2つ。S2 より前の「端末の文字の大きさはここに並ばない」は、行として並ぶようになったので消した
+
+組み込みの表と予約キーの表（§18.11）の関係は §18.11 の最後。
 
 #### 一覧はその場で組み立てる
 
@@ -7276,17 +7323,18 @@ effective … 全体を畳んだもの（KeybindingProvider が打鍵に使う�
 
 割り当ての表（`defaults.ts`）の外で、すでに意味を持っている打鍵。**コードか実機で、その打鍵を誰かが使っていると確かめたものだけ**を載せる。
 
-| 理由                | 打鍵                                                   | 使われている場所（when）              | 重なるとどうなるか                                                              |
-| ------------------- | ------------------------------------------------------ | ------------------------------------- | ------------------------------------------------------------------------------- |
-| `textEditing`       | Ctrl+C / X / V / Z / Y / Shift+Z / A                   | どこでも                              | 入力欄でその操作ができなくなる（Provider が実行した打鍵の既定を止める）         |
-| `editorFind`        | Ctrl+F / H                                             | `editorFocused`                       | エディターの中では割り当てが効かない                                            |
-| `terminalFontSize`  | Ctrl+= / Shift+= / - / Shift+- / 0 / Shift+; / Shift+_ | `terminalFocused`                     | 端末の中で両方が動く（`terminalDisplay.ts` は `preventDefault` だけで伝播する） |
-| `terminalClipboard` | Ctrl+Insert / Ctrl+Shift+V                             | `terminalFocused`                     | 端末の中で重なる                                                                |
-| `gitCommit`         | Ctrl+Enter / Meta+Enter                                | `!editorFocused` / `!terminalFocused` | Commit 欄で両方が動く                                                           |
-| `filesRename`       | F2                                                     | `!editorFocused` / `!terminalFocused` | Files で両方が動く                                                              |
-| `commandPalette`    | Ctrl+P / Ctrl+Shift+P                                  | どこでも                              | 将来の版で重なる（§18.4 で空けてある席）                                        |
-| `imeToggle`         | Ctrl+バッククォート / Alt+バッククォート               | どこでも                              | 日本語配列の半角/全角の位置で、IME の切り替えとぶつかる                         |
-| `windowClose`       | Alt+F4                                                 | どこでも                              | ウィンドウが閉じる                                                              |
+| 理由                | 打鍵                                                       | 使われている場所（when）              | 重なるとどうなるか                                                                                       |
+| ------------------- | ---------------------------------------------------------- | ------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `textEditing`       | Ctrl+C / X / V / Z / Y / Shift+Z / A                       | どこでも                              | 入力欄でその操作ができなくなる（Provider が実行した打鍵の既定を止める）                                  |
+| `editorFind`        | Ctrl+F / H                                                 | `editorFocused`                       | エディターの中では割り当てが効かない                                                                     |
+| `terminalFontSize`  | Ctrl++ / = / Shift+= / - / Shift+- / 0 / Shift+; / Shift+_ | `terminalFocused`                     | 端末の中で両方が動く（`terminalDisplay.ts` は `preventDefault` だけで伝播する）                          |
+| `terminalClipboard` | Ctrl+Insert / Ctrl+Shift+V                                 | `terminalFocused`                     | 端末の中で重なる                                                                                         |
+| `gitCommit`         | Ctrl+Enter / Meta+Enter                                    | `!editorFocused` / `!terminalFocused` | Commit 欄で両方が動く                                                                                    |
+| `terminalSubmit`    | Ctrl+Enter                                                 | `terminalFocused`                     | 端末の中では割り当てが効かない（通常のタブは xterm が、AI CLI モードのタブは送信として取る。統合で追加） |
+| `filesRename`       | F2                                                         | `!editorFocused` / `!terminalFocused` | Files で両方が動く                                                                                       |
+| `commandPalette`    | Ctrl+P / Ctrl+Shift+P                                      | どこでも                              | 将来の版で重なる（§18.4 で空けてある席）                                                                 |
+| `imeToggle`         | Ctrl+バッククォート / Alt+バッククォート                   | どこでも                              | 日本語配列の半角/全角の位置で、IME の切り替えとぶつかる                                                  |
+| `windowClose`       | Alt+F4                                                     | どこでも                              | ウィンドウが閉じる                                                                                       |
 
 - 端末の文字の大きさは `event.key` で見ているので（§18.4）、US 配列と日本語配列の両方で `+` / `=` / `-` / `_` / `0` になる物理キーを並べてある
 - **予約の側にも `when` を持たせ、割り当てる command の条件と重なるときだけ警告する。** `editor.renameSymbol` の F2 は `editorFocused` なので Files の F2 と重ならない ── **既定の割り当てはどれも自分で警告を出さない**（`reservedKeys.test.ts`）
@@ -7294,6 +7342,15 @@ effective … 全体を畳んだもの（KeybindingProvider が打鍵に使う�
 - Monaco の打鍵をすべて並べることはしない。一覧の下の「エディターの中ではエディター自身の打鍵が優先」の注記で足りる
 
 「両方が動く」は S5 ではコードの伝播から判定したもので、**Shortcuts S6 で production build に実測した**（Git の Commit 欄の Ctrl+Enter・Files の F2・端末の Ctrl+-。DEVELOPMENT.md §4）。
+
+#### 組み込みの表とは別に持ち、食い違わないことをテストで保つ（S1〜S6 統合）
+
+組み込みの表（§18.6）は「一覧に何を見せるか」（表示名・群・効く場所）、予約キーは「割り当てたら何と重なるか」（理由・条件）を持つ。持つものが違い、片方から片方を作ると表の形ごと変える大きな作り直しになるので、**1つの出典にはまとめていない。** 代わりに `keybindings/builtinReservedKeys.test.ts` が2方向を確かめる。
+
+- **組み込み → 予約キー：** 一覧に組み込みとして見せている打鍵のうち割り当てられるものは、その打鍵が効く場所（編集はどこでも・検索はエディター・ターミナルは端末）で**必ず警告が出る**。割り当てられない打鍵（Enter / Shift+Enter / Shift+Insert）は予約キーに載せない
+- **予約キー → 組み込み：** 組み込みの操作に由来する予約（`textEditing` / `editorFind` / `terminalClipboard` / `terminalSubmit`）の打鍵は、組み込みの一覧にも並ぶ。`terminalFontSize` は一覧が代表の表記だけを見せるので、一覧の打鍵がすべて予約に含まれることだけを見る
+
+統合のときにこのテストが2つの抜けを見つけ、予約キーの側を補った：一覧が見せている `Ctrl++`（記録では作られないが `keybindings.json` に手で書ける）と、端末の Ctrl+Enter（`terminalSubmit`）。
 
 #### 読めない項目
 
@@ -7306,7 +7363,7 @@ effective … 全体を畳んだもの（KeybindingProvider が打鍵に使う�
 
 位置（何件目か）は出さない。Main が形で落とした行を数えていないので、ファイルの位置と食い違う。
 
-### 18.12 Shortcuts S3〜S5 が動かした境界と、残っているもの（S6 時点）
+### 18.12 Shortcuts S1〜S6 が動かした境界と、残っているもの（統合時点）
 
 #### 境界
 
@@ -7321,22 +7378,23 @@ effective … 全体を畳んだもの（KeybindingProvider が打鍵に使う�
 | CSP                        | **1文字も変えていない**                                                                                         |
 | 既存の Esc（17箇所）       | 触っていない（記録欄は capture で先に受けるだけ。§18.10）                                                       |
 | Terminal の `Ctrl + ± / 0` | 触っていない（予約キーとして警告するだけ。§18.11）                                                              |
-| S4 / S5                    | Renderer だけ。Main / preload / shared / IPC は変えていない                                                     |
+| S1 / S2 / S4 / S5          | Renderer だけ。Main / preload / shared / IPC は変えていない                                                     |
 
-Shortcuts S6 で、これらを production build に実測した（DEVELOPMENT.md §4）。
+Shortcuts S6 で、これらを production build に実測し、S1〜S6 の統合後にもう一度実測した（DEVELOPMENT.md §4）。
 
 #### 残っているもの
 
-| 項目                                    | 現状                                                                                                                                                 |
-| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 取られた側の「デフォルトへ戻す」        | 同じ条件で打鍵を取られた command（例：「設定を開く」）は変更済みではないので出ない。取った側を戻すか、取られた側の打鍵を変更する（「変更」は使える） |
-| 形の合わない項目                        | 画面から何か1つ保存すると消える（画面で断っている。§18.11）                                                                                          |
-| 条件（`when`）の編集                    | 入れていない。既定から引き継ぐだけで、手で書いた `when` は読めない項目になる（§18.9）                                                                |
-| Workspace の割り当て                    | 入れていない（`KeybindingSource` の `'workspace'` は使われていない）                                                                                 |
-| Monaco の打鍵の変更                     | 入れていない。window 側の割り当てはエディターの中ではエディター自身の打鍵に負ける。変えるには Monaco の `addKeybindingRules` が要る                  |
-| Command Palette / 和音 / Mac の `cmd`   | §18.8 のまま                                                                                                                                         |
-| S1（Terminal の AI CLI モード）との統合 | 別ブランチ。統合時、AI CLI モードの Enter / Shift+Enter / Ctrl+Enter / Ctrl+V をこの章と予約キー（または S2 の組み込み一覧）に足す                   |
-| S2（組み込みの打鍵の行）との統合        | 別ブランチ。統合時、組み込みの行には編集ボタンを出さない。予約キーの表と組み込み一覧の打鍵を1つの出典に寄せるかを決める                              |
+| 項目                                  | 現状                                                                                                                                                 |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 取られた側の「デフォルトへ戻す」      | 同じ条件で打鍵を取られた command（例：「設定を開く」）は変更済みではないので出ない。取った側を戻すか、取られた側の打鍵を変更する（「変更」は使える） |
+| 形の合わない項目                      | 画面から何か1つ保存すると消える（画面で断っている。§18.11）                                                                                          |
+| 条件（`when`）の編集                  | 入れていない。既定から引き継ぐだけで、手で書いた `when` は読めない項目になる（§18.9）                                                                |
+| Workspace の割り当て                  | 入れていない（`KeybindingSource` の `'workspace'` は使われていない）                                                                                 |
+| Monaco の打鍵の変更                   | 入れていない。window 側の割り当てはエディターの中ではエディター自身の打鍵に負ける。変えるには Monaco の `addKeybindingRules` が要る                  |
+| Command Palette / 和音 / Mac の `cmd` | §18.8 のまま                                                                                                                                         |
+| 組み込みと予約キーの1つの出典         | まとめていない。食い違わないことをテストで保つ（§18.11）                                                                                             |
+| AI CLI モードの保存・自動判定         | タブごとに手動で切り替え、保存しない。シェルの種類からは決めない（§13.6.2）                                                                          |
+| AI CLI モードで未確認のもの           | 日本語 IME の変換中の Enter は純粋関数のテストだけ。Codex CLI 上では確かめていない（Claude Code では確認済み）                                       |
 
 ## 19. Language Server（LSP）
 

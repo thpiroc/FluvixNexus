@@ -1451,12 +1451,13 @@ Session 4-7A の表には Workspace / Editor / View / Settings の11件しか無
 | メニューバーへの打鍵の表示       | 未着手                                                                          |
 | Theme 切り替えの打鍵             | 割り当てていない。Dark / Light の2つしか無く、Settings の Appearance から変える |
 
-上の表は Session 4-7 時点の記録。**v1.0.0 の後、キーボードショートカット改善（Shortcuts S3〜S5）で「打鍵の編集」「User の割り当て」「`keybindings.json` の永続化」「競合の表示」を実装した。** S6 時点では作業ブランチに S3 → S4 → S5 → S6 と積んであり、main へは未 Merge。Terminal の AI CLI モード（S1）と組み込みの打鍵の一覧（S2）は main から別に分岐したブランチにあり、この積み上げにも以下の方針の記述にも含まれていない。 決めた方針は次のとおりで、実装は [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §18.9〜§18.12、production build での確認は [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) §4（Shortcuts S3〜S6）。
+上の表は Session 4-7 時点の記録。**v1.0.0 の後、キーボードショートカット改善（Shortcuts S1〜S6）で「Terminal の AI CLI モード」「組み込みの打鍵の一覧」「打鍵の編集」「User の割り当て」「`keybindings.json` の永続化」「競合の表示」を実装し、`feat/shortcuts-integration` で1本にまとめた**（main へは未 Merge）。決めた方針は次のとおりで、実装は [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §13.6.2・§18.6・§18.9〜§18.12、production build での確認は [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) §4（Shortcuts S1〜S6 と統合）。
 
 - 保存先は userData の `keybindings.json`（VS Code と同じ素の配列）。`settings.json` の section には入れない（配列を持てない）。Workspace には書かない
 - 打鍵の条件（`when`）は利用者に書かせず、その操作の既定の条件を引き継ぐ
 - 割り当てられるのは Ctrl / Alt / Meta を含む打鍵か F1〜F24 だけ。競合と予約キー（入力欄の編集・Git の Commit 欄の Ctrl+Enter・Files の F2 など）は**警告するが止めない**
-- Monaco の基本の打鍵（Ctrl+C / V / X / Z / Y / A / F / H）は変更しない。エディターの中ではエディター自身の打鍵が優先される
+- Monaco の基本の打鍵（Ctrl+C / V / X / Z / Y / A / F / H）は変更しない。「組み込み（変更不可）」として一覧に並べるだけで、エディターの中ではエディター自身の打鍵が優先される
+- Terminal は **AI CLI モードのタブだけ** Enter / Shift+Enter → 改行、Ctrl+Enter → 送信、Ctrl+V → 貼り付け。タブごとに手動で切り替え（既定 OFF・保存しない）。通常のタブは従来どおり Enter でコマンドを実行する
 - Workspace の割り当て・Command Palette・和音は、今も入れていない
 
 ### Session 4-8A（完了）— production app での統合確認
