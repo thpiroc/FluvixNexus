@@ -18,6 +18,7 @@ import { isMacOS } from '../platform'
 import { applySessionSecurityPolicy, applyWebContentsSecurityPolicy } from '../security'
 import { flushDebugBreakpointsDocument } from '../store/debugBreakpoints'
 import { flushDebugProfilesDocument } from '../store/debugProfiles'
+import { flushKeybindingsDocument } from '../store/keybindings'
 import { flushSettingsDocument } from '../store/settings'
 import { flushWorkspaceFolderDocument } from '../store/workspaceFolder'
 import { flushWorkspaceLayoutDocument } from '../store/workspaceLayout'
@@ -207,6 +208,8 @@ export function bootstrapApp(): void {
     flushWorkspaceLayoutDocument()
     flushWorkspaceFolderDocument()
     flushSettingsDocument()
+    // 割り当てを変えた直後に終了しても残るようにする（Shortcuts S3）。
+    flushKeybindingsDocument()
     // 印を付けた直後に終了しても、次回起動で戻ってくるようにする（Session 6-3）。
     flushDebugBreakpointsDocument()
     // Debug Profile を作った直後に終了しても残るようにする（Session 6-10）。

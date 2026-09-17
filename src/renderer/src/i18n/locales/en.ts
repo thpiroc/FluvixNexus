@@ -1001,7 +1001,7 @@ export const enMessages = {
       },
       keyboard: {
         title: 'Keyboard Shortcuts',
-        description: 'Keys assigned to app commands. This version is view-only.'
+        description: 'Keys assigned to app commands. Changes are saved and take effect immediately.'
       }
     },
     items: {
@@ -1125,7 +1125,90 @@ export const enMessages = {
       searchPlaceholder: 'Search by command or key',
       searchClear: 'Clear',
       noResults: 'No command matches “{query}”.',
-      viewOnlyNote: 'Shortcuts cannot be changed in this version.',
+      editNote:
+        'Changed shortcuts are saved to keybindings.json. Inside the editor, the editor’s own shortcuts (such as Ctrl+F) take precedence.',
+      modified: 'Modified',
+      actions: {
+        change: 'Change',
+        assign: 'Assign',
+        remove: 'Remove',
+        reset: 'Reset to Default',
+        resetAll: 'Reset All to Default',
+        resetAllConfirm: 'Reset',
+        confirm: 'Confirm',
+        cancel: 'Cancel'
+      },
+      actionLabels: {
+        change: 'Change shortcut {key} of “{command}”',
+        assign: 'Assign a shortcut to “{command}”',
+        remove: 'Remove shortcut {key} from “{command}”',
+        reset: 'Reset shortcuts of “{command}” to default'
+      },
+      recorder: {
+        label: 'Shortcut recorder',
+        prompt: 'Press the keys to assign',
+        hint: 'Enter to confirm, Esc to cancel',
+        notAssignable: 'Combine with Ctrl or Alt, or use F1–F24'
+      },
+      /*
+        Shortcuts S5.
+
+        `conflict.*` は一覧の行（今の状態）、`preview.*` は記録中（確定したら）の文言。
+        `{commands}` には相手の名前を `commandSeparator` でつないで入れる
+        （ja は「A」「B」、en は “A”, “B”）。
+      */
+      warnings: {
+        label: 'Notes on shortcut {key} of “{command}”',
+        commandSeparator: '”, “',
+        conflict: {
+          overridden:
+            '“{winner}” uses the same shortcut in the same situations, so this shortcut does nothing here.',
+          wins: 'Also assigned to “{commands}”. Where both apply, this command runs.',
+          loses: 'Also assigned to “{commands}”. Where both apply, “{winner}” runs.'
+        },
+        preview: {
+          overridden:
+            '“{winner}” uses the same shortcut in the same situations, so this shortcut would do nothing here.',
+          wins: 'Also assigned to “{commands}”. If you confirm, this command runs where both apply.',
+          loses:
+            'Also assigned to “{commands}”. Even if you confirm, “{winner}” runs where both apply.'
+        },
+        reserved: {
+          textEditing:
+            'Used for text editing (copy, paste, undo, etc.). Those actions will stop working in input fields.',
+          editorFind:
+            'Used for Find and Replace in the editor. Inside the editor, this shortcut has no effect.',
+          terminalFontSize:
+            'Used to change the terminal font size. Pressing it in the terminal does both.',
+          terminalClipboard:
+            'Used for copy and paste in the terminal. Inside the terminal, it overlaps with those actions.',
+          gitCommit:
+            'Used to commit from the Git commit message box. Pressing it there does both the commit and this command.',
+          filesRename:
+            'Used to rename in the Files panel. Pressing it there does both the rename and this command.',
+          commandPalette:
+            'Reserved for the Command Palette. It will overlap with the Command Palette in a future version.',
+          imeToggle:
+            'On Japanese keyboards this is the Hankaku/Zenkaku key and may interfere with switching the IME.',
+          windowClose: 'Windows uses this shortcut to close the window.'
+        }
+      },
+      invalid: {
+        title: 'keybindings.json has entries that could not be read and are ignored ({count}).',
+        note: 'These entries are kept when you change shortcuts here (Reset All to Default removes them).',
+        skipped:
+          'keybindings.json has entries in an invalid format that are ignored ({count}). Changing a shortcut here removes them from the file.',
+        problems: {
+          unknownCommand: 'Not a command in this version',
+          invalidKey: 'The key could not be read',
+          whenNotSupported: 'Conditions (when) are not supported'
+        }
+      },
+      resetAllConfirm: 'Discard all changed shortcuts and reset to default?',
+      saveFailed: 'Could not save the shortcut. The change was not applied.',
+      loadFailed: 'Keyboard shortcuts could not be loaded, so they cannot be changed here.',
+      unreadableNote:
+        'keybindings.json could not be read, so default shortcuts are in use. Saving a change here keeps the original file under a different name.',
       terminalNote:
         'Terminal font size (Ctrl and Plus / Minus / 0) is handled by the Terminal panel and is not listed here.',
       columns: {

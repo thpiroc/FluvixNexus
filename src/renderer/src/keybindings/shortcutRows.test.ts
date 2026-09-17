@@ -3,6 +3,7 @@ import { createTranslator } from '../i18n/messages'
 import { listCommands } from '../commands/registry'
 import { commandTitle } from '../commands/types'
 import { DEFAULT_KEYBINDINGS } from './defaults'
+import { intendedKeybindings } from './keyWarnings'
 import { resolveKeybindings, type KeybindingRule } from './resolve'
 import { buildShortcutRows, filterShortcutRows } from './shortcutRows'
 
@@ -60,12 +61,24 @@ describe('buildShortcutRows', () => {
     expect(save.map((row) => row.keybinding)).toEqual(['Ctrl+S', 'F2'])
   })
 
-  it('Default から変えられた行が分かる（Reset の活性）', () => {
-    const result = rows([{ commandId: 'editor.save', key: 'f2', source: 'user' }])
+  it('Default から変えられた command の行が分かる（Reset の活性。Shortcuts S4）', () => {
+    const result = buildShortcutRows(
+      listCommands(),
+      resolveKeybindings([{ commandId: 'editor.save', key: 'f2', source: 'user' }]).entries,
+      title,
+      new Set(['editor.save', 'git.push'])
+    )
     const save = result.find((row) => row.commandId === 'editor.save')
+    const push = result.find((row) => row.commandId === 'git.push')
+    const open = result.find((row) => row.commandId === 'settings.open')
 
     expect(save?.source).toBe('user')
+    expect(save?.key).toBe('f2')
     expect(save?.isModified).toBe(true)
+    /* 解除されて未割り当てになった command も「変更済み」になる。 */
+    expect(push?.keybinding).toBeNull()
+    expect(push?.isModified).toBe(true)
+    expect(open?.isModified).toBe(false)
   })
 
   it('競合している相手を出す', () => {
@@ -84,7 +97,54 @@ describe('buildShortcutRows', () => {
   it('Session 4-7A の既定は競合を1つも出さない', () => {
     for (const row of rows()) {
       expect(row.conflictsWith, row.commandId).toEqual([])
+      expect(row.conflict, row.commandId).toBeNull()
+      expect(row.reserved, row.commandId).toEqual([])
     }
+  })
+
+  /* Shortcuts S5。 */
+  it('intended を渡すと、同じ条件で取られた割り当ても行になり「一度も動かない」が付く', () => {
+    const rules: KeybindingRule[] = [
+      ...DEFAULT_KEYBINDINGS,
+      {
+        commandId: 'workspace.openFolder',
+        key: 'ctrl+,',
+        when: ['!terminalFocused'],
+        source: 'user'
+      }
+    ]
+    const withoutIntended = rows(rules)
+    const withIntended = buildShortcutRows(
+      listCommands(),
+      resolveKeybindings(rules).entries,
+      title,
+      new Set(),
+      intendedKeybindings(rules)
+    )
+
+    /* S4 までの見え方：取られた側は未割り当てに見える。 */
+    expect(withoutIntended.find((row) => row.commandId === 'settings.open')?.keybinding).toBeNull()
+
+    const settings = withIntended.find((row) => row.commandId === 'settings.open')
+    const open = withIntended.filter((row) => row.commandId === 'workspace.openFolder')
+
+    expect(settings?.key).toBe('ctrl+,')
+    expect(settings?.conflict).toEqual({
+      commandIds: ['workspace.openFolder'],
+      winner: 'workspace.openFolder',
+      overridden: true
+    })
+    expect(settings?.conflictsWith).toEqual(['workspace.openFolder'])
+    expect(open.find((row) => row.key === 'ctrl+,')?.conflict?.overridden).toBe(false)
+  })
+
+  it('予約キーに重なる行に理由が付く', () => {
+    const result = rows([
+      ...DEFAULT_KEYBINDINGS,
+      { commandId: 'git.push', key: 'ctrl+enter', source: 'user' }
+    ])
+
+    expect(result.find((row) => row.commandId === 'git.push')?.reserved).toEqual(['gitCommit'])
   })
 
   it('検索に要る文字列が揃っている（Command / Keybinding）', () => {

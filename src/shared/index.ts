@@ -6,6 +6,7 @@ export type {
   FluvixApi,
   GitApi,
   GitHubApi,
+  KeybindingsApi,
   LspApi,
   PlatformId,
   RuntimeVersions,

@@ -26,7 +26,9 @@ import { SettingsOverlay } from './SettingsOverlay'
  *   - 割り当てのある18件と、未割り当ての見え方
  *   - 絞り込み
  *   - ja / en の切り替えがその場で効くこと
- *   - **押しても command が走らないこと**（閲覧専用）
+ *   - **押しても command が走らないこと**
+ *   - 編集（Shortcuts S4）：記録・変更・解除・割り当て・デフォルトへ戻す（1行／全体）・
+ *     変更済みの印、記録中の打鍵がアプリへ渡らないこと、保存・読み込みの失敗
  */
 
 const settingsStore = vi.hoisted(() => ({
@@ -34,12 +36,19 @@ const settingsStore = vi.hoisted(() => ({
   saveSection: vi.fn()
 }))
 
+const keybindingsApi = vi.hoisted(() => ({
+  load: vi.fn(),
+  save: vi.fn()
+}))
+
 vi.mock('../api/fluvix', () => ({
   fluvix: {
     settings: {
       load: settingsStore.load,
       saveSection: settingsStore.saveSection
-    }
+    },
+    // 既定ではユーザーの割り当てを返さない（既定だけの一覧を見る。Shortcuts S3）。
+    keybindings: keybindingsApi
   }
 }))
 
@@ -52,6 +61,11 @@ beforeEach(() => {
   ).IS_REACT_ACT_ENVIRONMENT = true
   settingsStore.load.mockResolvedValue({ ok: true, data: { sections: emptySettingsSections() } })
   settingsStore.saveSection.mockResolvedValue({ ok: true, data: undefined })
+  keybindingsApi.load.mockResolvedValue({
+    ok: true,
+    data: { status: 'missing', entries: [], skippedCount: 0 }
+  })
+  keybindingsApi.save.mockResolvedValue({ ok: true, data: undefined })
   container = document.createElement('div')
   document.body.append(container)
   root = createRoot(container)
@@ -93,7 +107,13 @@ function mockEditor(): EditorController {
  * `executed` を渡すと、その command に handler が付いた状態になる ──
  * **一覧の行を押しても走らない**ことを確かめるために使う。
  */
-function Harness({ executed }: { readonly executed?: () => void }): ReactElement {
+function Harness({
+  executed,
+  onClose
+}: {
+  readonly executed?: () => void
+  readonly onClose?: () => void
+}): ReactElement {
   const [, force] = useState(0)
 
   return createElement(
@@ -112,7 +132,12 @@ function Harness({ executed }: { readonly executed?: () => void }): ReactElement
             KeybindingProvider,
             null,
             executed === undefined ? null : createElement(Owner, { handler: executed }),
-            createElement(SettingsOverlay, { onClose: () => force((n) => n + 1) })
+            createElement(SettingsOverlay, {
+              onClose: () => {
+                onClose?.()
+                force((n) => n + 1)
+              }
+            })
           )
         )
       )
@@ -122,13 +147,14 @@ function Harness({ executed }: { readonly executed?: () => void }): ReactElement
 
 function Owner({ handler }: { readonly handler: () => void }): null {
   useCommand('git.push', handler)
+  useCommand('workspace.openFolder', handler)
 
   return null
 }
 
-async function render(executed?: () => void): Promise<void> {
+async function render(executed?: () => void, onClose?: () => void): Promise<void> {
   await act(async () => {
-    root.render(createElement(Harness, { executed }))
+    root.render(createElement(Harness, { executed, onClose }))
   })
 }
 
@@ -313,11 +339,17 @@ describe('並ぶもの', () => {
     expect(container.textContent).not.toContain('既定')
   })
 
-  it('When も競合も Reset も出さない', async () => {
+  it('When は出さず、変更していなければ「変更済み」も「デフォルトへ戻す」も出ない', async () => {
     await openKeyboard()
 
     expect(container.textContent).not.toContain('terminalFocused')
-    expect(byTestId('settings-keyboard').querySelectorAll('button')).toHaveLength(0)
+    expect(container.textContent).not.toContain('変更済み')
+    expect(
+      container.querySelector(
+        '[data-testid^="settings-keyboard-reset-"]:not([data-testid="settings-keyboard-reset-all"])'
+      )
+    ).toBeNull()
+    expect(byTestId<HTMLButtonElement>('settings-keyboard-reset-all').disabled).toBe(true)
   })
 })
 
@@ -419,9 +451,9 @@ describe('ja / en の切り替え', () => {
   })
 })
 
-describe('閲覧専用', () => {
+describe('一覧から command は実行しない', () => {
   /*
-    一覧から command を実行する経路を持たない（Session 4-7C の前提）。
+    一覧から command を実行する経路を持たない（Session 4-7C の前提。S4 でも同じ）。
     行を押しても、その command の handler は呼ばれない。
   */
   it('行を押しても command が走らない', async () => {
@@ -439,20 +471,608 @@ describe('閲覧専用', () => {
     expect(push).not.toHaveBeenCalled()
   })
 
-  it('行が押せる要素になっていない', async () => {
+  it('行そのものは押せる要素ではなく、ボタンは編集の操作だけ', async () => {
     await openKeyboard()
 
     const row = byTestId('settings-keyboard-row-git.push')
 
     expect(row.tagName).toBe('DIV')
     expect(row.getAttribute('role')).toBe('listitem')
-    expect(row.querySelector('button')).toBeNull()
     expect(row.querySelector('a')).toBeNull()
+    expect([...row.querySelectorAll('button')].map((button) => button.dataset.testid)).toEqual([
+      'settings-keyboard-assign-git.push'
+    ])
   })
 
-  it('閲覧専用であることを画面が断っている', async () => {
+  it('編集のボタンを押しても command は走らない', async () => {
+    const executed = vi.fn()
+
+    await render(executed)
+    await click('settings-category-keyboard')
+    await click('settings-keyboard-assign-git.push')
+    await click('settings-keyboard-recorder-cancel')
+    await click('settings-keyboard-change-workspace.openFolder-ctrl+o')
+    await click('settings-keyboard-recorder-cancel')
+
+    expect(executed).not.toHaveBeenCalled()
+  })
+
+  it('保存先とエディターの中での優先を画面が断っている', async () => {
     await openKeyboard()
 
-    expect(byTestId('settings-keyboard').textContent).toContain('この版では打鍵を変更できません')
+    expect(byTestId('settings-keyboard').textContent).toContain('keybindings.json に保存されます')
+    expect(byTestId('settings-keyboard').textContent).not.toContain(
+      'この版では打鍵を変更できません'
+    )
+  })
+})
+
+/* ------------------------------------------------------------ 編集（S4） */
+
+interface KeyInit {
+  readonly key: string
+  readonly code: string
+  readonly ctrlKey?: boolean
+  readonly shiftKey?: boolean
+  readonly altKey?: boolean
+  readonly isComposing?: boolean
+}
+
+/** focus のある要素（無ければ body）から keydown / keyup を送る。 */
+async function press(init: KeyInit): Promise<KeyboardEvent> {
+  const target = document.activeElement ?? document.body
+  const down = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init })
+
+  await act(async () => {
+    target.dispatchEvent(down)
+    target.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, cancelable: true, ...init }))
+  })
+
+  return down
+}
+
+const ENTER: KeyInit = { key: 'Enter', code: 'Enter' }
+const ESCAPE: KeyInit = { key: 'Escape', code: 'Escape' }
+const CTRL_ALT_K: KeyInit = { key: 'k', code: 'KeyK', ctrlKey: true, altKey: true }
+const CTRL_O: KeyInit = { key: 'o', code: 'KeyO', ctrlKey: true }
+
+function loadEntries(entries: readonly unknown[], status = 'loaded', skippedCount = 0): void {
+  keybindingsApi.load.mockResolvedValue({ ok: true, data: { status, entries, skippedCount } })
+}
+
+function savedEntries(): unknown {
+  expect(keybindingsApi.save).toHaveBeenCalledTimes(1)
+
+  return keybindingsApi.save.mock.calls[0][0].entries
+}
+
+function recorderBox(): HTMLElement {
+  return byTestId('settings-keyboard-recorder-box')
+}
+
+describe('打鍵を変更する', () => {
+  it('変更 → キーを押す → Enter で保存され、一覧がその場で変わる', async () => {
+    await openKeyboard()
+    await click('settings-keyboard-change-settings.open-ctrl+,')
+
+    expect(recorderBox().textContent).toBe('割り当てるキーを押してください')
+    expect(document.activeElement).toBe(recorderBox())
+
+    await press(CTRL_ALT_K)
+    expect(recorderBox().textContent).toBe('Ctrl+Alt+K')
+    expect(keybindingsApi.save).not.toHaveBeenCalled()
+
+    await press(ENTER)
+
+    expect(savedEntries()).toEqual([
+      { key: 'ctrl+,', command: '-settings.open' },
+      { key: 'ctrl+alt+k', command: 'settings.open' }
+    ])
+    expect(container.querySelector('[data-testid="settings-keyboard-recorder"]')).toBeNull()
+
+    const row = byTestId('settings-keyboard-row-settings.open')
+    expect(row.textContent).toContain('Ctrl+Alt+K')
+    expect(row.textContent).not.toContain('Ctrl+,')
+    expect(row.dataset.source).toBe('user')
+    expect(row.dataset.modified).toBe('true')
+    expect(byTestId('settings-keyboard-modified-settings.open').textContent).toBe('変更済み')
+    expect(byTestId('settings-keyboard-reset-settings.open')).not.toBeNull()
+  })
+
+  it('「確定」ボタンでも保存できる', async () => {
+    await openKeyboard()
+    await click('settings-keyboard-change-settings.open-ctrl+,')
+    await press({ key: 'F7', code: 'F7' })
+    await click('settings-keyboard-recorder-confirm')
+
+    expect(savedEntries()).toEqual([
+      { key: 'ctrl+,', command: '-settings.open' },
+      { key: 'f7', command: 'settings.open' }
+    ])
+  })
+
+  it('押し直すと最後に押した打鍵になる', async () => {
+    await openKeyboard()
+    await click('settings-keyboard-change-settings.open-ctrl+,')
+    await press({ key: 'F7', code: 'F7' })
+    await press(CTRL_ALT_K)
+    await press(ENTER)
+
+    expect(savedEntries()).toEqual([
+      { key: 'ctrl+,', command: '-settings.open' },
+      { key: 'ctrl+alt+k', command: 'settings.open' }
+    ])
+  })
+
+  it('Esc で取り消すと何も保存されず、Settings も閉じない', async () => {
+    const onClose = vi.fn()
+
+    await render(undefined, onClose)
+    await click('settings-category-keyboard')
+    await click('settings-keyboard-change-settings.open-ctrl+,')
+    await press(CTRL_ALT_K)
+    await press(ESCAPE)
+
+    expect(keybindingsApi.save).not.toHaveBeenCalled()
+    expect(onClose).not.toHaveBeenCalled()
+    expect(container.querySelector('[data-testid="settings-keyboard-recorder"]')).toBeNull()
+    expect(byTestId('settings-keyboard-row-settings.open').textContent).toContain('Ctrl+,')
+
+    /* 記録が終われば、Esc はいつも通り Settings を閉じる。 */
+    await press(ESCAPE)
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  /*
+    記録中の打鍵は、KeybindingProvider にも既存の Esc にも渡らない
+    （KeyboardShortcutsView.tsx の KeyRecorder）。
+  */
+  it('記録中に押した Ctrl+O は command を走らせない', async () => {
+    const executed = vi.fn()
+
+    await render(executed)
+    await click('settings-category-keyboard')
+    await click('settings-keyboard-change-settings.open-ctrl+,')
+
+    const event = await press(CTRL_O)
+
+    expect(executed).not.toHaveBeenCalled()
+    expect(event.defaultPrevented).toBe(true)
+    expect(recorderBox().textContent).toBe('Ctrl+O')
+
+    await click('settings-keyboard-recorder-cancel')
+
+    /* 記録をやめれば、同じ打鍵はいつも通り効く（取り残した購読が無い）。 */
+    ;(document.activeElement as HTMLElement | null)?.blur()
+    await press(CTRL_O)
+    expect(executed).toHaveBeenCalledTimes(1)
+  })
+
+  it('単体の文字キーは割り当てられず、理由が出て Enter でも保存されない', async () => {
+    await openKeyboard()
+    await click('settings-keyboard-change-settings.open-ctrl+,')
+    await press({ key: 'a', code: 'KeyA' })
+
+    expect(recorderBox().textContent).toBe('A')
+    expect(byTestId('settings-keyboard-recorder-hint').textContent).toContain(
+      'Ctrl / Alt と組み合わせるか'
+    )
+    expect(byTestId<HTMLButtonElement>('settings-keyboard-recorder-confirm').disabled).toBe(true)
+
+    await press(ENTER)
+
+    expect(keybindingsApi.save).not.toHaveBeenCalled()
+    expect(byTestId('settings-keyboard-recorder')).not.toBeNull()
+  })
+
+  it('修飾キーだけ・IME 変換中の打鍵は記録しない', async () => {
+    await openKeyboard()
+    await click('settings-keyboard-change-settings.open-ctrl+,')
+    await press({ key: 'Control', code: 'ControlLeft', ctrlKey: true })
+    await press({ key: 'Enter', code: 'Enter', isComposing: true })
+
+    expect(recorderBox().textContent).toBe('割り当てるキーを押してください')
+    expect(byTestId('settings-keyboard-recorder')).not.toBeNull()
+  })
+
+  it('記録中は他の行の操作と「すべてデフォルトへ戻す」を押せない', async () => {
+    loadEntries([{ key: 'ctrl+alt+p', command: 'git.push' }])
+    await openKeyboard()
+    await click('settings-keyboard-change-settings.open-ctrl+,')
+
+    expect(
+      byTestId<HTMLButtonElement>('settings-keyboard-change-editor.save-ctrl+s').disabled
+    ).toBe(true)
+    expect(byTestId<HTMLButtonElement>('settings-keyboard-reset-all').disabled).toBe(true)
+  })
+
+  it('未割り当ての command に割り当てられる', async () => {
+    await openKeyboard()
+    await click('settings-keyboard-assign-git.push')
+    await press({ key: 'p', code: 'KeyP', ctrlKey: true, altKey: true })
+    await press(ENTER)
+
+    expect(savedEntries()).toEqual([{ key: 'ctrl+alt+p', command: 'git.push' }])
+
+    const row = byTestId('settings-keyboard-row-git.push')
+    expect(row.textContent).toContain('Ctrl+Alt+P')
+    expect(row.dataset.unassigned).toBe('false')
+    expect(row.dataset.modified).toBe('true')
+  })
+
+  it('保存に失敗したら理由が出て、一覧は変わらない', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    keybindingsApi.save.mockResolvedValue({
+      ok: false,
+      error: { code: 'INTERNAL', message: 'disk full' }
+    })
+
+    await openKeyboard()
+    await click('settings-keyboard-change-settings.open-ctrl+,')
+    await press(CTRL_ALT_K)
+    await press(ENTER)
+
+    expect(byTestId('settings-keyboard-error').textContent).toContain('保存できませんでした')
+    expect(byTestId('settings-keyboard-row-settings.open').textContent).toContain('Ctrl+,')
+    expect(byTestId('settings-keyboard-row-settings.open').dataset.modified).toBe('false')
+    vi.mocked(console.warn).mockRestore()
+  })
+})
+
+describe('打鍵を解除する', () => {
+  it('既定の打鍵を解除すると、未割り当て・変更済みになる', async () => {
+    await openKeyboard()
+    await click('settings-keyboard-remove-editor.save-ctrl+s')
+
+    expect(savedEntries()).toEqual([{ key: 'ctrl+s', command: '-editor.save' }])
+
+    const row = byTestId('settings-keyboard-row-editor.save')
+    expect(row.dataset.unassigned).toBe('true')
+    expect(row.dataset.modified).toBe('true')
+    expect(byTestId('settings-keyboard-reset-editor.save')).not.toBeNull()
+  })
+})
+
+describe('デフォルトへ戻す', () => {
+  it('1行：その command の行だけが消え、他の変更は残る', async () => {
+    loadEntries([
+      { key: 'ctrl+,', command: '-settings.open' },
+      { key: 'f6', command: 'settings.open' },
+      { key: 'ctrl+alt+p', command: 'git.push' }
+    ])
+    await openKeyboard()
+
+    expect(byTestId('settings-keyboard-row-settings.open').textContent).toContain('F6')
+
+    await click('settings-keyboard-reset-settings.open')
+
+    expect(savedEntries()).toEqual([{ key: 'ctrl+alt+p', command: 'git.push' }])
+
+    const row = byTestId('settings-keyboard-row-settings.open')
+    expect(row.textContent).toContain('Ctrl+,')
+    expect(row.dataset.modified).toBe('false')
+    expect(
+      container.querySelector('[data-testid="settings-keyboard-reset-settings.open"]')
+    ).toBeNull()
+    expect(byTestId('settings-keyboard-row-git.push').dataset.modified).toBe('true')
+  })
+
+  it('2つの打鍵を持つ command でも、印とボタンは1つだけ', async () => {
+    loadEntries([{ key: 'f7', command: 'settings.open' }])
+    await openKeyboard()
+
+    const rowsOfCommand = rows().filter((row) => row.dataset.command === 'settings.open')
+
+    expect(rowsOfCommand.map((row) => row.dataset.key)).toEqual(['ctrl+,', 'f7'])
+    expect(
+      container.querySelectorAll('[data-testid="settings-keyboard-modified-settings.open"]')
+    ).toHaveLength(1)
+    expect(
+      container.querySelectorAll('[data-testid="settings-keyboard-reset-settings.open"]')
+    ).toHaveLength(1)
+  })
+
+  it('全体：確かめてから keybindings.json を空にする', async () => {
+    loadEntries([
+      { key: 'ctrl+s', command: '-editor.save' },
+      { key: 'ctrl+alt+p', command: 'git.push' }
+    ])
+    await openKeyboard()
+
+    await click('settings-keyboard-reset-all')
+    expect(byTestId('settings-keyboard-reset-all-prompt').textContent).toContain(
+      'デフォルトへ戻しますか'
+    )
+    expect(keybindingsApi.save).not.toHaveBeenCalled()
+
+    await click('settings-keyboard-reset-all-cancel')
+    expect(container.querySelector('[data-testid="settings-keyboard-reset-all-prompt"]')).toBeNull()
+    expect(keybindingsApi.save).not.toHaveBeenCalled()
+
+    await click('settings-keyboard-reset-all')
+    await click('settings-keyboard-reset-all-confirm')
+
+    expect(savedEntries()).toEqual([])
+    expect(byTestId('settings-keyboard-row-editor.save').textContent).toContain('Ctrl+S')
+    expect(rows().filter((row) => row.dataset.modified === 'true')).toHaveLength(0)
+    expect(byTestId<HTMLButtonElement>('settings-keyboard-reset-all').disabled).toBe(true)
+  })
+})
+
+describe('keybindings.json の状態', () => {
+  it('手で書いた読めない行は、画面から変更しても残る', async () => {
+    loadEntries([
+      { key: 'ctrl+1', command: 'nope.command' },
+      { key: 'ctrl+alt+x', command: 'editor.save', when: 'editorFocused' }
+    ])
+    await openKeyboard()
+    await click('settings-keyboard-remove-editor.save-ctrl+s')
+
+    expect(savedEntries()).toEqual([
+      { key: 'ctrl+1', command: 'nope.command' },
+      { key: 'ctrl+alt+x', command: 'editor.save', when: 'editorFocused' },
+      { key: 'ctrl+s', command: '-editor.save' }
+    ])
+  })
+
+  it('読み込みに失敗していたら、理由が出て変更できない', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    keybindingsApi.load.mockResolvedValue({ ok: false, error: { code: 'INTERNAL', message: 'x' } })
+
+    await openKeyboard()
+
+    expect(byTestId('settings-keyboard-load-failed').textContent).toContain('変更できません')
+    expect(
+      byTestId<HTMLButtonElement>('settings-keyboard-change-editor.save-ctrl+s').disabled
+    ).toBe(true)
+    expect(byTestId<HTMLButtonElement>('settings-keyboard-assign-git.push').disabled).toBe(true)
+    vi.mocked(console.warn).mockRestore()
+  })
+
+  it('読み込み中は変更できない', async () => {
+    keybindingsApi.load.mockReturnValue(new Promise(() => {}))
+
+    await openKeyboard()
+
+    expect(byTestId('settings-keyboard').dataset.status).toBe('loading')
+    expect(
+      byTestId<HTMLButtonElement>('settings-keyboard-remove-editor.save-ctrl+s').disabled
+    ).toBe(true)
+  })
+
+  it('壊れたファイルなら断りを出し、変更はできる（退避は Main）', async () => {
+    loadEntries([], 'unreadable')
+    await openKeyboard()
+
+    expect(byTestId('settings-keyboard-unreadable').textContent).toContain('別名で残されます')
+
+    await click('settings-keyboard-remove-editor.save-ctrl+s')
+    expect(savedEntries()).toEqual([{ key: 'ctrl+s', command: '-editor.save' }])
+  })
+})
+
+/* ------------------------------------------------------------ 警告と読めない項目（S5） */
+
+function warningsOf(commandId: string): readonly string[] {
+  const row = byTestId(`settings-keyboard-row-${commandId}`)
+
+  return [...row.querySelectorAll<HTMLElement>('.fx-shortcuts__warning-item')].map(
+    (item) => item.dataset.warning ?? ''
+  )
+}
+
+describe('競合の警告', () => {
+  it('既定だけなら、どの行にも警告は無い', async () => {
+    await openKeyboard()
+
+    expect(container.querySelector('[data-testid="settings-keyboard-warnings"]')).toBeNull()
+    expect(container.querySelector('.fx-shortcuts__row[data-conflict]')).toBeNull()
+    expect(container.querySelector('.fx-shortcuts__row[data-reserved]')).toBeNull()
+  })
+
+  it('同じ条件で取られた側も行に残り、「動きません」と取った相手が出る', async () => {
+    loadEntries([{ key: 'ctrl+,', command: 'workspace.openFolder' }])
+    await openKeyboard()
+
+    const settings = byTestId('settings-keyboard-row-settings.open')
+    expect(settings.textContent).toContain('Ctrl+,')
+    expect(settings.dataset.unassigned).toBe('false')
+    expect(settings.dataset.conflict).toBe('overridden')
+    expect(settings.textContent).toContain(
+      '「フォルダを開く」が同じ場面で同じ打鍵を使っているため、この打鍵では動きません。'
+    )
+
+    const open = container.querySelector<HTMLElement>(
+      '[data-testid="settings-keyboard-row-workspace.openFolder"][data-key="ctrl+,"]'
+    )
+    expect(open?.dataset.conflict).toBe('overlap')
+    expect(open?.textContent).toContain('「設定を開く」にも同じ打鍵が割り当てられています')
+    expect(open?.textContent).toContain('こちらが動きます')
+  })
+
+  it('条件が違っても重なるなら、勝つ側の名前が入る', async () => {
+    loadEntries([{ key: 'ctrl+s', command: 'settings.open' }])
+    await openKeyboard()
+
+    expect(warningsOf('editor.save')).toEqual(['conflict-loses'])
+    expect(byTestId('settings-keyboard-row-editor.save').textContent).toContain(
+      '両方が効く場面では「設定を開く」が動きます。'
+    )
+  })
+
+  it('取られた側の打鍵も、その行から変更できる', async () => {
+    loadEntries([{ key: 'ctrl+,', command: 'workspace.openFolder' }])
+    await openKeyboard()
+    await click('settings-keyboard-change-settings.open-ctrl+,')
+    await press(CTRL_ALT_K)
+    await press(ENTER)
+
+    expect(savedEntries()).toEqual([
+      { key: 'ctrl+,', command: 'workspace.openFolder' },
+      { key: 'ctrl+,', command: '-settings.open' },
+      { key: 'ctrl+alt+k', command: 'settings.open' }
+    ])
+  })
+})
+
+describe('記録中の警告', () => {
+  it('別の操作の打鍵を押すと、確定したらどうなるかが出る。確定はできる', async () => {
+    await openKeyboard()
+    await click('settings-keyboard-change-workspace.openFolder-ctrl+o')
+    await press({ key: ',', code: 'Comma', ctrlKey: true })
+
+    const preview = byTestId('settings-keyboard-preview')
+    expect(preview.textContent).toContain('「設定を開く」にも割り当てられています。')
+    expect(preview.textContent).toContain('確定すると、両方が効く場面ではこちらが動きます。')
+    expect(byTestId<HTMLButtonElement>('settings-keyboard-recorder-confirm').disabled).toBe(false)
+
+    await press(ENTER)
+
+    expect(savedEntries()).toEqual([
+      { key: 'ctrl+o', command: '-workspace.openFolder' },
+      { key: 'ctrl+,', command: 'workspace.openFolder' }
+    ])
+    /* 確定後は、取られた側の行に今の状態の警告が出る。 */
+    expect(byTestId('settings-keyboard-row-settings.open').dataset.conflict).toBe('overridden')
+  })
+
+  it('予約キーを押すと理由が出る（Git の Ctrl+Enter）', async () => {
+    await openKeyboard()
+    await click('settings-keyboard-assign-git.push')
+    await press({ key: 'Enter', code: 'Enter', ctrlKey: true })
+
+    expect(recorderBox().textContent).toBe('Ctrl+Enter')
+    expect(byTestId('settings-keyboard-preview').textContent).toContain(
+      'Git の Commit メッセージ欄で Commit に使われている打鍵です。'
+    )
+  })
+
+  it('押し直して問題の無い打鍵にすると、警告が消える', async () => {
+    await openKeyboard()
+    await click('settings-keyboard-assign-git.push')
+    await press({ key: 'p', code: 'KeyP', ctrlKey: true })
+    expect(byTestId('settings-keyboard-preview').textContent).toContain('コマンドパレット')
+
+    await press({ key: 'p', code: 'KeyP', ctrlKey: true, altKey: true })
+    expect(container.querySelector('[data-testid="settings-keyboard-preview"]')).toBeNull()
+  })
+
+  it('割り当てられない打鍵では警告を出さない（断りの文言だけ）', async () => {
+    await openKeyboard()
+    await click('settings-keyboard-change-settings.open-ctrl+,')
+    await press({ key: 'a', code: 'KeyA' })
+
+    expect(container.querySelector('[data-testid="settings-keyboard-preview"]')).toBeNull()
+  })
+
+  it('記録中は、その行の今の警告を出さない。取り消すと戻る', async () => {
+    loadEntries([{ key: 'ctrl+,', command: 'workspace.openFolder' }])
+    await openKeyboard()
+    await click('settings-keyboard-change-settings.open-ctrl+,')
+
+    expect(warningsOf('settings.open')).toEqual([])
+
+    await press(ESCAPE)
+
+    expect(warningsOf('settings.open')).toEqual(['conflict-overridden'])
+  })
+})
+
+describe('予約キーの警告（一覧の行）', () => {
+  it('手で書いた予約キーの行に理由が出る', async () => {
+    loadEntries([{ key: 'ctrl+c', command: 'git.push' }])
+    await openKeyboard()
+
+    const row = byTestId('settings-keyboard-row-git.push')
+    expect(row.dataset.reserved).toBe('textEditing')
+    expect(row.textContent).toContain('入力欄でその操作ができなくなります。')
+  })
+})
+
+describe('読めない項目', () => {
+  it('項目ごとに書いてあった中身と理由が出る', async () => {
+    loadEntries([
+      { key: 'ctrl+1', command: 'nope.command' },
+      { key: 'ctrl+nope', command: 'editor.save' },
+      { key: 'ctrl+alt+x', command: 'editor.save', when: 'editorFocused' },
+      { key: 'ctrl+alt+k', command: 'settings.open' }
+    ])
+    await openKeyboard()
+
+    expect(byTestId('settings-keyboard-invalid-title').textContent).toBe(
+      'keybindings.json に読み込めなかった項目が 3 件あり、無視されています。'
+    )
+
+    const items = [
+      ...container.querySelectorAll<HTMLElement>('[data-testid="settings-keyboard-invalid-item"]')
+    ]
+    expect(items.map((item) => item.dataset.problem)).toEqual([
+      'unknownCommand',
+      'invalidKey',
+      'whenNotSupported'
+    ])
+    expect(items[0].textContent).toContain('"command": "nope.command"')
+    expect(items[0].textContent).toContain('この版には無い操作です')
+    expect(items[2].textContent).toContain('"when": "editorFocused"')
+    expect(byTestId('settings-keyboard-invalid').textContent).toContain(
+      '画面から打鍵を変更しても残ります'
+    )
+    expect(container.querySelector('[data-testid="settings-keyboard-skipped"]')).toBeNull()
+  })
+
+  it('形の合わない項目は数と、保存すると消えることを出す', async () => {
+    loadEntries([], 'loaded', 2)
+    await openKeyboard()
+
+    expect(byTestId('settings-keyboard-skipped').textContent).toContain('2 件')
+    expect(byTestId('settings-keyboard-skipped').textContent).toContain('ファイルから消えます')
+    expect(container.querySelector('[data-testid="settings-keyboard-invalid-title"]')).toBeNull()
+  })
+
+  it('読めない項目が無ければ何も出さない', async () => {
+    loadEntries([{ key: 'ctrl+alt+k', command: 'settings.open' }])
+    await openKeyboard()
+
+    expect(container.querySelector('[data-testid="settings-keyboard-invalid"]')).toBeNull()
+  })
+
+  it('「すべてデフォルトへ戻す」の後は消える', async () => {
+    loadEntries([{ key: 'ctrl+1', command: 'nope.command' }])
+    await openKeyboard()
+    await click('settings-keyboard-reset-all')
+    await click('settings-keyboard-reset-all-confirm')
+
+    expect(savedEntries()).toEqual([])
+    expect(container.querySelector('[data-testid="settings-keyboard-invalid"]')).toBeNull()
+  })
+})
+
+describe('警告と読めない項目の英語表示', () => {
+  it('English に切り替えると、警告・読めない項目の文言も英語になる', async () => {
+    loadEntries([
+      { key: 'ctrl+s', command: 'settings.open' },
+      { key: 'ctrl+1', command: 'nope.command' }
+    ])
+    await openKeyboard()
+    await click('settings-category-general')
+    await click('settings-general-language-en')
+    await click('settings-category-keyboard')
+
+    expect(byTestId('settings-keyboard-row-editor.save').textContent).toContain(
+      'Also assigned to “Open Settings”. Where both apply, “Open Settings” runs.'
+    )
+    expect(byTestId('settings-keyboard-invalid-title').textContent).toBe(
+      'keybindings.json has entries that could not be read and are ignored (1).'
+    )
+    expect(byTestId('settings-keyboard-invalid').textContent).toContain(
+      'Not a command in this version'
+    )
+
+    await click('settings-keyboard-assign-git.push')
+    await press({ key: 'Enter', code: 'Enter', ctrlKey: true })
+
+    expect(byTestId('settings-keyboard-preview').textContent).toContain(
+      'Used to commit from the Git commit message box.'
+    )
   })
 })

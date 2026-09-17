@@ -1,7 +1,9 @@
 import type { CommandId } from '../commands/commandIds'
 import type { CommandCategory, CommandDescriptor } from '../commands/types'
 import { formatKeybinding } from './chord'
-import { findKeybindingConflicts, type KeybindingSource, type ResolvedKeybinding } from './resolve'
+import { keyWarnings, type KeyConflict } from './keyWarnings'
+import type { ReservedKeyReason } from './reservedKeys'
+import type { KeybindingSource, ResolvedKeybinding } from './resolve'
 import type { WhenClause } from './when'
 
 /**
@@ -23,10 +25,11 @@ import type { WhenClause } from './when'
  * | Keybinding | `keybinding`（未割り当ては null）                | ○ |
  * | When       | `when`                                           | ✕ |
  * | Source     | `source`                                         | ✕（下記） |
- * | 競合表示   | `conflictsWith`                                  | ✕ |
- * | Reset      | `source !== 'default'`（v1 では常に false）      | ✕ |
+ * | 競合表示   | `conflict`（`conflictsWith` はその相手だけ）      | ○（Shortcuts S5） |
+ * | 予約キー   | `reserved`                                       | ○（Shortcuts S5） |
+ * | 変更済み・Reset | `isModified`（Shortcuts S4）                  | ○ |
  *
- * **`source` / `when` / `conflictsWith` を v1 の画面が出さないのは、
+ * **`source` / `when` を画面が出さないのは、
  * 値が1種類しか無いか、内部の識別子だから**にほかならない ── 既定しか無い今、
  * Source 列は全行に同じ語を並べるだけになり、`when` は `'!terminalFocused'` の
  * ような内部の名前をそのまま見せることになる。この型からは**外していない** ──
@@ -50,12 +53,25 @@ export interface ShortcutRow {
   readonly title: string
   /** `'Ctrl+Shift+S'`。割り当てが無ければ null。 */
   readonly keybinding: string | null
+  /** `'ctrl+shift+s'`（`chordToken` の形。編集で「どの打鍵を変えるか」を指す）。割り当てが無ければ null。 */
+  readonly key: string | null
   readonly when: readonly WhenClause[]
   /** 割り当てが無い行は `'default'` を名乗らない。 */
   readonly source: KeybindingSource | null
   /** 同じ打鍵を、同時に成り立つ条件で持っている他の command。 */
   readonly conflictsWith: readonly CommandId[]
-  /** 既定から変えられているか（`Reset` の活性。v1 では常に false）。 */
+  /** 競合の詳細（どちらが動くか・この割り当てが一度も動かないか）。無ければ null。Shortcuts S5。 */
+  readonly conflict: KeyConflict | null
+  /** この打鍵が重なる予約キーの理由（reservedKeys.ts）。Shortcuts S5。 */
+  readonly reserved: readonly ReservedKeyReason[]
+  /**
+   * その command の打鍵が既定から変えられているか（「変更済み」の印と
+   * 「デフォルトへ戻す」の活性。Shortcuts S4）。
+   *
+   * 行の `source` からは決めない ── 既定の打鍵を解除しただけの command は
+   * 行が「未割り当て」になり `source` を持たないが、変えられてはいる
+   * （editKeybindings.ts の `modifiedCommandIds`）。
+   */
   readonly isModified: boolean
 }
 
@@ -68,21 +84,23 @@ export interface ShortcutRow {
  *
  * 同じ command に複数の割り当てがある場合は、その数だけ行になる
  * （VS Code と同じ。1つの操作に2つの打鍵を置けることを表に出す）。
+ *
+ * ## 行は「意図した割り当て」から作る（Shortcuts S5）
+ *
+ * `intended`（command ごとに自分の rule だけを畳んだもの。keyWarnings.ts）を
+ * 渡すと、同じ条件で別の command に取られて `entries` から消えた割り当ても行になり、
+ * `conflict.overridden` が付く。S4 までは取られた側が「未割り当て」に見えていた。
+ * 省くと `entries` と同じ（取られた割り当ては行にならない）。
  */
 export function buildShortcutRows(
   commands: readonly CommandDescriptor[],
   entries: readonly ResolvedKeybinding[],
-  title: (descriptor: CommandDescriptor) => string
+  title: (descriptor: CommandDescriptor) => string,
+  modifiedCommandIds: ReadonlySet<CommandId> = new Set(),
+  intended: readonly ResolvedKeybinding[] = entries
 ): readonly ShortcutRow[] {
-  const conflicts = findKeybindingConflicts(entries)
-
-  const conflictsFor = (commandId: CommandId, token: string): readonly CommandId[] =>
-    conflicts
-      .filter((conflict) => conflict.token === token && conflict.commandIds.includes(commandId))
-      .flatMap((conflict) => conflict.commandIds.filter((id) => id !== commandId))
-
   return commands.flatMap((descriptor): readonly ShortcutRow[] => {
-    const bound = entries.filter((entry) => entry.commandId === descriptor.id)
+    const bound = intended.filter((entry) => entry.commandId === descriptor.id)
 
     if (bound.length === 0) {
       return [
@@ -91,24 +109,34 @@ export function buildShortcutRows(
           category: descriptor.category,
           title: title(descriptor),
           keybinding: null,
+          key: null,
           when: [],
           source: null,
           conflictsWith: [],
-          isModified: false
+          conflict: null,
+          reserved: [],
+          isModified: modifiedCommandIds.has(descriptor.id)
         }
       ]
     }
 
-    return bound.map((entry) => ({
-      commandId: descriptor.id,
-      category: descriptor.category,
-      title: title(descriptor),
-      keybinding: formatKeybinding(entry.chord),
-      when: entry.when,
-      source: entry.source,
-      conflictsWith: conflictsFor(descriptor.id, entry.token),
-      isModified: entry.source !== 'default'
-    }))
+    return bound.map((entry) => {
+      const warnings = keyWarnings(descriptor.id, entry.token, intended, entries)
+
+      return {
+        commandId: descriptor.id,
+        category: descriptor.category,
+        title: title(descriptor),
+        keybinding: formatKeybinding(entry.chord),
+        key: entry.token,
+        when: entry.when,
+        source: entry.source,
+        conflictsWith: warnings.conflict?.commandIds ?? [],
+        conflict: warnings.conflict,
+        reserved: warnings.reserved,
+        isModified: modifiedCommandIds.has(descriptor.id)
+      }
+    })
   })
 }
 

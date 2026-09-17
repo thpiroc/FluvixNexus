@@ -2,6 +2,7 @@ import type { DebugIpcContract } from './contracts/debug'
 import type { FilesIpcContract } from './contracts/files'
 import type { GitIpcContract } from './contracts/git'
 import type { GitHubIpcContract } from './contracts/github'
+import type { KeybindingsIpcContract } from './contracts/keybindings'
 import type { LspIpcContract } from './contracts/lsp'
 import type { SettingsIpcContract } from './contracts/settings'
 import type { SystemIpcContract } from './contracts/system'
@@ -38,6 +39,7 @@ export interface IpcContract
     WorkspaceFolderIpcContract,
     FilesIpcContract,
     SettingsIpcContract,
+    KeybindingsIpcContract,
     TerminalIpcContract,
     GitIpcContract,
     GitHubIpcContract,

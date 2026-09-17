@@ -246,8 +246,8 @@
  * Keyboard Shortcuts の一覧（settings/KeyboardShortcutsView.tsx。Session 4-7C）。
  *
  * 他のカテゴリが「名前・説明・操作 UI」の3列（.fx-settings__row）なのに対し、
- * こちらは**操作 UI を持たない2列**になる ── 閲覧専用なので、押せるものが
- * 並ぶ場所そのものが要らない。
+ * こちらは「名前」と「打鍵＋編集のボタン」の2列になる（Shortcuts S4 で
+ * ボタンが入り、一覧の幅を 640px から 760px へ広げた）。
  *
  * 色・間隔は styles/theme.css の変数だけを使う（Dark / Light の両方が
  * 同じ変数を持つことは themeCss.test.ts が確かめている）。
@@ -256,7 +256,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--fx-space-3);
-  max-width: 640px;
+  max-width: 760px;
 }
 
 .fx-shortcuts__toolbar {
@@ -325,12 +325,83 @@
  * 「Ctrl+S は何だったか」を上から追いやすいため。
  */
 .fx-shortcuts__row {
-  display: flex;
-  gap: var(--fx-space-3);
-  align-items: baseline;
-  justify-content: space-between;
   padding: var(--fx-space-1) 0;
   border-bottom: 1px solid var(--fx-color-border);
+}
+
+/*
+ * 名前と打鍵の1行（Shortcuts S5 で行の中へ移した）。
+ *
+ * 注意は行の幅いっぱいに、この下へ別の段として出す ── 同じ flex に入れて折り返すと、
+ * 名前が長いときに打鍵の側が次の段へ落ちる。
+ */
+.fx-shortcuts__row-main {
+  display: flex;
+  gap: var(--fx-space-3);
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* 打鍵の注意（競合・予約キー）。Shortcuts S5。 */
+.fx-shortcuts__warnings {
+  margin: var(--fx-space-1) 0 0;
+  padding: 0 0 0 var(--fx-space-2);
+  border-left: 2px solid var(--fx-accent-orange);
+  list-style: none;
+}
+
+.fx-shortcuts__warning-item {
+  color: var(--fx-color-text);
+  font-size: var(--fx-font-size-sm);
+  line-height: 1.5;
+}
+
+.fx-shortcuts__row[data-conflict] .fx-shortcuts__key,
+.fx-shortcuts__row[data-reserved] .fx-shortcuts__key {
+  border-style: dashed;
+}
+
+/* keybindings.json の読めない項目。Shortcuts S5。 */
+.fx-shortcuts__invalid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-1);
+  padding: var(--fx-space-2);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 2px;
+  background: var(--fx-color-surface-sunken);
+}
+
+.fx-shortcuts__invalid .fx-shortcuts__note {
+  margin: 0;
+}
+
+.fx-shortcuts__invalid-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fx-shortcuts__invalid-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--fx-space-2);
+  align-items: baseline;
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-shortcuts__invalid-entry {
+  min-width: 0;
+  color: var(--fx-color-text-strong);
+  font-family: ui-monospace, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+
+.fx-shortcuts__invalid-problem {
+  color: var(--fx-color-text-muted);
 }
 
 .fx-shortcuts__row:last-child {
@@ -395,4 +466,143 @@
 
 .fx-shortcuts__note:last-child {
   margin-bottom: 0;
+}
+
+/*
+ * 編集（Shortcuts S4）。
+ *
+ * 打鍵と操作ボタンを右端でひとまとまりにする。ボタンは常に出しておく
+ * （hover でだけ出すと、変えられること自体に気づけない）が、色は弱めて
+ * 打鍵の列より目立たせない。
+ */
+.fx-shortcuts__binding {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: var(--fx-space-2);
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.fx-shortcuts__actions {
+  display: flex;
+  gap: var(--fx-space-1);
+}
+
+.fx-shortcuts__action {
+  padding: 0 var(--fx-space-1);
+  border: 1px solid transparent;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--fx-color-text-muted);
+  font: inherit;
+  font-size: var(--fx-font-size-sm);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.fx-shortcuts__action:hover:not(:disabled) {
+  border-color: var(--fx-color-border-strong);
+  background: var(--fx-color-surface-hover);
+  color: var(--fx-color-text);
+}
+
+.fx-shortcuts__action--primary {
+  border-color: var(--fx-accent-blue);
+  color: var(--fx-color-text-strong);
+}
+
+.fx-shortcuts__action:disabled,
+.fx-shortcuts__clear:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* 変更済みの印。名前の横に小さく出す。 */
+.fx-shortcuts__badge {
+  margin-left: var(--fx-space-2);
+  padding: 0 var(--fx-space-1);
+  border: 1px solid var(--fx-accent-blue);
+  border-radius: 3px;
+  color: var(--fx-color-text);
+  font-size: var(--fx-font-size-sm);
+  white-space: nowrap;
+}
+
+.fx-shortcuts__row[data-modified='true'] .fx-shortcuts__key {
+  border-color: var(--fx-accent-blue);
+}
+
+/* 記録中。打鍵の欄を入力欄のような枠に置き換える。 */
+.fx-shortcuts__recorder {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fx-space-1);
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.fx-shortcuts__recorder-box {
+  min-width: 180px;
+  padding: 1px var(--fx-space-2);
+  border: 1px solid var(--fx-accent-blue);
+  border-radius: 3px;
+  background: var(--fx-color-surface-sunken);
+  color: var(--fx-color-text-strong);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: var(--fx-font-size-sm);
+  white-space: nowrap;
+}
+
+.fx-shortcuts__recorder-box:focus {
+  outline: none;
+}
+
+.fx-shortcuts__recorder-hint {
+  flex-basis: 100%;
+  color: var(--fx-color-text-muted);
+  font-size: var(--fx-font-size-sm);
+  text-align: right;
+}
+
+.fx-shortcuts__recorder-hint[data-assignable='false'] {
+  color: var(--fx-color-danger);
+}
+
+/* すべてデフォルトへ戻す、の確かめ。 */
+.fx-shortcuts__confirm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fx-space-2);
+  align-items: center;
+  padding: var(--fx-space-2);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 2px;
+  background: var(--fx-color-surface-sunken);
+}
+
+.fx-shortcuts__confirm-text {
+  flex: 1 1 auto;
+  color: var(--fx-color-text);
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-shortcuts__error,
+.fx-shortcuts__warning {
+  margin: 0;
+  font-size: var(--fx-font-size-sm);
+  line-height: 1.5;
+}
+
+.fx-shortcuts__error {
+  color: var(--fx-color-danger);
+}
+
+.fx-shortcuts__warning {
+  color: var(--fx-color-text);
+}
+
+/* 操作ボタンのぶん一覧を広げたので、見出しの線も同じ幅に揃える（他のカテゴリは 640px のまま）。 */
+.fx-settings__content[data-category='keyboard'] .fx-settings__heading {
+  max-width: 760px;
 }

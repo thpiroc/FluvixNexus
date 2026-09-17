@@ -984,7 +984,7 @@ export const jaMessages = {
       },
       keyboard: {
         title: 'キーボードショートカット',
-        description: 'アプリの操作に割り当てられている打鍵の一覧。この版は閲覧のみです。'
+        description: 'アプリの操作に割り当てる打鍵の一覧。変更はその場で保存され、すぐに効きます。'
       }
     },
     items: {
@@ -1103,7 +1103,83 @@ export const jaMessages = {
       searchPlaceholder: '操作名・打鍵で探す',
       searchClear: 'クリア',
       noResults: '「{query}」に当てはまる操作がありません。',
-      viewOnlyNote: 'この版では打鍵を変更できません。',
+      editNote:
+        '変更した打鍵は keybindings.json に保存されます。エディターの中では、エディター自身の打鍵（Ctrl+F など）が優先されます。',
+      modified: '変更済み',
+      actions: {
+        change: '変更',
+        assign: '割り当て',
+        remove: '解除',
+        reset: 'デフォルトへ戻す',
+        resetAll: 'すべてデフォルトへ戻す',
+        resetAllConfirm: '戻す',
+        confirm: '確定',
+        cancel: '取り消し'
+      },
+      actionLabels: {
+        change: '「{command}」の打鍵 {key} を変更',
+        assign: '「{command}」に打鍵を割り当て',
+        remove: '「{command}」から打鍵 {key} を解除',
+        reset: '「{command}」の打鍵をデフォルトへ戻す'
+      },
+      recorder: {
+        label: '打鍵の記録',
+        prompt: '割り当てるキーを押してください',
+        hint: 'Enter で確定・Esc で取り消し',
+        notAssignable: 'Ctrl / Alt と組み合わせるか、F1〜F24 を使ってください'
+      },
+      warnings: {
+        label: '「{command}」の打鍵 {key} についての注意',
+        commandSeparator: '」「',
+        conflict: {
+          overridden: '「{winner}」が同じ場面で同じ打鍵を使っているため、この打鍵では動きません。',
+          wins: '「{commands}」にも同じ打鍵が割り当てられています。両方が効く場面では、こちらが動きます。',
+          loses:
+            '「{commands}」にも同じ打鍵が割り当てられています。両方が効く場面では「{winner}」が動きます。'
+        },
+        preview: {
+          overridden:
+            '「{winner}」が同じ場面で同じ打鍵を使っているため、確定してもこの打鍵では動きません。',
+          wins: '「{commands}」にも割り当てられています。確定すると、両方が効く場面ではこちらが動きます。',
+          loses:
+            '「{commands}」にも割り当てられています。確定しても、両方が効く場面では「{winner}」が動きます。'
+        },
+        reserved: {
+          textEditing:
+            '文字の編集（コピー・貼り付け・元に戻す など）に使われている打鍵です。入力欄でその操作ができなくなります。',
+          editorFind:
+            'エディターの検索・置換に使われている打鍵です。エディターの中では、この割り当ては効きません。',
+          terminalFontSize:
+            'ターミナルの文字の大きさの変更に使われている打鍵です。ターミナルの中で押すと、両方が動きます。',
+          terminalClipboard:
+            'ターミナルのコピー・貼り付けに使われている打鍵です。ターミナルの中では、その操作と重なります。',
+          gitCommit:
+            'Git の Commit メッセージ欄で Commit に使われている打鍵です。そこで押すと、Commit とこの操作の両方が動きます。',
+          filesRename:
+            'Files パネルで名前の変更に使われている打鍵です。そこで押すと、名前の変更とこの操作の両方が動きます。',
+          commandPalette:
+            'コマンドパレット用に空けてある打鍵です。将来の版でコマンドパレットと重なります。',
+          imeToggle:
+            '日本語配列では半角/全角キーの位置にあたり、IME の切り替えとぶつかることがあります。',
+          windowClose: 'Windows がウィンドウを閉じるのに使う打鍵です。'
+        }
+      },
+      invalid: {
+        title: 'keybindings.json に読み込めなかった項目が {count} 件あり、無視されています。',
+        note: 'これらの項目は、画面から打鍵を変更しても残ります（「すべてデフォルトへ戻す」を押すと消えます）。',
+        skipped:
+          'keybindings.json に形式の合わない項目が {count} 件あり、無視されています。画面から打鍵を変更すると、これらはファイルから消えます。',
+        problems: {
+          unknownCommand: 'この版には無い操作です',
+          invalidKey: '打鍵を読み取れません',
+          whenNotSupported: 'when（条件）の指定には対応していません'
+        }
+      },
+      resetAllConfirm: '変更したすべての打鍵を破棄して、デフォルトへ戻しますか？',
+      saveFailed: '打鍵を保存できませんでした。変更は反映されていません。',
+      loadFailed: 'キー割り当てを読み込めなかったため、この画面からは変更できません。',
+      unreadableNote:
+        'keybindings.json を読み込めなかったため、デフォルトの打鍵で動いています。ここで変更を保存すると、元のファイルは別名で残されます。',
       terminalNote:
         'ターミナルの文字の大きさ（Ctrl と ＋ / － / 0）はターミナルパネルが受け持っており、ここには並びません。',
       columns: {

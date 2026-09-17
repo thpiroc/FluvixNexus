@@ -31,6 +31,11 @@ import { useEditorActionCommands } from './useEditorActionCommands'
  * 偽のエディタで同じ経路を通せる（editorActions.ts の冒頭）。
  */
 
+// `keybindings.json` の読み込みは返さない（既定の割り当てだけで動く。Shortcuts S3）。
+vi.mock('../../api/fluvix', () => ({
+  fluvix: { keybindings: { load: () => new Promise(() => {}), save: vi.fn() } }
+}))
+
 let container: HTMLDivElement
 let root: Root
 
