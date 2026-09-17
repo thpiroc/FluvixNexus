@@ -147,6 +147,16 @@ export interface TerminalTabsController {
   readonly sendInput: (terminalId: string, data: string) => void
   /** 終わったセッションを立て直す（画面はそのまま）。 */
   readonly restart: (terminalId: string, size: TerminalSize) => void
+  /** そのタブの AI CLI モードを切り替える（terminalTabsModel.ts の `aiCliMode`）。 */
+  readonly setAiCliMode: (terminalId: string, enabled: boolean) => void
+  /**
+   * そのタブが今 AI CLI モードか。**打鍵が届いた瞬間に読む**ためのもの。
+   *
+   * 画面の打鍵ハンドラは画面を作ったときに1度だけ渡される
+   * （terminalScreenStore.ts の `acquire`）ので、値ではなくこの関数を通して読む。
+   * 同一性は変わらない。
+   */
+  readonly isAiCliMode: (terminalId: string) => boolean
 }
 
 /** 描き替えに関係しない、タブごとの現状（このファイルの冒頭）。 */
@@ -535,6 +545,19 @@ export function useTerminalTabs(workspaceId: string | null): TerminalTabsControl
     setState((current) => activateTabIn(current, terminalId))
   }, [])
 
+  const setAiCliMode = useCallback((terminalId: string, enabled: boolean): void => {
+    setState((current) =>
+      findTab(current, terminalId)?.aiCliMode === enabled
+        ? current
+        : updateTab(current, terminalId, { aiCliMode: enabled })
+    )
+  }, [])
+
+  const isAiCliMode = useCallback(
+    (terminalId: string): boolean => findTab(stateRef.current, terminalId)?.aiCliMode ?? false,
+    []
+  )
+
   /* ------------------------------------------------------------- 実行中かどうか */
 
   /*
@@ -592,6 +615,8 @@ export function useTerminalTabs(workspaceId: string | null): TerminalTabsControl
     ensureStarted,
     resize,
     sendInput,
-    restart
+    restart,
+    setAiCliMode,
+    isAiCliMode
   }
 }

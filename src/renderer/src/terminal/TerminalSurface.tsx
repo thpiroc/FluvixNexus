@@ -1,6 +1,7 @@
 import { useEffect, useRef, type JSX } from 'react'
 import { useTerminal } from './context'
 import { terminalFontSizeCommand } from './terminalDisplay'
+import { aiCliInputAction } from './terminalInputMode'
 import { createTerminalScreen } from './xtermSetup'
 
 /**
@@ -71,7 +72,8 @@ interface TerminalSurfaceProps {
 }
 
 export function TerminalSurface({ terminalId }: TerminalSurfaceProps): JSX.Element {
-  const { screens, ensureStarted, resize, sendInput, display, changeFontSize } = useTerminal()
+  const { screens, ensureStarted, resize, sendInput, display, changeFontSize, isAiCliMode } =
+    useTerminal()
   const containerRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -90,7 +92,7 @@ export function TerminalSurface({ terminalId }: TerminalSurfaceProps): JSX.Eleme
       onInput: (data) => sendInput(terminalId, data),
 
       /*
-        アプリが横取りする打鍵（今はフォントの大きさだけ）。true を返すと
+        アプリが横取りする打鍵（フォントの大きさと、AI CLI モードの Enter / Ctrl+V）。true を返すと
         シェルへ流れない。どれを取るかを決めているのは terminalDisplay.ts で、
         ここは**その答えを適用するだけ**にしてある。
 
@@ -100,12 +102,52 @@ export function TerminalSurface({ terminalId }: TerminalSurfaceProps): JSX.Eleme
       onAppKey: (event) => {
         const command = terminalFontSizeCommand(event)
 
-        if (command === null) {
+        if (command !== null) {
+          event.preventDefault()
+          changeFontSize(command)
+
+          return true
+        }
+
+        /*
+          AI CLI モードのタブだけ、Enter と Ctrl+V を読み替える（v1.1 S1）。
+          通常のタブはここを通らず、従来どおり xterm がシェルへ送る。
+
+          モードは打鍵の瞬間に読む ── この関数は画面を作ったときに1度だけ
+          渡されるので（terminalScreenStore.ts の acquire）、値で持つと
+          切り替えが効かない。
+        */
+        if (!isAiCliMode(terminalId)) {
           return false
         }
 
+        const action = aiCliInputAction(event)
+
+        if (action === null) {
+          return false
+        }
+
+        /*
+          xterm が止めていた打鍵と同じく、アプリ全体の割り当て
+          （KeybindingProvider の window listener）まで上げない。
+        */
+        event.stopPropagation()
+
+        if (action.kind === 'paste') {
+          /*
+            既定の動作は**止めない。** 止めないことで Chromium が paste イベントを
+            起こし、xterm がそれを貼り付けとして送る（terminalInputMode.ts）。
+          */
+          return true
+        }
+
         event.preventDefault()
-        changeFontSize(command)
+        /*
+          `sendInput` へ直接送らず xterm の入力として流す。利用者の打鍵として
+          扱われるので、遡って見ている最中でも末尾へ戻る（通常の打鍵と同じ）。
+          行き先は `onData` → `onInput` で、経路は1本のまま。
+        */
+        screens.peek(terminalId)?.terminal.input(action.data, true)
 
         return true
       }
@@ -172,7 +214,7 @@ export function TerminalSurface({ terminalId }: TerminalSurfaceProps): JSX.Eleme
       */
       screen.element.remove()
     }
-  }, [terminalId, screens, ensureStarted, resize, sendInput, changeFontSize])
+  }, [terminalId, screens, ensureStarted, resize, sendInput, changeFontSize, isAiCliMode])
 
   /*
     文字の大きさが変わったとき（Session 3-7-3。設定 UI からも変わる ── Session 3-7-5）。

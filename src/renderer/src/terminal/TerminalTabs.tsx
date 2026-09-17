@@ -21,6 +21,7 @@ import type { TerminalTab, TerminalStatus } from './terminalTabsModel'
  * ```
  * +   … 既定のシェルをそのまま1枚開く（押すだけで開く）
  * ⌄   … 何を開くかを選ぶ（Node / Claude Code）
+ * AI  … 手前のタブの AI CLI モードを切り替える（v1.1 S1）
  * ⚙   … 表示設定（文字の大きさ・さかのぼれる行数。Session 3-7-5）
  * ```
  *
@@ -84,6 +85,13 @@ interface TerminalTabsProps {
    */
   readonly display: TerminalDisplaySettings
   readonly onFontSizeChange: (fontSize: number) => void
+  /**
+   * タブの AI CLI モードを切り替える（v1.1 S1。terminalTabsModel.ts の `aiCliMode`）。
+   *
+   * 切り替えの入口は手前のタブに対する1つだけで、ON のタブには名前の横に
+   * 印が付く ── Enter の意味が変わっていることが、どのタブを見ても分かるようにする。
+   */
+  readonly onAiCliModeChange: (terminalId: string, enabled: boolean) => void
 }
 
 export function TerminalTabs({
@@ -98,10 +106,13 @@ export function TerminalTabs({
   onOpen,
   onShellMenuOpen,
   display,
-  onFontSizeChange
+  onFontSizeChange,
+  onAiCliModeChange
 }: TerminalTabsProps): JSX.Element {
   const { t } = useI18n()
   const available = shells.filter((shell) => shell.available)
+  const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null
+  const activeAiCliMode = activeTab?.aiCliMode ?? false
 
   const shellItems: readonly DropdownMenuItem[] = available.map((shell) => ({
     key: shell.id,
@@ -133,8 +144,9 @@ export function TerminalTabs({
               data-active={active}
               data-status={tab.status}
               data-foreign={foreign}
+              data-ai-cli-mode={tab.aiCliMode}
               data-terminal-id={tab.id}
-              title={describeTabTitle(name, note, foreign, t)}
+              title={describeTabTitle(name, note, foreign, tab.aiCliMode, t)}
             >
               <button
                 type="button"
@@ -147,6 +159,11 @@ export function TerminalTabs({
                   </span>
                 )}
                 {name}
+                {tab.aiCliMode && (
+                  <span className="fx-terminal-tab__mode" data-testid="terminal-tab-ai-cli-badge">
+                    {t('terminal.aiCli.badge')}
+                  </span>
+                )}
                 {note !== null && <span className="fx-terminal-tab__note">{note}</span>}
               </button>
 
@@ -194,6 +211,27 @@ export function TerminalTabs({
       )}
 
       {/*
+        AI CLI モード（v1.1 S1）。手前のタブに対してだけ効く。タブが無ければ
+        切り替える相手が無いので押せない。
+      */}
+      <button
+        type="button"
+        className="fx-terminal-tabs__button fx-terminal-tabs__mode"
+        data-testid="terminal-ai-cli-toggle"
+        aria-pressed={activeAiCliMode}
+        aria-label={t('terminal.aiCli.toggleLabel')}
+        title={activeAiCliMode ? t('terminal.aiCli.titleOn') : t('terminal.aiCli.titleOff')}
+        disabled={activeTab === null}
+        onClick={() => {
+          if (activeTab !== null) {
+            onAiCliModeChange(activeTab.id, !activeTab.aiCliMode)
+          }
+        }}
+      >
+        {t('terminal.aiCli.badge')}
+      </button>
+
+      {/*
         表示設定（Session 3-7-5）。タブが1枚も無くても出しておく ── 文字の大きさは
         これから開くターミナルにも効くもので、開いてからでないと変えられない
         理由が無い。
@@ -213,11 +251,14 @@ function describeTabTitle(
   name: string,
   note: string | null,
   foreign: boolean,
+  aiCliMode: boolean,
   t: TFunction
 ): string {
-  const notes = [note, foreign ? t('terminal.tabs.foreign') : null].filter(
-    (item): item is string => item !== null
-  )
+  const notes = [
+    note,
+    foreign ? t('terminal.tabs.foreign') : null,
+    aiCliMode ? t('terminal.aiCli.tabNote') : null
+  ].filter((item): item is string => item !== null)
 
   // 並べ方も区切りも言語で変わるため、組み立ては辞書に任せる。
   return notes.length === 0

@@ -75,7 +75,8 @@ export function TerminalView(): JSX.Element {
     openTab,
     activateTab,
     refreshShells,
-    restart
+    restart,
+    setAiCliMode
   } = controller
 
   const closeGuard = useTerminalCloseGuard(controller)
@@ -113,6 +114,7 @@ export function TerminalView(): JSX.Element {
         onShellMenuOpen={refreshShells}
         display={display}
         onFontSizeChange={setFontSize}
+        onAiCliModeChange={setAiCliMode}
       />
 
       {activeTab !== null && (activeTab.status === 'exited' || activeTab.status === 'failed') && (

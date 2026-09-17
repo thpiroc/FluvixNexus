@@ -896,6 +896,15 @@ export const jaMessages = {
       message: 'ターミナルは開かれていません。＋ から新しく開けます。'
     },
     loading: 'ターミナルを準備しています…',
+    aiCli: {
+      badge: 'AI',
+      toggleLabel: 'AI CLI モード',
+      titleOff:
+        'AI CLI モードにする（このタブだけ）: Enter / Shift+Enter で改行、Ctrl+Enter で送信、Ctrl+V で貼り付け',
+      titleOn:
+        'AI CLI モードを終える（このタブだけ）: Enter でコマンドを実行する通常の動作に戻ります',
+      tabNote: 'AI CLI モード'
+    },
     settings: {
       label: 'ターミナルの設定',
       fontSize: '文字の大きさ',
