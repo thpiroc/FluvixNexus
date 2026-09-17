@@ -1217,8 +1217,40 @@ export const enMessages = {
       loadFailed: 'Keyboard shortcuts could not be loaded, so they cannot be changed here.',
       unreadableNote:
         'keybindings.json could not be read, so default shortcuts are in use. Saving a change here keeps the original file under a different name.',
-      terminalNote:
-        'Terminal font size (Ctrl and Plus / Minus / 0) is handled by the Terminal panel and is not listed here.',
+      builtinNote:
+        'Built-in shortcuts are handled directly by the editor, text fields, and the terminal, and cannot be changed.',
+      /*
+        Built-in shortcuts (Shortcuts S2, keybindings/builtinShortcuts.ts).
+        Keys that never go through the Command Registry, listed after the commands.
+      */
+      builtin: {
+        badge: 'Fixed',
+        groups: {
+          editing: 'Editing (built-in)',
+          terminal: 'Terminal (built-in)'
+        },
+        scopes: {
+          editorAndInputs: 'Editor and text fields',
+          editor: 'Editor'
+        },
+        actions: {
+          copy: 'Copy',
+          cut: 'Cut',
+          paste: 'Paste',
+          undo: 'Undo',
+          redo: 'Redo',
+          selectAll: 'Select All',
+          find: 'Find',
+          replace: 'Replace',
+          terminalInterrupt: 'Interrupt the running process (sent to the shell)',
+          terminalCopy: 'Copy selection',
+          terminalPaste: 'Paste',
+          terminalSendCtrlV: 'Send Ctrl+V to the shell as is (pastes only if the shell does)',
+          terminalFontSizeIncrease: 'Increase font size',
+          terminalFontSizeDecrease: 'Decrease font size',
+          terminalFontSizeReset: 'Reset font size'
+        }
+      },
       columns: {
         command: 'Command',
         shortcut: 'Shortcut'

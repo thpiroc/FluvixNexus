@@ -188,8 +188,24 @@ function byTestId<T extends HTMLElement = HTMLElement>(testId: string): T {
 }
 
 function rows(): readonly HTMLElement[] {
-  return [...container.querySelectorAll<HTMLElement>('.fx-shortcuts__row')]
+  return [...container.querySelectorAll<HTMLElement>('.fx-shortcuts__row[data-command]')]
 }
+
+function builtinRows(): readonly HTMLElement[] {
+  return [...container.querySelectorAll<HTMLElement>('.fx-shortcuts__row[data-builtin]')]
+}
+
+const ALL_GROUPS = [
+  'workspace',
+  'editor',
+  'view',
+  'settings',
+  'debug',
+  'git',
+  'files',
+  'builtin-editing',
+  'builtin-terminal'
+]
 
 function groups(): readonly string[] {
   return [...container.querySelectorAll<HTMLElement>('.fx-shortcuts__group')].map(
@@ -238,7 +254,7 @@ describe('並ぶもの', () => {
   it('カテゴリごとに、決めた順で畳まれる', async () => {
     await openKeyboard()
 
-    expect(groups()).toEqual(['workspace', 'editor', 'view', 'settings', 'debug', 'git', 'files'])
+    expect(groups()).toEqual(ALL_GROUPS)
   })
 
   it('割り当てのある18件が打鍵を出す', async () => {
@@ -336,7 +352,10 @@ describe('並ぶもの', () => {
 
     expect(byTestId('settings-keyboard-row-editor.save').dataset.source).toBe('default')
     expect(byTestId('settings-keyboard-row-git.commit').dataset.source).toBe('none')
-    expect(container.textContent).not.toContain('既定')
+    /* 組み込みの行（「文字の大きさを既定に戻す」）は除いて見る。 */
+    for (const row of rows()) {
+      expect(row.textContent, row.dataset.command).not.toContain('既定')
+    }
   })
 
   it('When は出さず、変更していなければ「変更済み」も「デフォルトへ戻す」も出ない', async () => {
@@ -447,7 +466,128 @@ describe('ja / en の切り替え', () => {
     await click('settings-category-keyboard')
 
     expect(rows()).toHaveLength(40)
-    expect(groups()).toEqual(['workspace', 'editor', 'view', 'settings', 'debug', 'git', 'files'])
+    expect(groups()).toEqual(ALL_GROUPS)
+  })
+})
+
+/*
+  組み込みの行（Shortcuts S2）。Command の群の後ろに、編集とターミナルの2群が並ぶ。
+  中身の正しさは keybindings/builtinShortcuts.test.ts が見ているので、
+  ここでは並び方・見分け方・絞り込み・言語の切り替えだけを見る。
+*/
+describe('組み込みショートカット', () => {
+  it('Command の群の後ろに、編集とターミナルの群が並ぶ', async () => {
+    await openKeyboard()
+
+    expect(groups().slice(-2)).toEqual(['builtin-editing', 'builtin-terminal'])
+    expect(builtinRows()).toHaveLength(15)
+    expect(container.textContent).toContain('編集（組み込み）')
+    expect(container.textContent).toContain('ターミナル（組み込み）')
+  })
+
+  it('基本ショートカットが打鍵つきで出る', async () => {
+    await openKeyboard()
+
+    const text = (id: string): string =>
+      byTestId(`settings-keyboard-builtin-${id}`).textContent ?? ''
+
+    expect(text('editing.copy')).toContain('Ctrl+C')
+    expect(text('editing.copy')).toContain('エディター・入力欄')
+    expect(text('editing.cut')).toContain('Ctrl+X')
+    expect(text('editing.paste')).toContain('Ctrl+V')
+    expect(text('editing.undo')).toContain('Ctrl+Z')
+    expect(text('editing.selectAll')).toContain('Ctrl+A')
+    expect(text('editing.find')).toContain('Ctrl+F')
+    expect(text('editing.replace')).toContain('Ctrl+H')
+
+    const redo = byTestId('settings-keyboard-builtin-editing.redo')
+    expect([...redo.querySelectorAll('kbd')].map((kbd) => kbd.textContent)).toEqual([
+      'Ctrl+Y',
+      'Ctrl+Shift+Z'
+    ])
+  })
+
+  it('Terminal 固有の打鍵が出る', async () => {
+    await openKeyboard()
+
+    const keys = (id: string): readonly (string | null)[] =>
+      [...byTestId(`settings-keyboard-builtin-${id}`).querySelectorAll('kbd')].map(
+        (kbd) => kbd.textContent
+      )
+
+    expect(keys('terminal.interrupt')).toEqual(['Ctrl+C'])
+    expect(keys('terminal.copy')).toEqual(['Ctrl+Insert'])
+    expect(keys('terminal.paste')).toEqual(['Ctrl+Shift+V', 'Shift+Insert'])
+    expect(keys('terminal.sendCtrlV')).toEqual(['Ctrl+V'])
+    expect(keys('terminal.fontSizeIncrease')).toEqual(['Ctrl++', 'Ctrl+='])
+    expect(keys('terminal.fontSizeDecrease')).toEqual(['Ctrl+-'])
+    expect(keys('terminal.fontSizeReset')).toEqual(['Ctrl+0'])
+  })
+
+  it('組み込みの行には「変更不可」の印が付き、Command の行には付かない', async () => {
+    await openKeyboard()
+
+    for (const row of builtinRows()) {
+      expect(row.querySelector('.fx-shortcuts__badge')?.textContent, row.dataset.builtinId).toBe(
+        '変更不可'
+      )
+      expect(row.dataset.command).toBeUndefined()
+    }
+    for (const row of rows()) {
+      expect(row.querySelector('.fx-shortcuts__badge')).toBeNull()
+    }
+  })
+
+  it('組み込みの行も押せる要素を持たない', async () => {
+    await openKeyboard()
+
+    for (const row of builtinRows()) {
+      expect(row.querySelector('button, a, input')).toBeNull()
+    }
+  })
+
+  it('打鍵で絞ると、Command と組み込みの両方から当たる', async () => {
+    await openKeyboard()
+    await type('ctrl+shift')
+
+    expect(rows()).toHaveLength(3)
+    expect(builtinRows().map((row) => row.dataset.builtinId)).toEqual([
+      'editing.redo',
+      'terminal.paste'
+    ])
+  })
+
+  it('組み込みにだけ当たる検索でも「該当なし」にならない', async () => {
+    await openKeyboard()
+    await type('Shift+Insert')
+
+    expect(rows()).toHaveLength(0)
+    expect(groups()).toEqual(['builtin-terminal'])
+    expect(container.querySelector('[data-testid="settings-keyboard-empty"]')).toBeNull()
+  })
+
+  it('端末の文字の大きさを「並ばない」と断る文言は無くなり、変更できない理由が出る', async () => {
+    await openKeyboard()
+
+    const notes = byTestId('settings-keyboard').querySelector('.fx-shortcuts__notes')?.textContent
+
+    expect(notes).not.toContain('ここには並びません')
+    expect(notes).toContain(
+      '「組み込み」の打鍵はエディター・入力欄・ターミナルが直接受け持っており'
+    )
+  })
+
+  it('言語を切り替えると組み込みの行も入れ替わる', async () => {
+    await openKeyboard()
+    await click('settings-category-general')
+    await click('settings-general-language-en')
+    await click('settings-category-keyboard')
+
+    expect(container.textContent).toContain('Editing (built-in)')
+    expect(container.textContent).toContain('Terminal (built-in)')
+    expect(byTestId('settings-keyboard-builtin-editing.redo').textContent).toContain('Redo')
+    expect(byTestId('settings-keyboard-builtin-editing.redo').textContent).toContain('Fixed')
+    expect(byTestId('settings-keyboard-builtin-editing.redo').textContent).toContain('Ctrl+Y')
   })
 })
 

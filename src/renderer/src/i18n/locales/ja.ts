@@ -1189,8 +1189,36 @@ export const jaMessages = {
       loadFailed: 'キー割り当てを読み込めなかったため、この画面からは変更できません。',
       unreadableNote:
         'keybindings.json を読み込めなかったため、デフォルトの打鍵で動いています。ここで変更を保存すると、元のファイルは別名で残されます。',
-      terminalNote:
-        'ターミナルの文字の大きさ（Ctrl と ＋ / － / 0）はターミナルパネルが受け持っており、ここには並びません。',
+      builtinNote:
+        '「組み込み」の打鍵はエディター・入力欄・ターミナルが直接受け持っており、変更できません。',
+      builtin: {
+        badge: '変更不可',
+        groups: {
+          editing: '編集（組み込み）',
+          terminal: 'ターミナル（組み込み）'
+        },
+        scopes: {
+          editorAndInputs: 'エディター・入力欄',
+          editor: 'エディター'
+        },
+        actions: {
+          copy: 'コピー',
+          cut: '切り取り',
+          paste: '貼り付け',
+          undo: '元に戻す',
+          redo: 'やり直す',
+          selectAll: 'すべて選択',
+          find: '検索',
+          replace: '置換',
+          terminalInterrupt: '実行中の処理を中断（シェルへ送る）',
+          terminalCopy: '選択範囲をコピー',
+          terminalPaste: '貼り付け',
+          terminalSendCtrlV: 'Ctrl+V をシェルへそのまま送る（貼り付けになるかはシェル次第）',
+          terminalFontSizeIncrease: '文字を大きく',
+          terminalFontSizeDecrease: '文字を小さく',
+          terminalFontSizeReset: '文字の大きさを既定に戻す'
+        }
+      },
       columns: {
         command: '操作',
         shortcut: '打鍵'
