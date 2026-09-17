@@ -2468,6 +2468,62 @@ docs/RELEASE.md §5 の設計どおりに electron-builder を入れ、ローカ
 - **Release notes の HTML コメントの中に `<!--` / `-->` を書かない。** コメントがそこで閉じ、Prettier が後ろの行を本文として整形する
 - **公開後の確認は認証を付けずに行う。** `api.github.com/repos/<owner>/<repo>`（`visibility`・`has_issues`）と `/releases/latest`（`draft`・添付の `size` / `digest`）を curl で読み、`releases/download/v1.0.0/<file>` から落として照合した。Private のうちは API が 404 を返すので、公開前の状態の確認にもなる。`Invoke-WebRequest` で落としたファイルには MOTW が付かないので、SmartScreen の確認にはならない
 
+### Shortcuts S3〜S6（v1.0.0 の後：キーボードショートカットの編集）
+
+v1.0.0 の初期フィードバックを受けたキーボードショートカット改善。main を保護したまま作業ブランチで進め、S3 → S4 → S5 → S6 と積んである（S6 時点で main へは未 Merge）。**S1（AI CLI モード）/ S2（組み込みの打鍵の一覧）は main から別に分岐しており、この積み上げには含まれていない**（ARCHITECTURE.md §18 の冒頭）。設計は ARCHITECTURE.md §18.9〜§18.12。
+
+| 段  | ブランチ                           | 内容                                                                  | production build の確認 |
+| --- | ---------------------------------- | --------------------------------------------------------------------- | ----------------------: |
+| S3  | `feat/shortcuts-user-storage`      | `keybindings.json` の読み書き・解除の rule・Provider の表の作り直し   |                   26/26 |
+| S4  | `feat/shortcuts-editor-ui`         | 一覧からの記録・変更・解除・割り当て・デフォルトへ戻す                |                   28/28 |
+| S5  | `feat/shortcuts-conflict-warning`  | 競合と予約キーの警告・読めない項目の表示・日英の文言                  |                   25/25 |
+| S6  | `feat/shortcuts-verification-docs` | S3〜S5 を積んだ状態での統合確認と docs の追従（コードは変えていない） |                   44/44 |
+
+追加したテスト（S3〜S5）:
+
+| テスト                                    | 何を確かめるか                                                                                    |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `main/store/keybindingsDocument.test.ts`  | 行ごと・ファイル・保存要求の形の検証と上限                                                        |
+| `main/store/keybindingsStore.test.ts`     | 実ディスクでの missing / loaded / unreadable・丸ごと保存・間引き・壊れたファイルの退避（1回だけ） |
+| `keybindings/userKeybindings.test.ts`     | 条件の引き継ぎ・読めない行の理由                                                                  |
+| `keybindings/userKeybindings.dom.test.ts` | Provider の読み込み前後の表・**空なら既定と同一**・読み込み中 / 失敗は保存しない                  |
+| `keybindings/editKeybindings.test.ts`     | 既定との差分での書き直し・繰り返しても行が溜まらない・読めない行を残す・割り当てられる打鍵        |
+| `keybindings/keyWarnings.test.ts`         | 取られた側・条件違いの勝ち負け・予告（既定へ戻して負ける場合を含む）・既定は警告なし              |
+| `keybindings/reservedKeys.test.ts`        | 予約キーの表（全打鍵が読める・重複なし・**既定の割り当ては重ならない**・条件での絞り込み）        |
+| `settings/KeyboardShortcuts.dom.test.ts`  | 記録 → 確定 / 取り消し・記録中の打鍵がアプリへ渡らない・警告の段・読めない項目の枠・英語          |
+
+S6 の時点で `npm run verify` は **264 files / 4,754 passed / 1 skipped**。
+
+#### S6 の統合確認（44項目・4回起動）
+
+scratchpad の playwright-core で `out/` を起動し、使い捨ての `--user-data-dir` と、`workspace-folder.json` で復元させた使い捨ての Git リポジトリ（staged の変更を1つ持つ）を使う。
+
+| 群                | 項目 | 内容                                                                                                                                                                                                                                                                                                                              |
+| ----------------- | ---: | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A. ファイルなし   |   13 | 既定の Ctrl+, が効く・`missing`・警告も変更済みも無い／`window.fluvix` の名前空間 13・`keybindings` は `load` / `save`・`settings` は変わらず・Node の口なし／形の合わない保存6種がすべて `INVALID_REQUEST` でファイルを作らない／記録中の Ctrl+O が走らず Esc は記録だけを取り消す／**何も変えずに終了してもファイルを作らない** |
+| B. 編集と再起動   |    9 | Ctrl+Alt+K へ変更 → 差分の2行・変更済み／要求に `path` / `fileName` を足しても保存先は変わらない／旧打鍵は効かず新打鍵が効く／**再起動後も**効き変更済みが残る／1行戻すと `[]`                                                                                                                                                    |
+| D. 壊れたファイル |    7 | `{ broken` から起動しても既定が効く・`unreadable` と断り・保存まで不変／**画面から保存すると `keybindings.broken-<日時>.json` に元の中身で残り**、新しいファイルは読める2行・`.tmp` なし／すべて戻すと `[]`、退避は残る                                                                                                           |
+| C. 予約キーの実害 |   11 | 下の表。予告と行の `data-reserved` を確かめたうえで、**警告どおり両方が動く**ことを実測                                                                                                                                                                                                                                           |
+| E. 境界           |    4 | production の CSP が source と同じ／Workspace のファイル一覧が変わらない・`keybindings.json` を置かない／4回の起動で console.error / pageerror 0件                                                                                                                                                                                |
+
+S5 がコードの伝播から判定していた「両方が動く」を、ここで初めて実機で測った。
+
+| 予約               | 割り当てた command                    | 押した場所            | 起きたこと                                           |
+| ------------------ | ------------------------------------- | --------------------- | ---------------------------------------------------- |
+| Git の Commit 欄   | `view.togglePanel.files` ← Ctrl+Enter | Commit メッセージ欄   | Commit が1つ増え、**かつ** Files パネルが閉じた      |
+| Files の名前の変更 | `view.togglePanel.terminal` ← F2      | Files の `a.txt` の行 | 名前の変更の入力欄が出て、**かつ** Terminal が閉じた |
+| 端末の文字の大きさ | `view.togglePanel.editor` ← Ctrl+-    | 端末                  | 文字が 13px → 12px になり、**かつ** Editor が閉じた  |
+
+F2 を `view.togglePanel.terminal` に割り当てたときの予告には、予約（Files の名前の変更）に加えて「シンボル名を変更」との競合（重なるがこちらが勝つ）も出た。`editor.renameSymbol` の F2 は `editorFocused`、`view.togglePanel.terminal` は `!terminalFocused` で、エディターの中で同時に成り立つため ── 予告として正しい。
+
+#### 注意点（S6 で踏んだもの）
+
+- **Files の行で打鍵を確かめるときは、行を click しない。** click はファイルを開き、Monaco が focus を取る。F2 はエディターの側で処理され、「名前の変更が始まらない」というアプリの不具合に見える（同じ打鍵を割り当てた command の側は走るので、なおさら紛らわしい）。行の要素を `focus()` するだけにし、`document.activeElement` が `[data-panel-body="files"]` の中にあることを確かめてから押す
+- 警告の予告を読むときは記録欄を開いたまま（Enter の前に）`settings-keyboard-preview` を読む。確定すると予告の要素は消え、行の段に移る
+- 予約の実害を測った後は、画面の「すべてデフォルトへ戻す」で戻す。`window.fluvix.keybindings.save` を直接叩いても **Renderer の表は作り直されない**（Provider は自分が保存したときだけ作り直す）
+- Terminal を開いたまま `app.close()` を呼ぶと返らないことがある（§4 の既存の注意）。一定時間で `taskkill /F /T` に切り替える
+- S1（AI CLI モード）と S2（組み込みの行）はこのブランチに無いので、この確認に含まれていない。統合したら、AI CLI モードの打鍵と組み込みの行を足して確かめ直す
+
 ---
 
 ## 5. 進め方

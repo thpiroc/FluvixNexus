@@ -58,7 +58,8 @@ src/
 │   │       ├── github.ts          GitHub へ公開する（§14.17）
 │   │       ├── lsp.ts             Language Server との同期・補完・定義・参照・rename・formatting（§19）
 │   │       ├── debug.ts           Debug Profile / Breakpoint / 実行制御 / Call Stack / Variables / Console（§20）
-│   │       └── settings.ts        アプリの設定の永続化（section 単位。§12.4）
+│   │       ├── settings.ts        アプリの設定の永続化（section 単位。§12.4）
+│   │       └── keybindings.ts     ユーザーのキー割り当ての永続化（`keybindings.json`。§18.9）
 │   ├── workspaceFolder/      開いているプロジェクトフォルダ（§8）
 │   │   ├── currentWorkspaceFolder.ts  現在の Workspace の正本（開く・閉じる・復元・購読）
 │   │   └── folderPath.ts              パスの検証と表示名（Electron 非依存・テスト対象）
@@ -139,7 +140,10 @@ src/
 │   │   ├── settingsDocument.ts         設定文書の検証と組み立て（同上・§12.4）
 │   │   ├── legacySettings.ts           旧 3 ファイルからの取り込み（同上・§12.4）
 │   │   ├── settingsStore.ts            settings.json の読み書き（フォルダを受け取る・テスト対象・§12.4）
-│   │   └── settings.ts                 設定の保存先（userData 配下・§12.4）
+│   │   ├── settings.ts                 設定の保存先（userData 配下・§12.4）
+│   │   ├── keybindingsDocument.ts      `keybindings.json` の形の検証（Electron 非依存・テスト対象・§18.9）
+│   │   ├── keybindingsStore.ts         `keybindings.json` の読み書きと壊れたファイルの退避（フォルダを受け取る・テスト対象・§18.9）
+│   │   └── keybindings.ts              キー割り当ての保存先（userData 配下・§18.9）
 │   ├── logger/
 │   │   ├── index.ts          Main 側のログ出力（console とログファイル。§4）
 │   │   ├── logFile.ts        userData/logs への書き出し・上限と世代（テスト対象・§4）
@@ -153,7 +157,7 @@ src/
 │   ├── language.ts           保存済み Language を最初の描画より前に `<html>` へ当てる（§17.6）
 │   ├── ipc/invoke.ts         Main を呼ぶ唯一の経路
 │   ├── ipc/subscribe.ts      Main からのイベントを受ける唯一の経路（§3.3）
-│   └── api/                  ドメインごとの薄いラッパ（env / system / workspace / workspaceFolder / files / terminal / git / github / lsp / debug / settings）
+│   └── api/                  ドメインごとの薄いラッパ（env / system / workspace / workspaceFolder / files / terminal / git / github / lsp / debug / settings / keybindings）
 ├── renderer/
 │   ├── index.html            CSP を含む唯一の HTML
 │   └── src/
@@ -293,17 +297,21 @@ src/
 │       │   ├── chord.ts               打鍵1つの表し方（`event.code` 基準・React / DOM 非依存・テスト対象・§18.4）
 │       │   ├── when.ts                効く条件（閉じた6つの AND・同上・§18.5）
 │       │   ├── resolve.ts             rule の並び → 効く割り当ての表（後勝ち・同上・§18.4）
-│       │   ├── defaults.ts            既定の割り当て18件（**v1 が rule を作る唯一の場所**・§18.4）
+│       │   ├── defaults.ts            既定の割り当て18件（**既定の rule を作る唯一の場所**・§18.4）
 │       │   ├── dispatch.ts            打鍵 → command（確認ダイアログの裏では走らせない・同上・§18.5）
+│       │   ├── userKeybindings.ts     `keybindings.json` の行 → rule（command 名の関門・条件の引き継ぎ・同上・§18.9）
+│       │   ├── editKeybindings.ts     画面の操作 → 既定との差分で書き直した行（割り当てられる打鍵・同上・§18.10）
+│       │   ├── keyWarnings.ts         競合の警告（意図した割り当てと効いている割り当ての突き合わせ・同上・§18.11）
+│       │   ├── reservedKeys.ts        予約キーの表（割り当ての表の外で意味を持つ打鍵・同上・§18.11）
 │       │   ├── shortcutRows.ts        registry ＋ 割り当て → 一覧の行（同上・§18.6）
-│       │   ├── context.ts             Context の定義（効いている割り当てと、条件の申告）
+│       │   ├── context.ts             Context の定義（効いている割り当て・条件の申告・`keybindings.json` の中身と保存の口）
 │       │   ├── useWhenFlag.ts         条件を1つ申告する hook（§18.5）
 │       │   └── KeybindingProvider.tsx window の keydown を1本だけ張る器（§18.5）
 │       ├── settings/           設定を読み書きする段取り（§12.4）と Settings 画面（§15）
 │       │   ├── useSettingsSection.ts  section 1つを持ち、いつ読み・いつ書くかを決める
 │       │   ├── settingsCatalog.ts     何が、どのカテゴリに、どの順で並ぶか（React 非依存）
 │       │   ├── SettingsOverlay.tsx    それをどう描き、どの setter へ繋ぐか
-│       │   ├── KeyboardShortcutsView.tsx 打鍵の一覧（**読むだけ**。値を持たない・§18.6）
+│       │   ├── KeyboardShortcutsView.tsx 打鍵の一覧と編集（記録・警告・読めない項目。§18.6・§18.10・§18.11）
 │       │   └── settings.css
 │       ├── theme/              アプリ全体の見た目（Theme。§16）
 │       │   ├── appearanceSettings.ts  Theme と保存形式の行き来（React / DOM 非依存・テスト対象）
@@ -333,6 +341,7 @@ src/
     ├── git/                   リポジトリの状態・HEAD・失敗の分類・変更ファイルの一覧・操作の対象と結末・Commit メッセージの規則・ブランチの一覧と名前の規則・commit の履歴（§14）
     ├── github/                公開範囲・GitHub CLI の状態・repository 名の規則（§14.17）
     ├── settings/             アプリ設定の保存形式（section の閉じた集合と文書の形。§12.4）
+    ├── keybindings/          `keybindings.json` の行の型・上限・解除の印（§18.9）
     ├── lsp/                  LSP の safe domain model（server 状態・診断・補完・hover・navigation・rename・formatting）
     ├── debug/                Debug の safe domain model（profile / status / breakpoint / call stack / variables / evaluate / console / stop）
     ├── language/             Language の名前・既定・落とし先と、初期描画用の受け渡し（§17.1）
@@ -444,6 +453,9 @@ Renderer            window.fluvix.files.onChanged(listener) → 解除の関数
 | `workspace-layout.json` | Workspace レイアウト（§7.8）        | `store/workspaceLayoutDocument.ts` | `store/workspaceLayout.ts` |
 | `workspace-folder.json` | 最後に開いていたフォルダ（§8.5）    | `store/workspaceFolderDocument.ts` | `store/workspaceFolder.ts` |
 | `settings.json`         | アプリの設定（section ごと。§12.4） | `store/settingsDocument.ts`        | `store/settings.ts`        |
+| `keybindings.json`      | ユーザーのキー割り当て（§18.9）     | `store/keybindingsDocument.ts`     | `store/keybindings.ts`     |
+
+**`keybindings.json` だけは形が違う。** 封筒（`schemaVersion`）の無い素の配列で、並び順に意味がある（VS Code と同じ形。§18.9）。`settings.json` の section に入れていないのは、section の値が string / number / boolean に閉じていて配列を持てないため。壊れているときに既定へ戻すのは他と同じだが、**画面から保存するときは上書きの前に `keybindings.broken-<日時>.json` へ名前を変えて残す**（手で書いた内容を消さないため）。
 
 **設定は1ファイル・section 分けにする**（Session 4-3A）。Session 3-5 〜 3-7-5 では用途ごとに1ファイル・2チャンネルを足していた（`editor-settings.json` / `files-settings.json` / `terminal-settings.json`）。用途ごとに API を切る方針（§5）に従ったものだったが、3つ並んだ時点で分かったのは**増えていたのが設定ではなく同じ形の写しだった**ことにほかならない ── 方針が守りたかったのは「Renderer が保存先を選べないこと」で、それは section を閉じた集合にすれば同じだけ守れる。増えるのはファイルでもチャンネルでもなく `SettingsSectionId` になった。
 
@@ -507,6 +519,7 @@ Renderer            window.fluvix.files.onChanged(listener) → 解除の関数
 | 削除の方式                           | OS のごみ箱へ送るのみ。完全削除の経路を公開しない（§10.2）                                                             |
 | ファイルの監視                       | Main だけ。Renderer に filesystem の API を渡さず、届くのは相対位置だけ（§12.1）                                       |
 | 設定の保存                           | 用途専用の API のみ。保存先のパスもファイル名も Renderer から指定できない（§12.4）                                     |
+| キー割り当ての保存                   | `keybindings:load` / `keybindings:save` の2本だけ。渡せるのは行の並びで、Main が形を確かめてから書く（§18.9）          |
 | ウィンドウを閉じる / アプリ終了      | Renderer から始められない。返事を返す口だけを公開する（§12.7）                                                         |
 | Main → Renderer のイベント           | 契約にあるチャンネルだけ購読できる。Electron の event は Preload が剥がす（§3.3）                                      |
 | Monaco の Worker                     | アプリにバンドルしたものだけ。blob: も外部 CDN も経由しない（§11.2。Diff Editor も同じ）                               |
@@ -527,6 +540,8 @@ Renderer            window.fluvix.files.onChanged(listener) → 解除の関数
 Session 3-1 の Workspace（開いているフォルダ）もこの方針に従い、レイアウトの API に相乗りさせず `workspace-folder:*` として別に足した（保存先も別ファイル）。こちらは Renderer が保存内容を組み立てることすらせず、Main が自分で作って書く（§8.4）。
 
 アプリの設定は Session 4-3A で `settings:load` / `settings:save-section` の2本に集約した（§12.4）。用途ごとにチャンネルを足していた形（`settings:load-editor` …）をやめたのは、**方針が守りたかったのが「Renderer が保存先を選べないこと」だったから**で、それは section を閉じた集合（`SettingsSectionId`）にすれば同じだけ守れる ── 保存要求は section 名で値の型が決まる判別可能なユニオンで、Main 側でも既知の section・既知の key かを必ず確かめる。**「名前と JSON を渡すと保存される」汎用 API にはしない**という線は、チャンネルの数ではなくここで守られている。
+
+ユーザーのキー割り当て（Shortcuts S3）は、この2本を広げずに `keybindings:load` / `keybindings:save` として別に足した（§18.9）。`settings:save-section` に配列を許すと、**全 section が配列を受け取れる**ようになるため。要求にパスもファイル名も無く、余計な項目（`path` など）を付けても保存先は変わらない（Shortcuts S6 で production build に実測）。
 
 ### CSP の運用
 
@@ -6838,9 +6853,19 @@ Theme と違い、**窓の初期色にあたるものは無い**（言語は色�
 
 ## 18. Command と Keyboard Shortcut
 
-Session 4-7A が基盤（Command Registry・Keybinding・`when`・一覧の行）を、4-7B が Git / Files の寄与を、4-7C が Settings の一覧を入れている。
+Session 4-7A が基盤（Command Registry・Keybinding・`when`・一覧の行）を、4-7B が Git / Files の寄与を、4-7C が Settings の一覧を入れている。v1.0.0 の後、キーボードショートカット改善の S3〜S5 が User の割り当てを足した。
 
-**v1 は「既定の割り当てが効く」ところまで。** 打鍵の編集・User / Workspace の割り当て・`keybindings.json` の永続化・Command Palette は入っていない（§18.8）。基盤の側はそれらを**型を変えずに受けられる形**にしてあり、そのための余地がどこに残してあるかもこの章に書く。
+| 段                    | 入ったもの                                                                              | 節      |
+| --------------------- | --------------------------------------------------------------------------------------- | ------- |
+| Session 4-7（v1.0.0） | 既定の割り当てが効く。一覧は読むだけ                                                    | §18.1〜 |
+| Shortcuts S3          | `keybindings.json` の読み書き・解除の rule・Provider の表の作り直し（画面は変わらない） | §18.9   |
+| Shortcuts S4          | 一覧から打鍵を記録・変更・解除・割り当て・デフォルトへ戻す                              | §18.10  |
+| Shortcuts S5          | 競合と予約キーの警告、読めない項目の表示                                                | §18.11  |
+| Shortcuts S6          | production build での統合確認と、この章の追従（コードは変えていない）                   | §18.12  |
+
+**Workspace の割り当てと Command Palette は今も入っていない**（§18.8・§18.12）。§18.1〜§18.8 は Session 4-7 の設計で、S3〜S5 で変わったところはその場で断ってある。
+
+**S6 時点の積み上げは S3 → S4 → S5 → S6 だけで、main へは未 Merge。** Terminal の AI CLI モード（S1）と、組み込みの打鍵を一覧に並べる行（S2）は、どちらも main から別に分岐したブランチにあり、**この積み上げには含まれていない**。そのためこの章にも書いていない。S1 / S2 を統合するときに、この章へ足す（§18.12）。
 
 ### 18.1 Command Registry（そういう操作がある、という表）
 
@@ -6855,9 +6880,9 @@ Panel Registry（§7.3）と同じ形にしてある。
 - object の key として**同じ id を2度書けない**
 - 引くのは常にこの表を通す（`getCommandDescriptor` / `listCommands`）
 
-**`execute(id: string)` のような汎用の入口を作らない。** 作った瞬間「アプリが持つ操作」という限定が消える ── `shared/settings/sections.ts` の section、`workspace/panels/registry.ts` の `isPanelId` と同じ作法で、外から来た文字列は必ず `isCommandId` を通す。将来 `keybindings.json` を読むようになったとき、そこに書かれた command 名の関門はこれ1つになる。
+**`execute(id: string)` のような汎用の入口を作らない。** 作った瞬間「アプリが持つ操作」という限定が消える ── `shared/settings/sections.ts` の section、`workspace/panels/registry.ts` の `isPanelId` と同じ作法で、外から来た文字列は必ず `isCommandId` を通す。`keybindings.json` に書かれた command 名も、`keybindings/userKeybindings.ts` がここを通す（§18.9。Main は command 名を見ない）。
 
-**一度決めた id は変えない。** 利用者の割り当てがディスクに残るようになったとき、id を変えると設定した打鍵が静かに効かなくなる。`git.stashPush` が「退避の面を開く」に繋がっているのにこの名前なのはそのためで、後から「確認を出してから退避する」形に育てても id はこのままにできる。
+**一度決めた id は変えない。** 利用者の割り当ては `keybindings.json` に id で残る（Shortcuts S3 から）。id を変えると設定した打鍵が静かに効かなくなり、その行は「知らない command」として読めない項目に回る（§18.11）。`git.stashPush` が「退避の面を開く」に繋がっているのにこの名前なのはそのためで、後から「確認を出してから退避する」形に育てても id はこのままにできる。
 
 並びの正本は `COMMAND_IDS` の配列で、`listCommands()` はその順に返す。表の見た目の順序には依存しない ── 依存させると、行を足す場所で一覧の見え方が変わる。
 
@@ -6942,16 +6967,16 @@ GitView 本体に書けないのは、GitView が関数の途中で3回 return �
 
 #### Default / User / Workspace を、型を変えずに受ける
 
-v1 が作る rule は `defaults.ts` の `source: 'default'` だけ。それでも `KeybindingSource` を最初から3つ持たせ、`resolveKeybindings` が**順序付きの配列を1本受け取って後勝ちで畳む**形にしてある。
+v1 が作った rule は `defaults.ts` の `source: 'default'` だけだった。それでも `KeybindingSource` を最初から3つ持たせ、`resolveKeybindings` が**順序付きの配列を1本受け取って後勝ちで畳む**形にしてあった。
 
 ```ts
-resolveKeybindings(DEFAULT_KEYBINDINGS) // v1（今）
-resolveKeybindings([...DEFAULT_KEYBINDINGS, ...userRules, ...workspaceRules]) // 将来
+resolveKeybindings(DEFAULT_KEYBINDINGS) // v1
+resolveKeybindings([...DEFAULT_KEYBINDINGS, ...userRules]) // Shortcuts S3（KeybindingProvider.tsx）
 ```
 
-型も関数も呼ばれる側も1行も変わらない。逆に v1 で `source` を持たせずに作ると、後から入れるときに**保存形式と解決順の両方**が変わる。
+**S3 で実際に入れたとき、型も関数も呼ばれる側も変わらなかった。** 足したのは解除の rule（`remove: true`）だけで、上書きは後勝ちの規則から、解除は「前にある同じ command × 同じ打鍵を外す」から出る（§18.9）。v1 で `source` を持たせずに作っていたら、**保存形式と解決順の両方**を変えることになっていた。Workspace の割り当ては今も作っていない。
 
-後勝ちにする単位は「同じ打鍵 × 同じ条件」で、条件が違えば別の rule として両方残る ── `ctrl+j` が「Terminal に focus が無いとき」と「あるとき」で違う command を指すのは競合ではなく使い分けにあたる。読めなかった rule は捨てずに `invalid` として返す（**今は誰も読んでいない**。`keybindings.json` を読むようになったとき「書いたのに効かない」を見せるため）。
+後勝ちにする単位は「同じ打鍵 × 同じ条件」で、条件が違えば別の rule として両方残る ── `ctrl+j` が「Terminal に focus が無いとき」と「あるとき」で違う command を指すのは競合ではなく使い分けにあたる。読めなかった rule は捨てずに `invalid` として返す。ただし `keybindings.json` の行は `userKeybindings.ts` が先に打鍵を確かめて理由付きの `invalid` にするので（§18.9）、**画面の「読めない項目」が読むのはそちらで、`resolveKeybindings` の `invalid` ではない。**
 
 #### 既定の7件
 
@@ -7021,11 +7046,17 @@ DOM を読む3つは**React が持っていない状態**にあたる ── foc
 
 置き場所は **`App.tsx` の一番内側**。Workspace と Editor の状態を読むためで、`CommandProvider`（何にも依存しない）を外側に置くのと対になる。
 
+**打鍵を受ける listener はもう1本ある（S4）。** 一覧で打鍵を記録している間だけ、記録欄が `window` の **capture** で keydown / keyup を受けて止める（§18.10）。こちらは記録中だけ張られ、`KeybindingProvider` の1本は張り直さない ── 表を作り直すのは読み込みと保存の後だけで、listener は ref 越しに新しい表を読む。
+
+**入力欄で起きた打鍵かどうかは見ない**（v1 から変えていない）。そのため、修飾キーの無い打鍵を割り当てると入力欄で文字が打てなくなる ── S4 はそれを割り当ての側で断っている（§18.10）。
+
 ### 18.6 Settings の Keyboard Shortcuts 一覧（Session 4-7C）
 
-#### v1 は読むだけ
+#### v1 は読むだけだった（S4 から編集できる）
 
-打鍵の変更・User / Workspace の割り当て・`keybindings.json` の永続化はどれも入っていない。**行を押しても command は実行されない** ── 実行の入口は打鍵と各パネルの UI のままで、ここは一覧にほかならない（`onClick` を持つのは検索欄と、それを消す `×` だけ）。
+Session 4-7C の一覧は読むだけで、`onClick` を持つのは検索欄と、それを消す `×` だけだった。Shortcuts S4 から、各行に「変更」「解除」（未割り当ての行は「割り当て」）と、変更済みの command に「デフォルトへ戻す」が付く（§18.10）。
+
+**今も、行を押して command が実行されることは無い。** ボタンが変えるのは割り当てで、実行の入口は打鍵と各パネルの UI のまま ── ここは一覧と、その割り当ての編集の場所にとどまる。
 
 #### 一覧はその場で組み立てる
 
@@ -7036,7 +7067,14 @@ useKeybindings().entries   効いている割り当て（keybindings/KeybindingP
 ShortcutRow[]
 ```
 
-どちらも**この画面のために新しく作った口ではない** ── `entries` は Session 4-7A から `KeybindingContext` にあり、読む相手がここで初めてできた。新しい IPC も、Main / preload / shared への変更も1つも無い。目録に書き写さないのは、command を足すたびに2箇所を直すことになるため。
+どちらも**この画面のために新しく作った口ではない** ── `entries` は Session 4-7A から `KeybindingContext` にあり、読む相手がここで初めてできた。Session 4-7C では新しい IPC も、Main / preload / shared への変更も1つも無かった（IPC が増えたのは S3 の `keybindings:*` で、画面ではなく保存のため。§18.9）。目録に書き写さないのは、command を足すたびに2箇所を直すことになるため。
+
+S4 / S5 で、`buildShortcutRows` は引数を2つ足している（どちらも省けば 4-7C と同じ行になる）。
+
+| 引数                 | 何か                                                                                                   | 入った段 |
+| -------------------- | ------------------------------------------------------------------------------------------------------ | -------- |
+| `modifiedCommandIds` | 打鍵の組が既定と違う command（`editKeybindings.ts`。§18.10）                                           | S4       |
+| `intended`           | command ごとに自分の rule だけを畳んだ割り当て（`keyWarnings.ts`。§18.11）。取られた割り当ても行になる | S5       |
 
 `useCommands().isRegistered` は**使わない。** handler の表は `useRef` の `Map` で React の state ではないので（§18.3）、描画中に読んでも変化で再描画されず必ず古い値が出る。一覧が出すのは「アプリが持つ操作の全体」であって、その瞬間に実行できるものではない ── **Git パネルを閉じていても Git の7件は並ぶ**（Session 4-8A で実機に確認）。
 
@@ -7057,27 +7095,30 @@ Session 4-7C まで、Settings のカテゴリは `SettingsSectionId` と ID も
 
 #### 行の型は、画面が出すものより広い
 
-`ShortcutRow` は `when` / `source` / `conflictsWith` / `isModified` も持つが、**v1 の画面はそれらを出さない。**
+`ShortcutRow` は `when` / `source` / `conflictsWith` / `isModified` も持つ。v1 の画面はそれらを出さなかったが、S4 / S5 で型を変えずに一部を出すようになった（足した欄は `key` / `conflict` / `reserved`）。
 
-| 欄         | v1 で出すか | 理由                                                                  |
-| ---------- | ----------- | --------------------------------------------------------------------- |
-| Command    | ○           | `titleKey` 経由の翻訳                                                 |
-| Category   | ○           | 見出しに畳む                                                          |
-| Keybinding | ○           | 未割り当ては専用の見せ方（40件中22件が未割り当て。Session 6-17 時点） |
-| When       | ✕           | `'!terminalFocused'` のような**内部の名前**をそのまま見せることになる |
-| Source     | ✕           | 既定しか無い今、**全行に同じ語を並べるだけ**になる                    |
-| 競合表示   | ✕           | 既定同士は競合しない                                                  |
-| Reset      | ✕           | `source !== 'default'` が常に false                                   |
+| 欄               | v1  | 今（S5） | 理由                                                                                           |
+| ---------------- | --- | -------- | ---------------------------------------------------------------------------------------------- |
+| Command          | ○   | ○        | `titleKey` 経由の翻訳                                                                          |
+| Category         | ○   | ○        | 見出しに畳む                                                                                   |
+| Keybinding       | ○   | ○        | 未割り当ては専用の見せ方（既定では40件中22件が未割り当て）                                     |
+| When             | ✕   | ✕        | `'!terminalFocused'` のような**内部の名前**をそのまま見せることになる。書かせもしない（§18.9） |
+| Source           | ✕   | ✕        | 「変更済み」の印で足りる。行の `source` は変更済みの判定にも使わない（§18.10）                 |
+| 競合表示         | ✕   | ○        | `conflict`（相手・どちらが動くか・一度も動かないか。§18.11）                                   |
+| 予約キー         | —   | ○        | `reserved`（§18.11）                                                                           |
+| 変更済み / Reset | ✕   | ○        | `isModified`（打鍵の組が既定と違うか。§18.10）                                                 |
 
-型から**外していない**のは、User / Workspace の割り当てが入ったとき変わるのが画面だけで済むようにするため。翻訳キー（`settings.keyboard.sources.*`）も先に置いてあるが、**まだ画面に出ていない。**
+翻訳キー `settings.keyboard.sources.*` は置いたままで、**今も画面に出ていない。**
 
 未割り当ての22件（Session 6-17 時点）は、`defaults.ts` が「割り当ての無い command」として挙げる中核の5件（`workspace.closeFolder` / `view.togglePanel.editor` / `view.togglePanel.debug` / `view.resetLayout` / `settings.close`）、`editor.showHover`（§19.9）、Debug の6件（Profile の追加 / 編集 / 削除と、F5 が代わりに持つ `debug.start` / `debug.continue`、`debug.pause`。§20.26）、Git / Files の10件からなる（Session 4-7C の時点では中核の4件と Git / Files の10件の14件だった）。`settings.close` に打鍵を割り当てないのは **Esc が既に持っている**ためで、既存の Esc 17箇所には触らないという Session 4-7A の前提による（同じ操作の入口を二重に持たない）。
 
-#### 持つ state は検索の文字列だけ
+#### 保存しない state は検索の文字列と記録中の打鍵
 
-それも保存しない（`SettingsOverlay` が開いているカテゴリを保存しないのと同じ）── 次に開いたときに前の絞り込みが残っていると、一覧が欠けているように見える。カテゴリを列ではなく見出しにしてあるのは、Debug だけで12件・Git だけで7件あり、列にすると同じ語が何度も並ぶため。機械が読む側には各行の `data-category` が残してある。
+Session 4-7C で持っていた state は検索の文字列だけだった。S4 から、記録中の行と打鍵・「すべてデフォルトへ戻す」の確認・保存の失敗も持つが、**割り当てそのものは画面が持たない**（`keybindings.json` の中身は `KeybindingProvider` が持つ。§18.9）。検索の文字列は保存しない（`SettingsOverlay` が開いているカテゴリを保存しないのと同じ）── 次に開いたときに前の絞り込みが残っていると、一覧が欠けているように見える。カテゴリを列ではなく見出しにしてあるのは、Debug だけで12件・Git だけで7件あり、列にすると同じ語が何度も並ぶため。機械が読む側には各行の `data-category` が残してある。
 
 ### 18.7 Session 4-7 が触っていない境界
+
+Session 4-7 の時点の記録。S3 で動いた境界（IPC 2本・preload の口・`shared/keybindings/`・Main の検証・userData への書き込み）は §18.12 にある。
 
 | 境界                       | 変化                                                                    |
 | -------------------------- | ----------------------------------------------------------------------- |
@@ -7094,6 +7135,8 @@ Session 4-8A の production app 統合確認でこれらを実測している（
 
 ### 18.8 Session 4-7 で入れていないもの
 
+Session 4-7 の時点の記録。**打鍵の編集・`keybindings.json` の永続化・User の割り当て・競合表示は S3〜S5 で入った**（§18.9〜§18.11）。今も入っていないものは §18.12 を正とする。
+
 | 項目                           | 現状                                                                                                                                                      |
 | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 打鍵の編集                     | 入れていない。一覧は**読むだけ**（§18.6）                                                                                                                 |
@@ -7106,6 +7149,194 @@ Session 4-8A の production app 統合確認でこれらを実測している（
 | Mac の `cmd`                   | 解析だけは受ける（`'cmd'` は `'meta'` の別名）。Mac 対応そのものは未着手                                                                                  |
 | メニューバーへの打鍵の表示     | していない（アプリケーションメニューは §2 のまま）                                                                                                        |
 | Theme 切り替えの打鍵           | 置いていない。Theme は Settings の Appearance から変える（§16）                                                                                           |
+
+### 18.9 `keybindings.json`（Shortcuts S3）
+
+```
+main/store/keybindings.ts          %APPDATA%/Fluvix Nexus/keybindings.json
+main/store/keybindingsStore.ts     読み書き・壊れたファイルの退避（フォルダを受け取る・テスト対象）
+main/store/keybindingsDocument.ts  形の検証（Electron 非依存・テスト対象）
+shared/keybindings/                行の型・上限・解除の印
+renderer/src/keybindings/userKeybindings.ts  行 → rule（意味の検証）
+```
+
+#### 形は VS Code と同じ素の配列
+
+```json
+[
+  { "key": "ctrl+,", "command": "-settings.open" },
+  { "key": "ctrl+alt+k", "command": "settings.open" }
+]
+```
+
+- **並び順に意味がある。** 後ろの行が勝つ。`-command` は**それより前にある**同じ command × 同じ打鍵を外す（条件は問わない）
+- 封筒（`schemaVersion`）を付けていない。利用者が手で書く・貼り付けるファイルとして、見たままの形を保つ
+- 上限は 500 行、`key` / `command` / `when` は各 256 文字
+- 置き場所は userData で、**Workspace には書かない**（キー割り当ては人の道具の形で、プロジェクトの持ち物ではない）
+
+#### 分担：Main は形、Renderer は意味
+
+| 層       | 見るもの                                                          | 合わないとき                                                                 |
+| -------- | ----------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Main     | オブジェクトか・`key` と `command` が空でない文字列か・長さ・件数 | 読み込み：その行だけ落として数える（`skippedCount`）                         |
+| Main     | 保存の要求（同じ形）                                              | 保存：**1行でも合わなければ要求ごと `INVALID_REQUEST`**                      |
+| Renderer | `isCommandId`・`parseKeybinding`・`when` が書かれていないか       | 理由付きの `invalid`（`unknownCommand` / `invalidKey` / `whenNotSupported`） |
+
+command の一覧も打鍵の読み方も Renderer にしか無いので、Main が二重に解釈すると版が違うときに「Main は落としたが Renderer は読める」が起きる（設定の分担と同じ）。保存を黙って削らないのは、要求を作ったのがアプリ自身だから ── 形の合わない行が来るのは Renderer の誤りで、削って書くと利用者の割り当てが静かに減る。
+
+#### 条件（`when`）は書かせず、既定から引き継ぐ
+
+ユーザーの行には、その command の**既定の割り当ての条件**をそのまま付ける。
+
+- F2 を別の打鍵へ移しても `editorFocused` が残る ── 残らないと、Files で押したときにファイル名とシンボル名の変更が同時に始まる
+- 端末を触っている最中に走らせない `'!terminalFocused'` も残る
+- 既定の割り当てを持たない command（`git.push` など）は条件なし
+
+**`when` が手で書かれた行は読めない行にする。** 条件を無視して読むと、条件付きのつもりの行がどこでも効く（§18.5 の fail-closed と同じ）。
+
+#### 壊れたファイル
+
+| 状態（`status`） | いつ                            | アプリ                                                                 |
+| ---------------- | ------------------------------- | ---------------------------------------------------------------------- |
+| `missing`        | ファイルが無い                  | 既定だけで動く。**何も変えずに終了してもファイルを作らない**           |
+| `loaded`         | 配列として読めた                | 形の合わない行だけを落とす                                             |
+| `unreadable`     | JSON として読めない・配列でない | 既定だけで動き、ファイルに触らない。保存するときは上書きの前に退避する |
+
+退避先は `keybindings.broken-YYYYMMDD-HHMMSS.json`（名前の変更。退避は最初の保存の1回だけ）。**退避に失敗したら保存しない**（メモリの側も差し替えない ── 「保存された」ように見せないため）。保存を拒む形にしなかったのは、壊れた1ファイルのせいで画面から割り当てを一切変えられなくなるため。
+
+Renderer の側には、IPC を待っている間の `loading` と、IPC そのものが失敗した `failed` がある（`UserKeybindingsStatus`）。**この2つの間は保存しない** ── ファイルに何が書いてあるか分からないまま書くと、利用者の割り当てを消しうる。
+
+#### IPC と Provider
+
+- チャンネルは `keybindings:load` / `keybindings:save`、口は `window.fluvix.keybindings.load` / `save` の2つ。**要求にパスもファイル名も無い**
+- 保存は丸ごと（並び順に意味があるため）。書き込みは 400ms 間引き、`will-quit` で flush する。Main は読んだ内容をメモリに持ち、間引きの間に読み直しても古い内容を返さない
+- `KeybindingProvider` は起動直後は既定だけで動き、読み込みが返ったら `resolveKeybindings([...DEFAULT_KEYBINDINGS, ...userRules])` で表を作り直す（起動直後の打鍵をファイルのために待たせない）。**ユーザーの行が空なら既定だけの表と完全に同じ**（`keybindings.dom.test.ts`）
+- 保存は **Main が受け付けた後に**表を作り直す。先に差し替えると、Main が形で拒んだとき「画面では効いているが次の起動で消える」割り当てができる
+
+### 18.10 一覧からの編集（Shortcuts S4）
+
+#### 画面
+
+- 割り当てのある行に「変更」「解除」、未割り当ての行に「割り当て」
+- 既定から変えられた command に「変更済み」の印と「デフォルトへ戻す」（1つの command に行が2つあっても1つだけ）
+- 検索欄の右に「すべてデフォルトへ戻す」（確認が出る）
+- 記録：「変更」を押すと打鍵欄が記録欄に変わり、押した打鍵が出る。**Enter / 「確定」で保存、Esc / 「取り消し」で中止**。押し直すと最後の打鍵になる
+- 押した瞬間に保存され、その場で効く（「適用」は無い）
+- 下の注記は「`keybindings.json` に保存される」「エディターの中ではエディター自身の打鍵が優先される」
+
+#### ファイルは「既定との差分」で書き直す（`editKeybindings.ts`）
+
+変更・解除・割り当て・1行戻すは、どれも `withCommandKeys(stored, commandId, 欲しい打鍵の並び)` の1本で表す。その command の（読める）行をいったん消し、
+
+- 既定にあって欲しくない打鍵 → `-command`
+- 既定に無くて欲しい打鍵 → `command`
+- 既定と同じ並び → 何も書かない（＝デフォルトへ戻す）
+
+を末尾に書き足す。**変えては戻すを繰り返しても打ち消し合う行が溜まらず**、ファイルは常に「既定から何が変わったか」そのものになる。打鍵は `chordToken` の形（`ctrl+alt+k`）に揃えて書く。
+
+- **読めない行は、その command の行でも消さずに元の位置へ残す。** 手で書いた行を画面の操作が黙って消さないため。「すべてデフォルトへ戻す」だけはファイルを `[]` にする
+- 「今の打鍵」は表全体からではなく、**その command の rule だけを畳んで**求める（`commandKeys`）。別の command に後勝ちで奪われた打鍵を、編集のたびに黙って捨てないため
+- 「変更済み」は `source !== 'default'` ではなく、**その command の打鍵の組が既定と違うか**で決める（`modifiedCommandIds`）。解除だけされて未割り当てになった command も変更済みになり、手で `-editor.save` と `editor.save` を同じ打鍵で並べただけのファイルは変更済みにならない
+
+#### 記録中は、アプリのどの打鍵処理にも渡さない
+
+記録欄は `window` の **capture** で keydown / keyup を受け、`preventDefault` + `stopImmediatePropagation` する。`KeybindingProvider` と既存の Esc（Settings を閉じる等）はどれも window の bubble なので、**記録中の Ctrl+O / F5 / Esc はどこにも届かない** ── 既存の購読は1行も変えていない。
+
+- 記録を始めたら focus を記録欄へ移す（ボタンに残ると、Space を離したときに押し直しになる）
+- 修飾キー単体と IME の変換中（`isComposing` / keyCode 229）は記録しない
+- 記録中は他の行のボタンと「すべてデフォルトへ戻す」を押せない
+
+#### 割り当てられない打鍵（警告ではなく断る）
+
+**Ctrl / Alt / Meta のどれかが付いているか、F1〜F24（Shift 付き可）だけ**を受け付ける（`isAssignableChord`）。`A` / `Shift+A` / `Enter` / 矢印などを割り当てると、`KeybindingProvider` が入力欄でも拾うため**文字が打てなくなる**（§18.5）。記録欄に理由を出し、「確定」を押せなくする。修飾キーの無い Enter / Esc を確定・取り消しに使えるのは、どのみち割り当てられない打鍵だから。
+
+### 18.11 警告と読めない項目（Shortcuts S5）
+
+**警告は確定を止めない。** 断るのは §18.10 の `isAssignableChord` だけ。警告は行の下に左の線を引いた段で出し、警告のある行は打鍵の枠が点線になる。記録中はその行の今の警告を隠し、「確定したらどうなるか」の予告だけを出す（割り当てられない打鍵では出さない）。
+
+#### 意図した割り当てと、効いている割り当てを突き合わせる（`keyWarnings.ts`）
+
+```
+intended  … command ごとに自分の rule だけを畳んだもの（§18.10 の commandKeys と同じ考え方）
+effective … 全体を畳んだもの（KeybindingProvider が打鍵に使う表）
+```
+
+- intended にあって effective に無い割り当て＝**同じ条件で別の command に取られていて、一度も動かない**（`overridden`）。S4 までは取られた側が一覧で「未割り当て」に見えていたが、S5 から行として残して警告を出す
+- 条件が違っても同時に成り立ちうる（`whenOverlaps`）なら、両方が効く場面で動くのは **effective の後ろにある方**（dispatch の後勝ち。`winner`）
+
+| 状態                                 | 一覧の行の文言                                                                  |
+| ------------------------------------ | ------------------------------------------------------------------------------- |
+| 同じ条件で取られた（一度も動かない） | 「X」が同じ場面で同じ打鍵を使っているため、この打鍵では動きません。             |
+| 重なるがこちらが勝つ                 | 「X」にも同じ打鍵が割り当てられています。両方が効く場面では、こちらが動きます。 |
+| 重なって相手が勝つ                   | 「X」にも同じ打鍵が割り当てられています。両方が効く場面では「X」が動きます。    |
+
+**記録中の予告は、保存と同じ経路で作る**（`previewKeyWarnings`）。`withCommandKeys` で確定後のファイルを作り、それを読み直して判定する ── 別の推測で出さないため。たとえば既定の打鍵へ戻す場合は行を書かない（既定は前にある）ので、先に取っていた command に**負ける**ことがあり、予告も正しく「相手が動く」になる。
+
+#### 予約キー（`reservedKeys.ts`）
+
+割り当ての表（`defaults.ts`）の外で、すでに意味を持っている打鍵。**コードか実機で、その打鍵を誰かが使っていると確かめたものだけ**を載せる。
+
+| 理由                | 打鍵                                                   | 使われている場所（when）              | 重なるとどうなるか                                                              |
+| ------------------- | ------------------------------------------------------ | ------------------------------------- | ------------------------------------------------------------------------------- |
+| `textEditing`       | Ctrl+C / X / V / Z / Y / Shift+Z / A                   | どこでも                              | 入力欄でその操作ができなくなる（Provider が実行した打鍵の既定を止める）         |
+| `editorFind`        | Ctrl+F / H                                             | `editorFocused`                       | エディターの中では割り当てが効かない                                            |
+| `terminalFontSize`  | Ctrl+= / Shift+= / - / Shift+- / 0 / Shift+; / Shift+_ | `terminalFocused`                     | 端末の中で両方が動く（`terminalDisplay.ts` は `preventDefault` だけで伝播する） |
+| `terminalClipboard` | Ctrl+Insert / Ctrl+Shift+V                             | `terminalFocused`                     | 端末の中で重なる                                                                |
+| `gitCommit`         | Ctrl+Enter / Meta+Enter                                | `!editorFocused` / `!terminalFocused` | Commit 欄で両方が動く                                                           |
+| `filesRename`       | F2                                                     | `!editorFocused` / `!terminalFocused` | Files で両方が動く                                                              |
+| `commandPalette`    | Ctrl+P / Ctrl+Shift+P                                  | どこでも                              | 将来の版で重なる（§18.4 で空けてある席）                                        |
+| `imeToggle`         | Ctrl+バッククォート / Alt+バッククォート               | どこでも                              | 日本語配列の半角/全角の位置で、IME の切り替えとぶつかる                         |
+| `windowClose`       | Alt+F4                                                 | どこでも                              | ウィンドウが閉じる                                                              |
+
+- 端末の文字の大きさは `event.key` で見ているので（§18.4）、US 配列と日本語配列の両方で `+` / `=` / `-` / `_` / `0` になる物理キーを並べてある
+- **予約の側にも `when` を持たせ、割り当てる command の条件と重なるときだけ警告する。** `editor.renameSymbol` の F2 は `editorFocused` なので Files の F2 と重ならない ── **既定の割り当てはどれも自分で警告を出さない**（`reservedKeys.test.ts`）
+- Files / Git の Commit 欄は条件の名前を持たないので、「エディターでも端末でもない所」（`!editorFocused` / `!terminalFocused`）で表す
+- Monaco の打鍵をすべて並べることはしない。一覧の下の「エディターの中ではエディター自身の打鍵が優先」の注記で足りる
+
+「両方が動く」は S5 ではコードの伝播から判定したもので、**Shortcuts S6 で production build に実測した**（Git の Commit 欄の Ctrl+Enter・Files の F2・端末の Ctrl+-。DEVELOPMENT.md §4）。
+
+#### 読めない項目
+
+一覧の上に枠を出し、**2種類を分けて断る。**
+
+| 種類                                                        | 何を出すか                                              | 画面から何か1つ保存すると                                   |
+| ----------------------------------------------------------- | ------------------------------------------------------- | ----------------------------------------------------------- |
+| 読めない項目（知らない command・読めない打鍵・`when` 付き） | 書いてあった `command` / `key` / `when` と理由を1件ずつ | **残る**。消えるのは「すべてデフォルトへ戻す」だけ          |
+| 形の合わない項目（Main の `skippedCount`）                  | 件数と、保存すると消えること                            | **消える**（Renderer は中身を持っていないので書き戻せない） |
+
+位置（何件目か）は出さない。Main が形で落とした行を数えていないので、ファイルの位置と食い違う。
+
+### 18.12 Shortcuts S3〜S5 が動かした境界と、残っているもの（S6 時点）
+
+#### 境界
+
+| 境界                       | 変化                                                                                                            |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| IPC チャンネル             | `keybindings:load` / `keybindings:save` の**2本**（S3）                                                         |
+| `window.fluvix`            | 名前空間が1つ増えて **13**（`keybindings`）。口は `load` / `save` の2つ                                         |
+| `window.fluvix.settings`   | 変えていない（`load` / `saveSection` のまま）                                                                   |
+| `shared/`                  | `keybindings/`（型・上限・解除の印）と `ipc/contracts/keybindings.ts` を足した                                  |
+| Main の検証                | `store/keybindingsDocument.ts`（形だけ）を足した                                                                |
+| ディスクへの書き込み       | userData の `keybindings.json` と、壊れたファイルの退避 `keybindings.broken-*.json`。**Workspace には書かない** |
+| CSP                        | **1文字も変えていない**                                                                                         |
+| 既存の Esc（17箇所）       | 触っていない（記録欄は capture で先に受けるだけ。§18.10）                                                       |
+| Terminal の `Ctrl + ± / 0` | 触っていない（予約キーとして警告するだけ。§18.11）                                                              |
+| S4 / S5                    | Renderer だけ。Main / preload / shared / IPC は変えていない                                                     |
+
+Shortcuts S6 で、これらを production build に実測した（DEVELOPMENT.md §4）。
+
+#### 残っているもの
+
+| 項目                                    | 現状                                                                                                                                                 |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 取られた側の「デフォルトへ戻す」        | 同じ条件で打鍵を取られた command（例：「設定を開く」）は変更済みではないので出ない。取った側を戻すか、取られた側の打鍵を変更する（「変更」は使える） |
+| 形の合わない項目                        | 画面から何か1つ保存すると消える（画面で断っている。§18.11）                                                                                          |
+| 条件（`when`）の編集                    | 入れていない。既定から引き継ぐだけで、手で書いた `when` は読めない項目になる（§18.9）                                                                |
+| Workspace の割り当て                    | 入れていない（`KeybindingSource` の `'workspace'` は使われていない）                                                                                 |
+| Monaco の打鍵の変更                     | 入れていない。window 側の割り当てはエディターの中ではエディター自身の打鍵に負ける。変えるには Monaco の `addKeybindingRules` が要る                  |
+| Command Palette / 和音 / Mac の `cmd`   | §18.8 のまま                                                                                                                                         |
+| S1（Terminal の AI CLI モード）との統合 | 別ブランチ。統合時、AI CLI モードの Enter / Shift+Enter / Ctrl+Enter / Ctrl+V をこの章と予約キー（または S2 の組み込み一覧）に足す                   |
+| S2（組み込みの打鍵の行）との統合        | 別ブランチ。統合時、組み込みの行には編集ボタンを出さない。予約キーの表と組み込み一覧の打鍵を1つの出典に寄せるかを決める                              |
 
 ## 19. Language Server（LSP）
 
