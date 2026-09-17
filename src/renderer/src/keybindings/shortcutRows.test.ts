@@ -144,7 +144,10 @@ describe('buildShortcutRows', () => {
       { commandId: 'git.push', key: 'ctrl+enter', source: 'user' }
     ])
 
-    expect(result.find((row) => row.commandId === 'git.push')?.reserved).toEqual(['gitCommit'])
+    expect(result.find((row) => row.commandId === 'git.push')?.reserved).toEqual([
+      'gitCommit',
+      'terminalSubmit'
+    ])
   })
 
   it('検索に要る文字列が揃っている（Command / Keybinding）', () => {

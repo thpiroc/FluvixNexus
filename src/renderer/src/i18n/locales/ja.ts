@@ -1162,6 +1162,8 @@ export const jaMessages = {
             'ターミナルの文字の大きさの変更に使われている打鍵です。ターミナルの中で押すと、両方が動きます。',
           terminalClipboard:
             'ターミナルのコピー・貼り付けに使われている打鍵です。ターミナルの中では、その操作と重なります。',
+          terminalSubmit:
+            'ターミナルで入力の送信に使われている打鍵です（AI CLI モードのタブでは Ctrl+Enter で送信）。ターミナルの中では、この割り当ては効きません。',
           gitCommit:
             'Git の Commit メッセージ欄で Commit に使われている打鍵です。そこで押すと、Commit とこの操作の両方が動きます。',
           filesRename:
@@ -1199,7 +1201,9 @@ export const jaMessages = {
         },
         scopes: {
           editorAndInputs: 'エディター・入力欄',
-          editor: 'エディター'
+          editor: 'エディター',
+          terminalNormal: '通常のタブ',
+          terminalAiCli: 'AI CLI モードのタブ'
         },
         actions: {
           copy: 'コピー',
@@ -1214,6 +1218,9 @@ export const jaMessages = {
           terminalCopy: '選択範囲をコピー',
           terminalPaste: '貼り付け',
           terminalSendCtrlV: 'Ctrl+V をシェルへそのまま送る（貼り付けになるかはシェル次第）',
+          terminalAiCliNewline: '改行する（送信しない）',
+          terminalAiCliSubmit: '入力を送信する',
+          terminalAiCliPaste: 'クリップボードから貼り付け',
           terminalFontSizeIncrease: '文字を大きく',
           terminalFontSizeDecrease: '文字を小さく',
           terminalFontSizeReset: '文字の大きさを既定に戻す'

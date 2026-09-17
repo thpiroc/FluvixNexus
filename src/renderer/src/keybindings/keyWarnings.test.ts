@@ -158,7 +158,11 @@ describe('previewKeyWarnings（記録中の打鍵を確定したら）', () => {
   })
 
   it('予約キーは、その command の条件で判定する', () => {
-    expect(previewKeyWarnings([], 'git.push', null, 'ctrl+enter').reserved).toEqual(['gitCommit'])
+    /* git.push は条件を持たないので、Commit 欄と端末の両方に重なる（S1〜S6 統合）。 */
+    expect(previewKeyWarnings([], 'git.push', null, 'ctrl+enter').reserved).toEqual([
+      'gitCommit',
+      'terminalSubmit'
+    ])
     expect(previewKeyWarnings([], 'editor.goToDefinition', 'f12', 'ctrl+enter').reserved).toEqual(
       []
     )

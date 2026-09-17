@@ -480,7 +480,8 @@ describe('組み込みショートカット', () => {
     await openKeyboard()
 
     expect(groups().slice(-2)).toEqual(['builtin-editing', 'builtin-terminal'])
-    expect(builtinRows()).toHaveLength(15)
+    /* S2 の15行 ＋ S1〜S6 統合で足した AI CLI モードの3行。 */
+    expect(builtinRows()).toHaveLength(18)
     expect(container.textContent).toContain('編集（組み込み）')
     expect(container.textContent).toContain('ターミナル（組み込み）')
   })
@@ -522,6 +523,15 @@ describe('組み込みショートカット', () => {
     expect(keys('terminal.fontSizeIncrease')).toEqual(['Ctrl++', 'Ctrl+='])
     expect(keys('terminal.fontSizeDecrease')).toEqual(['Ctrl+-'])
     expect(keys('terminal.fontSizeReset')).toEqual(['Ctrl+0'])
+    expect(keys('terminal.aiCliNewline')).toEqual(['Enter', 'Shift+Enter'])
+    expect(keys('terminal.aiCliSubmit')).toEqual(['Ctrl+Enter'])
+    expect(keys('terminal.aiCliPaste')).toEqual(['Ctrl+V'])
+    expect(byTestId('settings-keyboard-builtin-terminal.aiCliPaste').textContent).toContain(
+      'AI CLI モードのタブ'
+    )
+    expect(byTestId('settings-keyboard-builtin-terminal.sendCtrlV').textContent).toContain(
+      '通常のタブ'
+    )
   })
 
   it('組み込みの行には「変更不可」の印が付き、Command の行には付かない', async () => {

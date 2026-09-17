@@ -30,18 +30,31 @@ import { formatKeybinding, parseKeybinding } from './chord'
  * 揃う。読める形で持っておくのは、S5 の「予約キーの警告」でそのまま照合に
  * 使えるようにするため（builtinShortcuts.test.ts が全件読めることを確かめる）。
  *
- * ## AI CLI モード（S1）の打鍵はまだ無い
+ * ## AI CLI モード（S1）の打鍵
  *
- * S1 と S2 は別々に main から分岐している。このブランチには AI CLI モードが
- * 無いので、その打鍵（Enter / Shift+Enter / Ctrl+Enter / Ctrl+V の読み替え）は
- * 並べていない ── 統合するときに `terminal` の群へ足す。
+ * S1 と S2 の統合で `terminal` の群へ足した。AI CLI モードはタブごとに切り替わり
+ * （terminal/terminalInputMode.ts）、同じ Ctrl+V が通常のタブとは違う動きになる。
+ * そのため Ctrl+V の2行には効く場所（通常のタブ / AI CLI モードのタブ）を付けて
+ * 読み分けられるようにしてある。
+ *
+ * ## 予約キーとの関係
+ *
+ * 割り当てられる打鍵（Ctrl / Alt / Meta 付き・F1〜F24）は、どれも予約キー
+ * （reservedKeys.ts）にも載っている ── 一覧で「組み込み」と見せている打鍵を
+ * command に割り当てようとしたとき、警告が出ないことが無いように。
+ * 2つの表は別に持ち、食い違わないことを builtinReservedKeys.test.ts が確かめる。
  */
 
 /** 一覧での見出し。Command のカテゴリとは別に、Command の群の後ろへ並ぶ。 */
 export type BuiltinShortcutGroup = 'editing' | 'terminal'
 
-/** どこで効くか。群の中で効く場所が行ごとに違う `editing` だけが持つ。 */
-export type BuiltinShortcutScope = 'editorAndInputs' | 'editor'
+/**
+ * どこで効くか。群の見出しだけでは足りない行が持つ。
+ *
+ *   editorAndInputs / editor … `editing` の群
+ *   terminalNormal / terminalAiCli … `terminal` の群で、AI CLI モードによって動きが変わる打鍵（S1）
+ */
+export type BuiltinShortcutScope = 'editorAndInputs' | 'editor' | 'terminalNormal' | 'terminalAiCli'
 
 export interface BuiltinShortcutDescriptor {
   /** 画面の目印（`data-testid`）。Command の id とは別の名前空間。 */
@@ -133,13 +146,37 @@ export const BUILTIN_SHORTCUTS: readonly BuiltinShortcutDescriptor[] = [
   /*
     Ctrl+V は xterm が `0x16` にしてシェルへ送る。貼り付けになるかはシェル次第
     （PowerShell の PSReadLine は貼り付けとして扱う）── 「Ctrl+V が効かない」と
-    読まれないよう、何が起きているかを1行で出しておく。
+    読まれないよう、何が起きているかを1行で出しておく。AI CLI モードのタブでは
+    貼り付けになる（下の行）。
   */
   {
     id: 'terminal.sendCtrlV',
     group: 'terminal',
     titleKey: 'settings.keyboard.builtin.actions.terminalSendCtrlV',
-    keys: ['ctrl+v']
+    keys: ['ctrl+v'],
+    scope: 'terminalNormal'
+  },
+  /* AI CLI モードのタブだけの読み替え（S1。terminal/terminalInputMode.ts）。 */
+  {
+    id: 'terminal.aiCliNewline',
+    group: 'terminal',
+    titleKey: 'settings.keyboard.builtin.actions.terminalAiCliNewline',
+    keys: ['enter', 'shift+enter'],
+    scope: 'terminalAiCli'
+  },
+  {
+    id: 'terminal.aiCliSubmit',
+    group: 'terminal',
+    titleKey: 'settings.keyboard.builtin.actions.terminalAiCliSubmit',
+    keys: ['ctrl+enter'],
+    scope: 'terminalAiCli'
+  },
+  {
+    id: 'terminal.aiCliPaste',
+    group: 'terminal',
+    titleKey: 'settings.keyboard.builtin.actions.terminalAiCliPaste',
+    keys: ['ctrl+v'],
+    scope: 'terminalAiCli'
   },
   /* `+` と `=`、`-` と `_` は同じ操作（日本語配列のため。terminalDisplay.ts）。 */
   {
@@ -169,7 +206,9 @@ const GROUP_TITLE_KEYS: Readonly<Record<BuiltinShortcutGroup, TranslationKey>> =
 
 const SCOPE_KEYS: Readonly<Record<BuiltinShortcutScope, TranslationKey>> = {
   editorAndInputs: 'settings.keyboard.builtin.scopes.editorAndInputs',
-  editor: 'settings.keyboard.builtin.scopes.editor'
+  editor: 'settings.keyboard.builtin.scopes.editor',
+  terminalNormal: 'settings.keyboard.builtin.scopes.terminalNormal',
+  terminalAiCli: 'settings.keyboard.builtin.scopes.terminalAiCli'
 }
 
 /** 画面に出す1行。Command の `ShortcutRow` と違い、変更も競合も持たない。 */

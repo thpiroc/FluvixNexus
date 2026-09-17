@@ -1190,6 +1190,8 @@ export const enMessages = {
             'Used to change the terminal font size. Pressing it in the terminal does both.',
           terminalClipboard:
             'Used for copy and paste in the terminal. Inside the terminal, it overlaps with those actions.',
+          terminalSubmit:
+            'Used by the terminal to send input (Ctrl+Enter in AI CLI mode tabs). Inside the terminal, this shortcut has no effect.',
           gitCommit:
             'Used to commit from the Git commit message box. Pressing it there does both the commit and this command.',
           filesRename:
@@ -1231,7 +1233,9 @@ export const enMessages = {
         },
         scopes: {
           editorAndInputs: 'Editor and text fields',
-          editor: 'Editor'
+          editor: 'Editor',
+          terminalNormal: 'Normal tabs',
+          terminalAiCli: 'AI CLI mode tabs'
         },
         actions: {
           copy: 'Copy',
@@ -1246,6 +1250,9 @@ export const enMessages = {
           terminalCopy: 'Copy selection',
           terminalPaste: 'Paste',
           terminalSendCtrlV: 'Send Ctrl+V to the shell as is (pastes only if the shell does)',
+          terminalAiCliNewline: 'Insert a new line (not sent)',
+          terminalAiCliSubmit: 'Send the input',
+          terminalAiCliPaste: 'Paste from the clipboard',
           terminalFontSizeIncrease: 'Increase font size',
           terminalFontSizeDecrease: 'Decrease font size',
           terminalFontSizeReset: 'Reset font size'

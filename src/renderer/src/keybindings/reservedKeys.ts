@@ -24,6 +24,7 @@ import { whenOverlaps, type WhenClause } from './when'
  * | `editorFind`       | Monaco の検索・置換（S2 で実機確認）                | エディターの中では割り当てが効かない |
  * | `terminalFontSize` | terminal/terminalDisplay.ts（preventDefault のみ）  | 端末の中で両方が動く |
  * | `terminalClipboard`| xterm のコピー・貼り付け（S2 で実機確認）            | 端末の中で重なる |
+ * | `terminalSubmit`   | xterm がシェルへ送る Ctrl+Enter（AI CLI モードでは送信。S1） | 端末の中では割り当てが効かない |
  * | `gitCommit`        | git/GitView.tsx の Commit 欄（preventDefault のみ） | Commit 欄で両方が動く |
  * | `filesRename`      | files/FileTree.tsx・FileColumns.tsx（preventDefault のみ） | Files で両方が動く |
  * | `commandPalette`   | defaults.ts が空けてある席                          | 将来の版で重なる |
@@ -47,6 +48,7 @@ export type ReservedKeyReason =
   | 'editorFind'
   | 'terminalFontSize'
   | 'terminalClipboard'
+  | 'terminalSubmit'
   | 'gitCommit'
   | 'filesRename'
   | 'commandPalette'
@@ -85,14 +87,31 @@ export const RESERVED_KEYS: readonly ReservedKey[] = [
 
       US … `=`（Equal）/ Shift+`=` で `+` / `-`（Minus）/ Shift+`-` で `_`
       JP … Shift+`;` で `+` / Shift+`-` で `=` / `-` / Shift+`\`（IntlRo → `_`）
+
+    `ctrl++` は記録では作られない（`event.code` 基準のため）が、組み込みの一覧が
+    その表記で見せており、keybindings.json に手で書くことはできる（S1〜S6 統合で追加）。
   */
   ...reserve(
-    ['ctrl+=', 'ctrl+shift+=', 'ctrl+-', 'ctrl+shift+-', 'ctrl+0', 'ctrl+shift+;', 'ctrl+shift+_'],
+    [
+      'ctrl++',
+      'ctrl+=',
+      'ctrl+shift+=',
+      'ctrl+-',
+      'ctrl+shift+-',
+      'ctrl+0',
+      'ctrl+shift+;',
+      'ctrl+shift+_'
+    ],
     'terminalFontSize',
     ['terminalFocused']
   ),
   ...reserve(['ctrl+insert', 'ctrl+shift+v'], 'terminalClipboard', ['terminalFocused']),
   ...reserve(['ctrl+enter', 'meta+enter'], 'gitCommit', OUTSIDE_EDITOR_AND_TERMINAL),
+  /*
+    端末の Ctrl+Enter は、通常のタブでは xterm が CR としてシェルへ送り、AI CLI モードの
+    タブでは送信として読み替える（S1）。どちらも伝播を止めるので、割り当てても端末の中では効かない。
+  */
+  ...reserve(['ctrl+enter'], 'terminalSubmit', ['terminalFocused']),
   ...reserve(['f2'], 'filesRename', OUTSIDE_EDITOR_AND_TERMINAL),
   ...reserve(['ctrl+p', 'ctrl+shift+p'], 'commandPalette', []),
   ...reserve(['ctrl+`', 'alt+`'], 'imeToggle', []),

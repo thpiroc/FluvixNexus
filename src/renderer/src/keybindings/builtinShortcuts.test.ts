@@ -81,6 +81,20 @@ describe('BUILTIN_SHORTCUTS', () => {
     expect(byId('terminal.fontSizeReset')?.keybindings).toEqual(['Ctrl+0'])
   })
 
+  /* S1〜S6 統合：AI CLI モードのタブだけの読み替え（terminal/terminalInputMode.ts）。 */
+  it('AI CLI モードの打鍵が、効く場所つきで並ぶ', () => {
+    expect(byId('terminal.aiCliNewline')?.keybindings).toEqual(['Enter', 'Shift+Enter'])
+    expect(byId('terminal.aiCliSubmit')?.keybindings).toEqual(['Ctrl+Enter'])
+    expect(byId('terminal.aiCliPaste')?.keybindings).toEqual(['Ctrl+V'])
+
+    for (const id of ['terminal.aiCliNewline', 'terminal.aiCliSubmit', 'terminal.aiCliPaste']) {
+      expect(byId(id)?.scope, id).toBe('AI CLI モードのタブ')
+    }
+
+    /* 同じ Ctrl+V の通常のタブの行は、通常のタブと断る。 */
+    expect(byId('terminal.sendCtrlV')?.scope).toBe('通常のタブ')
+  })
+
   /* 実機で何もしないと確かめた打鍵は、書き写さない（builtinShortcuts.ts の冒頭）。 */
   it('Terminal の Ctrl+Shift+C は並べない', () => {
     const terminal = rows
@@ -167,10 +181,11 @@ describe('filterBuiltinShortcutRows', () => {
   })
 
   /* 素の部分一致なので、`ctrl+v` は `Ctrl+Shift+V`（ターミナルの貼り付け）には当たらない。 */
-  it('Ctrl+V は編集とターミナルの両方に当たる', () => {
+  it('Ctrl+V は編集とターミナル（通常 / AI CLI モード）の行に当たる', () => {
     expect(filterBuiltinShortcutRows(rows, 'ctrl+v').map((row) => row.id)).toEqual([
       'editing.paste',
-      'terminal.sendCtrlV'
+      'terminal.sendCtrlV',
+      'terminal.aiCliPaste'
     ])
   })
 

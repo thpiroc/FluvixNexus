@@ -56,7 +56,8 @@ describe('reservedKeyReasons', () => {
   describe('条件が重なるときだけ', () => {
     it('Git の Ctrl+Enter：エディターの中だけの command なら重ならない', () => {
       expect(reservedKeyReasons('ctrl+enter', ['!terminalFocused'])).toEqual(['gitCommit'])
-      expect(reservedKeyReasons('ctrl+enter', [])).toEqual(['gitCommit'])
+      /* 条件の無い command は端末の中でも効く側なので、端末の Ctrl+Enter（S1〜S6 統合）とも重なる。 */
+      expect(reservedKeyReasons('ctrl+enter', [])).toEqual(['gitCommit', 'terminalSubmit'])
       expect(reservedKeyReasons('ctrl+enter', ['editorFocused', '!terminalFocused'])).toEqual([])
     })
 
