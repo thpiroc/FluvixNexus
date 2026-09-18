@@ -18,7 +18,7 @@ import { isMacOS } from '../platform'
 import { applySessionSecurityPolicy, applyWebContentsSecurityPolicy } from '../security'
 import { flushDebugBreakpointsDocument } from '../store/debugBreakpoints'
 import { flushDebugProfilesDocument } from '../store/debugProfiles'
-import { flushSettingsDocument } from '../store/settings'
+import { flushSettingsDocument, startSettingsScopeTracking } from '../store/settings'
 import { flushWorkspaceFolderDocument } from '../store/workspaceFolder'
 import { flushWorkspaceLayoutDocument } from '../store/workspaceLayout'
 import { stopTerminalSessions } from '../terminal/terminalSessions'
@@ -80,6 +80,12 @@ export function bootstrapApp(): void {
       答えを返すため（main/lsp/languageServers.ts）。
     */
     startLanguageServerHosting()
+
+    /*
+      ワークスペース設定の切り替えへの追従（feature/settings-scope）。Language Server の
+      設定より先に張る ── 受け手がそこで Workspace ごとの値へ切り替われるように。
+    */
+    startSettingsScopeTracking()
 
     /*
       Language Server を使うかどうか（Session 5-4）。**文書同期より先に読む** ──

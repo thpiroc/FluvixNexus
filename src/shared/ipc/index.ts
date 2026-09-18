@@ -116,7 +116,9 @@ export type {
 export type {
   LoadSettingsResponse,
   SaveSettingsSectionRequest,
-  SettingsIpcContract
+  SettingsIpcContract,
+  SettingsSaveTarget,
+  WorkspaceSettingsSnapshot
 } from './contracts/settings'
 export type {
   AddGitRemoteRequest,
@@ -197,4 +199,5 @@ export type {
   TerminalIpcEventContract,
   TerminalOutputEvent
 } from './events/terminal'
+export type { SettingsIpcEventContract, SettingsWorkspaceChangedEvent } from './events/settings'
 export type { WindowCloseRequestedEvent, WindowIpcEventContract } from './events/window'

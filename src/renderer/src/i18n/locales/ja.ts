@@ -956,6 +956,30 @@ export const jaMessages = {
     closeLabel: '設定を閉じる',
     categoryNavLabel: '設定のカテゴリ',
     missingControl: 'この設定を操作する UI がありません。',
+    /* ユーザー設定 / ワークスペース設定（feature/settings-scope）。 */
+    scope: {
+      aria: '編集する設定の種類',
+      user: 'ユーザー',
+      workspace: 'ワークスペース',
+      userDescription:
+        'ユーザー設定を編集しています。Fluvix Nexus で開くすべてのプロジェクトに適用されます。',
+      workspaceDescription:
+        '「{name}」のワークスペース設定を編集しています。このプロジェクトだけに適用され、ユーザー設定より優先されます。',
+      workspaceDescriptionNone:
+        'ワークスペース設定は、開いているプロジェクトだけに適用され、ユーザー設定より優先されます。',
+      noWorkspace: {
+        title: 'ワークスペースを開くと、このプロジェクト専用の設定を変更できます。',
+        note: 'ワークスペース設定はプロジェクトごとに保存され、そのプロジェクトでだけユーザー設定を上書きします。開くまでは、ユーザー設定がどこでも使われます。'
+      },
+      status: {
+        inherited: 'ユーザー設定を使用中',
+        overridden: 'このワークスペースで変更済み',
+        shadowedByWorkspace:
+          '開いているワークスペースでは、ワークスペース設定の値が優先されています。',
+        userOnly: 'この設定はユーザー設定でのみ変更できます。'
+      },
+      reset: 'ユーザー設定に戻す'
+    },
     categories: {
       general: {
         title: '一般',

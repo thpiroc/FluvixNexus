@@ -1,4 +1,8 @@
-import { isSettingsSectionId, type SettingsSectionId } from '@shared/settings'
+import {
+  isSettingsSectionId,
+  type SettingsSectionId,
+  type SettingsSections
+} from '@shared/settings'
 import type { TranslationKey } from '../i18n/messages'
 
 /**
@@ -80,15 +84,34 @@ export type SettingsCategoryId = SettingsValueCategoryId | 'keyboard'
  * `id` は画面の目印（`data-testid`）にも使う。`section` はその値が保存される
  * section で、**目録と保存形式が食い違っていないことを試せる**ようにするために持つ。
  */
-export interface SettingsItemDescriptor {
+interface SettingsItemDescriptorBase {
   readonly id: string
   /** 設定の名前（画面に出る）。 */
   readonly titleKey: TranslationKey
   /** 1行の説明。**無くても意味が通る名前**にしたうえで、補足だけを書く。 */
   readonly descriptionKey: TranslationKey
-  /** この項目の値が入る section（shared/settings/sections.ts）。 */
-  readonly section: SettingsSectionId
 }
+
+/**
+ * section と、その中でこの項目が読み書きする key（feature/settings-scope）。
+ *
+ * key を持つのは、ワークスペース設定で**この項目が上書きされているか**を画面が
+ * 判断し、「ユーザー設定に戻す」でどの key を外すかを決めるため。
+ * section と key の対応は型で縛ってある（別の section の key は書けない）。
+ */
+type SettingsItemLocation = {
+  readonly [Id in SettingsSectionId]: {
+    /** この項目の値が入る section（shared/settings/sections.ts）。 */
+    readonly section: Id
+    /** この項目が読み書きする key（1つ以上）。 */
+    readonly keys: readonly [
+      keyof SettingsSections[Id] & string,
+      ...(keyof SettingsSections[Id] & string)[]
+    ]
+  }
+}[SettingsSectionId]
+
+export type SettingsItemDescriptor = SettingsItemDescriptorBase & SettingsItemLocation
 
 /** どのカテゴリにも共通するもの（左の一覧と右の見出しが読む）。 */
 interface SettingsCategoryBase {
@@ -144,7 +167,8 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategoryDescriptor[] = [
         id: 'general.language',
         titleKey: 'settings.items.general.language.title',
         descriptionKey: 'settings.items.general.language.description',
-        section: 'general'
+        section: 'general',
+        keys: ['language']
       }
     ]
   },
@@ -158,7 +182,8 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategoryDescriptor[] = [
         id: 'appearance.theme',
         titleKey: 'settings.items.appearance.theme.title',
         descriptionKey: 'settings.items.appearance.theme.description',
-        section: 'appearance'
+        section: 'appearance',
+        keys: ['theme']
       }
     ]
   },
@@ -172,13 +197,15 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategoryDescriptor[] = [
         id: 'editor.autoSaveMode',
         titleKey: 'settings.items.editor.autoSaveMode.title',
         descriptionKey: 'settings.items.editor.autoSaveMode.description',
-        section: 'editor'
+        section: 'editor',
+        keys: ['autoSaveMode']
       },
       {
         id: 'editor.autoSaveDelayMs',
         titleKey: 'settings.items.editor.autoSaveDelayMs.title',
         descriptionKey: 'settings.items.editor.autoSaveDelayMs.description',
-        section: 'editor'
+        section: 'editor',
+        keys: ['autoSaveDelayMs']
       }
     ]
   },
@@ -192,13 +219,15 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategoryDescriptor[] = [
         id: 'lsp.enabled',
         titleKey: 'settings.items.lsp.enabled.title',
         descriptionKey: 'settings.items.lsp.enabled.description',
-        section: 'lsp'
+        section: 'lsp',
+        keys: ['enabled']
       },
       {
         id: 'lsp.servers',
         titleKey: 'settings.items.lsp.servers.title',
         descriptionKey: 'settings.items.lsp.servers.description',
-        section: 'lsp'
+        section: 'lsp',
+        keys: ['typescriptEnabled', 'pythonEnabled', 'csharpEnabled']
       }
     ]
   },
@@ -212,7 +241,8 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategoryDescriptor[] = [
         id: 'files.viewMode',
         titleKey: 'settings.items.files.viewMode.title',
         descriptionKey: 'settings.items.files.viewMode.description',
-        section: 'files'
+        section: 'files',
+        keys: ['viewMode']
       }
     ]
   },
@@ -226,13 +256,15 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategoryDescriptor[] = [
         id: 'terminal.fontSize',
         titleKey: 'settings.items.terminal.fontSize.title',
         descriptionKey: 'settings.items.terminal.fontSize.description',
-        section: 'terminal'
+        section: 'terminal',
+        keys: ['fontSize']
       },
       {
         id: 'terminal.scrollback',
         titleKey: 'settings.items.terminal.scrollback.title',
         descriptionKey: 'settings.items.terminal.scrollback.description',
-        section: 'terminal'
+        section: 'terminal',
+        keys: ['scrollback']
       }
     ]
   },

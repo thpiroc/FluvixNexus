@@ -21,6 +21,18 @@ export type {
 } from './sections'
 
 export {
+  getEffectiveSetting,
+  isOverriddenInWorkspace,
+  isSettingsScope,
+  isWorkspaceScopedSection,
+  resolveEffectiveSettings,
+  SETTINGS_SCOPES,
+  SETTINGS_SECTION_SCOPES
+} from './scope'
+
+export type { SettingsScope } from './scope'
+
+export {
   classifySettingsSchemaVersion,
   SETTINGS_DOCUMENT_MAX_BYTES,
   SETTINGS_PRESERVED_MAX_BYTES,

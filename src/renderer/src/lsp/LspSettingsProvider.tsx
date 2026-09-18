@@ -1,13 +1,7 @@
-import { useCallback, useMemo, type JSX, type ReactNode } from 'react'
-import {
-  DEFAULT_LANGUAGE_SERVER_PREFERENCES,
-  isSameLanguageServerPreferences,
-  normalizeLanguageServerPreferences,
-  toStoredLspSettings,
-  type LanguageServerId
-} from '@shared/lsp'
+import { useMemo, type JSX, type ReactNode } from 'react'
 import { useSettingsSection } from '../settings/useSettingsSection'
 import { LspSettingsContext } from './context'
+import { createLanguageServerSetters, LSP_SETTINGS_BINDING } from './lspSettingsBinding'
 
 /**
  * Language Server を使うかどうかを持つ器（Session 5-4）。
@@ -39,41 +33,10 @@ import { LspSettingsContext } from './context'
  * （renderer/src/lsp/useLanguageServerStatus.ts）。
  */
 export function LspSettingsProvider({ children }: { readonly children: ReactNode }): JSX.Element {
-  const { value: preferences, update } = useSettingsSection({
-    section: 'lsp',
-    initial: DEFAULT_LANGUAGE_SERVER_PREFERENCES,
-    fromStored: normalizeLanguageServerPreferences,
-    toStored: toStoredLspSettings,
-    label: 'Language Server の設定'
-  })
+  const { value: preferences, update } = useSettingsSection(LSP_SETTINGS_BINDING)
+  const setters = useMemo(() => createLanguageServerSetters(update), [update])
 
-  const setEnabled = useCallback(
-    (enabled: boolean): void => {
-      update((previous) => {
-        const next = { ...previous, enabled }
-
-        // 同じなら据え置く（保存と再描画が走り続ける経路を作らない）。
-        return isSameLanguageServerPreferences(previous, next) ? previous : next
-      })
-    },
-    [update]
-  )
-
-  const setServerEnabled = useCallback(
-    (id: LanguageServerId, enabled: boolean): void => {
-      update((previous) => {
-        const next = { ...previous, servers: { ...previous.servers, [id]: enabled } }
-
-        return isSameLanguageServerPreferences(previous, next) ? previous : next
-      })
-    },
-    [update]
-  )
-
-  const value = useMemo(
-    () => ({ preferences, setEnabled, setServerEnabled }),
-    [preferences, setEnabled, setServerEnabled]
-  )
+  const value = useMemo(() => ({ preferences, ...setters }), [preferences, setters])
 
   return <LspSettingsContext.Provider value={value}>{children}</LspSettingsContext.Provider>
 }

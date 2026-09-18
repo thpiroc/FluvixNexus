@@ -1,4 +1,5 @@
 import type { StoredEditorSettings } from '@shared/settings'
+import type { SettingsSectionBinding, SettingsValueUpdate } from '../settings/settingsBinding'
 
 /**
  * Auto Save の設定モデル。
@@ -154,5 +155,49 @@ export function describeAutoSaveMode(mode: AutoSaveMode): string {
 
     case 'onWindowChange':
       return '自動保存: ウィンドウを離れたら'
+  }
+}
+
+/* ------------------------------------------ 設定との行き来（feature/settings-scope） */
+
+/**
+ * `editor` section と Auto Save の設定の行き来。
+ *
+ * Editor（useEditorSession.ts）は実際に効く値として、Settings 画面は選んでいる
+ * scope の値として、**同じ binding** を読む（settings/useSettingsSection.ts）。
+ */
+export const AUTO_SAVE_SETTINGS_BINDING: SettingsSectionBinding<'editor', AutoSaveSettings> = {
+  section: 'editor',
+  initial: DEFAULT_AUTO_SAVE_SETTINGS,
+  fromStored: toAutoSaveSettings,
+  toStored: toEditorSettingsSection
+}
+
+export interface AutoSaveSetters {
+  readonly setAutoSaveMode: (mode: AutoSaveMode) => void
+  readonly setAutoSaveDelayMs: (delayMs: number) => void
+}
+
+/**
+ * Auto Save の設定を変える操作。
+ *
+ * Editor と Settings 画面の両方がこれを使う ── 渡す `update` が違うだけで
+ * （効く値へ書く / 選んでいる scope へ書く）、丸めと「同じなら据え置く」は1つになる。
+ * 上下限と丸めは `normalizeAutoSaveSettings` が持つ。
+ */
+export function createAutoSaveSetters(
+  update: SettingsValueUpdate<AutoSaveSettings>
+): AutoSaveSetters {
+  const apply = (change: (previous: AutoSaveSettings) => AutoSaveSettings): void => {
+    update((previous) => {
+      const next = normalizeAutoSaveSettings(change(previous))
+
+      return isSameAutoSaveSettings(previous, next) ? previous : next
+    })
+  }
+
+  return {
+    setAutoSaveMode: (mode) => apply((previous) => ({ ...previous, mode })),
+    setAutoSaveDelayMs: (delayMs) => apply((previous) => ({ ...previous, delayMs }))
   }
 }

@@ -973,6 +973,30 @@ export const enMessages = {
     closeLabel: 'Close Settings',
     categoryNavLabel: 'Settings categories',
     missingControl: 'This setting does not have a control yet.',
+    /* User / Workspace settings (feature/settings-scope). */
+    scope: {
+      aria: 'Which settings to edit',
+      user: 'User',
+      workspace: 'Workspace',
+      userDescription:
+        'Editing user settings. They apply to every project you open in Fluvix Nexus.',
+      workspaceDescription:
+        'Editing workspace settings for “{name}”. They apply only to this project and take priority over user settings.',
+      workspaceDescriptionNone:
+        'Workspace settings apply only to the open project and take priority over user settings.',
+      noWorkspace: {
+        title: 'Open a workspace to change settings just for that project.',
+        note: 'Workspace settings are saved per project and override your user settings only there. Until then, user settings apply everywhere.'
+      },
+      status: {
+        inherited: 'Using the user setting.',
+        overridden: 'Changed for this workspace',
+        shadowedByWorkspace:
+          'The open workspace has its own value for this, so the workspace setting is used there.',
+        userOnly: 'This can only be changed in user settings.'
+      },
+      reset: 'Use user setting'
+    },
     categories: {
       general: {
         title: 'General',

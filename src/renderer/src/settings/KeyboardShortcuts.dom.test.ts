@@ -11,6 +11,7 @@ import { useCommand } from '../commands/useCommand'
 import { EditorContext } from '../editor/context'
 import type { EditorController } from '../editor/useEditorSession'
 import { LanguageProvider } from '../i18n/LanguageProvider'
+import { SettingsScopeProvider } from './SettingsScopeProvider'
 import { KeybindingProvider } from '../keybindings/KeybindingProvider'
 import { WorkspaceFolderContext, type WorkspaceFolderController } from '../workspaceFolder/context'
 import { SettingsOverlay } from './SettingsOverlay'
@@ -31,14 +32,16 @@ import { SettingsOverlay } from './SettingsOverlay'
 
 const settingsStore = vi.hoisted(() => ({
   load: vi.fn(),
-  saveSection: vi.fn()
+  saveSection: vi.fn(),
+  onWorkspaceChanged: vi.fn(() => () => {})
 }))
 
 vi.mock('../api/fluvix', () => ({
   fluvix: {
     settings: {
       load: settingsStore.load,
-      saveSection: settingsStore.saveSection
+      saveSection: settingsStore.saveSection,
+      onWorkspaceChanged: settingsStore.onWorkspaceChanged
     }
   }
 }))
@@ -50,7 +53,10 @@ beforeEach(() => {
   ;(
     globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = true
-  settingsStore.load.mockResolvedValue({ ok: true, data: { sections: emptySettingsSections() } })
+  settingsStore.load.mockResolvedValue({
+    ok: true,
+    data: { user: emptySettingsSections(), workspace: null }
+  })
   settingsStore.saveSection.mockResolvedValue({ ok: true, data: undefined })
   container = document.createElement('div')
   document.body.append(container)
@@ -97,22 +103,26 @@ function Harness({ executed }: { readonly executed?: () => void }): ReactElement
   const [, force] = useState(0)
 
   return createElement(
-    LanguageProvider,
+    SettingsScopeProvider,
     null,
     createElement(
-      CommandProvider,
+      LanguageProvider,
       null,
       createElement(
-        WorkspaceFolderContext.Provider,
-        { value: mockWorkspace() },
+        CommandProvider,
+        null,
         createElement(
-          EditorContext.Provider,
-          { value: mockEditor() },
+          WorkspaceFolderContext.Provider,
+          { value: mockWorkspace() },
           createElement(
-            KeybindingProvider,
-            null,
-            executed === undefined ? null : createElement(Owner, { handler: executed }),
-            createElement(SettingsOverlay, { onClose: () => force((n) => n + 1) })
+            EditorContext.Provider,
+            { value: mockEditor() },
+            createElement(
+              KeybindingProvider,
+              null,
+              executed === undefined ? null : createElement(Owner, { handler: executed }),
+              createElement(SettingsOverlay, { onClose: () => force((n) => n + 1) })
+            )
           )
         )
       )

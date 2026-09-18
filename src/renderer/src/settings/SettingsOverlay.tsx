@@ -1,28 +1,49 @@
-import { useEffect, useState, type JSX } from 'react'
+import { useEffect, useMemo, useState, type JSX } from 'react'
+import {
+  isOverriddenInWorkspace,
+  isWorkspaceScopedSection,
+  SETTINGS_SCOPES,
+  type SettingsScope,
+  type SettingsSectionId
+} from '@shared/settings'
 import {
   AUTO_SAVE_DELAY_MAX_MS,
   AUTO_SAVE_DELAY_MIN_MS,
   AUTO_SAVE_MODES,
+  AUTO_SAVE_SETTINGS_BINDING,
+  createAutoSaveSetters,
   normalizeAutoSaveSettings,
   type AutoSaveMode
 } from '../editor/autoSave'
-import { useEditorContext } from '../editor/context'
 import {
+  createFilesViewSetters,
   FILES_VIEW_CHOICES,
+  FILES_VIEW_SETTINGS_BINDING,
   fromFilesViewChoice,
   toFilesViewChoice,
   type FilesViewChoice
 } from '../files/filesSettings'
-import { useFilesViewPreference } from '../files/FilesViewProvider'
 import { useI18n } from '../i18n/context'
-import { LANGUAGE_CHOICES } from '../i18n/languageSettings'
+import { readDocumentLanguage } from '../i18n/documentLanguage'
+import {
+  createLanguageSetters,
+  LANGUAGE_CHOICES,
+  LANGUAGE_SETTINGS_BINDING
+} from '../i18n/languageSettings'
 import type { TranslationKey } from '../i18n/messages'
-import { useLspSettings } from '../lsp/context'
 import { languageServerNameKey } from '../lsp/languageServerLabels'
+import { createLanguageServerSetters, LSP_SETTINGS_BINDING } from '../lsp/lspSettingsBinding'
 import { LANGUAGE_SERVER_IDS } from '@shared/lsp'
-import { useTerminal } from '../terminal/context'
-import { useTheme } from '../theme/context'
-import { APPEARANCE_THEME_CHOICES } from '../theme/appearanceSettings'
+import {
+  createTerminalDisplaySetters,
+  TERMINAL_DISPLAY_SETTINGS_BINDING
+} from '../terminal/terminalSettings'
+import {
+  APPEARANCE_SETTINGS_BINDING,
+  APPEARANCE_THEME_CHOICES,
+  createAppearanceSetters
+} from '../theme/appearanceSettings'
+import { readDocumentTheme } from '../theme/documentTheme'
 import {
   clampTerminalFontSize,
   clampTerminalScrollback,
@@ -33,6 +54,9 @@ import {
 } from '../terminal/terminalDisplay'
 import { NumberField } from '../ui/NumberField'
 import { KeyboardShortcutsView } from './KeyboardShortcutsView'
+import { useSettingsScope } from './scopeContext'
+import type { SettingsSectionBinding, SettingsValueUpdate } from './settingsBinding'
+import { useScopedSettingsSection } from './useSettingsSection'
 import {
   DEFAULT_SETTINGS_CATEGORY_ID,
   getSettingsCategory,
@@ -81,8 +105,8 @@ import './settings.css'
  *
  * ## 値は1つも持たない
  *
- * この面は state として**開いているカテゴリしか持たない。** 設定の値はすべて
- * 既存の Context / hook から読み、既存の setter へ返す。
+ * この面は state として**開いているカテゴリと、編集している scope しか持たない。**
+ * 設定の値はすべて既存の正本から読み、既存の変え方で返す。
  *
  * | 項目                      | 正本                                    | 既存 UI                       |
  * | ------------------------- | --------------------------------------- | ----------------------------- |
@@ -97,6 +121,23 @@ import './settings.css'
  * 「Settings で変えたのに Files パネルが変わらない」「ツールバーで変えたのに
  * Settings が古い値を出す」が生まれる。片方で変えればもう片方にもその場で出るのは、
  * 二重に持っていないからにほかならない。
+ *
+ * ## ユーザー設定 / ワークスペース設定（feature/settings-scope）
+ *
+ * 面の上に `ユーザー | ワークスペース` の切り替えを置き、**今どちらを編集しているかを
+ * 常に見せる**（面の本体に scope ごとの色の帯と説明が付く）。
+ *
+ *   ユーザー       … 行はユーザー設定の値を出し、変えるとユーザー設定へ書く
+ *   ワークスペース … 行はこのプロジェクトで実際に効く値を出し、変えるとワークスペース設定へ書く
+ *
+ * そのため行の操作 UI は、上の表の Context ではなく**選んでいる scope から見た値**を
+ * 読む（settings/useSettingsSection.ts の `useScopedSettingsSection`）。上の表の
+ * 正本と同じ binding・同じ変え方（`create…Setters`）を使うので、値の意味が
+ * 2つに割れることはなく、「同じ値を指す state をここに作らない」も変わらない
+ * ── 値は今も SettingsScopeProvider の1箇所にしか無い。
+ *
+ * Workspace を開いていないときにワークスペースを選んだ場合は、エラーにせず
+ * 「開けば変えられる」ことだけを案内する。
  *
  * ## 値を持たないカテゴリ（Session 4-7C）
  *
@@ -116,13 +157,19 @@ export function SettingsOverlay({ onClose }: { readonly onClose: () => void }): 
   const categories = listSettingsCategories()
 
   /*
-    開いているカテゴリ。**この面が持つ唯一の state。**
+    開いているカテゴリ。この面が持つ state は、これと下の scope の2つだけ。
 
     保存しないのは、Settings が「今どこを見ていたか」を覚えている必要が無いため
     ── 開くたびに Editor から始まる方が、どこを見ていたか思い出さずに済む。
   */
   const [categoryId, setCategoryId] = useState<SettingsCategoryId>(DEFAULT_SETTINGS_CATEGORY_ID)
   const category = getSettingsCategory(categoryId)
+
+  /*
+    編集している scope（feature/settings-scope）。これも保存しない ── 開くたびに
+    ユーザー設定から始まる方が、「気づかないうちにこのプロジェクトだけ変えていた」を防げる。
+  */
+  const [scope, setScope] = useState<SettingsScope>('user')
 
   /*
     Esc で閉じる。購読先が `window` なのは、面の中に focus が無くても効かせるため
@@ -168,6 +215,8 @@ export function SettingsOverlay({ onClose }: { readonly onClose: () => void }): 
         </button>
       </div>
 
+      <SettingsScopeBar scope={scope} onChange={setScope} />
+
       <div className="fx-settings__body">
         {/*
           カテゴリの一覧。上部バーの View / Layout のようなメニューにしなかったのは、
@@ -190,13 +239,18 @@ export function SettingsOverlay({ onClose }: { readonly onClose: () => void }): 
           ))}
         </nav>
 
-        <div className="fx-settings__content" data-category={category.id}>
+        <div
+          className="fx-settings__content"
+          data-category={category.id}
+          data-scope={scope}
+          data-testid="settings-content"
+        >
           <div className="fx-settings__heading">
             <h2 className="fx-settings__heading-title">{t(category.titleKey)}</h2>
             <p className="fx-settings__heading-note">{t(category.descriptionKey)}</p>
           </div>
 
-          <SettingsCategoryBody category={category} />
+          <SettingsCategoryBody category={category} scope={scope} />
         </div>
       </div>
     </div>
@@ -215,18 +269,30 @@ export function SettingsOverlay({ onClose }: { readonly onClose: () => void }): 
  * ── 中身の出ないカテゴリが黙って生まれることがない。
  */
 function SettingsCategoryBody({
-  category
+  category,
+  scope
 }: {
   readonly category: SettingsCategoryDescriptor
+  readonly scope: SettingsScope
 }): JSX.Element {
+  const { workspace } = useSettingsScope()
+
   if (category.kind === 'shortcuts') {
     return <KeyboardShortcutsView />
+  }
+
+  /*
+    Workspace を開いていないのにワークスペースを選んだ。エラーにはせず、
+    開けば何ができるかだけを言う（押せない行を並べると、壊れているように見える）。
+  */
+  if (scope === 'workspace' && workspace === null) {
+    return <WorkspaceSettingsUnavailable />
   }
 
   return (
     <>
       {category.items.map((item) => (
-        <SettingsRow key={item.id} item={item} />
+        <SettingsRow key={item.id} item={item} scope={scope} />
       ))}
     </>
   )
@@ -239,52 +305,230 @@ function SettingsCategoryBody({
  * 決め、**その値をどう操作するか**はここが決める。目録に操作 UI の種類まで
  * 持たせると、React を知らないはずの目録が React の都合を持つことになる。
  */
-function SettingsRow({ item }: { readonly item: SettingsItemDescriptor }): JSX.Element {
+function SettingsRow({
+  item,
+  scope
+}: {
+  readonly item: SettingsItemDescriptor
+  readonly scope: SettingsScope
+}): JSX.Element {
   const { t } = useI18n()
+  const { workspace } = useSettingsScope()
+
+  /*
+    ワークスペース設定で変えられない項目（表示言語。shared/settings/scope.ts）。
+    隠さずに出し、押せなくして理由を添える ── 隠すと「どこで変えるのか」が分からなくなる。
+  */
+  const locked = scope === 'workspace' && !isWorkspaceScopedSection(item.section)
+  const overridden = isOverriddenInWorkspace(workspace?.sections ?? null, item.section, item.keys)
 
   return (
-    <section className="fx-settings__row" data-item={item.id}>
+    <section
+      className="fx-settings__row"
+      data-item={item.id}
+      data-overridden={overridden}
+      data-locked={locked}
+    >
       <div className="fx-settings__row-main">
         <span className="fx-settings__row-title">{t(item.titleKey)}</span>
         <p className="fx-settings__row-note">{t(item.descriptionKey)}</p>
+        <SettingsRowScopeStatus item={item} scope={scope} locked={locked} overridden={overridden} />
       </div>
       <div className="fx-settings__row-control">
-        <SettingsControl item={item} />
+        {/*
+          fieldset の disabled は、中のボタン・select・数の欄をまとめて押せなくする
+          （操作 UI ごとに disabled を配らずに済む）。
+        */}
+        <fieldset className="fx-settings__row-fieldset" disabled={locked}>
+          <SettingsControl item={item} scope={scope} />
+        </fieldset>
       </div>
     </section>
   )
 }
 
-function SettingsControl({ item }: { readonly item: SettingsItemDescriptor }): JSX.Element {
+/**
+ * 行の scope の状態（どちらの値が効いているか）。
+ *
+ * | 選んでいる scope | 上書き | 出すもの                                                 |
+ * | ---------------- | ------ | -------------------------------------------------------- |
+ * | ワークスペース   | 無し   | 「ユーザー設定を使用中」                                 |
+ * | ワークスペース   | 有り   | 「このワークスペースで変更済み」＋「ユーザー設定に戻す」 |
+ * | ユーザー         | 有り   | 「このワークスペースではワークスペース設定が優先」       |
+ * | ユーザー         | 無し   | 何も出さない（ふだんの形を崩さない）                     |
+ */
+function SettingsRowScopeStatus({
+  item,
+  scope,
+  locked,
+  overridden
+}: {
+  readonly item: SettingsItemDescriptor
+  readonly scope: SettingsScope
+  readonly locked: boolean
+  readonly overridden: boolean
+}): JSX.Element | null {
+  const { t } = useI18n()
+  const { resetWorkspaceKeys } = useSettingsScope()
+  const testId = `settings-scope-status-${item.id}`
+
+  if (locked) {
+    return (
+      <p className="fx-settings__scope-status" data-state="locked" data-testid={testId}>
+        {t('settings.scope.status.userOnly')}
+      </p>
+    )
+  }
+
+  if (scope === 'user') {
+    return overridden ? (
+      <p className="fx-settings__scope-status" data-state="shadowed" data-testid={testId}>
+        {t('settings.scope.status.shadowedByWorkspace')}
+      </p>
+    ) : null
+  }
+
+  if (!overridden) {
+    return (
+      <p className="fx-settings__scope-status" data-state="inherited" data-testid={testId}>
+        {t('settings.scope.status.inherited')}
+      </p>
+    )
+  }
+
+  return (
+    <p className="fx-settings__scope-status" data-state="overridden" data-testid={testId}>
+      <span className="fx-settings__scope-badge">{t('settings.scope.status.overridden')}</span>
+      <button
+        type="button"
+        className="fx-settings__scope-reset"
+        data-testid={`settings-scope-reset-${item.id}`}
+        onClick={() => resetWorkspaceKeys(item.section, item.keys)}
+      >
+        {t('settings.scope.reset')}
+      </button>
+    </p>
+  )
+}
+
+/**
+ * 面の上の `ユーザー | ワークスペース` の切り替えと、今どちらを編集しているかの説明。
+ *
+ * 説明の文言を scope ごとに変えるのは、**切り替えたことが文字でも分かる**ようにするため
+ * （色だけに頼ると、Theme や色覚によっては違いが見えない）。
+ */
+function SettingsScopeBar({
+  scope,
+  onChange
+}: {
+  readonly scope: SettingsScope
+  readonly onChange: (scope: SettingsScope) => void
+}): JSX.Element {
+  const { t } = useI18n()
+  const { workspace } = useSettingsScope()
+
+  const description =
+    scope === 'user'
+      ? t('settings.scope.userDescription')
+      : workspace === null
+        ? t('settings.scope.workspaceDescriptionNone')
+        : t('settings.scope.workspaceDescription', { name: workspace.displayName })
+
+  return (
+    <div className="fx-settings__scope" data-scope={scope} data-testid="settings-scope">
+      <div className="fx-settings__scope-tabs" role="tablist" aria-label={t('settings.scope.aria')}>
+        {SETTINGS_SCOPES.map((entry) => (
+          <button
+            key={entry}
+            type="button"
+            role="tab"
+            className="fx-settings__scope-tab"
+            data-testid={`settings-scope-${entry}`}
+            data-active={entry === scope}
+            aria-selected={entry === scope}
+            onClick={() => onChange(entry)}
+          >
+            {t(entry === 'user' ? 'settings.scope.user' : 'settings.scope.workspace')}
+          </button>
+        ))}
+      </div>
+      <p className="fx-settings__scope-description" data-testid="settings-scope-description">
+        {description}
+      </p>
+    </div>
+  )
+}
+
+/** Workspace を開いていないときにワークスペースを選んだ場合の案内。 */
+function WorkspaceSettingsUnavailable(): JSX.Element {
+  const { t } = useI18n()
+
+  return (
+    <div className="fx-settings__scope-empty" data-testid="settings-workspace-unavailable">
+      <p className="fx-settings__scope-empty-title">{t('settings.scope.noWorkspace.title')}</p>
+      <p className="fx-settings__scope-empty-note">{t('settings.scope.noWorkspace.note')}</p>
+    </div>
+  )
+}
+
+/**
+ * 選んでいる scope から見た値と、その scope へ書く変え方。
+ *
+ * 変え方は各機能と同じ `create…Setters` を通す ── 違うのは、渡す update が
+ * 「効く値を決めている scope へ書く」か「選んでいる scope へ書く」かだけになる。
+ */
+function useScopedSetters<Id extends SettingsSectionId, T, S extends object>(
+  binding: SettingsSectionBinding<Id, T>,
+  scope: SettingsScope,
+  createSetters: (update: SettingsValueUpdate<T>) => S
+): { readonly value: T } & S {
+  const { value, update } = useScopedSettingsSection(binding, scope)
+  const setters = useMemo(() => createSetters(update), [createSetters, update])
+
+  return { value, ...setters }
+}
+
+/** 行の操作 UI が受け取るもの（どの scope から見た値を出し、どこへ書くか）。 */
+interface ScopeProps {
+  readonly scope: SettingsScope
+}
+
+function SettingsControl({
+  item,
+  scope
+}: {
+  readonly item: SettingsItemDescriptor
+  readonly scope: SettingsScope
+}): JSX.Element {
   const { t } = useI18n()
 
   switch (item.id) {
     case 'general.language':
-      return <LanguageControl />
+      return <LanguageControl scope={scope} />
 
     case 'editor.autoSaveMode':
-      return <AutoSaveModeControl />
+      return <AutoSaveModeControl scope={scope} />
 
     case 'editor.autoSaveDelayMs':
-      return <AutoSaveDelayControl />
+      return <AutoSaveDelayControl scope={scope} />
 
     case 'lsp.enabled':
-      return <LanguageServerEnabledControl />
+      return <LanguageServerEnabledControl scope={scope} />
 
     case 'lsp.servers':
-      return <LanguageServerChoicesControl />
+      return <LanguageServerChoicesControl scope={scope} />
 
     case 'files.viewMode':
-      return <FilesViewModeControl />
+      return <FilesViewModeControl scope={scope} />
 
     case 'terminal.fontSize':
-      return <TerminalFontSizeControl />
+      return <TerminalFontSizeControl scope={scope} />
 
     case 'terminal.scrollback':
-      return <TerminalScrollbackControl />
+      return <TerminalScrollbackControl scope={scope} />
 
     case 'appearance.theme':
-      return <AppearanceThemeControl />
+      return <AppearanceThemeControl scope={scope} />
 
     default:
       /*
@@ -298,8 +542,15 @@ function SettingsControl({ item }: { readonly item: SettingsItemDescriptor }): J
 
 /* ------------------------------------------------------------- General */
 
-function LanguageControl(): JSX.Element {
-  const { language, setLanguage, t } = useI18n()
+function LanguageControl({ scope }: ScopeProps): JSX.Element {
+  const { t } = useI18n()
+  // 読み込みが返る前は、Preload が当てた表示言語を出す（LanguageProvider と同じ）。
+  const { value, setLanguage } = useScopedSetters(
+    { ...LANGUAGE_SETTINGS_BINDING, initial: { language: readDocumentLanguage() } },
+    scope,
+    createLanguageSetters
+  )
+  const language = value.language
 
   return (
     <div
@@ -334,8 +585,12 @@ function LanguageControl(): JSX.Element {
  * 値も setter も既存のまま（`useEditorSession`）── 移ったのは並べる場所だけで、
  * 保存されるものも、その設定でどう動くかも変わっていない。
  */
-function AutoSaveModeControl(): JSX.Element {
-  const { autoSave, setAutoSaveMode } = useEditorContext()
+function AutoSaveModeControl({ scope }: ScopeProps): JSX.Element {
+  const { value: autoSave, setAutoSaveMode } = useScopedSetters(
+    AUTO_SAVE_SETTINGS_BINDING,
+    scope,
+    createAutoSaveSetters
+  )
   const { t } = useI18n()
 
   return (
@@ -371,8 +626,12 @@ function AutoSaveModeControl(): JSX.Element {
  * 意味（範囲）は見ない ── 二重に解釈すると「どちらの判断が正しいか」が
  * 生まれる（ARCHITECTURE.md §12.4）。
  */
-function AutoSaveDelayControl(): JSX.Element {
-  const { autoSave, setAutoSaveDelayMs } = useEditorContext()
+function AutoSaveDelayControl({ scope }: ScopeProps): JSX.Element {
+  const { value: autoSave, setAutoSaveDelayMs } = useScopedSetters(
+    AUTO_SAVE_SETTINGS_BINDING,
+    scope,
+    createAutoSaveSetters
+  )
   const { t } = useI18n()
 
   return (
@@ -420,8 +679,12 @@ function AutoSaveDelayControl(): JSX.Element {
  *
  * ここから IPC でサーバを操作することはしない（lsp/LspSettingsProvider.tsx）。
  */
-function LanguageServerEnabledControl(): JSX.Element {
-  const { preferences, setEnabled } = useLspSettings()
+function LanguageServerEnabledControl({ scope }: ScopeProps): JSX.Element {
+  const { value: preferences, setEnabled } = useScopedSetters(
+    LSP_SETTINGS_BINDING,
+    scope,
+    createLanguageServerSetters
+  )
   const { t } = useI18n()
 
   return (
@@ -474,8 +737,12 @@ const LSP_ENABLED_CHOICES: readonly boolean[] = [true, false]
  * 設定は使う意思で、状態は実際に動いているかで、混ぜると
  * 「入れていないのに ON になっている」が誤りに見えてしまう。
  */
-function LanguageServerChoicesControl(): JSX.Element {
-  const { preferences, setServerEnabled } = useLspSettings()
+function LanguageServerChoicesControl({ scope }: ScopeProps): JSX.Element {
+  const { value: preferences, setServerEnabled } = useScopedSetters(
+    LSP_SETTINGS_BINDING,
+    scope,
+    createLanguageServerSetters
+  )
   const { t } = useI18n()
 
   return (
@@ -516,8 +783,13 @@ function LanguageServerChoicesControl(): JSX.Element {
  * ツールバーは2つのボタン（押し方で `auto` へ戻す）だが、ここは3つ並べる ──
  * 理由は filesSettings.ts の `FilesViewChoice`。
  */
-function FilesViewModeControl(): JSX.Element {
-  const { preference, setPreference } = useFilesViewPreference()
+function FilesViewModeControl({ scope }: ScopeProps): JSX.Element {
+  const { value, setPreference } = useScopedSetters(
+    FILES_VIEW_SETTINGS_BINDING,
+    scope,
+    createFilesViewSetters
+  )
+  const preference = value.preference
   const { t } = useI18n()
   const current = toFilesViewChoice(preference)
 
@@ -555,8 +827,12 @@ function FilesViewModeControl(): JSX.Element {
  * そのたびに画面全体を覆う面を開くのは遠い。**値は1つ**で、どちらも
  * `useTerminalSettings` の `setFontSize` を通る（打鍵の Ctrl + ＋ / － も同じ）。
  */
-function TerminalFontSizeControl(): JSX.Element {
-  const { display, setFontSize } = useTerminal()
+function TerminalFontSizeControl({ scope }: ScopeProps): JSX.Element {
+  const { value: display, setFontSize } = useScopedSetters(
+    TERMINAL_DISPLAY_SETTINGS_BINDING,
+    scope,
+    createTerminalDisplaySetters
+  )
   const { t } = useI18n()
 
   return (
@@ -580,8 +856,12 @@ function TerminalFontSizeControl(): JSX.Element {
  * 移した理由は TerminalSettingsMenu.tsx ── 端末を見ながら決める値ではなく、
  * 一度決めたら滅多に触らない。同じ設定を変える口を2つ残さない。
  */
-function TerminalScrollbackControl(): JSX.Element {
-  const { display, setScrollback } = useTerminal()
+function TerminalScrollbackControl({ scope }: ScopeProps): JSX.Element {
+  const { value: display, setScrollback } = useScopedSetters(
+    TERMINAL_DISPLAY_SETTINGS_BINDING,
+    scope,
+    createTerminalDisplaySetters
+  )
   const { t } = useI18n()
 
   return (
@@ -623,8 +903,16 @@ function TerminalScrollbackControl(): JSX.Element {
  * 値を1つも持たないのは Session 4-3B からの前提で、Theme も例外にしない。
  * CSS も Monaco も xterm も、この setter を通った結果として切り替わる。
  */
-function AppearanceThemeControl(): JSX.Element {
-  const { settings, setTheme } = useTheme()
+function AppearanceThemeControl({ scope }: ScopeProps): JSX.Element {
+  /*
+    読み込みが返る前は、Preload が当てた Theme を出す（useAppearance.ts と同じ）。
+    既定（Dark）を出すと、Light の人には一瞬違う方が選ばれて見える。
+  */
+  const { value: settings, setTheme } = useScopedSetters(
+    { ...APPEARANCE_SETTINGS_BINDING, initial: { theme: readDocumentTheme() } },
+    scope,
+    createAppearanceSetters
+  )
   const { t } = useI18n()
 
   return (

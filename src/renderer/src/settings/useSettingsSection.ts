@@ -1,119 +1,121 @@
-import { useEffect, useRef, useState } from 'react'
-import type { SettingsSectionId, SettingsSections, SettingsSectionUpdate } from '@shared/settings'
-import { fluvix } from '../api/fluvix'
+import { useCallback, useMemo, useRef } from 'react'
+import type { SettingsScope, SettingsSectionId, SettingsSections } from '@shared/settings'
+import { useSettingsScope } from './scopeContext'
+import type { SettingsSectionBinding, SettingsValueUpdate } from './settingsBinding'
+import type { SettingsWriteTarget } from './settingsScopeState'
+
+export type { SettingsSectionBinding, SettingsValueUpdate } from './settingsBinding'
 
 /**
- * 設定 section 1つを、ディスクと行き来しながら持つ（Session 4-3A）。
+ * 設定 section 1つを、実行時の値として読み書きする（Session 4-3A。feature/settings-scope で改修）。
  *
- * Session 3-5 / 3-6-8 / 3-7-5 で、Editor・Files・Terminal のそれぞれが
- * **まったく同じ形**を持っていた。
+ * ## 各機能は scope を意識しない
  *
- *   1. 起動時に1度だけ読む
- *   2. 読み終わるまで保存を許さない（`loadedRef`）
- *   3. 値が変わったら保存する
- *   4. 読めなくても既定のまま先へ進む
+ * `useSettingsSection` が返すのは**実際に効く値**（key 単位で
+ * `ワークスペース設定 > ユーザー設定 > 既定`）で、呼ぶ側の Editor / Files / Terminal /
+ * Theme / Language / LSP は、その値がどちらの scope から来たかを知らない。
+ * 既定への落とし込み・上下限は今までどおり `fromStored` が持つ。
  *
- * 3箇所に写しがあるということは、**間違え方も3通りある**ということで、
- * 中でも 2 は落とすと表に出にくい（起動のたびに設定が既定へ戻るが、
- * 「設定が保存されない」ようにしか見えない）。保存先が1つになったこの Session で、
- * この形もここへ集約する。
+ * 書くときは、変わった key を**その key を今決めている scope**へ書く
+ * （settings/settingsScopeState.ts の `auto`）。
+ *
+ * ## Settings 画面だけは scope を選ぶ
+ *
+ * `useScopedSettingsSection` は、選んでいる scope から見た値を読み、その scope へ書く。
+ * 同じ binding を使うので、値の意味（既定・上下限・同じなら据え置く）は1つのまま。
  *
  * ## 読み終わるまで書かない
  *
- * `loadedRef` が要るのは、**既定値で上書きした後に読み込みが届く**のを防ぐため。
- * state の初期値は必ず既定なので、保存を先に許すと初回の描画で既定が書かれ、
- * その後に読み込んだ値が届く ── 起動のたびに設定が消える形になる。
- *
- * ## 読めなくても先へ進む
- *
- * 読み込みに失敗しても既定のまま進む。**設定が読めないことは、エディタや端末を
- * 使えない理由にならない**（壊れた JSON 1つでシェルが1本も立たない形にしない）。
+ * Session 4-3A からの約束。読み込み前は `initial` を返し、その間の書き込みは捨てる
+ * （既定で上書きした後に読み込みが届くと、起動のたびに設定が消える形になる）。
+ * 読み込みそのものは settings/SettingsScopeProvider.tsx が1度だけ行う。
  *
  * ## ここが知らないこと
  *
  * 既定値も、値の意味も、上下限も知らない ── それは呼ぶ側（editor/autoSave.ts・
- * files/filesSettings.ts・terminal/terminalSettings.ts）が持つ。ここが持つのは
- * 「いつ読み、いつ書くか」だけで、Session 3-5 からの分担をそのまま引き継いでいる。
+ * files/filesSettings.ts・terminal/terminalSettings.ts）が持つ。
  */
-
-export interface SettingsSectionBinding<Id extends SettingsSectionId, T> {
-  /** どの section を読み書きするか。 */
-  readonly section: Id
-  /** 読み込み前・読み込めなかったときの値。 */
-  readonly initial: T
-  /** 保存された section から、実行時の値へ（無い key は既定へ落とすこと）。 */
-  readonly fromStored: (stored: SettingsSections[Id]) => T
-  /** 実行時の値から、保存する section へ。 */
-  readonly toStored: (value: T) => SettingsSections[Id]
-  /** 読み込みに失敗したときの言い回し（例: 'Editor の設定'）。 */
-  readonly label: string
-}
 
 export interface SettingsSectionState<T> {
   readonly value: T
-  /**
-   * 直前の値から次の値を作る。
-   *
-   * 「同じなら据え置く」（前の値をそのまま返す）判断は呼ぶ側が持つ ──
-   * 何をもって同じとするかは値の意味を知っている側にしか決められず、
-   * ここで済ませると保存と再描画が走り続ける経路ができる。
-   */
-  readonly update: (change: (previous: T) => T) => void
+  /** 直前の値から次の値を作る（同じなら前の値を返すこと）。 */
+  readonly update: SettingsValueUpdate<T>
 }
 
+/** 各機能が使う。実際に効く値を読み、その key を今決めている scope へ書く。 */
 export function useSettingsSection<Id extends SettingsSectionId, T>(
   binding: SettingsSectionBinding<Id, T>
 ): SettingsSectionState<T> {
-  const [value, setValue] = useState<T>(binding.initial)
+  const { effective } = useSettingsScope()
+
+  return useBoundSection(binding, effective, 'auto')
+}
+
+/**
+ * Settings 画面が使う。選んでいる scope から見た値を読み、その scope へ書く。
+ *
+ *   `user`      … ユーザー設定の値（このプロジェクトで上書きしていても、ユーザー設定の値）
+ *   `workspace` … このプロジェクトで実際に効く値（上書きが無ければユーザー設定の値）
+ */
+export function useScopedSettingsSection<Id extends SettingsSectionId, T>(
+  binding: SettingsSectionBinding<Id, T>,
+  scope: SettingsScope
+): SettingsSectionState<T> {
+  const { ready, user, effective } = useSettingsScope()
+  const sections = !ready ? null : scope === 'user' ? user : effective
+
+  return useBoundSection(binding, sections, scope)
+}
+
+function useBoundSection<Id extends SettingsSectionId, T>(
+  binding: SettingsSectionBinding<Id, T>,
+  sections: SettingsSections | null,
+  target: SettingsWriteTarget
+): SettingsSectionState<T> {
+  const { writeSection } = useSettingsScope()
 
   /*
-    毎回の描画で作り直される関数を effect の依存に載せないための控え。
-    読み込みは1度きり・保存は値が変わったときだけ、という形を保つ。
+    毎回の描画で作り直される binding を依存に載せないための控え。
+    値は section の object が変わったときだけ作り直す（中身の変わらない section は
+    同じ object のまま届く。SettingsScopeProvider.tsx）。
   */
   const bindingRef = useRef(binding)
   bindingRef.current = binding
 
-  /** 読み込みが終わったか（終わるまで書かない。このファイルの冒頭）。 */
-  const loadedRef = useRef(false)
+  const stored = sections === null ? null : sections[binding.section]
 
-  useEffect(() => {
-    let cancelled = false
+  const value = useMemo(
+    () => (stored === null ? bindingRef.current.initial : bindingRef.current.fromStored(stored)),
+    [stored]
+  )
 
-    void fluvix.settings.load().then((result) => {
-      if (cancelled) {
+  const valueRef = useRef(value)
+  valueRef.current = value
+
+  const readyRef = useRef(sections !== null)
+  readyRef.current = sections !== null
+
+  const targetRef = useRef(target)
+  targetRef.current = target
+
+  const update = useCallback<SettingsValueUpdate<T>>(
+    (change) => {
+      const previous = valueRef.current
+      const next = change(previous)
+
+      // 同じなら据え置く（呼ぶ側が前の値を返した）。読み込み前は書かない（このファイルの冒頭）。
+      if (Object.is(next, previous) || !readyRef.current) {
         return
       }
 
-      const { section, fromStored, label } = bindingRef.current
+      const { section, toStored } = bindingRef.current
 
-      if (result.ok) {
-        setValue(fromStored(result.data.sections[section]))
-      } else {
-        console.warn(`[settings] ${label}を読み込めませんでした。`, result.error)
-      }
+      // 同じ描画の間に続けて届く更新（打鍵の連打など）が、この値から続きを作れるように。
+      valueRef.current = next
+      writeSection(section, toStored(previous), toStored(next), targetRef.current)
+    },
+    [writeSection]
+  )
 
-      loadedRef.current = true
-    })
-
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!loadedRef.current) {
-      return
-    }
-
-    const { section, toStored } = bindingRef.current
-
-    /*
-      section 名で値の型が決まるユニオン（SettingsSectionUpdate）を、
-      型引数のままでは組み立てられないためここだけ言い切る。
-      対応そのものは SettingsSectionBinding の型が保証している。
-    */
-    void fluvix.settings.saveSection({ section, value: toStored(value) } as SettingsSectionUpdate)
-  }, [value])
-
-  return { value, update: setValue }
+  return { value, update }
 }
