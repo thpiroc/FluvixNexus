@@ -184,7 +184,9 @@ function SettingsDomHarness(): ReactElement {
                     onApplyPreset: vi.fn(),
                     onResetLayout: vi.fn(),
                     settingsOpen,
-                    onOpenSettings: () => setSettingsOpen(true)
+                    onOpenSettings: () => setSettingsOpen(true),
+                    feedbackOpen: false,
+                    onOpenFeedback: vi.fn()
                   }),
                   createElement(FilesToolbarProbe),
                   createElement(TerminalSettingsMenu, {

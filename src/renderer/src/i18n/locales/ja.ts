@@ -1370,6 +1370,34 @@ export const jaMessages = {
       terminating: 'Debug Session を終了しています。'
     }
   },
+  /* 英語側（locales/en.ts の `feedback`）に説明がある。 */
+  feedback: {
+    title: 'フィードバック',
+    description:
+      '種別を選び、気づいたことを書いてください。このバージョンでは、内容はどこへも送信・保存されません。',
+    closeTitle: 'フィードバックを閉じる（Esc）',
+    closeLabel: 'フィードバックを閉じる',
+    categoryLabel: '種別',
+    categories: {
+      bug: 'バグ',
+      bad: 'Bad',
+      good: 'Good',
+      safety: '安全性チェック',
+      other: 'その他'
+    },
+    detailLabel: '詳細',
+    detailPlaceholder: '起きたこと・期待していた動き・良かった点などを書いてください。',
+    submit: '送信',
+    sending: '送信中…',
+    accepted: 'フィードバックを受け付けました。ありがとうございます。',
+    failed:
+      'フィードバックを受け付けられませんでした。入力内容は残してあります。もう一度お試しください。',
+    errors: {
+      categoryRequired: 'フィードバックの種別を選んでください。',
+      detailEmpty: '詳細を入力してください。',
+      detailBlank: '空白だけでは送信できません。内容を入力してください。'
+    }
+  },
   workspace: {
     noWorkspace: 'Workspace 未選択',
     noWorkspaceOpen: 'Workspace が開かれていません。',
@@ -1382,6 +1410,8 @@ export const jaMessages = {
     modified: '変更あり',
     settingsTitle: 'アプリ全体の設定を開きます。',
     settingsButton: '設定',
+    feedbackTitle: 'Fluvix Nexus へのフィードバックを書きます。',
+    feedbackButton: 'フィードバック',
     resetLayout: 'レイアウトを初期化',
     emptyDock: 'パネルがありません（View メニューから表示できます）',
     closePanel: '{title} を閉じる',

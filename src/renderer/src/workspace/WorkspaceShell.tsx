@@ -1,5 +1,7 @@
 import { useCallback, useMemo, useState, type CSSProperties, type JSX } from 'react'
 import { useCommand } from '../commands/useCommand'
+import { EMPTY_FEEDBACK_DRAFT, type FeedbackDraft } from '../feedback/feedbackForm'
+import { FeedbackOverlay } from '../feedback/FeedbackOverlay'
 import { useWhenFlag } from '../keybindings/useWhenFlag'
 import { SettingsOverlay } from '../settings/SettingsOverlay'
 import { useWorkspaceFolder } from '../workspaceFolder/context'
@@ -110,8 +112,29 @@ export function WorkspaceShell(): JSX.Element {
   */
   const [settingsOpen, setSettingsOpen] = useState(false)
 
-  const openSettings = useCallback((): void => setSettingsOpen(true), [])
+  /*
+    フィードバックの面（フィードバック機能 v1）。Settings と同じ理由でここが持つ
+    （レイアウトの外に出る面で、入口は上部バー・出す先は Shell 全体）。
+
+    下書きもここに持つ ── 面の中に持つと、閉じた瞬間に書きかけの詳細が消える
+    （feedback/FeedbackOverlay.tsx）。保存はしない（アプリを終えれば消える）。
+  */
+  const [feedbackOpen, setFeedbackOpen] = useState(false)
+  const [feedbackDraft, setFeedbackDraft] = useState<FeedbackDraft>(EMPTY_FEEDBACK_DRAFT)
+
+  /*
+    フィードバックを書いている間は、Ctrl+, で Settings を重ねない。
+    どちらの面も Esc で閉じるため、重なると1回の Esc で両方が閉じる。
+    （上部バーの入口は Settings の面に覆われるので、逆向きは起きない。）
+  */
+  const openSettings = useCallback((): void => {
+    if (!feedbackOpen) {
+      setSettingsOpen(true)
+    }
+  }, [feedbackOpen])
   const closeSettings = useCallback((): void => setSettingsOpen(false), [])
+  const openFeedback = useCallback((): void => setFeedbackOpen(true), [])
+  const closeFeedback = useCallback((): void => setFeedbackOpen(false), [])
 
   /*
     ------------------------------------------------ command（Session 4-7A）
@@ -183,8 +206,12 @@ export function WorkspaceShell(): JSX.Element {
     `settingsOpen` を外側の Provider へ持ち上げないための仕組み ── この面は
     レイアウトの木の外にあり、開く入口も出す先も Shell にしか無い、という
     上の判断を変えずに済む。
+
+    フィードバックの面も同じ条件として申告する。どちらも窓全体を覆う面で、
+    その裏で F5 / Ctrl+J などが走ると、見えない場所で Debug やパネルが動く
+    （`settingsOpen` が付いた打鍵は、ちょうど「覆われた作業の場を動かすもの」）。
   */
-  useWhenFlag('settingsOpen', settingsOpen)
+  useWhenFlag('settingsOpen', settingsOpen || feedbackOpen)
 
   // 保存済みレイアウトを読み終えるまでは枠だけを出す（数十 ms）。
   // Default を描いてから差し替えると、起動のたびに配置が飛んで見えるうえ、
@@ -220,6 +247,8 @@ export function WorkspaceShell(): JSX.Element {
         onResetLayout={resetLayout}
         settingsOpen={settingsOpen}
         onOpenSettings={openSettings}
+        feedbackOpen={feedbackOpen}
+        onOpenFeedback={openFeedback}
       />
 
       <div className="fx-workspace__main">
@@ -244,6 +273,15 @@ export function WorkspaceShell(): JSX.Element {
         読んで、既存の setter へ返すだけになる。
       */}
       {settingsOpen && <SettingsOverlay onClose={closeSettings} />}
+
+      {/* フィードバック（v1）。Settings と同じくレイアウトの木の外に重ねる。 */}
+      {feedbackOpen && (
+        <FeedbackOverlay
+          draft={feedbackDraft}
+          onDraftChange={setFeedbackDraft}
+          onClose={closeFeedback}
+        />
+      )}
     </div>
   )
 }

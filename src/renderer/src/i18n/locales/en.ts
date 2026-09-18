@@ -1415,6 +1415,36 @@ export const enMessages = {
       terminating: 'The debug session is ending.'
     }
   },
+  /*
+    フィードバックの面（feedback/FeedbackOverlay.tsx。フィードバック機能 v1）。
+    種別のうち Bad / Good は日本語側でも英語のまま出す（利用者が指定した表記）。
+  */
+  feedback: {
+    title: 'Feedback',
+    description:
+      'Choose a type and describe what you noticed. In this version, feedback is not sent or saved anywhere.',
+    closeTitle: 'Close feedback (Esc)',
+    closeLabel: 'Close feedback',
+    categoryLabel: 'Type',
+    categories: {
+      bug: 'Bug',
+      bad: 'Bad',
+      good: 'Good',
+      safety: 'Safety check',
+      other: 'Other'
+    },
+    detailLabel: 'Details',
+    detailPlaceholder: 'What happened, what you expected, or what you liked.',
+    submit: 'Send',
+    sending: 'Sending…',
+    accepted: 'Your feedback has been received. Thank you!',
+    failed: 'Your feedback could not be received. Your input has been kept; please try again.',
+    errors: {
+      categoryRequired: 'Choose a feedback type.',
+      detailEmpty: 'Enter the details.',
+      detailBlank: 'The details contain only spaces. Enter some content.'
+    }
+  },
   workspace: {
     noWorkspace: 'No Workspace',
     noWorkspaceOpen: 'No Workspace is open.',
@@ -1427,6 +1457,8 @@ export const enMessages = {
     modified: 'Modified',
     settingsTitle: 'Open app settings.',
     settingsButton: 'Settings',
+    feedbackTitle: 'Send feedback about Fluvix Nexus.',
+    feedbackButton: 'Feedback',
     resetLayout: 'Reset Layout',
     emptyDock: 'No panels. Use the View menu to show one.',
     closePanel: 'Close {title}',

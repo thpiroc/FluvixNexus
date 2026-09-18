@@ -51,6 +51,10 @@ interface WorkspaceTopBarProps {
   readonly settingsOpen: boolean
   /** アプリ全体の設定を開く（Session 4-3B）。 */
   readonly onOpenSettings: () => void
+  /** フィードバックの面を開いているか（ボタンの見た目に出す）。 */
+  readonly feedbackOpen: boolean
+  /** フィードバックの面を開く（フィードバック機能 v1）。 */
+  readonly onOpenFeedback: () => void
 }
 
 export function WorkspaceTopBar({
@@ -61,7 +65,9 @@ export function WorkspaceTopBar({
   onApplyPreset,
   onResetLayout,
   settingsOpen,
-  onOpenSettings
+  onOpenSettings,
+  feedbackOpen,
+  onOpenFeedback
 }: WorkspaceTopBarProps): JSX.Element {
   const { status, workspace, busy, openFolder, closeWorkspace } = useWorkspaceFolder()
   const { t } = useI18n()
@@ -144,7 +150,21 @@ export function WorkspaceTopBar({
         左から Workspace → View → Layout と、扱う範囲が狭いものから並んでいる。
         Settings はその並びに属さない（レイアウトを何も変えない）ので、
         「レイアウトを初期化」と同じく余白の向こう側に置く。
+
+        フィードバック（v1）も同じ理由で Settings の隣に置く ── どのパネルの
+        ものでもなく、レイアウトも変えない。面そのものは Shell が出す。
       */}
+      <button
+        type="button"
+        className="fx-topbar__button"
+        data-testid="topbar-feedback"
+        data-open={feedbackOpen}
+        onClick={onOpenFeedback}
+        title={t('workspace.feedbackTitle')}
+      >
+        {t('workspace.feedbackButton')}
+      </button>
+
       <button
         type="button"
         className="fx-topbar__button"

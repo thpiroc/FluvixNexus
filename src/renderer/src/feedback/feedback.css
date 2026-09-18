@@ -1,0 +1,223 @@
+/**
+ * フィードバックの面の見た目（feedback/FeedbackOverlay.tsx）。
+ *
+ * Settings の面（settings/settings.css）と同じ組み立て ── 窓いっぱいに敷き、
+ * 上に細いバー、その下に読む幅を絞った本体。選択肢の形も Settings の
+ * 選択肢（`.fx-settings__choice`）に揃えてある。
+ *
+ * 色・間隔は styles/theme.css の変数だけを使い、ここで生の値を書かないこと
+ * （Dark / Light のどちらでも同じ変数が定義されている）。
+ */
+
+.fx-feedback {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--fx-color-surface);
+  color: var(--fx-color-text);
+  font-size: var(--fx-font-size-md);
+}
+
+.fx-feedback__bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--fx-space-2);
+  padding: var(--fx-space-2) var(--fx-space-3);
+  border-bottom: 1px solid var(--fx-color-border);
+}
+
+.fx-feedback__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fx-color-text-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fx-feedback__close {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--fx-color-text-muted);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.fx-feedback__close:hover {
+  background: var(--fx-color-surface-hover);
+  color: var(--fx-color-text-strong);
+}
+
+.fx-feedback__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: var(--fx-space-4);
+  overflow-y: auto;
+}
+
+.fx-feedback__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-4);
+  max-width: 640px;
+}
+
+.fx-feedback__heading {
+  padding-bottom: var(--fx-space-2);
+  border-bottom: 1px solid var(--fx-color-border);
+}
+
+.fx-feedback__heading-title {
+  margin: 0;
+  color: var(--fx-color-text-strong);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.fx-feedback__heading-note {
+  margin: var(--fx-space-1) 0 0;
+  color: var(--fx-color-text-muted);
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-feedback__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-2);
+}
+
+.fx-feedback__label {
+  color: var(--fx-color-text-strong);
+  font-size: var(--fx-font-size-md);
+}
+
+/* 種別。窓が狭いときは折り返す（横にはみ出さない）。 */
+.fx-feedback__categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fx-space-1);
+}
+
+.fx-feedback__category {
+  padding: 2px var(--fx-space-3);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 2px;
+  background: var(--fx-color-surface-sunken);
+  color: var(--fx-color-text-muted);
+  font: inherit;
+  font-size: var(--fx-font-size-sm);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.fx-feedback__category:hover:not(:disabled) {
+  background: var(--fx-color-surface-hover);
+  color: var(--fx-color-text);
+}
+
+.fx-feedback__category[data-active='true'] {
+  background: var(--fx-color-surface-raised);
+  border-color: var(--fx-accent-blue);
+  color: var(--fx-color-text-strong);
+}
+
+.fx-feedback__category:focus-visible,
+.fx-feedback__submit:focus-visible {
+  outline: 1px solid var(--fx-accent-blue);
+  outline-offset: 1px;
+}
+
+/* 未選択のまま送信した後は、並び全体の枠で場所を示す（文言は下に出る）。 */
+.fx-feedback__categories[aria-invalid='true'] .fx-feedback__category {
+  border-color: var(--fx-color-danger);
+}
+
+/* 詳細。長く書けるよう縦にだけ伸ばせる。 */
+.fx-feedback__detail {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 160px;
+  padding: var(--fx-space-2);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 2px;
+  background: var(--fx-color-surface-sunken);
+  color: var(--fx-color-text-strong);
+  font: inherit;
+  font-size: var(--fx-font-size-md);
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.fx-feedback__detail::placeholder {
+  color: var(--fx-color-text-muted);
+}
+
+.fx-feedback__detail:focus {
+  outline: none;
+  border-color: var(--fx-accent-blue);
+}
+
+.fx-feedback__detail[aria-invalid='true'] {
+  border-color: var(--fx-color-danger);
+}
+
+.fx-feedback__error {
+  margin: 0;
+  color: var(--fx-color-danger);
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-feedback__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--fx-space-3);
+}
+
+.fx-feedback__submit {
+  padding: var(--fx-space-1) var(--fx-space-4);
+  border: 1px solid var(--fx-accent-blue);
+  border-radius: 2px;
+  background: var(--fx-color-surface-raised);
+  color: var(--fx-color-text-strong);
+  font: inherit;
+  font-size: var(--fx-font-size-sm);
+  cursor: pointer;
+}
+
+.fx-feedback__submit:hover:not(:disabled) {
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-feedback__submit:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.fx-feedback__status {
+  margin: 0;
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-feedback__status[data-outcome='accepted'] {
+  padding-left: var(--fx-space-2);
+  border-left: 2px solid var(--fx-accent-green);
+  color: var(--fx-color-text-strong);
+}
+
+.fx-feedback__status[data-outcome='failed'] {
+  color: var(--fx-color-danger);
+}
