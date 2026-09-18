@@ -104,7 +104,11 @@ export const IPC_CHANNELS = {
   DEBUG_DELETE_PROFILE: 'debug:delete-profile',
   DEBUG_START: 'debug:start',
   SETTINGS_LOAD: 'settings:load',
-  SETTINGS_SAVE_SECTION: 'settings:save-section'
+  SETTINGS_SAVE_SECTION: 'settings:save-section',
+  DIAGNOSTICS_GET_REPORT: 'diagnostics:get-report',
+  DIAGNOSTICS_COPY_REPORT: 'diagnostics:copy-report',
+  DIAGNOSTICS_CLEAR_ERRORS: 'diagnostics:clear-errors',
+  DIAGNOSTICS_REPORT_RENDERER_ERROR: 'diagnostics:report-renderer-error'
 } as const satisfies Record<string, IpcChannel>
 
 /**

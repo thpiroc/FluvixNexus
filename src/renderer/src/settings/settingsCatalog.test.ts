@@ -28,7 +28,7 @@ import {
  */
 
 describe('SETTINGS_CATEGORIES', () => {
-  it('General / Appearance / Editor / LSP / Files / Terminal / Keyboard がこの順に並ぶ', () => {
+  it('General / Appearance / Editor / LSP / Files / Terminal / Keyboard / Diagnostics がこの順に並ぶ', () => {
     expect(listSettingsCategories().map((category) => category.id)).toEqual([
       'general',
       'appearance',
@@ -36,7 +36,8 @@ describe('SETTINGS_CATEGORIES', () => {
       'lsp',
       'files',
       'terminal',
-      'keyboard'
+      'keyboard',
+      'diagnostics'
     ])
   })
 
@@ -59,11 +60,19 @@ describe('SETTINGS_CATEGORIES', () => {
     ])
   })
 
-  it('一覧表のカテゴリは Keyboard Shortcuts の1つだけで、末尾に置く', () => {
+  it('一覧表のカテゴリは Keyboard Shortcuts の1つだけで、値カテゴリの直後に置く', () => {
     const shortcuts = SETTINGS_CATEGORIES.filter((category) => category.kind === 'shortcuts')
 
     expect(shortcuts.map((category) => category.id)).toEqual(['keyboard'])
-    expect(SETTINGS_CATEGORIES[SETTINGS_CATEGORIES.length - 1].id).toBe('keyboard')
+    expect(SETTINGS_CATEGORIES[SETTINGS_CATEGORIES.length - 2].id).toBe('keyboard')
+  })
+
+  /* 診断情報は設定を変える場所ではないので、いちばん後ろに置く。 */
+  it('診断情報のカテゴリは1つだけで、末尾に置く', () => {
+    const diagnostics = SETTINGS_CATEGORIES.filter((category) => category.kind === 'diagnostics')
+
+    expect(diagnostics.map((category) => category.id)).toEqual(['diagnostics'])
+    expect(SETTINGS_CATEGORIES[SETTINGS_CATEGORIES.length - 1].id).toBe('diagnostics')
   })
 
   /* 値カテゴリの並びが `SETTINGS_SECTION_IDS` の前方一致のまま残ること。 */
@@ -214,6 +223,7 @@ describe('isSettingsCategoryId', () => {
     expect(isSettingsCategoryId('appearance')).toBe(true)
     expect(isSettingsCategoryId('general')).toBe(true)
     expect(isSettingsCategoryId('keyboard')).toBe(true)
+    expect(isSettingsCategoryId('diagnostics')).toBe(true)
     expect(isSettingsCategoryId(null)).toBe(false)
     expect(isSettingsCategoryId(3)).toBe(false)
   })

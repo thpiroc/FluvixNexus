@@ -69,6 +69,7 @@ import type {
   OpenLspDocumentRequest,
   SaveLspDocumentRequest
 } from './ipc/contracts/lsp'
+import type { ReportRendererErrorRequest } from './ipc/contracts/diagnostics'
 import type { IpcEventListener, IpcEventUnsubscribe } from './ipc/event'
 import type { SaveSettingsSectionRequest } from './ipc/contracts/settings'
 import type { PingRequest } from './ipc/contracts/system'
@@ -1223,6 +1224,25 @@ export interface DebugApi {
 }
 
 /**
+ * 診断情報とエラー記録（shared/ipc/contracts/diagnostics.ts）。
+ *
+ * 診断情報は Main が作って伏せたものだけが返る。コピーも Main が行い、
+ * Renderer から任意の文字列をクリップボードへ書く口にはしない。
+ */
+export interface DiagnosticsApi {
+  /** 診断情報を作って返す。 */
+  readonly getReport: () => IpcInvokeResult<'diagnostics:get-report'>
+  /** 診断情報を作り直して、クリップボードへ書く。 */
+  readonly copyReport: () => IpcInvokeResult<'diagnostics:copy-report'>
+  /** 保存しているエラー記録を消す。 */
+  readonly clearErrors: () => IpcInvokeResult<'diagnostics:clear-errors'>
+  /** 画面の中で捕まえられなかった例外を知らせる（renderer/src/diagnostics/）。 */
+  readonly reportRendererError: (
+    request: ReportRendererErrorRequest
+  ) => IpcInvokeResult<'diagnostics:report-renderer-error'>
+}
+
+/**
  * `window.fluvix` として Renderer に公開される API 全体。
  *
  * Files / Terminal / GitHub など OS に触れるドメイン API は、
@@ -1252,6 +1272,8 @@ export interface FluvixApi {
   readonly debug: DebugApi
   /** アプリの設定の永続化。 */
   readonly settings: SettingsApi
+  /** 診断情報とエラー記録。 */
+  readonly diagnostics: DiagnosticsApi
 }
 
 /** `window` に API を公開する際のキー。Preload と Renderer の双方から参照する。 */

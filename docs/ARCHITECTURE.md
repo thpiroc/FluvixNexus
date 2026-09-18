@@ -482,6 +482,24 @@ Renderer            window.fluvix.files.onChanged(listener) → 解除の関数
 
 置き場所が絶対パスで取れないとき（Electron を差し替えたテストの `app.getPath`）は黙って書かない ── 作業ディレクトリに `logs/` を作らないため。
 
+### 診断情報とエラー記録（feature/diagnostics）
+
+不具合の報告に添える情報を、利用者が **Settings →「診断情報」** で確かめてコピーできるようにした。集めて伏せるのは Main（`main/diagnostics/`）、形と文字列への整形は `shared/diagnostics/`、画面は `settings/DiagnosticsView.tsx`（`settingsCatalog.ts` の `kind: 'diagnostics'`。保存する値を持たないので Keyboard Shortcuts の後ろの末尾）。
+
+| 項目         | 決めたこと                                                                                                                                                                                                                       |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 診断情報     | 版・配布版か・ロケール・起動時間 / Electron・Chromium・Node.js・V8 / OS 名・版・arch・CPU 型番と数・メモリ / Main と全プロセスのメモリ / Workspace を開いているか・ウィンドウ数・Terminal 数・LSP と Debug の状態 / 最近のエラー |
+| 読まないもの | Workspace や userData の場所・ユーザー名・ホスト名・環境変数・設定の値・ファイルの中身。**読んでから伏せるのではなく、読まない**                                                                                                 |
+| エラー記録   | `userData/logs/error-reports.json`。Main の未捕捉例外（`uncaughtExceptionMonitor`）・Main の未処理 rejection・`render-process-gone` / `child-process-gone`（`clean-exit` 以外）・画面の未捕捉例外 / rejection                    |
+| 上限         | ファイルは 20 件（古い順に捨てる）。書く回数は1回の起動で同じものは1回・違うものも 30 件まで（`errorGate.ts`）。Renderer 側も 20 件まで。1件は name 120 字・message 1,000 字・stack 20 行 × 300 字                               |
+| 伏せ方       | ログと同じ（`logRedaction.ts`）に加え、message の `"…"` / `` `…` `` の中身 → `<text>`（JSON の断片などファイルの中身になりうる）。stack は `at …` の行だけを残し、パスはファイル名:行:桁 に縮める。読み直すときも伏せ直す        |
+| コピー       | `diagnostics:copy-report` で Main が作り直した文字列を Electron の `clipboard` へ書く。Web 権限（`clipboard-sanitized-write`）は開けていない。Renderer から任意の文字列を書ける口は無い                                          |
+| コピーの書式 | 英語の固定書式（`formatDiagnosticsReportText`）。画面の「コピーされる内容を表示」でそのまま確かめられる                                                                                                                          |
+
+**既存の挙動を変えない。** Main の未捕捉例外は `uncaughtException` ではなく `uncaughtExceptionMonitor` で拾う（前者にリスナーを足すと Electron のエラーダイアログが出なくなる）。Electron の Main は未処理 rejection で警告を出して動き続ける ── `unhandledRejection` にリスナーを足すとその警告が消えるので、同じ内容を logger から出す（動き続けることは変わらない。実機で確認）。Renderer の `error` / `unhandledrejection` は `preventDefault` しない。ResizeObserver loop・`Script error.`・Monaco の `Canceled`・`AbortError` は送らない。
+
+**フィードバック送信へつなぐとき。** `main/diagnostics/index.ts` の `getDiagnosticsReport()` / `getDiagnosticsReportText()` を呼ぶ。`DiagnosticsReport` は画面の都合を持たない形で、`schemaVersion` で見分けられる。送る前に利用者へ中身を見せる（このカテゴリと同じく）ことを前提にしている。minidump（`crashReporter`）は、メモリの中身（ファイルや token）を含みうるので入れていない。
+
 ---
 
 ## 5. セキュリティの現状

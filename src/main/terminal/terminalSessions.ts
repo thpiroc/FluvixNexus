@@ -288,6 +288,19 @@ export function resizeTerminalSession(sessionId: string, size: TerminalSize): bo
  * Renderer が受け取るものに OS のものを混ぜない
  * （shared/terminal/session.ts）という線をここでも守る。
  */
+/** 動いているセッションの数（診断情報用。main/diagnostics/。数だけで、id も pid も返さない）。 */
+export function countTerminalSessions(): number {
+  let count = 0
+
+  for (const record of sessions.values()) {
+    if (!record.closed) {
+      count += 1
+    }
+  }
+
+  return count
+}
+
 export async function listBusyTerminalSessions(): Promise<readonly string[]> {
   const live = [...sessions.values()].filter((record) => !record.closed)
 

@@ -1,6 +1,7 @@
 export { FLUVIX_API_KEY } from './api'
 export type {
   DebugApi,
+  DiagnosticsApi,
   EnvApi,
   FilesApi,
   FluvixApi,

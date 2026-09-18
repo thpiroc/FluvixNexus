@@ -396,3 +396,177 @@
 .fx-shortcuts__note:last-child {
   margin-bottom: 0;
 }
+
+/*
+ * 診断情報（settings/DiagnosticsView.tsx）。
+ *
+ * 読むだけの面で、押せるのはコピー・再読み込み・エラー記録の消去の3つ。
+ * 色・間隔は styles/theme.css の変数だけを使う（Keyboard Shortcuts と同じ）。
+ */
+.fx-diagnostics {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-3);
+  max-width: 720px;
+}
+
+.fx-diagnostics__toolbar,
+.fx-diagnostics__section-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fx-space-2);
+  align-items: center;
+}
+
+.fx-diagnostics__section-head {
+  justify-content: space-between;
+}
+
+.fx-diagnostics__button {
+  padding: var(--fx-space-1) var(--fx-space-2);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 2px;
+  background: var(--fx-color-surface-sunken);
+  color: var(--fx-color-text);
+  font: inherit;
+  font-size: var(--fx-font-size-sm);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.fx-diagnostics__button:hover:not(:disabled) {
+  background: var(--fx-color-surface-hover);
+  color: var(--fx-color-text-strong);
+}
+
+.fx-diagnostics__button:disabled {
+  color: var(--fx-color-text-muted);
+  cursor: default;
+  opacity: 0.6;
+}
+
+.fx-diagnostics__button--primary {
+  border-color: var(--fx-accent-blue);
+  color: var(--fx-color-text-strong);
+}
+
+.fx-diagnostics__notice {
+  color: var(--fx-color-text-muted);
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-diagnostics__notice[data-tone='error'],
+.fx-diagnostics__error {
+  color: var(--fx-color-danger);
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-diagnostics__note {
+  margin: 0;
+  color: var(--fx-color-text-muted);
+  font-size: var(--fx-font-size-sm);
+  line-height: 1.5;
+}
+
+.fx-diagnostics__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-1);
+}
+
+.fx-diagnostics__section-title {
+  margin: 0;
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--fx-color-border);
+  color: var(--fx-color-text-muted);
+  font-size: var(--fx-font-size-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.fx-diagnostics__section-head .fx-diagnostics__section-title {
+  flex: 1 1 auto;
+}
+
+.fx-diagnostics__fields {
+  margin: 0;
+}
+
+.fx-diagnostics__field {
+  display: flex;
+  gap: var(--fx-space-3);
+  padding: 2px 0;
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-diagnostics__field dt {
+  flex: 0 0 200px;
+  color: var(--fx-color-text-muted);
+}
+
+.fx-diagnostics__field dd {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  color: var(--fx-color-text-strong);
+  overflow-wrap: anywhere;
+}
+
+.fx-diagnostics__errors {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fx-diagnostics__error-item {
+  padding: var(--fx-space-2);
+  border: 1px solid var(--fx-color-border);
+  border-radius: 2px;
+  background: var(--fx-color-surface-sunken);
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-diagnostics__error-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fx-space-2);
+  justify-content: space-between;
+  color: var(--fx-color-text-muted);
+}
+
+.fx-diagnostics__error-item[data-severity='fatal'] .fx-diagnostics__error-kind {
+  color: var(--fx-color-danger);
+}
+
+.fx-diagnostics__error-message {
+  margin-top: var(--fx-space-1);
+  color: var(--fx-color-text-strong);
+  overflow-wrap: anywhere;
+}
+
+.fx-diagnostics__preview summary,
+.fx-diagnostics__error-item summary {
+  color: var(--fx-color-text-muted);
+  font-size: var(--fx-font-size-sm);
+  cursor: pointer;
+}
+
+.fx-diagnostics__text {
+  max-height: 320px;
+  margin: var(--fx-space-1) 0 0;
+  padding: var(--fx-space-2);
+  overflow: auto;
+  border: 1px solid var(--fx-color-border);
+  border-radius: 2px;
+  background: var(--fx-color-surface-sunken);
+  color: var(--fx-color-text);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: var(--fx-font-size-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}

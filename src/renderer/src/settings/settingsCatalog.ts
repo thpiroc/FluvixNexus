@@ -66,13 +66,19 @@ import type { TranslationKey } from '../i18n/messages'
  * 値カテゴリがこの配列の前方にそのまま残るようにするためでもある。
  *
  * `shared/settings/sections.ts` は Session 4-7C で1行も変えていない。
+ *
+ * ## 診断情報（`kind: 'diagnostics'`）
+ *
+ * Keyboard Shortcuts と同じく**保存する値を1つも持たない**カテゴリで、
+ * Main が作った診断情報を読んで並べ、コピーするだけの場所（DiagnosticsView.tsx）。
+ * 設定を変える場所ではないので、Keyboard Shortcuts のさらに後ろ（末尾）に置く。
  */
 
 /** 値の項目が並ぶカテゴリ。**`SettingsSectionId` と1対1**（並びも同じ）。 */
 export type SettingsValueCategoryId = SettingsSectionId
 
 /** Settings 画面のカテゴリ。**中身のあるものだけ**を並べる。 */
-export type SettingsCategoryId = SettingsValueCategoryId | 'keyboard'
+export type SettingsCategoryId = SettingsValueCategoryId | 'keyboard' | 'diagnostics'
 
 /**
  * 1つの設定項目。
@@ -119,8 +125,19 @@ export interface SettingsShortcutsCategoryDescriptor extends SettingsCategoryBas
   readonly id: 'keyboard'
 }
 
+/**
+ * 診断情報のカテゴリ。`items` を持たない ── 並べるものは Main から実行時に届く
+ * （shared/diagnostics）。
+ */
+export interface SettingsDiagnosticsCategoryDescriptor extends SettingsCategoryBase {
+  readonly kind: 'diagnostics'
+  readonly id: 'diagnostics'
+}
+
 export type SettingsCategoryDescriptor =
-  SettingsItemsCategoryDescriptor | SettingsShortcutsCategoryDescriptor
+  | SettingsItemsCategoryDescriptor
+  | SettingsShortcutsCategoryDescriptor
+  | SettingsDiagnosticsCategoryDescriptor
 
 /**
  * 並ぶものすべて。
@@ -241,6 +258,12 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategoryDescriptor[] = [
     id: 'keyboard',
     titleKey: 'settings.categories.keyboard.title',
     descriptionKey: 'settings.categories.keyboard.description'
+  },
+  {
+    kind: 'diagnostics',
+    id: 'diagnostics',
+    titleKey: 'settings.categories.diagnostics.title',
+    descriptionKey: 'settings.categories.diagnostics.description'
   }
 ]
 

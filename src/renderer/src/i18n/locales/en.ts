@@ -1002,6 +1002,11 @@ export const enMessages = {
       keyboard: {
         title: 'Keyboard Shortcuts',
         description: 'Keys assigned to app commands. This version is view-only.'
+      },
+      diagnostics: {
+        title: 'Diagnostics',
+        description:
+          'Information that helps investigate errors and crashes. Review it here and copy it when you report a problem.'
       }
     },
     items: {
@@ -1146,6 +1151,75 @@ export const enMessages = {
         default: 'Default',
         user: 'User',
         workspace: 'Workspace'
+      }
+    },
+    /*
+      診断情報（settings/DiagnosticsView.tsx）。
+
+      画面の見出しと欄の名前だけを訳す。コピーされる文字列は英語の固定の書式
+      （shared/diagnostics/report.ts の formatDiagnosticsReportText）── 読むのは
+      報告を受け取る開発者で、利用者の表示言語で形が変わると読み比べられない。
+    */
+    diagnostics: {
+      copy: 'Copy diagnostics',
+      refresh: 'Refresh',
+      copied: 'Copied to the clipboard.',
+      copyFailed: 'Could not copy the diagnostics.',
+      clearErrors: 'Clear error records',
+      cleared: 'Error records were cleared.',
+      clearFailed: 'Could not clear the error records.',
+      loading: 'Collecting diagnostics…',
+      loadFailed: 'Could not collect the diagnostics.',
+      privacyNote:
+        'Diagnostics do not include file paths, user names, file contents, source code, passwords, API keys, or tokens. Paths in error details are masked.',
+      preview: 'Show the text that will be copied',
+      noErrors: 'No errors have been recorded.',
+      errorCount: 'Showing {shown} of {stored} recorded errors (newest first).',
+      stack: 'Stack trace',
+      sections: {
+        app: 'Application',
+        system: 'System',
+        runtime: 'Runtime',
+        state: 'Current state',
+        errors: 'Recent errors'
+      },
+      fields: {
+        version: 'Version',
+        build: 'Build',
+        locale: 'Locale',
+        uptime: 'Uptime',
+        os: 'OS',
+        osVersion: 'OS version',
+        arch: 'CPU architecture',
+        cpu: 'CPU',
+        memory: 'Memory',
+        electron: 'Electron',
+        chrome: 'Chromium',
+        node: 'Node.js',
+        v8: 'V8',
+        mainProcess: 'Main process memory',
+        allProcesses: 'All processes memory',
+        workspace: 'Workspace open',
+        windows: 'Windows',
+        terminals: 'Terminal sessions',
+        languageServers: 'Language servers',
+        debugSession: 'Debug session'
+      },
+      values: {
+        installed: 'Installed',
+        development: 'Development',
+        yes: 'Yes',
+        no: 'No',
+        unknown: 'Unknown',
+        memory: '{total} total, {free} free'
+      },
+      errorKinds: {
+        'main-uncaught-exception': 'Uncaught exception (main process)',
+        'main-unhandled-rejection': 'Unhandled promise rejection (main process)',
+        'renderer-process-gone': 'Window process ended unexpectedly',
+        'child-process-gone': 'Helper process ended unexpectedly',
+        'renderer-error': 'Uncaught exception (window)',
+        'renderer-unhandled-rejection': 'Unhandled promise rejection (window)'
       }
     }
   },

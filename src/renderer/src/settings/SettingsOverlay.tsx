@@ -32,6 +32,7 @@ import {
   TERMINAL_SCROLLBACK_MIN
 } from '../terminal/terminalDisplay'
 import { NumberField } from '../ui/NumberField'
+import { DiagnosticsView } from './DiagnosticsView'
 import { KeyboardShortcutsView } from './KeyboardShortcutsView'
 import {
   DEFAULT_SETTINGS_CATEGORY_ID,
@@ -210,6 +211,7 @@ export function SettingsOverlay({ onClose }: { readonly onClose: () => void }): 
  *
  *   `items`     … 値の項目が並ぶ（Session 4-3B からの形）
  *   `shortcuts` … Command と打鍵の一覧表（閲覧専用）
+ *   `diagnostics` … 診断情報（閲覧とコピーのみ。DiagnosticsView.tsx）
  *
  * 判別可能なユニオンなので、3つめの `kind` を足すと**ここが型エラーになる**
  * ── 中身の出ないカテゴリが黙って生まれることがない。
@@ -221,6 +223,10 @@ function SettingsCategoryBody({
 }): JSX.Element {
   if (category.kind === 'shortcuts') {
     return <KeyboardShortcutsView />
+  }
+
+  if (category.kind === 'diagnostics') {
+    return <DiagnosticsView />
   }
 
   return (

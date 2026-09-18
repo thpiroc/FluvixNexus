@@ -1,5 +1,6 @@
 import type { FluvixApi } from '@shared/api'
 import { debugApi } from './debug'
+import { diagnosticsApi } from './diagnostics'
 import { envApi } from './env'
 import { filesApi } from './files'
 import { gitApi } from './git'
@@ -38,5 +39,6 @@ export const api: FluvixApi = {
   github: githubApi,
   lsp: lspApi,
   debug: debugApi,
-  settings: settingsApi
+  settings: settingsApi,
+  diagnostics: diagnosticsApi
 }

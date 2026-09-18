@@ -985,6 +985,11 @@ export const jaMessages = {
       keyboard: {
         title: 'キーボードショートカット',
         description: 'アプリの操作に割り当てられている打鍵の一覧。この版は閲覧のみです。'
+      },
+      diagnostics: {
+        title: '診断情報',
+        description:
+          'エラーやクラッシュの原因を調べるための情報。内容をここで確かめ、不具合を報告するときにコピーして添えてください。'
       }
     },
     items: {
@@ -1124,6 +1129,69 @@ export const jaMessages = {
         default: '既定',
         user: 'ユーザー',
         workspace: 'Workspace'
+      }
+    },
+    /* 英語側（locales/en.ts の `settings.diagnostics`）に、コピーする文字列を訳さない理由がある。 */
+    diagnostics: {
+      copy: '診断情報をコピー',
+      refresh: '再読み込み',
+      copied: 'クリップボードにコピーしました。',
+      copyFailed: '診断情報をコピーできませんでした。',
+      clearErrors: 'エラー記録を消去',
+      cleared: 'エラー記録を消去しました。',
+      clearFailed: 'エラー記録を消去できませんでした。',
+      loading: '診断情報を集めています…',
+      loadFailed: '診断情報を取得できませんでした。',
+      privacyNote:
+        '診断情報には、ファイルのパス・ユーザー名・ファイルの内容・ソースコード・パスワード・API キー・認証トークンは含まれません。エラーの詳細に含まれるパスは伏せてあります。',
+      preview: 'コピーされる内容を表示',
+      noErrors: '記録されたエラーはありません。',
+      errorCount: '記録されている {stored} 件のうち、新しい {shown} 件を表示しています。',
+      stack: 'スタックトレース',
+      sections: {
+        app: 'アプリ',
+        system: 'システム',
+        runtime: '実行環境',
+        state: '現在の状態',
+        errors: '最近のエラー'
+      },
+      fields: {
+        version: 'バージョン',
+        build: 'ビルド',
+        locale: 'ロケール',
+        uptime: '起動してからの時間',
+        os: 'OS',
+        osVersion: 'OS バージョン',
+        arch: 'CPU アーキテクチャ',
+        cpu: 'CPU',
+        memory: 'メモリ',
+        electron: 'Electron',
+        chrome: 'Chromium',
+        node: 'Node.js',
+        v8: 'V8',
+        mainProcess: 'Main プロセスのメモリ',
+        allProcesses: '全プロセスのメモリ',
+        workspace: 'Workspace を開いているか',
+        windows: 'ウィンドウ数',
+        terminals: 'ターミナルのセッション数',
+        languageServers: '言語サーバー',
+        debugSession: 'デバッグセッション'
+      },
+      values: {
+        installed: 'インストール版',
+        development: '開発版',
+        yes: 'はい',
+        no: 'いいえ',
+        unknown: '不明',
+        memory: '合計 {total}・空き {free}'
+      },
+      errorKinds: {
+        'main-uncaught-exception': '未捕捉の例外（Main プロセス）',
+        'main-unhandled-rejection': '未処理の Promise の失敗（Main プロセス）',
+        'renderer-process-gone': '画面のプロセスが異常終了',
+        'child-process-gone': '補助プロセスが異常終了',
+        'renderer-error': '未捕捉の例外（画面）',
+        'renderer-unhandled-rejection': '未処理の Promise の失敗（画面）'
       }
     }
   },

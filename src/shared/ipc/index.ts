@@ -114,6 +114,12 @@ export type {
   ToggleDebugBreakpointRequest
 } from './contracts/debug'
 export type {
+  CopyDiagnosticsReportResponse,
+  DiagnosticsIpcContract,
+  RendererErrorSource,
+  ReportRendererErrorRequest
+} from './contracts/diagnostics'
+export type {
   LoadSettingsResponse,
   SaveSettingsSectionRequest,
   SettingsIpcContract

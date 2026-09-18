@@ -6,6 +6,7 @@ import { startDebugBreakpointHosting } from '../debug/breakpoints'
 import { startDebugCallStackHosting } from '../debug/callStack'
 import { startDebugConsoleHosting } from '../debug/console'
 import { disposeDebugSession, startDebugSessionHosting } from '../debug/debugSessionManager'
+import { startErrorCapture } from '../diagnostics'
 import { startDebugSessionStatusReporting } from '../debug/sessionStatus'
 import { startDebugVariablesHosting } from '../debug/variables'
 import { startLanguageServerDiagnostics } from '../lsp/diagnostics'
@@ -46,6 +47,13 @@ export function bootstrapApp(): void {
     app.quit()
     return
   }
+
+  /*
+    重大なエラー（Main の未捕捉例外・画面や補助プロセスの異常終了）を記録し始める。
+    **多重起動の判定より後** ── 2つ目のプロセスが同じ記録ファイルを書かないため。
+    ready より前に張るのは、起動の途中で落ちたものも残すため（main/diagnostics/）。
+  */
+  startErrorCapture()
 
   // 2つ目の起動が試みられたら、既に開いているウィンドウを前面に出す。
   app.on('second-instance', () => {
