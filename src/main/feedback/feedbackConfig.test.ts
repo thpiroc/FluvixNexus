@@ -138,7 +138,7 @@ describe('normalizeNotionDatabaseId', () => {
   })
 
   it('data source の URL（collection://）は受け付けず、ログで分かる', () => {
-    const dataSource = 'collection://544d860a-0195-4f39-ad9e-2ae9f582bf56'
+    const dataSource = 'collection://11111111-2222-3333-4444-555555555555'
 
     expect(normalizeNotionDatabaseId(dataSource)).toBeNull()
 
