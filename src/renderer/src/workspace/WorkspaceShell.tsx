@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState, type CSSProperties, type JSX } from 're
 import { useCommand } from '../commands/useCommand'
 import { EMPTY_FEEDBACK_DRAFT, type FeedbackDraft } from '../feedback/feedbackForm'
 import { FeedbackOverlay } from '../feedback/FeedbackOverlay'
+import { ipcFeedbackSender } from '../feedback/feedbackSender'
 import { useWhenFlag } from '../keybindings/useWhenFlag'
 import { SettingsOverlay } from '../settings/SettingsOverlay'
 import { useWorkspaceFolder } from '../workspaceFolder/context'
@@ -280,6 +281,7 @@ export function WorkspaceShell(): JSX.Element {
           draft={feedbackDraft}
           onDraftChange={setFeedbackDraft}
           onClose={closeFeedback}
+          sender={ipcFeedbackSender}
         />
       )}
     </div>

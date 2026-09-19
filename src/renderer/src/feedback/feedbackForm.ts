@@ -9,10 +9,13 @@
  * **何が送れる入力か**の判断を画面と送り先の両方に書かずに済むようにするため。
  */
 
-/** 選べる種別。並びがそのまま画面の並びになる。 */
-export const FEEDBACK_CATEGORY_IDS = ['bug', 'bad', 'good', 'safety', 'other'] as const
+import { FEEDBACK_CATEGORY_IDS, type FeedbackCategoryId } from '@shared/feedback'
 
-export type FeedbackCategoryId = (typeof FEEDBACK_CATEGORY_IDS)[number]
+/**
+ * 選べる種別。並びがそのまま画面の並びになる。
+ * 保存する側（Main）も同じ並びを見るため、定義は shared/feedback に置いてある。
+ */
+export { FEEDBACK_CATEGORY_IDS, type FeedbackCategoryId }
 
 /** 入力途中の状態。種別は未選択（`null`）から始まる。 */
 export interface FeedbackDraft {

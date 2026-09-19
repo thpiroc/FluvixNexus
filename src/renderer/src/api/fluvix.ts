@@ -60,5 +60,8 @@ export const fluvix: FluvixApi = {
   },
   get settings() {
     return bridge().settings
+  },
+  get feedback() {
+    return bridge().feedback
   }
 }

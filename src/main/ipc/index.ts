@@ -1,4 +1,5 @@
 import { registerDebugHandlers } from './handlers/debug'
+import { registerFeedbackHandlers } from './handlers/feedback'
 import { registerFilesHandlers } from './handlers/files'
 import { registerGitHandlers } from './handlers/git'
 import { registerGitHubHandlers } from './handlers/github'
@@ -28,7 +29,8 @@ const handlerRegistrations: readonly (() => void)[] = [
   registerGitHandlers,
   registerGitHubHandlers,
   registerLspHandlers,
-  registerDebugHandlers
+  registerDebugHandlers,
+  registerFeedbackHandlers
 ]
 
 export function registerIpcHandlers(): void {

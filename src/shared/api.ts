@@ -71,6 +71,7 @@ import type {
 } from './ipc/contracts/lsp'
 import type { IpcEventListener, IpcEventUnsubscribe } from './ipc/event'
 import type { SaveSettingsSectionRequest } from './ipc/contracts/settings'
+import type { SubmitFeedbackRequest } from './ipc/contracts/feedback'
 import type { PingRequest } from './ipc/contracts/system'
 import type {
   CreateTerminalSessionRequest,
@@ -1223,6 +1224,17 @@ export interface DebugApi {
 }
 
 /**
+ * フィードバックを送る API。
+ *
+ * 渡せるのは種別と詳細だけで、送信日時・バージョン・OS は Main が付ける。
+ * 保存先とその秘密情報（Notion の token など）は Main の外へ出ない
+ * （shared/ipc/contracts/feedback.ts）。
+ */
+export interface FeedbackApi {
+  readonly submit: (request: SubmitFeedbackRequest) => IpcInvokeResult<'feedback:submit'>
+}
+
+/**
  * `window.fluvix` として Renderer に公開される API 全体。
  *
  * Files / Terminal / GitHub など OS に触れるドメイン API は、
@@ -1252,6 +1264,8 @@ export interface FluvixApi {
   readonly debug: DebugApi
   /** アプリの設定の永続化。 */
   readonly settings: SettingsApi
+  /** フィードバックを設定済みの保存先（Notion など）へ送る。 */
+  readonly feedback: FeedbackApi
 }
 
 /** `window` に API を公開する際のキー。Preload と Renderer の双方から参照する。 */

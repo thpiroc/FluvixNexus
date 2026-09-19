@@ -1,3 +1,4 @@
+import { fluvix } from '../api/fluvix'
 import type { FeedbackSubmission } from './feedbackForm'
 
 /**
@@ -24,4 +25,22 @@ export type FeedbackSendResult = { readonly ok: true } | { readonly ok: false }
  */
 export const localFeedbackSender: FeedbackSender = {
   send: async () => ({ ok: true })
+}
+
+/**
+ * Main を経由して、設定済みの保存先（Notion など）へ送る。
+ *
+ * どこへ送るか・秘密情報は Main が持ち（main/feedback/）、ここは種別と詳細を
+ * 渡すだけ。保存先が設定されていなければ Main は何もせず成功を返す
+ * ── 画面から見た振る舞いは `localFeedbackSender` と同じになる。
+ */
+export const ipcFeedbackSender: FeedbackSender = {
+  send: async (submission) => {
+    const result = await fluvix.feedback.submit({
+      category: submission.category,
+      detail: submission.detail
+    })
+
+    return result.ok ? { ok: true } : { ok: false }
+  }
 }

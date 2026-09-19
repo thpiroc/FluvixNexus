@@ -114,6 +114,11 @@ export type {
   ToggleDebugBreakpointRequest
 } from './contracts/debug'
 export type {
+  FeedbackIpcContract,
+  SubmitFeedbackRequest,
+  SubmitFeedbackResponse
+} from './contracts/feedback'
+export type {
   LoadSettingsResponse,
   SaveSettingsSectionRequest,
   SettingsIpcContract
