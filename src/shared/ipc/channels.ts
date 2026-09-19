@@ -105,7 +105,10 @@ export const IPC_CHANNELS = {
   DEBUG_START: 'debug:start',
   SETTINGS_LOAD: 'settings:load',
   SETTINGS_SAVE_SECTION: 'settings:save-section',
-  FEEDBACK_SUBMIT: 'feedback:submit'
+  FEEDBACK_SUBMIT: 'feedback:submit',
+  MCP_GET_STATUS: 'mcp:get-status',
+  MCP_TEST_CONNECTION: 'mcp:test-connection',
+  MCP_CALL_OPERATION: 'mcp:call-operation'
 } as const satisfies Record<string, IpcChannel>
 
 /**

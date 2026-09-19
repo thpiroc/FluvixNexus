@@ -14,6 +14,7 @@ import { startLanguageServerSettings } from '../lsp/languageServerSettings'
 import { startLanguageServerHosting, stopLanguageServers } from '../lsp/languageServers'
 import { startLanguageServerStatusReporting } from '../lsp/serverStatus'
 import { createLogger } from '../logger'
+import { stopMcpConnections } from '../mcp/mcpService'
 import { isMacOS } from '../platform'
 import { applySessionSecurityPolicy, applyWebContentsSecurityPolicy } from '../security'
 import { flushDebugBreakpointsDocument } from '../store/debugBreakpoints'
@@ -209,6 +210,12 @@ export function bootstrapApp(): void {
       Renderer へ adapter executable / args / cwd を露出する口はまだ無い。
     */
     disposeDebugSession('the application is quitting.')
+
+    /*
+      MCP サーバー（接続テストの途中など）も Main の子プロセスなので終わらせる
+      （main/mcp/mcpService.ts）。
+    */
+    stopMcpConnections()
 
     flushWorkspaceLayoutDocument()
     flushWorkspaceFolderDocument()

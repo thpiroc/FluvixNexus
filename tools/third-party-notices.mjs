@@ -21,6 +21,11 @@ import { fileURLToPath } from 'url'
  * 2. 1 のパッケージが実行時に要るもの（`dependencies` と、**この環境に入っている**
  *    `optionalDependencies`）を辿ったもの。`peerDependencies` は辿らない（持ち主は別に数える）
  *
+ * 3. src が import しないが、**配布物へそのまま写すパッケージ**（`BUNDLED_PACKAGES`）と、
+ *    それが実行時に要るもの。同梱する MCP サーバー（electron-builder.yml の `extraResources`）が
+ *    これにあたる。写すのは依存をまとめた1ファイルだが、中身は依存のコードそのものなので、
+ *    依存を辿って全部載せる（載せ過ぎる側に倒す）
+ *
  * Electron は数えない。Electron / Chromium / Node.js のライセンスは electron-builder が
  * `LICENSE.electron.txt` / `LICENSES.chromium.html` としてインストール先へ置く。
  *
@@ -31,6 +36,12 @@ import { fileURLToPath } from 'url'
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const OUTPUT = join(ROOT, 'THIRD_PARTY_NOTICES.txt')
 const SOURCE_ROOT = join(ROOT, 'src')
+
+/**
+ * src が import せず、electron-builder.yml の `extraResources` で配布物へ写すパッケージ（冒頭の 3）。
+ * 写す設定を足したら、ここにも足す。
+ */
+const BUNDLED_PACKAGES = ['@notionhq/notion-mcp-server']
 
 /** 数えないパッケージ（理由は冒頭）。 */
 const EXCLUDED_PACKAGES = new Set(['electron'])
@@ -98,15 +109,23 @@ function toPackageName(specifier) {
   return name
 }
 
-function readPackage(name) {
-  const directory = join(ROOT, 'node_modules', ...name.split('/'))
-  const manifestPath = join(directory, 'package.json')
+/**
+ * パッケージを探す。Node と同じく、依存元のフォルダの `node_modules` から ROOT まで親へ辿る
+ * ── 版が食い違う依存は、依存元の下に入れ子で置かれる（ROOT の node_modules には無い）。
+ */
+function readPackage(name, from = ROOT) {
+  for (let base = from; ; base = dirname(base)) {
+    const directory = join(base, 'node_modules', ...name.split('/'))
+    const manifestPath = join(directory, 'package.json')
 
-  if (!existsSync(manifestPath)) {
-    return null
+    if (existsSync(manifestPath)) {
+      return { directory, manifest: JSON.parse(readFileSync(manifestPath, 'utf8')) }
+    }
+
+    if (base === ROOT || dirname(base) === base) {
+      return null
+    }
   }
-
-  return { directory, manifest: JSON.parse(readFileSync(manifestPath, 'utf8')) }
 }
 
 function collectPackages() {
@@ -122,11 +141,15 @@ function collectPackages() {
     }
   }
 
+  for (const name of BUNDLED_PACKAGES) {
+    direct.add(name)
+  }
+
   const packages = new Map()
-  const queue = [...direct].map((name) => ({ name, optional: false }))
+  const queue = [...direct].map((name) => ({ name, optional: false, from: ROOT }))
 
   while (queue.length > 0) {
-    const { name, optional } = queue.shift()
+    const { name, optional, from } = queue.shift()
 
     /*
       `@types/*` は型定義だけで、バンドルにも node_modules の実行時にも読み込まれない
@@ -136,7 +159,7 @@ function collectPackages() {
       continue
     }
 
-    const found = readPackage(name)
+    const found = readPackage(name, from)
 
     if (found === null) {
       if (optional) {
@@ -150,11 +173,11 @@ function collectPackages() {
     packages.set(name, found)
 
     for (const dependency of Object.keys(found.manifest.dependencies ?? {})) {
-      queue.push({ name: dependency, optional: false })
+      queue.push({ name: dependency, optional: false, from: found.directory })
     }
 
     for (const dependency of Object.keys(found.manifest.optionalDependencies ?? {})) {
-      queue.push({ name: dependency, optional: true })
+      queue.push({ name: dependency, optional: true, from: found.directory })
     }
   }
 

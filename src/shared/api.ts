@@ -72,6 +72,7 @@ import type {
 import type { IpcEventListener, IpcEventUnsubscribe } from './ipc/event'
 import type { SaveSettingsSectionRequest } from './ipc/contracts/settings'
 import type { SubmitFeedbackRequest } from './ipc/contracts/feedback'
+import type { McpConnectionRequest, McpOperationRequest } from './ipc/contracts/mcp'
 import type { PingRequest } from './ipc/contracts/system'
 import type {
   CreateTerminalSessionRequest,
@@ -1242,6 +1243,24 @@ export interface FeedbackApi {
 }
 
 /**
+ * MCP サーバー（Notion MCP など）との接続を扱う API。
+ *
+ * 渡せるのは接続の id だけで、起動するもの・token・ツール名は Main が決める
+ * （shared/ipc/contracts/mcp.ts）。フィードバックの Notion 保存とは別の経路で、
+ * 設定も共有しない。
+ */
+export interface McpApi {
+  /** 設定が揃っているかと直近の接続テストの結末（起動も通信もしない）。 */
+  readonly getStatus: (request: McpConnectionRequest) => IpcInvokeResult<'mcp:get-status'>
+  /** サーバーを起動して接続し、ツールの一覧を取って切断する。 */
+  readonly testConnection: (request: McpConnectionRequest) => IpcInvokeResult<'mcp:test-connection'>
+  /**
+   * 許可された操作を1つ実行する。書き込みの操作は、実行の前に Main が確認を出す。
+   */
+  readonly callOperation: (request: McpOperationRequest) => IpcInvokeResult<'mcp:call-operation'>
+}
+
+/**
  * `window.fluvix` として Renderer に公開される API 全体。
  *
  * Files / Terminal / GitHub など OS に触れるドメイン API は、
@@ -1273,6 +1292,8 @@ export interface FluvixApi {
   readonly settings: SettingsApi
   /** フィードバックを設定済みの保存先（Notion など）へ送る。 */
   readonly feedback: FeedbackApi
+  /** MCP サーバー（Notion MCP など）との接続。 */
+  readonly mcp: McpApi
 }
 
 /** `window` に API を公開する際のキー。Preload と Renderer の双方から参照する。 */

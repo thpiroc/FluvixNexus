@@ -118,6 +118,7 @@ export type {
   SubmitFeedbackRequest,
   SubmitFeedbackResponse
 } from './contracts/feedback'
+export type { McpConnectionRequest, McpIpcContract, McpOperationRequest } from './contracts/mcp'
 export type {
   LoadSettingsResponse,
   SaveSettingsSectionRequest,
