@@ -60,6 +60,8 @@ v1.0.0 時点で載っているもの（10件）: `@lydell/node-pty` 1.1.0・`@l
 
 `LICENSE` と `THIRD_PARTY_NOTICES.txt` は installer にも入れる（§5 の `extraResources`）。
 
+**同梱する MCP サーバー（feature/notion-mcp）。** src が import せず `extraResources` で写すパッケージ（`@notionhq/notion-mcp-server` 2.5.1）は、`tools/third-party-notices.mjs` の `BUNDLED_PACKAGES` から数え始める。写すのは依存をまとめた1ファイル（`bin/cli.mjs`）だが、中身は依存のコードそのものなので、`dependencies` を辿って全部載せる（載せ過ぎる側に倒す）。依存は Node と同じく依存元のフォルダから親へ辿って探す（版の食い違う依存は入れ子で置かれるため）。これで載るパッケージは 10件から 144件になった。
+
 ## 5. electron-builder の設定（Session 7-2B で実装）
 
 7-2A で決めた設計を 7-2B でそのまま入れた（設計と食い違った点は無い）。**設定の正はルートの `electron-builder.yml`**。変えるときは本書も一緒に直す。ローカルでの作り方と 7-2B の結果は §5.5。
@@ -117,6 +119,20 @@ nsis:
 publish: null # 自動更新は入れない。GitHub へのアップロードは手で行う
 ```
 
+feature/notion-mcp で `extraResources` に1つ足した（同梱する MCP サーバー。docs/ARCHITECTURE.md §21.4）。`resources/mcp-servers/notion-mcp-server/` へ `bin/cli.mjs`・`scripts/notion-openapi.json`・`package.json`・`LICENSE` の4ファイルだけを写す。asar の外に置くのは、アプリ自身の実行ファイルを Node として（`ELECTRON_RUN_AS_NODE=1`）起動した子プロセスが読むため。
+
+```yaml
+extraResources:
+  # （LICENSE / THIRD_PARTY_NOTICES.txt は上のとおり）
+  - from: node_modules/@notionhq/notion-mcp-server
+    to: mcp-servers/notion-mcp-server
+    filter:
+      - bin/cli.mjs
+      - scripts/notion-openapi.json
+      - package.json
+      - LICENSE
+```
+
 `nsis` は electron-builder の既定（oneClick・per-user）をそのまま使う。インストール先を選ばせる形（assisted）に変えるなら、先に決定を取ること。
 
 ### 5.3 アイコン
@@ -154,7 +170,8 @@ installer は作り直したので、§5.5 の 7-2B の数値と §8.1 / §8.2 �
 | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Terminal（node-pty）        | `windowsConoutConnection.js` は Worker の script を `__dirname` の `node_modules.asar` だけを `.asar.unpacked` へ置き換えて探す。electron-builder の `app.asar` は置き換わらず、Worker が asar の中を読みに行く。`.node` と、`fork` で起こす `conpty_console_list_agent.js` もあるため `@lydell/**` をまとめて unpack する。**7-2B の smoke で、win-unpacked から Terminal を立てて出力が返ることを確かめた**（§5.5）。7-2C で、インストール版の Main が `app.asar.unpacked` の `conpty.node` を読み、タブを閉じるとシェルの孫プロセスまで消え（`fork` 側）、アプリ終了でシェルが残らないことを確かめた（§8.1） |
 | node-pty の prebuilt        | `optionalDependencies` なので、ビルドする PC に `@lydell/node-pty-win32-x64` が無いと実行時に MODULE_NOT_FOUND。**clean checkout で `npm ci` してからビルドする**                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| Electron Fuses              | v1.0.0 では設定しない。RunAsNode を無効にすると node-pty の `child_process.fork` が動かなくなる                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Electron Fuses              | v1.0.0 では設定しない。RunAsNode を無効にすると node-pty の `child_process.fork` が動かなくなる。feature/notion-mcp からは、同梱した MCP サーバーの起動（アプリ自身の実行ファイルを `ELECTRON_RUN_AS_NODE=1` で起動）もこれに頼る                                                                                                                                                                                                                                                                                                                                                                               |
+| 同梱した MCP サーバー       | 開発時は `node_modules/@notionhq/notion-mcp-server` を、配布物では `process.resourcesPath` の `mcp-servers/notion-mcp-server` を読む（`app.isPackaged` で分ける。`src/main/mcp/mcpService.ts`）。`extraResources` の写し漏れは `not-configured`（`server-not-installed`）として表に出る。feature/notion-mcp で、`npm run dist` の win-unpacked から接続・検索・取得が通ることを確かめた（installer で入れたアプリでは未確認）                                                                                                                                                                                   |
 | `app.isPackaged` の分岐     | ネイティブメニューが無くなる（DevTools も開けない）・ログが info 以上になる                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | Renderer / preload / Worker | asar の中から `file://` で読む。Renderer と preload が asar の中から読めることは 7-2B の smoke で確認。Monaco の Worker（editor / JSON / CSS / HTML / TS）が asar の中から起動することは 7-2C で確認（§8.1）                                                                                                                                                                                                                                                                                                                                                                                                    |
 | PATH                        | スタートメニューから起動したアプリは Explorer の環境変数を受け継ぐ。Node / Git / LSP などを後から入れたらアプリの再起動（場合によってはサインアウト）が要る。LSP / DAP / git は PATH を自分で辿って絶対パスで起動するので、インストール先には依存しない                                                                                                                                                                                                                                                                                                                                                         |

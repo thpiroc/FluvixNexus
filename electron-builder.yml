@@ -23,6 +23,15 @@ extraResources:
     to: LICENSE
   - from: THIRD_PARTY_NOTICES.txt
     to: THIRD_PARTY_NOTICES.txt
+  # 同梱する MCP サーバー（src/main/mcp/notionMcpServer.ts）。依存をまとめた1ファイルと API 定義だけを写す。
+  # asar の外に置く ── アプリ自身の Node（ELECTRON_RUN_AS_NODE）で子プロセスとして起動するため。
+  - from: node_modules/@notionhq/notion-mcp-server
+    to: mcp-servers/notion-mcp-server
+    filter:
+      - bin/cli.mjs
+      - scripts/notion-openapi.json
+      - package.json
+      - LICENSE
 
 win:
   target:

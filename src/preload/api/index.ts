@@ -6,6 +6,7 @@ import { filesApi } from './files'
 import { gitApi } from './git'
 import { githubApi } from './github'
 import { lspApi } from './lsp'
+import { mcpApi } from './mcp'
 import { settingsApi } from './settings'
 import { systemApi } from './system'
 import { terminalApi } from './terminal'
@@ -40,5 +41,6 @@ export const api: FluvixApi = {
   lsp: lspApi,
   debug: debugApi,
   settings: settingsApi,
-  feedback: feedbackApi
+  feedback: feedbackApi,
+  mcp: mcpApi
 }

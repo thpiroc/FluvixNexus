@@ -4,6 +4,7 @@ import type { FilesIpcContract } from './contracts/files'
 import type { GitIpcContract } from './contracts/git'
 import type { GitHubIpcContract } from './contracts/github'
 import type { LspIpcContract } from './contracts/lsp'
+import type { McpIpcContract } from './contracts/mcp'
 import type { SettingsIpcContract } from './contracts/settings'
 import type { SystemIpcContract } from './contracts/system'
 import type { TerminalIpcContract } from './contracts/terminal'
@@ -44,7 +45,8 @@ export interface IpcContract
     GitHubIpcContract,
     LspIpcContract,
     DebugIpcContract,
-    FeedbackIpcContract {}
+    FeedbackIpcContract,
+    McpIpcContract {}
 
 /** 有効な IPC チャンネル名。契約に定義されたものだけが存在しうる。 */
 export type IpcChannel = keyof IpcContract & string

@@ -8,6 +8,7 @@ export type {
   GitApi,
   GitHubApi,
   LspApi,
+  McpApi,
   PlatformId,
   RuntimeVersions,
   SettingsApi,

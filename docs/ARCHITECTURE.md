@@ -8997,3 +8997,103 @@ Session 7-1C で、`adapter-unavailable` の案内は言語と閉じた集合の
 | adapter は利用者が置く                 | js-debug の配布物・debugpy・netcoredbg を同梱も自動入手もしない                                                                    |
 | 使われていない `EvaluateView.tsx`      | 6-8 で Debug Console に置き換わった面がテストと一緒に残っている。動作には影響しない                                                |
 | Renderer の `file://` 読み込み元       | production build の Renderer から `fetch('file:///...')` でローカルファイルを読める。ログ専用の問題ではなく、別 Session で扱う     |
+
+## 21. MCP 連携（Notion MCP。feature/notion-mcp）
+
+MCP（Model Context Protocol）サーバーを Main の子プロセスとして起動し、許可した操作だけを Renderer から呼べるようにする土台。最初の接続先は Notion MCP（`@notionhq/notion-mcp-server`）。フィードバックの Notion 保存（`src/main/feedback/`）とは**別の経路**で、コード・token・設定を共有しない。UI と Settings への統合はまだ入れていない（settings-scope との統合時に行う）。
+
+### 21.1 責務の分け方
+
+MCP 共通の部品は Notion を知らない。Notion について知っていることは3つのファイルに閉じる。
+
+| 層              | ファイル                   | 持つもの                                                                                        |
+| --------------- | -------------------------- | ----------------------------------------------------------------------------------------------- |
+| 経路            | `mcpStdioTransport.ts`     | 子プロセスの起動・stdin / stdout・終了（stdin を閉じる → 待つ → kill）                          |
+| 電文            | `mcpMessage.ts`            | 改行区切りの JSON-RPC 2.0（LSP の `Content-Length` 形式とは別に持つ）                           |
+| クライアント    | `mcpClient.ts`             | initialize・tools/list・tools/call・時間切れ・「要求を送った後の失敗か」                        |
+| 起動のしかた    | `mcpServerLaunch.ts`       | 同梱スクリプト（アプリ自身の Node）・npm グローバル（`mcpNpmServer.ts`）・PATH 上の実行ファイル |
+| 環境変数        | `mcpServerEnvironment.ts`  | 許可リスト・サーバーの設定の変数・起動用の変数（§21.4）                                         |
+| 秘密情報        | `mcpConfig.ts`             | 環境変数からの読み方・ログ用の伏せ字                                                            |
+| 操作            | `mcpOperations.ts`         | 操作の枠（read / write・引数の検証・結果の読み替え・ツールの失敗の判定・確認の文）              |
+| 束ね            | `mcpConnections.ts`        | 設定の確認 → 確認 → 起動 → 接続 → 呼び出し → 切断。接続ごとに1つずつ実行                        |
+| 表              | `mcpServerCatalog.ts`      | 行を並べるだけ（`MCP_SERVER_DEFINITIONS`）                                                      |
+| Electron        | `mcpService.ts`            | 同梱の置き場所・`process.execPath`・確認ダイアログ・言語                                        |
+| **Notion 固有** | `notionMcpServer.ts`       | 同梱パッケージ・token の変数名・サーバーが読む変数の宣言                                        |
+| **Notion 固有** | `notionMcpOperations.ts`   | 操作表（`search-pages` / `get-page` / `get-page-content` / `append-paragraph`）                 |
+| **Notion 固有** | `src/shared/mcp/notion.ts` | Renderer 向けの操作名・引数・結果の型                                                           |
+
+ファイルは特に書かない限り `src/main/mcp/` にある。
+
+### 21.2 Renderer との境界
+
+IPC は `mcp:get-status` / `mcp:test-connection` / `mcp:call-operation` の3本。要求に載るのは**接続 id（閉じた集合）・操作名・引数だけ**で、ツール名・URL・token・コマンドの欄は無い。
+
+- 操作名は表にあるものだけ（`Object.hasOwn` で引く）。無ければ `INVALID_REQUEST` で、サーバーは起動しない
+- 引数は操作ごとに形を確かめ、ツールの引数へ**組み立て直す**。知らない引数名は断る（黙って捨てない）
+- Notion のページ ID は UUID の形だけを受け付ける。サーバーは ID を API の URL のパスへ埋め込むため、`../users` のような値で別の API を叩かせない
+- 削除・移動・上書きのツールは表に載せていないので呼べない
+- 結果はサーバーの生の応答ではなく、操作ごとに読み替えた JSON（id・タイトル・平文など）だけを返す。ツールの失敗は `status` と `code` だけで、本文（`message`）は返さない
+
+### 21.3 書き込みの確認と、結果の分け方
+
+`write` の操作は、**サーバーを起動する前に** Main がネイティブのダイアログで確かめる（Renderer の中の確認は Renderer 自身が飛ばせる）。Enter / Esc はどちらも「キャンセル」。文言は設定の言語（ja / en）。確認の文が無い書き込みは `defineMcpOperation` が作らせない。
+
+| 結末                         | 意味                                                                                                                                                       |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `completed`                  | 読み替えた結果を返す                                                                                                                                       |
+| `declined`                   | 確認で実行しなかった。何も起動・送信していない                                                                                                             |
+| `not-configured`             | token が無い・同梱したサーバーが無い など（`problems`）                                                                                                    |
+| `failed` / `tool-error`      | ツールが失敗を返した。**`isError` が無くても**操作の `readToolError` が失敗と読めば失敗（Notion MCP サーバー 2.5.1 は API のエラーを普通の結果として返す） |
+| `failed` / `outcome-unknown` | 書き込みを**送った後に**時間切れ・終了・読めない応答。反映されたかもしれないので、押し直す前に相手の側で確かめる（そのまま押し直すと二重に書き込みうる）   |
+| `failed` / その他            | 接続できない・時間切れ（読み取り）・ツールが無い（`tool-unavailable`）など                                                                                 |
+
+呼ぶ前に tools/list でツールが公開されているかを確かめる。サーバーの版が変わって名前が消えたときに、別の意味のツールを呼ばないため。
+
+### 21.4 起動のしかたと環境変数
+
+**同梱する。** Notion MCP サーバーは `bin/cli.mjs`（依存をまとめた1ファイル）と `scripts/notion-openapi.json` だけで `node_modules` 無しに動く（2.5.1 で確かめた）。package.json の devDependencies に**完全一致で固定**し、`electron-builder.yml` の `extraResources` が `resources/mcp-servers/notion-mcp-server/` へ4ファイル（上の2つと `package.json`・`LICENSE`）だけを写す。asar の外に置くのは、子プロセスの Node がそのまま読むため。開発時は `node_modules/@notionhq/notion-mcp-server` を読む（`mcpService.ts`）。ライセンス表記は `tools/third-party-notices.mjs` の `BUNDLED_PACKAGES` から依存を辿って載せる（docs/RELEASE.md §4）。
+
+起動するのは**アプリ自身の実行ファイル**（`process.execPath`）に `ELECTRON_RUN_AS_NODE=1` を付けたもの。利用者に Node も `npm install -g` も求めない。この変数は子プロセスの環境にだけ付き、Main には付かない。Electron Fuses の RunAsNode は v1.0.0 から無効にしていない（node-pty の `fork` が使う。docs/RELEASE.md §5.4）。
+
+**環境変数は許可リスト。** 親の環境をそのまま渡すと、利用者の別の秘密情報（`GITHUB_TOKEN`・AI サービスの API キー・クラウドの認証情報）まで第三者のサーバーが読める。渡すのは次だけ（名前は大文字で比べる）。
+
+| 種類               | 中身                                                                                                       |
+| ------------------ | ---------------------------------------------------------------------------------------------------------- |
+| 共通の許可         | OS とプロセスの基本（`SystemRoot`・`PATH`・`TEMP`・`USERPROFILE`・`APPDATA` など）・言語・プロキシ・証明書 |
+| サーバーごとの許可 | 行が `inheritedVariables` に書いたものだけ（Notion は無し）。`FLUVIX_*` と設定の変数は書けない             |
+| サーバーの設定     | 行が宣言した変数（`reservedVariables`）には**親の値を通さず**、表の値（token）だけを入れる                 |
+| 起動用             | `ELECTRON_RUN_AS_NODE=1`（同梱スクリプトのとき）                                                           |
+
+Notion MCP サーバーが設定として読む変数（2.5.1 で確かめた）は `NOTION_TOKEN`・`OPENAPI_MCP_HEADERS`（`NOTION_TOKEN` より優先）・`BASE_URL`（**API の接続先の上書き**）・`AUTH_TOKEN`・`ENABLE_TOKEN_PASSTHROUGH`。`BASE_URL` は実接続の確認で `Invalid URL` として表に出た（vitest がテストのプロセスに `BASE_URL=/` を入れる）。どれも共通の許可に無いので親からは渡らないが、許可リストが将来広がっても混ざらないよう宣言してある。
+
+### 21.5 秘密情報
+
+- token は環境変数 `FLUVIX_NOTION_MCP_TOKEN` からだけ読む。設定ファイルには書かない・読まない（OS の資格情報ストアは Settings 統合時）
+- フィードバックの `FLUVIX_NOTION_TOKEN` とは共有しない（求める権限が違う）。`FLUVIX_*` はどのサーバーにも渡らない
+- 子プロセスへは環境変数 `NOTION_TOKEN` で渡す。引数には載せない（同じ PC のほかのプロセスから見える）
+- サーバーの stderr と失敗の詳細は、token の値を伏せてからログへ出す（`redactToken`）。ログの側の伏せ字は `Bearer …` の形しか拾わないため。操作の引数（本文）はログに書かない
+- Renderer へ返す型に token の欄は無い
+
+### 21.6 接続の寿命
+
+テストや操作のたびに起動して畳む（1回あたり 0.4〜0.8 秒）。使っていない間にサーバーが動き続けないことと、token を変えたときにすぐ効くことを取った。Agent から連続して呼ぶ段階で、一定時間使わなければ閉じる形の保持を検討する。アプリの終了時（`will-quit`）は動いているサーバーを待たずに kill する。Main が落ちた場合も、サーバーは stdin が閉じたところで自分で終わる。
+
+### 21.7 次の MCP サーバーを足すとき
+
+1. サーバーの定義（`McpServerDefinition`）── 起動のしかた（3種類から選ぶ）・秘密情報（任意）・サーバーが読む変数の宣言
+2. 操作表 ── 呼べる操作と、その引数・結果・確認の文
+3. `mcpServerCatalog.ts` の `MCP_SERVER_DEFINITIONS` に1行
+4. `src/shared/mcp` の `MCP_CONNECTION_IDS` に1語と、Renderer 向けの操作の語彙
+5. 同梱するなら `electron-builder.yml` の `extraResources` と `tools/third-party-notices.mjs` の `BUNDLED_PACKAGES` に1行ずつ
+
+経路・クライアント・環境変数の規則・確認ダイアログ・IPC は変えなくてよい。
+
+### 21.8 このブランチで入れていないもの
+
+| 項目                          | 扱い                                                                         |
+| ----------------------------- | ---------------------------------------------------------------------------- |
+| UI・Settings                  | settings-scope との統合時（token の入力と保存・状態の表示・有効 / 無効）     |
+| 接続の保持                    | Agent から呼ぶ段階                                                           |
+| リモートの MCP（HTTP・OAuth） | 将来                                                                         |
+| macOS / Linux                 | 配布は Windows だけ。Unix 系の分岐は単体テストだけで、実機では確かめていない |
+| 確認ダイアログのページ名      | 今はページ ID だけ。タイトルを出すには確認の前に読み取りが1回要る            |
