@@ -6551,6 +6551,35 @@ Session 3-7-5 では、下書きを持って Enter / blur で確定する欄は 
 
 ---
 
+### 15.9 ユーザー設定 / ワークスペース設定（feature/settings-scope）
+
+設定を VS Code 系のエディタと同じ2段に分けた。**section と key の形は2つの scope で同じ**（`SettingsSections`）で、ワークスペース設定は「ユーザー設定の一部の key を上書きするもの」にあたる ── 別の設定体系は作っていない。
+
+| scope          | 効く範囲                    | 保存先（Main が決める）                                    |
+| -------------- | --------------------------- | ---------------------------------------------------------- |
+| ユーザー       | Fluvix Nexus 全体           | `userData/settings.json`（§12.4 の文書そのまま）           |
+| ワークスペース | 今開いている Workspace だけ | `userData/workspace-settings.json` の、その Workspace の欄 |
+
+- **効く値は key 単位で `ワークスペース > ユーザー > 既定`。** 決めるのは `shared/settings/scope.ts` の `resolveEffectiveSettings` / `getEffectiveSetting` の1つだけで、Main（最初の1枚の色・Language Server）と Renderer（各機能）の両方がそこを通る
+- **Workspace の中には何も書かない。** 欄の key は Workspace root の realpath で、Renderer へは出ない（Debug Profile の §20.5 と同じ線）。保存要求が名乗れるのは `workspaceId`（開いた記録1件の識別子）だけで、今の Workspace と違えば Main は CONFLICT で断る
+- 1つの Workspace の欄は `settings.json` と同じ形（`schemaVersion` + `sections`）で、`parseSettingsDocument` / `toStoredSettings` をそのまま通す ── 壊れた key だけを落とす扱い・知らない内容の書き戻し・migration を2組持たない。欄は最後に変えた順で 200 件まで
+- **表示言語（`general`）はユーザー設定専用**（`SETTINGS_SECTION_SCOPES` の `application`）。画面では押せない状態で理由を添えて出す
+- IPC は2本のまま。`settings:load` が両方の scope を返し、`settings:save-section` が scope を名乗る。Workspace の切り替えは `settings:workspace-changed` で届き、Renderer は読み直す
+
+**Renderer の持ち方。** 2つの scope の写しは `settings/SettingsScopeProvider.tsx`（App の一番外側）が1つだけ持つ。各機能は今までどおり `useSettingsSection(binding)` を呼び、**返るのは効く値**で、どちらの scope から来たかは知らない。書くときは変わった key を「その key を今決めている scope」へ書く（ツールバー・⚙・打鍵がここを通る。上書き中の値を変えたらワークスペース設定が変わる）。Settings 画面だけが `useScopedSettingsSection(binding, scope)` で選んだ scope から見た値を読み、その scope へ書く。変え方（丸め・同じなら据え置く）は各機能の `create…Setters` 1つを両方が使う。
+
+**画面。** 面の上に `ユーザー | ワークスペース` の切り替えと、今どちらを編集しているかの説明（Workspace 名入り）を常に出す。ワークスペースを選んでいる間は帯が青系になり、行ごとに「ユーザー設定を使用中」「このワークスペースで変更済み ＋ ユーザー設定に戻す」を出す。ユーザー側では、上書きされている行に「ワークスペース設定の値が優先」を出す。Workspace が無いときにワークスペースを選ぶと、エラーにせず案内だけを出す。開くたびにユーザー設定から始まる（気づかないうちにこのプロジェクトだけ変えていた、を防ぐ）。
+
+#### 設定項目を足すとき
+
+1. `shared/settings/sections.ts` — `SETTINGS_SECTION_IDS` と `SettingsSections` に section / key を足す
+2. `shared/settings/scope.ts` — `SETTINGS_SECTION_SCOPES` に1行（ワークスペースで上書きさせないなら `application`）
+3. `main/store/settingsSections.ts` — `SECTION_FIELDS` に key の型（書き忘れると型が通らない）
+4. 機能の側 — `SettingsSectionBinding`（section・既定・`fromStored`・`toStored`）と `create…Setters` を置き、`useSettingsSection(binding)` で読む
+5. 画面に出すなら `settings/settingsCatalog.ts` に項目（`section` と `keys`）を足し、`SettingsOverlay.tsx` の `SettingsControl` に `useScopedSetters(binding, scope, create…Setters)` で繋ぐ UI を足す
+
+保存ファイル・IPC・Preload・scope の仕組みには触れない。Main 側で値が要る機能は `readEffectiveSettingsSections()` / `getEffectiveSettingValue()` を読み、変化は `onEffectiveSettingsChange` で受け取る（保存・Workspace の切り替えの両方で届く）。
+
 ## 16. Theme（アプリ全体の見た目）
 
 Session 4-3B までの見た目は Dark 固定だった。色そのものは最初から `styles/theme.css` の1箇所に集めてあり（DESIGN.md §3）、この Session で塞いだのは**その1箇所が本当は1箇所ではなかった**ところにほかならない ── Monaco と xterm は CSS 変数を読まないため、同じ 16進数が `monacoSetup.ts` と `xtermSetup.ts` にも書き写されていた。どちらのファイルにも「theme.css と同じ値を書き写しているので、片方を変えるときは両方を直すこと」という注意書きが付いていて、**その注意書きが要ること自体が写しの証拠**だった。Theme が2つになれば写しは倍になる。

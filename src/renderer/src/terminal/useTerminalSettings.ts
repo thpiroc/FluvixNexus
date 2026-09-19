@@ -1,16 +1,9 @@
-import { useCallback, useMemo } from 'react'
+import { useMemo } from 'react'
 import { useSettingsSection } from '../settings/useSettingsSection'
+import type { TerminalFontSizeCommand } from './terminalDisplay'
 import {
-  clampTerminalFontSize,
-  clampTerminalScrollback,
-  nextTerminalFontSize,
-  type TerminalFontSizeCommand
-} from './terminalDisplay'
-import {
-  DEFAULT_TERMINAL_DISPLAY_SETTINGS,
-  isSameTerminalDisplaySettings,
-  toTerminalDisplaySettings,
-  toTerminalSettingsSection,
+  createTerminalDisplaySetters,
+  TERMINAL_DISPLAY_SETTINGS_BINDING,
   type TerminalDisplaySettings
 } from './terminalSettings'
 
@@ -61,56 +54,16 @@ export function useTerminalSettings(): TerminalSettingsController {
     Editor / Files と一字一句同じだった部分で、**読み終わるまで書かない**順序も
     そちらが守る。
   */
-  const { value: settings, update } = useSettingsSection({
-    section: 'terminal',
-    initial: DEFAULT_TERMINAL_DISPLAY_SETTINGS,
-    fromStored: toTerminalDisplaySettings,
-    toStored: toTerminalSettingsSection,
-    label: 'Terminal の見え方'
-  })
+  const { value: settings, update } = useSettingsSection(TERMINAL_DISPLAY_SETTINGS_BINDING)
 
   /*
-    どの入口も「直前の値から次を作り、同じなら据え置く」形にする。
-
-    直前の値から作るのは、打鍵の増減がそれを要求するため（`+` は今の大きさに対する
-    操作にほかならない）。同じなら据え置くのは、上限に当たっている間 Ctrl + `+` を
-    押し続けたときや、設定 UI で同じ値を確定し直したときに、保存と再描画が
-    走り続けないようにするため。
+    どの入口も「直前の値から次を作り、同じなら据え置く」形にする（terminalSettings.ts の
+    createTerminalDisplaySetters）。Settings 画面も同じ関数を、選んでいる scope へ書く
+    update で使う。
   */
-  const apply = useCallback(
-    (change: (previous: TerminalDisplaySettings) => TerminalDisplaySettings): void => {
-      update((previous) => {
-        const next = change(previous)
-
-        return isSameTerminalDisplaySettings(previous, next) ? previous : next
-      })
-    },
+  const { changeFontSize, setFontSize, setScrollback } = useMemo(
+    () => createTerminalDisplaySetters(update),
     [update]
-  )
-
-  const changeFontSize = useCallback(
-    (command: TerminalFontSizeCommand): void => {
-      apply((previous) => ({
-        ...previous,
-        fontSize: nextTerminalFontSize(previous.fontSize, command)
-      }))
-    },
-    [apply]
-  )
-
-  /* 丸めと上下限は terminalDisplay.ts が持つ（設定 UI も打鍵も同じ関数を通る）。 */
-  const setFontSize = useCallback(
-    (fontSize: number): void => {
-      apply((previous) => ({ ...previous, fontSize: clampTerminalFontSize(fontSize) }))
-    },
-    [apply]
-  )
-
-  const setScrollback = useCallback(
-    (scrollback: number): void => {
-      apply((previous) => ({ ...previous, scrollback: clampTerminalScrollback(scrollback) }))
-    },
-    [apply]
   )
 
   return useMemo(

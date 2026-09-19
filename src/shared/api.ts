@@ -158,6 +158,13 @@ export interface SettingsApi {
   readonly saveSection: (
     request: SaveSettingsSectionRequest
   ) => IpcInvokeResult<'settings:save-section'>
+  /**
+   * 今の Workspace が切り替わった（開いた / 閉じた）ことを受け取る。
+   * ワークスペース設定が変わるので、受け手は `load` で読み直す。
+   */
+  readonly onWorkspaceChanged: (
+    listener: IpcEventListener<'settings:workspace-changed'>
+  ) => IpcEventUnsubscribe
 }
 
 /**

@@ -8,7 +8,7 @@ import {
   type LanguageServerPreferences
 } from '@shared/lsp'
 import { createLogger } from '../logger'
-import { onSettingsSectionSaved, readSettingsSections } from '../store/settings'
+import { onEffectiveSettingsChange, readEffectiveSettingsSections } from '../store/settings'
 
 /**
  * Language Server を使うかどうかを、Main が持つ（Session 5-4）。
@@ -97,17 +97,20 @@ export function isLanguageServerAllowed(id: LanguageServerId): boolean {
  * 最初の文書を開くより先に、立ててよい言語が決まっている必要がある。
  */
 export function startLanguageServerSettings(): void {
-  preferences = normalizeLanguageServerPreferences(readSettingsSections().lsp)
+  /*
+    読むのは**実際に効く値**（ワークスペース設定 > ユーザー設定。feature/settings-scope）。
+    このプロジェクトだけ Language Server を切る、がそのまま効く。
+  */
+  preferences = normalizeLanguageServerPreferences(readEffectiveSettingsSections().lsp)
 
   log.info(`language servers: ${describe(preferences)}`)
 
-  onSettingsSectionSaved((update) => {
-    // 他の section の保存。LSP には関係が無い。
-    if (update.section !== 'lsp') {
-      return
-    }
-
-    const next = normalizeLanguageServerPreferences(update.value)
+  /*
+    どちらの scope への保存でも、Workspace の切り替えでも届く。LSP に関係の無い
+    section の保存でも届くが、下の「同じなら何もしない」がそれを吸収する。
+  */
+  onEffectiveSettingsChange((effective) => {
+    const next = normalizeLanguageServerPreferences(effective.lsp)
 
     /*
       同じ値の保存要求は珍しくない（Renderer は値が変わったときに書くが、

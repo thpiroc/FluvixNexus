@@ -1,4 +1,5 @@
 import type { StoredAppearanceSettings } from '@shared/settings'
+import type { SettingsSectionBinding, SettingsValueUpdate } from '../settings/settingsBinding'
 import { DEFAULT_THEME_ID, normalizeThemeId, THEME_IDS, type ThemeId } from '@shared/theme'
 
 /**
@@ -84,4 +85,39 @@ export function toAppearanceSection(settings: AppearanceSettings): StoredAppeara
 /** 同じ設定か（保存を予約するかどうかの判断）。 */
 export function isSameAppearanceSettings(a: AppearanceSettings, b: AppearanceSettings): boolean {
   return a.theme === b.theme
+}
+
+/* ------------------------------------------ 設定との行き来（feature/settings-scope） */
+
+/**
+ * `appearance` section と Theme の行き来。
+ *
+ * `initial` は既定（Dark）にしてある。アプリ本体（useAppearance.ts）は読み込み前の値を
+ * Preload が当てた Theme に差し替えて使う ── 塗り直しで一瞬色が変わらないように。
+ */
+export const APPEARANCE_SETTINGS_BINDING: SettingsSectionBinding<'appearance', AppearanceSettings> =
+  {
+    section: 'appearance',
+    initial: DEFAULT_APPEARANCE_SETTINGS,
+    fromStored: toAppearanceSettings,
+    toStored: toAppearanceSection
+  }
+
+/**
+ * Theme を変える操作（知らない名前は既定へ落ちる）。
+ *
+ * 同じなら据え置く。既に選ばれている方をもう一度押したときに、保存と
+ * 再描画（＝ Monaco と全部の端末への当て直し）が走らないようにするため。
+ */
+export function createAppearanceSetters(update: SettingsValueUpdate<AppearanceSettings>): {
+  readonly setTheme: (theme: ThemeId) => void
+} {
+  return {
+    setTheme: (theme) =>
+      update((previous) => {
+        const next = toAppearanceSettings({ theme })
+
+        return isSameAppearanceSettings(previous, next) ? previous : next
+      })
+  }
 }

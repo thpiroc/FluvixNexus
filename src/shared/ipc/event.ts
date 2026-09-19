@@ -2,6 +2,7 @@ import type { DebugIpcEventContract } from './events/debug'
 import type { FilesIpcEventContract } from './events/files'
 import type { GitIpcEventContract } from './events/git'
 import type { LspIpcEventContract } from './events/lsp'
+import type { SettingsIpcEventContract } from './events/settings'
 import type { TerminalIpcEventContract } from './events/terminal'
 import type { WindowIpcEventContract } from './events/window'
 
@@ -61,7 +62,8 @@ export interface IpcEventContract
     TerminalIpcEventContract,
     GitIpcEventContract,
     LspIpcEventContract,
-    DebugIpcEventContract {}
+    DebugIpcEventContract,
+    SettingsIpcEventContract {}
 
 /** 有効な IPC イベントチャンネル名。契約に定義されたものだけが存在しうる。 */
 export type IpcEventChannel = keyof IpcEventContract & string

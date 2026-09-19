@@ -3,11 +3,8 @@ import type { FileEncoding, FileLineEnding, FileRevision } from '@shared/files'
 import { fluvix } from '../api/fluvix'
 import { useSettingsSection } from '../settings/useSettingsSection'
 import {
-  DEFAULT_AUTO_SAVE_SETTINGS,
-  isSameAutoSaveSettings,
-  normalizeAutoSaveSettings,
-  toAutoSaveSettings,
-  toEditorSettingsSection,
+  AUTO_SAVE_SETTINGS_BINDING,
+  createAutoSaveSetters,
   type AutoSaveMode,
   type AutoSaveSettings
 } from './autoSave'
@@ -278,17 +275,12 @@ export function useEditorSession(workspaceId: string | null): EditorController {
   const [saveStates, setSaveStates] = useState<Readonly<Record<string, EditorSaveState>>>({})
 
   /*
-    Auto Save の設定は**アプリの設定**（Workspace ごとではない）なので、
-    workspaceId には依存しない。読み書きの段取りは settings/useSettingsSection.ts
+    Auto Save の設定は workspaceId には依存しない。ワークスペース設定で上書きされて
+    いればその値が届くが、**どちらの scope の値かはここでは気にしない**
+    （feature/settings-scope）。読み書きの段取りは settings/useSettingsSection.ts
     が持ち、ここは「何を、どう保存形式と行き来させるか」だけを渡す。
   */
-  const { value: autoSave, update: updateAutoSave } = useSettingsSection({
-    section: 'editor',
-    initial: DEFAULT_AUTO_SAVE_SETTINGS,
-    fromStored: toAutoSaveSettings,
-    toStored: toEditorSettingsSection,
-    label: 'Editor の設定'
-  })
+  const { value: autoSave, update: updateAutoSave } = useSettingsSection(AUTO_SAVE_SETTINGS_BINDING)
 
   /*
     描画のたびに最新を控える。イベント（キー入力・タイマー・IPC の応答）は
@@ -894,34 +886,12 @@ export function useEditorSession(workspaceId: string | null): EditorController {
   /* ------------------------------------------------- Auto Save の設定を変える */
 
   /*
-    読み込みと保存そのものは useSettingsSection が持つ（上）。ここに残るのは
-    「同じなら据え置く」判断だけで、それは**設定の意味を知っている側にしか
-    決められない** ── 同じ値で更新し続けると保存と再描画が走り続ける。
+    読み込みと保存そのものは useSettingsSection が持つ（上）。変え方（丸めと
+    「同じなら据え置く」）は editor/autoSave.ts の createAutoSaveSetters が持ち、
+    Settings 画面も同じ関数を使う ── 同じ値で更新し続けると保存と再描画が走り続ける。
   */
-  const setAutoSaveMode = useCallback(
-    (mode: AutoSaveMode): void => {
-      updateAutoSave((previous) => {
-        const next = normalizeAutoSaveSettings({ ...previous, mode })
-
-        return isSameAutoSaveSettings(previous, next) ? previous : next
-      })
-    },
-    [updateAutoSave]
-  )
-
-  /*
-    待ち時間も同じ形で変える（Session 4-3B）。上下限と丸めは
-    `normalizeAutoSaveSettings` が持つ ── Settings 画面の欄も、保存ファイルの
-    読み込みも**同じ関数**を通る（片方だけに掛けると食い違う）。
-  */
-  const setAutoSaveDelayMs = useCallback(
-    (delayMs: number): void => {
-      updateAutoSave((previous) => {
-        const next = normalizeAutoSaveSettings({ ...previous, delayMs })
-
-        return isSameAutoSaveSettings(previous, next) ? previous : next
-      })
-    },
+  const { setAutoSaveMode, setAutoSaveDelayMs } = useMemo(
+    () => createAutoSaveSetters(updateAutoSave),
     [updateAutoSave]
   )
 

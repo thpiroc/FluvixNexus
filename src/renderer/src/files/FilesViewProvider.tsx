@@ -1,13 +1,7 @@
-import { createContext, useCallback, useContext, useMemo, type JSX, type ReactNode } from 'react'
+import { createContext, useContext, useMemo, type JSX, type ReactNode } from 'react'
 import { useSettingsSection } from '../settings/useSettingsSection'
 import { type FilesLayoutPreference } from './filesLayoutMode'
-import {
-  clampColumnWidth,
-  DEFAULT_FILES_VIEW_SETTINGS,
-  isSameFilesViewSettings,
-  toFilesSettingsSection,
-  toFilesViewSettings
-} from './filesSettings'
+import { createFilesViewSetters, FILES_VIEW_SETTINGS_BINDING } from './filesSettings'
 
 /**
  * Files の**見え方**（選んだ表示方式・カラムの幅）を持つ器
@@ -71,38 +65,11 @@ export function FilesViewProvider({ children }: { readonly children: ReactNode }
     Renderer は保存先を知らない（settings ドメインの API はパスを取らない。
     ARCHITECTURE.md §5）。
   */
-  const { value: settings, update: updateSettings } = useSettingsSection({
-    section: 'files',
-    initial: DEFAULT_FILES_VIEW_SETTINGS,
-    fromStored: toFilesViewSettings,
-    toStored: toFilesSettingsSection,
-    label: 'Files の見え方'
-  })
-
-  const setPreference = useCallback(
-    (preference: FilesLayoutPreference): void => {
-      updateSettings((previous) => {
-        const next = { ...previous, preference }
-
-        return isSameFilesViewSettings(previous, next) ? previous : next
-      })
-    },
-    [updateSettings]
+  const { value: settings, update: updateSettings } = useSettingsSection(
+    FILES_VIEW_SETTINGS_BINDING
   )
-
-  /*
-    幅は**掴んで動かしている間ずっと**届く。同じ値になったら据え置くことで、
-    1px 未満の動き（ポインタの座標は小数）で再描画と保存が走り続けないようにする
-    ── 丸めと上下限は clampColumnWidth が持つ（filesSettings.ts）。
-  */
-  const setColumnWidth = useCallback(
-    (width: number): void => {
-      updateSettings((previous) => {
-        const next = { ...previous, columnWidth: clampColumnWidth(width) }
-
-        return isSameFilesViewSettings(previous, next) ? previous : next
-      })
-    },
+  const { setPreference, setColumnWidth } = useMemo(
+    () => createFilesViewSetters(updateSettings),
     [updateSettings]
   )
 

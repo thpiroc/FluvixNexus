@@ -3,7 +3,7 @@ import { join } from 'path'
 import { normalizeLanguageId, toLanguageArgument } from '@shared/language'
 import { normalizeThemeId, THEME_WINDOW_BACKGROUND, toThemeArgument } from '@shared/theme'
 import { devServerUrl } from '../app/runtime'
-import { readSettingsSections } from '../store/settings'
+import { readEffectiveSettingsSections, readUserSettingsSections } from '../store/settings'
 import { MINIMUM_WINDOW_SIZE } from '../store/windowBounds'
 import { resolveInitialWindowState, trackWindowState } from '../store/windowState'
 import { guardWindowClose } from './closeGuard'
@@ -44,11 +44,13 @@ import { guardWindowClose } from './closeGuard'
  * 読み込み後の色が食い違うことがない。**
  */
 function resolveInitialTheme(): ReturnType<typeof normalizeThemeId> {
-  return normalizeThemeId(readSettingsSections().appearance.theme)
+  // ワークスペース設定で Theme を変えている Workspace なら、その色で最初の1枚を塗る。
+  return normalizeThemeId(readEffectiveSettingsSections().appearance.theme)
 }
 
 function resolveInitialLanguage(): ReturnType<typeof normalizeLanguageId> {
-  return normalizeLanguageId(readSettingsSections().general.language)
+  // 表示言語はユーザー設定でだけ変えられる（shared/settings/scope.ts）。
+  return normalizeLanguageId(readUserSettingsSections().general.language)
 }
 
 /**
