@@ -121,12 +121,29 @@ interface SettingsCategoryBase {
   readonly descriptionKey: TranslationKey
 }
 
+/**
+ * 値の項目の下に続く、そのカテゴリだけの面（§21.9）。
+ *
+ * MCP は「使うかどうか」の2つの真偽値のほかに、**設定ファイルに無いもの**を
+ * 画面に出す必要がある ── token（保存先は別のファイル）・今の接続状態・
+ * 接続テストの3つにほかならない。どれも `SettingsItemDescriptor`
+ * （section と key を指すもの）では表せない。
+ *
+ * カテゴリごと `kind` を分けなかったのは、**2つの真偽値は普通の設定項目**
+ * だからになる。分けると scope の扱い（application なので
+ * ワークスペースでは押せない）・上書きの表示・保存の経路を、
+ * このカテゴリのためにもう一組書くことになる。
+ */
+export type SettingsCategoryPanelId = 'mcp'
+
 /** 値の項目が並ぶカテゴリ（Session 4-3B からの形）。 */
 export interface SettingsItemsCategoryDescriptor extends SettingsCategoryBase {
   readonly kind: 'items'
   readonly id: SettingsValueCategoryId
   /** 並べる項目。**空にはできない**（中身の無いカテゴリを作らない）。 */
   readonly items: readonly SettingsItemDescriptor[]
+  /** 項目の下に続く面（あれば）。 */
+  readonly panel?: SettingsCategoryPanelId
 }
 
 /**
@@ -267,6 +284,36 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategoryDescriptor[] = [
         keys: ['scrollback']
       }
     ]
+  },
+  /*
+    §21.9 で足したカテゴリ。Terminal の次・Keyboard Shortcuts の手前に置いたのは、
+    値カテゴリの並びを `SETTINGS_SECTION_IDS` と同じまま保つためにほかならない。
+
+    並べる項目は「使うかどうか」の2つだけで、**token の欄はここに無い**
+    ── token は設定の値ではないため（`panel` が出す）。
+  */
+  {
+    kind: 'items',
+    id: 'mcp',
+    titleKey: 'settings.categories.mcp.title',
+    descriptionKey: 'settings.categories.mcp.description',
+    items: [
+      {
+        id: 'mcp.enabled',
+        titleKey: 'settings.items.mcp.enabled.title',
+        descriptionKey: 'settings.items.mcp.enabled.description',
+        section: 'mcp',
+        keys: ['enabled']
+      },
+      {
+        id: 'mcp.servers',
+        titleKey: 'settings.items.mcp.servers.title',
+        descriptionKey: 'settings.items.mcp.servers.description',
+        section: 'mcp',
+        keys: ['notionEnabled']
+      }
+    ],
+    panel: 'mcp'
   },
   {
     kind: 'shortcuts',

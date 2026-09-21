@@ -12,5 +12,7 @@ import { invokeIpc } from '../ipc/invoke'
 export const mcpApi: McpApi = {
   getStatus: (request) => invokeIpc(IPC_CHANNELS.MCP_GET_STATUS, request),
   testConnection: (request) => invokeIpc(IPC_CHANNELS.MCP_TEST_CONNECTION, request),
-  callOperation: (request) => invokeIpc(IPC_CHANNELS.MCP_CALL_OPERATION, request)
+  callOperation: (request) => invokeIpc(IPC_CHANNELS.MCP_CALL_OPERATION, request),
+  setSecret: (request) => invokeIpc(IPC_CHANNELS.MCP_SET_SECRET, request),
+  clearSecret: (request) => invokeIpc(IPC_CHANNELS.MCP_CLEAR_SECRET, request)
 }

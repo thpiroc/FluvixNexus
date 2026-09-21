@@ -72,7 +72,11 @@ import type {
 import type { IpcEventListener, IpcEventUnsubscribe } from './ipc/event'
 import type { SaveSettingsSectionRequest } from './ipc/contracts/settings'
 import type { SubmitFeedbackRequest } from './ipc/contracts/feedback'
-import type { McpConnectionRequest, McpOperationRequest } from './ipc/contracts/mcp'
+import type {
+  McpConnectionRequest,
+  McpOperationRequest,
+  McpSetSecretRequest
+} from './ipc/contracts/mcp'
 import type { PingRequest } from './ipc/contracts/system'
 import type {
   CreateTerminalSessionRequest,
@@ -1258,6 +1262,14 @@ export interface McpApi {
    * 許可された操作を1つ実行する。書き込みの操作は、実行の前に Main が確認を出す。
    */
   readonly callOperation: (request: McpOperationRequest) => IpcInvokeResult<'mcp:call-operation'>
+  /**
+   * token を安全な保存先へ入れる（§21.9）。**token が通る唯一の口**で、
+   * 向きは Renderer → Main の一方通行にあたる。返るのは在り処だけで、
+   * 値を読み出す口はこの API に無い。
+   */
+  readonly setSecret: (request: McpSetSecretRequest) => IpcInvokeResult<'mcp:set-secret'>
+  /** 保存された token を消す。環境変数の token には触れない。 */
+  readonly clearSecret: (request: McpConnectionRequest) => IpcInvokeResult<'mcp:clear-secret'>
 }
 
 /**

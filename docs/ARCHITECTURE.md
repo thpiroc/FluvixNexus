@@ -6580,6 +6580,10 @@ Session 3-7-5 では、下書きを持って Enter / blur で確定する欄は 
 
 保存ファイル・IPC・Preload・scope の仕組みには触れない。Main 側で値が要る機能は `readEffectiveSettingsSections()` / `getEffectiveSettingValue()` を読み、変化は `onEffectiveSettingsChange` で受け取る（保存・Workspace の切り替えの両方で届く）。
 
+**秘密情報（token・パスワード）はこの5手順に載せない。** `settings.json` は暗号化されておらず、利用者が開いて読める場所にある ── OS の資格情報で暗号化した専用のファイルへ置く（`main/mcp/mcpSecretStore.ts`）。設定に載るのは「使うかどうか」までで、値そのものは別の口を通る。実例は §21.9。
+
+カテゴリに、設定の値では表せないもの（状態の表示・接続テストのような操作）を並べたいときは、`SettingsItemsCategoryDescriptor` の `panel` を使う。**面だけのカテゴリは作らない** ── 値の項目を1つも持たないカテゴリは、面が出せなかったときに何も無い場所として残る。
+
 ## 16. Theme（アプリ全体の見た目）
 
 Session 4-3B までの見た目は Dark 固定だった。色そのものは最初から `styles/theme.css` の1箇所に集めてあり（DESIGN.md §3）、この Session で塞いだのは**その1箇所が本当は1箇所ではなかった**ところにほかならない ── Monaco と xterm は CSS 変数を読まないため、同じ 16進数が `monacoSetup.ts` と `xtermSetup.ts` にも書き写されていた。どちらのファイルにも「theme.css と同じ値を書き写しているので、片方を変えるときは両方を直すこと」という注意書きが付いていて、**その注意書きが要ること自体が写しの証拠**だった。Theme が2つになれば写しは倍になる。
@@ -9029,7 +9033,7 @@ Session 7-1C で、`adapter-unavailable` の案内は言語と閉じた集合の
 
 ## 21. MCP 連携（Notion MCP。feature/notion-mcp）
 
-MCP（Model Context Protocol）サーバーを Main の子プロセスとして起動し、許可した操作だけを Renderer から呼べるようにする土台。最初の接続先は Notion MCP（`@notionhq/notion-mcp-server`）。フィードバックの Notion 保存（`src/main/feedback/`）とは**別の経路**で、コード・token・設定を共有しない。UI と Settings への統合はまだ入れていない（settings-scope との統合時に行う）。
+MCP（Model Context Protocol）サーバーを Main の子プロセスとして起動し、許可した操作だけを Renderer から呼べるようにする土台。最初の接続先は Notion MCP（`@notionhq/notion-mcp-server`）。フィードバックの Notion 保存（`src/main/feedback/`）とは**別の経路**で、コード・token・設定を共有しない。Settings への統合（有効 / 無効・token の保存・状態の表示・接続テスト）は §21.9。
 
 ### 21.1 責務の分け方
 
@@ -9042,7 +9046,8 @@ MCP 共通の部品は Notion を知らない。Notion について知ってい�
 | クライアント    | `mcpClient.ts`             | initialize・tools/list・tools/call・時間切れ・「要求を送った後の失敗か」                        |
 | 起動のしかた    | `mcpServerLaunch.ts`       | 同梱スクリプト（アプリ自身の Node）・npm グローバル（`mcpNpmServer.ts`）・PATH 上の実行ファイル |
 | 環境変数        | `mcpServerEnvironment.ts`  | 許可リスト・サーバーの設定の変数・起動用の変数（§21.4）                                         |
-| 秘密情報        | `mcpConfig.ts`             | 環境変数からの読み方・ログ用の伏せ字                                                            |
+| 秘密情報        | `mcpConfig.ts`             | token の形の確かめ方・ログ用の伏せ字                                                            |
+| 秘密情報の保存  | `mcpSecretStore.ts`        | OS の資格情報で暗号化した専用ファイル・取り出す順序（§21.9）                                    |
 | 操作            | `mcpOperations.ts`         | 操作の枠（read / write・引数の検証・結果の読み替え・ツールの失敗の判定・確認の文）              |
 | 束ね            | `mcpConnections.ts`        | 設定の確認 → 確認 → 起動 → 接続 → 呼び出し → 切断。接続ごとに1つずつ実行                        |
 | 表              | `mcpServerCatalog.ts`      | 行を並べるだけ（`MCP_SERVER_DEFINITIONS`）                                                      |
@@ -9097,11 +9102,11 @@ Notion MCP サーバーが設定として読む変数（2.5.1 で確かめた）
 
 ### 21.5 秘密情報
 
-- token は環境変数 `FLUVIX_NOTION_MCP_TOKEN` からだけ読む。設定ファイルには書かない・読まない（OS の資格情報ストアは Settings 統合時）
+- token は「**この PC に暗号化して保存したもの → 環境変数 `FLUVIX_NOTION_MCP_TOKEN`**」の順で読む（§21.9）。**`settings.json` には書かない・読まない**
 - フィードバックの `FLUVIX_NOTION_TOKEN` とは共有しない（求める権限が違う）。`FLUVIX_*` はどのサーバーにも渡らない
 - 子プロセスへは環境変数 `NOTION_TOKEN` で渡す。引数には載せない（同じ PC のほかのプロセスから見える）
 - サーバーの stderr と失敗の詳細は、token の値を伏せてからログへ出す（`redactToken`）。ログの側の伏せ字は `Bearer …` の形しか拾わないため。操作の引数（本文）はログに書かない
-- Renderer へ返す型に token の欄は無い
+- **Renderer へ返す型に token の欄は無い。** Settings から入れられるようになった後も向きは一方通行で、Main から Renderer へ token が戻る経路は存在しない（§21.9）
 
 ### 21.6 接続の寿命
 
@@ -9119,10 +9124,65 @@ Notion MCP サーバーが設定として読む変数（2.5.1 で確かめた）
 
 ### 21.8 このブランチで入れていないもの
 
-| 項目                          | 扱い                                                                         |
-| ----------------------------- | ---------------------------------------------------------------------------- |
-| UI・Settings                  | settings-scope との統合時（token の入力と保存・状態の表示・有効 / 無効）     |
-| 接続の保持                    | Agent から呼ぶ段階                                                           |
-| リモートの MCP（HTTP・OAuth） | 将来                                                                         |
-| macOS / Linux                 | 配布は Windows だけ。Unix 系の分岐は単体テストだけで、実機では確かめていない |
-| 確認ダイアログのページ名      | 今はページ ID だけ。タイトルを出すには確認の前に読み取りが1回要る            |
+| 項目                          | 扱い                                                                          |
+| ----------------------------- | ----------------------------------------------------------------------------- |
+| UI・Settings                  | **§21.9 で入れた**（token の入力と保存・状態の表示・有効 / 無効・接続テスト） |
+| 接続の保持                    | Agent から呼ぶ段階                                                            |
+| リモートの MCP（HTTP・OAuth） | 将来                                                                          |
+| macOS / Linux                 | 配布は Windows だけ。Unix 系の分岐は単体テストだけで、実機では確かめていない  |
+| 確認ダイアログのページ名      | 今はページ ID だけ。タイトルを出すには確認の前に読み取りが1回要る             |
+
+### 21.9 Settings への統合（feature/settings-mcp-integration）
+
+Settings に **MCP カテゴリ**を足し、有効 / 無効・token・接続状態・接続テストをそこから扱えるようにした。§21.1〜§21.7 の共通基盤・Notion 固有・IPC・接続テストは**作り直していない** ── 足したのは「設定として何を持つか」と「それをどう見せるか」だけになる。
+
+#### 既定は無効、scope は application
+
+| 決めごと                                 | 理由                                                                                      |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------- |
+| 既定は**どれも無効**                     | 外部サービスへ、利用者の権限で繋ぐ。Language Server（既定で有効）と**わざと逆**にしてある |
+| `mcp` section は **application scope**   | 人から受け取ったプロジェクトを開いただけで Notion への接続が有効になる、を作らない        |
+| 全体の元栓（`enabled`）＋ 接続ごと（栓） | 元栓を戻したときに「どれを使っていたか」が消えない（`lsp` と同じ2段）                     |
+| token を入れても有効にはならない         | 入れることと使うことは別の意思。「token を消さずに一時的に止める」ができる                |
+
+読めない値（真偽値でない・欠けている）は**すべて無効へ落ちる**。`lsp` は同じ場面で「有効」へ落とすが、こちらで同じことをすると壊れた設定ファイルで外部サービスへの接続が有効になってしまう（`shared/mcp/settings.ts`）。
+
+#### token は `settings.json` に書かない
+
+```
+userData/settings.json       使う意思（真偽値2つ）  … 平文・利用者が読める
+userData/mcp-secrets.json    token                  … 暗号文・この PC のこの利用者だけ
+```
+
+暗号化は Electron の `safeStorage`（Windows では DPAPI ── 鍵はログインしている利用者アカウントに紐づき、他の PC や他のアカウントへファイルを持って行っても復号できない）。**`safeStorage` が使えない環境では保存を断る**（平文へ落ちる実装にはしない ── 利用者から見るとどちらも「保存できた」に見えるため）。断られた利用者には環境変数という道が残っている。
+
+`mcpSecretStore.ts` が Electron を直接見ないのは `settingsStore.ts` と同じ理由で、本物の `safeStorage` を渡すのは `mcpService.ts` の役目になる（Vitest から読み込める側に手続きを置く）。
+
+#### 取り出す順序は「保存したもの → 環境変数」
+
+保存した方を先に見る。画面から入れた値が、前に設定した環境変数に負けて効かない、という形を作らないため ── 利用者から見ると「保存したのに古い token で繋がる」は原因の見えない不具合になる。どちらが効いているかは画面に出す（`McpSecretState`）ので、**「消したのにまだ繋がる」が設定として読める**。
+
+順序を解くのは `mcpConnections.ts` の `resolveSecret` 1つだけで、画面へ出す在り処も実際に繋ぐ token も同じ関数から出る（別々に書くと、画面と接続がずれうる）。
+
+#### 無効は `McpConfigProblem` の1語
+
+「使わないと決めてある」を専用の outcome にせず、`disabled` として**設定が足りない理由と同じ集合**に置いた。呼ぶ側から見た扱いが同じ（今は動かせない・理由がこれ）ためで、別の outcome を作ると状態・テスト・操作の3箇所が「動かない理由」を2通りずつ持つことになる。無効なときは他の理由を数えない（利用者の次の一手は1つでよい）。
+
+#### 画面
+
+MCP カテゴリは `kind: 'items'` のままで、値の項目（有効 / 無効の2つ）はほかのカテゴリとまったく同じ道を通る ── scope の扱い・上書きの表示・保存の経路をこのカテゴリのために書き直さない。**設定ファイルに書けないもの**（token・接続状態・接続テスト）だけを、カテゴリの `panel` が出す面が持つ（`renderer/src/mcp/McpConnectionPanel.tsx`）。
+
+- token の欄は `type="password"` で、**保存済みの値は入らない**。入れ直すときは新しい値を丸ごと送り、送った時点で欄は空に戻る
+- 面はユーザー設定を見ているときだけ出す（application scope なので、ワークスペース側では上の行が押せない状態で理由を添える）
+- 並べるのは `MCP_CONNECTION_IDS` の全部で、Notion という名前は面のコードに1つも無い（名前は i18n が接続 id から引く）
+- 「どの状態のときに何が出るか」は `mcpStatusSummary.ts` に出してある（React 非依存・テスト対象）。設定を変えた後に古い結果が残らないこと ── token を消した直後に「繋がりました」と出続けないこと ── はここで確かめる
+
+#### 足したときに触ったもの
+
+§15.9 の5手順（`sections.ts` → `scope.ts` → `settingsSections.ts` → 機能側の binding → 目録と `SettingsControl`）に、MCP だけの3つが加わる。
+
+1. `shared/mcp/settings.ts` ── 保存の形と使う形の変換（`lsp` の `serverSettings.ts` と同じ位置）
+2. `main/mcp/mcpSecretStore.ts` ── token の保存と、取り出す順序
+3. IPC 2本（`mcp:set-secret` / `mcp:clear-secret`）── **token が通る唯一の口**で、向きは Renderer → Main のみ。読み出す口は作らない
+
+接続を足すときは §21.7 の5手順に、`StoredMcpSettings` の key 1つと `CONNECTION_ENABLED_KEYS` の1行が加わる（`satisfies` があるので書き忘れると型が通らない）。

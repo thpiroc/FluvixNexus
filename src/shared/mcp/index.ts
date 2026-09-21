@@ -16,8 +16,13 @@
  *
  * ## 秘密情報はここに現れない
  *
- * token は Main が環境変数から読み、子プロセスへ渡すだけで、
- * この層のどの型にも欄が無い ── Renderer へ届く値に混ざる余地を作らない。
+ * token は Main が読み、子プロセスへ渡すだけで、この層のどの型にも
+ * **値の欄が無い** ── Renderer へ届く値に混ざる余地を作らない。
+ *
+ * §21.9 で Settings から token を入れられるようにしたが、増えたのは
+ * 「どこから来ているか（`McpSecretSourceId`）」と「保存できる PC か」だけで、
+ * **Main から Renderer へ token が流れる向きは今も無い**。
+ * 入れるときだけ Renderer → Main の一方通行で渡る。
  */
 
 /** 接続の種類。増やすときはここと main/mcp/mcpServerCatalog.ts の両方を足す。 */
@@ -35,13 +40,21 @@ export function isMcpConnectionId(value: unknown): value is McpConnectionId {
  *
  * | 値                     | 次の一手                                         |
  * | ---------------------- | ------------------------------------------------ |
- * | `token-missing`        | 環境変数に token を設定する                      |
- * | `token-invalid`        | 制御文字などが混ざっている。設定し直す           |
+ * | 値                     | 次の一手                                         |
+ * | ---------------------- | ------------------------------------------------ |
+ * | `disabled`             | Settings で MCP（またはその接続）を有効にする    |
+ * | `token-missing`        | Settings で token を入れる（または環境変数）     |
+ * | `token-invalid`        | 制御文字などが混ざっている。入れ直す             |
  * | `node-not-found`       | Node.js を入れる（PATH に通す）                  |
  * | `server-not-installed` | MCP サーバーを npm でグローバルに入れる          |
+ *
+ * `disabled` だけは「設定が足りない」ではなく「使わないと決めてある」に
+ * あたるが、**呼ぶ側から見た扱いは同じ**（今は動かせない・理由がこれ）なので
+ * 同じ集合に置いた。別の outcome を作ると、状態・テスト・操作の3箇所が
+ * 「動かない理由」を2通りずつ持つことになる。
  */
 export type McpConfigProblem =
-  'token-missing' | 'token-invalid' | 'node-not-found' | 'server-not-installed'
+  'disabled' | 'token-missing' | 'token-invalid' | 'node-not-found' | 'server-not-installed'
 
 /**
  * 設定は揃っていたのに繋がらなかった理由。
@@ -94,17 +107,52 @@ export type McpConnectionTestResult =
       readonly failure: McpConnectionFailure
     }
 
+/**
+ * token がどこから来ているか（§21.9）。**値そのものは決して付かない。**
+ *
+ * | 値            | 意味                                                     |
+ * | ------------- | -------------------------------------------------------- |
+ * | `stored`      | この PC に暗号化して保存されている（Settings から入れた） |
+ * | `environment` | 環境変数 `FLUVIX_NOTION_MCP_TOKEN` から                   |
+ * | `none`        | どちらにも無い                                            |
+ *
+ * 出どころを画面に出すのは、**「消したのにまだ繋がる」を説明できるようにする**
+ * ため ── 保存した token を消しても環境変数が残っていれば繋がり続ける。
+ * どちらが効いているかが出ていれば、それは不具合ではなく設定として読める。
+ */
+export type McpSecretSourceId = 'stored' | 'environment' | 'none'
+
+/** token の在り処（値は含まない）。 */
+export interface McpSecretState {
+  readonly source: McpSecretSourceId
+  /** この PC で token を保存できるか（OS の資格情報が使えるか）。 */
+  readonly canStore: boolean
+}
+
 /** 接続1つの今の状態。 */
 export interface McpConnectionStatus {
   readonly connectionId: McpConnectionId
   /** 今この時点で設定が揃っているか（`problems` が空か）。 */
   readonly configured: boolean
   readonly problems: readonly McpConfigProblem[]
+  /** Settings で有効にしてあるか（全体の元栓とこの接続の栓の両方が入っているか）。 */
+  readonly enabled: boolean
+  /** token の在り処。値は含まない。 */
+  readonly secret: McpSecretState
   /** 接続テストの最中か。 */
   readonly testing: boolean
   /** 直近の接続テストの結末（このアプリを起動してから1度も試していなければ null）。 */
   readonly lastTest: McpConnectionTestResult | null
 }
+
+/** token を入れようとした結果（`ok` でなければ理由）。 */
+export type McpSecretWriteOutcome =
+  | { readonly ok: true; readonly state: McpSecretState }
+  | {
+      readonly ok: false
+      readonly failure: 'encryption-unavailable' | 'token-invalid' | 'write-failed'
+      readonly state: McpSecretState
+    }
 
 /* ------------------------------------------------------------------ 操作（tools/call） */
 

@@ -50,6 +50,13 @@ export const SETTINGS_SCOPES: readonly SettingsScope[] = ['user', 'workspace']
  * ワークスペースごとに変えられない）。プロジェクトを開き直すたびに
  * メニューの言葉が変わる形は、非エンジニアの利用者を迷わせるだけになる。
  *
+ * `mcp` も同じく `application` にあたる（§21.9）。理由は言語とは別で、
+ * **外部サービスへ繋ぐ意思と、それに使う token が、開いたフォルダに
+ * 従って変わってはいけない**ため ── ワークスペースで上書きできると、
+ * 人から受け取ったプロジェクトを開いただけで Notion への接続が有効になる。
+ * token 自体はそもそも設定ファイルに無い（sections.ts の `StoredMcpSettings`）が、
+ * 「使う」の側だけでも Workspace に決めさせない。
+ *
  * section を足すときはここにも1行足す（`Record` なので書き忘れると型が通らない）。
  */
 export const SETTINGS_SECTION_SCOPES: {
@@ -60,7 +67,8 @@ export const SETTINGS_SECTION_SCOPES: {
   editor: 'workspace',
   lsp: 'workspace',
   files: 'workspace',
-  terminal: 'workspace'
+  terminal: 'workspace',
+  mcp: 'application'
 }
 
 /** その section をワークスペース設定で上書きできるか。 */

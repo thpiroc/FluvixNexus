@@ -54,7 +54,15 @@ function emptyPreservedSettings(): PreservedSettings {
   return {
     document: {},
     sections: {},
-    fields: { general: {}, appearance: {}, editor: {}, lsp: {}, files: {}, terminal: {} }
+    fields: {
+      general: {},
+      appearance: {},
+      editor: {},
+      lsp: {},
+      files: {},
+      terminal: {},
+      mcp: {}
+    }
   }
 }
 

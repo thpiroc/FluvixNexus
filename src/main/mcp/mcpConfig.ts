@@ -6,12 +6,16 @@ import type { McpConfigProblem } from '@shared/mcp'
  * どの環境変数から読むかは表の行が決める（例: notionMcpServer.ts の
  * `FLUVIX_NOTION_MCP_TOKEN`）。ここは読み方と確かめ方だけを持つ。
  *
- * ## token は環境変数からだけ読む
+ * ## 設定ファイルには書かない・読まない
  *
- * 設定ファイルには書かない・読まない ── userData の JSON は暗号化されておらず、
- * バックアップや診断情報の添付で外へ出ていきやすい。秘密情報を安全に保存する
- * 仕組み（OS の資格情報ストア）はまだ無いので、それが入るまでは
- * 「ディスクに書かない」側に倒す。
+ * userData の JSON は暗号化されておらず、バックアップや診断情報の添付で
+ * 外へ出ていきやすい。§21.9 で入った保存先は `settings.json` ではなく、
+ * OS の資格情報で暗号化した専用のファイルにあたる（mcpSecretStore.ts）──
+ * 「平文でディスクに書かない」線は動かしていない。
+ *
+ * 形の確かめ方は**保存するときと読むときで同じ1つ**にする
+ * （`validateMcpTokenValue`）── 環境変数だけを確かめていた頃の規則が、
+ * 画面から入れた token には掛からない、という穴を作らないため。
  *
  * ## token の値は外へ出さない
  *
@@ -22,11 +26,13 @@ export type McpTokenRead =
   | { readonly ok: true; readonly token: string }
   | { readonly ok: false; readonly problem: Extract<McpConfigProblem, `token-${string}`> }
 
-export function readMcpToken(
-  env: Readonly<Record<string, string | undefined>>,
-  variable: string
-): McpTokenRead {
-  const raw = env[variable]
+/**
+ * token として使える形か（前後の空白は落とす）。
+ *
+ * 出どころ（環境変数・保存したもの・画面から入れたもの）に依らず、
+ * token がこの関数を通らずに使われる経路は無い。
+ */
+export function validateMcpTokenValue(raw: string | undefined): McpTokenRead {
   const token = typeof raw === 'string' ? raw.trim() : ''
 
   if (token.length === 0) {
@@ -44,6 +50,13 @@ export function readMcpToken(
   }
 
   return { ok: true, token }
+}
+
+export function readMcpToken(
+  env: Readonly<Record<string, string | undefined>>,
+  variable: string
+): McpTokenRead {
+  return validateMcpTokenValue(env[variable])
 }
 
 /**

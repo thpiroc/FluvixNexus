@@ -1006,6 +1006,11 @@ export const jaMessages = {
         title: 'ターミナル',
         description: 'ターミナルの見え方。開いているタブすべてに効きます。'
       },
+      mcp: {
+        title: 'MCP',
+        description:
+          'MCP サーバーを通じて、Fluvix Nexus を外部サービスにつなぎます。どれも有効にするまで動きません。この設定はアプリ全体のもので、プロジェクトごとには変えられません。'
+      },
       keyboard: {
         title: 'キーボードショートカット',
         description: 'アプリの操作に割り当てられている打鍵の一覧。この版は閲覧のみです。'
@@ -1064,6 +1069,17 @@ export const jaMessages = {
           title: 'さかのぼれる行数',
           description: '減らすと、そのぶん古い出力はその場で捨てられます。'
         }
+      },
+      mcp: {
+        enabled: {
+          title: 'MCP を使う',
+          description:
+            'MCP 連携全体の元栓です。切っている間は MCP サーバーを起動せず、この PC から外へ何も送りません。'
+        },
+        servers: {
+          title: '接続先',
+          description: 'どのサービスにつなぐかを選びます。上を切っている間は効きません。'
+        }
       }
     },
     controls: {
@@ -1097,6 +1113,12 @@ export const jaMessages = {
       },
       theme: {
         aria: 'テーマ'
+      },
+      mcpEnabled: {
+        aria: 'MCP を使うか'
+      },
+      mcpServers: {
+        aria: 'つなぐサービス'
       }
     },
     values: {
@@ -1107,6 +1129,10 @@ export const jaMessages = {
         onWindowChange: '自動保存: ウィンドウが切り替わったら'
       },
       lsp: {
+        on: '使う',
+        off: '使わない'
+      },
+      mcp: {
         on: '使う',
         off: '使わない'
       },
@@ -1148,6 +1174,60 @@ export const jaMessages = {
         default: '既定',
         user: 'ユーザー',
         workspace: 'Workspace'
+      }
+    },
+    /* 英語側（locales/en.ts の `settings.mcp`）に、言い回しを分けてある理由がある。 */
+    mcp: {
+      connections: {
+        notion: 'Notion'
+      },
+      status: {
+        loading: '確認中…',
+        testing: '接続中…',
+        disabled: '使わない設定です',
+        ready: '接続できる状態です',
+        connected: '接続できました',
+        notConfigured: 'まだ設定されていません',
+        tokenMissing: 'token がまだありません',
+        tokenInvalid: 'token に使えない文字が含まれています',
+        nodeNotFound: 'Node.js が見つかりません',
+        serverNotInstalled: 'MCP サーバーが入っていません'
+      },
+      failure: {
+        spawnFailed: 'サーバーを起動できませんでした',
+        timeout: 'サーバーから時間内に応答がありませんでした',
+        serverExited: 'サーバーが自分で終了しました',
+        protocolError: 'サーバーの応答をこの版では読めませんでした',
+        unsupportedProtocol: 'このアプリが対応していない版の MCP を話すサーバーです',
+        rejected: 'サーバーに接続を断られました'
+      },
+      secret: {
+        label: 'token',
+        placeholder: 'token を貼り付けます',
+        save: '保存',
+        clear: '削除',
+        cannotStore:
+          'この PC では token を安全に保存できないため、保存しません。環境変数 FLUVIX_NOTION_MCP_TOKEN を使ってください。',
+        source: {
+          stored: 'この PC に暗号化して保存されています。',
+          environment: '環境変数 FLUVIX_NOTION_MCP_TOKEN の token を使っています。',
+          none: 'token がまだありません。下の欄に貼り付けるか、環境変数 FLUVIX_NOTION_MCP_TOKEN を設定してください。'
+        }
+      },
+      test: '接続テスト',
+      tools: '{name} に接続しました。{count} 個のツールがあります。',
+      unknownServer: 'サーバー',
+      notice: {
+        saved: 'token を保存しました。',
+        saveFailed: 'token を保存できませんでした。',
+        tokenInvalid:
+          'この token には使えない文字が含まれています。貼り付けた内容を確認してください。',
+        encryptionUnavailable: 'この PC では token を安全に保存できないため、保存しませんでした。',
+        cleared: '保存されていた token を削除しました。',
+        clearedButEnvironment:
+          '保存されていた token を削除しました。環境変数 FLUVIX_NOTION_MCP_TOKEN が残っているため、今はそちらが使われます。',
+        clearFailed: '保存されていた token を削除できませんでした。',
+        testFailed: '接続テストを実行できませんでした。'
       }
     }
   },

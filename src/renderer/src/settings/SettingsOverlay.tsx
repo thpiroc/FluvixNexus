@@ -34,6 +34,9 @@ import type { TranslationKey } from '../i18n/messages'
 import { languageServerNameKey } from '../lsp/languageServerLabels'
 import { createLanguageServerSetters, LSP_SETTINGS_BINDING } from '../lsp/lspSettingsBinding'
 import { LANGUAGE_SERVER_IDS } from '@shared/lsp'
+import { MCP_CONNECTION_IDS } from '@shared/mcp'
+import { McpConnectionPanel } from '../mcp/McpConnectionPanel'
+import { createMcpSetters, MCP_SETTINGS_BINDING } from '../mcp/mcpSettingsBinding'
 import {
   createTerminalDisplaySetters,
   TERMINAL_DISPLAY_SETTINGS_BINDING
@@ -63,7 +66,8 @@ import {
   listSettingsCategories,
   type SettingsCategoryDescriptor,
   type SettingsCategoryId,
-  type SettingsItemDescriptor
+  type SettingsItemDescriptor,
+  type SettingsItemsCategoryDescriptor
 } from './settingsCatalog'
 import './settings.css'
 
@@ -294,8 +298,31 @@ function SettingsCategoryBody({
       {category.items.map((item) => (
         <SettingsRow key={item.id} item={item} scope={scope} />
       ))}
+      <SettingsCategoryPanel category={category} scope={scope} />
     </>
   )
+}
+
+/**
+ * 値の項目の下に続く、そのカテゴリだけの面（§21.9）。
+ *
+ * **ユーザー設定を見ているときだけ出す。** MCP は application scope なので
+ * （shared/settings/scope.ts）、ワークスペースを選んでいる間に token の欄や
+ * 接続テストを出すと、「このプロジェクトだけの設定」に見える ── 上の行が
+ * 押せない状態で理由を添えているので、面は畳んでよい。
+ */
+function SettingsCategoryPanel({
+  category,
+  scope
+}: {
+  readonly category: SettingsItemsCategoryDescriptor
+  readonly scope: SettingsScope
+}): JSX.Element | null {
+  if (category.panel === undefined || scope !== 'user') {
+    return null
+  }
+
+  return <McpConnectionPanel />
 }
 
 /**
@@ -529,6 +556,12 @@ function SettingsControl({
 
     case 'appearance.theme':
       return <AppearanceThemeControl scope={scope} />
+
+    case 'mcp.enabled':
+      return <McpEnabledControl scope={scope} />
+
+    case 'mcp.servers':
+      return <McpConnectionChoicesControl scope={scope} />
 
     default:
       /*
@@ -764,6 +797,92 @@ function LanguageServerChoicesControl({ scope }: ScopeProps): JSX.Element {
           onClick={() => setServerEnabled(id, !preferences.servers[id])}
         >
           {t(languageServerNameKey(id))}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/* ----------------------------------------------------------------- MCP */
+
+/**
+ * MCP 連携を使うか（§21.9）。
+ *
+ * 並べる順を **「使わない → 使う」** にしてある ── Theme・LSP は
+ * 「既定の方を先に」で揃えてあり、ここの既定は**無効**にほかならない
+ * （shared/mcp/settings.ts）。外部サービスへ繋ぐ設定で、
+ * 押しやすい側に「使う」を置かない。
+ */
+function McpEnabledControl({ scope }: ScopeProps): JSX.Element {
+  const { value: preferences, setEnabled } = useScopedSetters(
+    MCP_SETTINGS_BINDING,
+    scope,
+    createMcpSetters
+  )
+  const { t } = useI18n()
+
+  return (
+    <div
+      className="fx-settings__choices"
+      role="radiogroup"
+      aria-label={t('settings.controls.mcpEnabled.aria')}
+      data-testid="settings-mcp-enabled"
+    >
+      {MCP_ENABLED_CHOICES.map((choice) => (
+        <button
+          key={String(choice)}
+          type="button"
+          role="radio"
+          className="fx-settings__choice"
+          data-testid={`settings-mcp-enabled-${choice ? 'on' : 'off'}`}
+          data-active={choice === preferences.enabled}
+          aria-checked={choice === preferences.enabled}
+          onClick={() => setEnabled(choice)}
+        >
+          {t(choice ? 'settings.values.mcp.on' : 'settings.values.mcp.off')}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/** 並べる順（使わない → 使う）。既定の方を先に置く。 */
+const MCP_ENABLED_CHOICES: readonly boolean[] = [false, true]
+
+/**
+ * 接続ごとに使うか（§21.9）。
+ *
+ * LSP の言語ごとの切り替えとまったく同じ形にしてある ── 同じ性格の
+ * 切り替えを1行にまとめ、**全体が OFF でも押せる**ままにする
+ * （全体を戻したときに、どれを使っていたかを確かめられなくなるため）。
+ */
+function McpConnectionChoicesControl({ scope }: ScopeProps): JSX.Element {
+  const { value: preferences, setConnectionEnabled } = useScopedSetters(
+    MCP_SETTINGS_BINDING,
+    scope,
+    createMcpSetters
+  )
+  const { t } = useI18n()
+
+  return (
+    <div
+      className="fx-settings__choices"
+      role="group"
+      aria-label={t('settings.controls.mcpServers.aria')}
+      data-testid="settings-mcp-servers"
+      data-inactive={!preferences.enabled}
+    >
+      {MCP_CONNECTION_IDS.map((id) => (
+        <button
+          key={id}
+          type="button"
+          className="fx-settings__choice"
+          data-testid={`settings-mcp-server-${id}`}
+          data-active={preferences.servers[id]}
+          aria-pressed={preferences.servers[id]}
+          onClick={() => setConnectionEnabled(id, !preferences.servers[id])}
+        >
+          {t(`settings.mcp.connections.${id}`)}
         </button>
       ))}
     </div>

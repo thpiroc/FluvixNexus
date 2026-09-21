@@ -34,6 +34,7 @@ const settingsStore = vi.hoisted(() => ({
     editor: {},
     files: {},
     terminal: {},
+    mcp: {},
     appearance: {}
   } as SettingsSections,
   load: vi.fn(),

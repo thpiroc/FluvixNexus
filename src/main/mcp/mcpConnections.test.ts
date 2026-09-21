@@ -45,6 +45,12 @@ interface HarnessOptions {
   readonly serverInstalled?: boolean
   /** tools/call に応答しない（送った後に時間切れ）。 */
   readonly silentToolCall?: boolean
+  /** Settings で有効にしてあるか（既定は有効 ── 既定値そのものは shared 側で試す）。 */
+  readonly enabled?: boolean
+  /** 安全に保存された token（既定は無く、環境変数を見る）。 */
+  readonly storedToken?: string | null
+  /** この PC で token を保存できるか（既定はできる）。 */
+  readonly canStoreToken?: boolean
 }
 
 const SEARCH_RESULT = {
@@ -194,6 +200,9 @@ function harness(behavior: Behavior = 'healthy', setup: HarnessOptions = {}): Ha
       confirmations.push(confirmation)
       return setup.confirm ?? false
     },
+    isEnabled: () => setup.enabled ?? true,
+    readStoredToken: () => setup.storedToken ?? null,
+    canStoreToken: () => setup.canStoreToken ?? true,
     connectTimeoutMs: 30,
     requestTimeoutMs: 30
   }
@@ -221,6 +230,8 @@ describe('getStatus', () => {
       connectionId: 'notion',
       configured: true,
       problems: [],
+      enabled: true,
+      secret: { source: 'environment', canStore: true },
       testing: false,
       lastTest: null
     })
@@ -246,6 +257,118 @@ describe('getStatus', () => {
 
     h.setEnv({ PATH: SYSTEM_PATH, FLUVIX_NOTION_MCP_TOKEN: TOKEN })
     expect(connections.getStatus('notion').problems).toEqual([])
+  })
+})
+
+/*
+  §21.9 で足した2つ ── Settings の有効 / 無効と、token の在り処。
+*/
+describe('有効 / 無効（Settings）', () => {
+  it('無効なら、ほかに何が足りていても理由は disabled だけ', () => {
+    const h = harness('healthy', { enabled: false, serverInstalled: false })
+    h.setEnv({ PATH: SYSTEM_PATH })
+
+    expect(createMcpConnections(h.deps).getStatus('notion')).toMatchObject({
+      configured: false,
+      enabled: false,
+      problems: ['disabled']
+    })
+  })
+
+  it('無効なら、接続テストはサーバーを起動しない', async () => {
+    const h = harness('healthy', { enabled: false })
+    const result = await createMcpConnections(h.deps).testConnection('notion')
+
+    expect(result).toMatchObject({ outcome: 'not-configured', problems: ['disabled'] })
+    expect(h.spawned).toEqual([])
+  })
+
+  it('無効なら、操作は起動も確認もせずに断る', async () => {
+    const h = harness('healthy', { enabled: false, confirm: true })
+
+    const result = await createMcpConnections(h.deps).callOperation('notion', 'append-paragraph', {
+      pageId: '0f1e2d3c4b5a49688778695a4b3c2d1e',
+      text: 'x'
+    })
+
+    expect(result).toMatchObject({ outcome: 'not-configured', problems: ['disabled'] })
+    expect(h.spawned).toEqual([])
+    /* 無効なものに「書き込んでよいか」を訊ねない。 */
+    expect(h.confirmations).toEqual([])
+  })
+
+  it('有効かどうかは呼ぶたびに読み直す', () => {
+    let enabled = false
+    const h = harness()
+    const connections = createMcpConnections({ ...h.deps, isEnabled: () => enabled })
+
+    expect(connections.getStatus('notion').problems).toEqual(['disabled'])
+
+    enabled = true
+    expect(connections.getStatus('notion').problems).toEqual([])
+  })
+})
+
+describe('token の在り処', () => {
+  it('保存された token が環境変数より優先される', async () => {
+    const stored = 'ntn_fictitiousStoredToken987654321'
+    const h = harness('healthy', { storedToken: stored })
+
+    expect(createMcpConnections(h.deps).getStatus('notion').secret).toEqual({
+      source: 'stored',
+      canStore: true
+    })
+
+    await createMcpConnections(h.deps).testConnection('notion')
+
+    /* 子プロセスへ渡るのも、保存された方でなければならない。 */
+    expect(h.spawned[0]?.env['NOTION_TOKEN']).toBe(stored)
+  })
+
+  it('保存が無ければ環境変数から読む', () => {
+    const h = harness()
+
+    expect(createMcpConnections(h.deps).getStatus('notion').secret).toEqual({
+      source: 'environment',
+      canStore: true
+    })
+  })
+
+  it('どちらにも無ければ none と token-missing', () => {
+    const h = harness()
+    h.setEnv({ PATH: SYSTEM_PATH })
+
+    expect(createMcpConnections(h.deps).getStatus('notion')).toMatchObject({
+      problems: ['token-missing'],
+      secret: { source: 'none', canStore: true }
+    })
+  })
+
+  /*
+    token を入れ替えた後に、前の token での結末が残らないこと。
+    実機の確認で見つけた ── 保存した token を消すと環境変数の token へ
+    切り替わるが、「接続できました」が残ったままだと、*消える前の*
+    資格情報での結果を今の結果として読むことになる。
+  */
+  it('forgetLastTest で、前の token での結末を忘れる', async () => {
+    const h = harness()
+    const connections = createMcpConnections(h.deps)
+
+    await connections.testConnection('notion')
+    expect(connections.getStatus('notion').lastTest).toMatchObject({ outcome: 'connected' })
+
+    connections.forgetLastTest('notion')
+
+    expect(connections.getStatus('notion').lastTest).toBeNull()
+  })
+
+  it('保存できない PC でも、環境変数の token は使える', () => {
+    const h = harness('healthy', { canStoreToken: false })
+
+    expect(createMcpConnections(h.deps).getStatus('notion')).toMatchObject({
+      configured: true,
+      secret: { source: 'environment', canStore: false }
+    })
   })
 })
 

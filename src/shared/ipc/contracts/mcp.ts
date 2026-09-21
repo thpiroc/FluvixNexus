@@ -2,7 +2,9 @@ import type {
   McpConnectionId,
   McpConnectionStatus,
   McpConnectionTestResult,
-  McpOperationResult
+  McpOperationResult,
+  McpSecretState,
+  McpSecretWriteOutcome
 } from '../../mcp'
 
 /**
@@ -39,6 +41,24 @@ export interface McpOperationRequest {
   readonly arguments: unknown
 }
 
+/**
+ * token を入れる要求（§21.9）。
+ *
+ * ## token が通るのは、この1本の、この向きだけ
+ *
+ * Renderer → Main の一方通行にほかならない。返る `McpSecretWriteOutcome` にも
+ * `McpConnectionStatus` にも token の値の欄は無く、**Main から Renderer へ
+ * token が戻る経路は存在しない**（shared/mcp の冒頭）。
+ *
+ * 入れ直すときは、画面が今の値を読んで直すのではなく、新しい値を丸ごと送る
+ * ── 「読めないが入っている」ものを編集させない。
+ */
+export interface McpSetSecretRequest {
+  readonly connectionId: McpConnectionId
+  /** 入れる token。空文字は「消す」ではなく、形が通らないものとして断る。 */
+  readonly token: string
+}
+
 export interface McpIpcContract {
   /** 設定が揃っているかと、直近の接続テストの結末（起動も通信もしない）。 */
   'mcp:get-status': {
@@ -54,5 +74,15 @@ export interface McpIpcContract {
   'mcp:call-operation': {
     request: McpOperationRequest
     response: McpOperationResult
+  }
+  /** token を安全な保存先へ入れる（既にあれば置き換える）。 */
+  'mcp:set-secret': {
+    request: McpSetSecretRequest
+    response: McpSecretWriteOutcome
+  }
+  /** 保存された token を消す（環境変数の token には触れない）。 */
+  'mcp:clear-secret': {
+    request: McpConnectionRequest
+    response: McpSecretState
   }
 }

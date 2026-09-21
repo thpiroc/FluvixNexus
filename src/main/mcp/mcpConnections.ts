@@ -5,7 +5,9 @@ import type {
   McpConnectionId,
   McpConnectionStatus,
   McpConnectionTestResult,
-  McpOperationResult
+  McpOperationResult,
+  McpSecretSourceId,
+  McpSecretState
 } from '@shared/mcp'
 import type { FileExistsCheck } from '../platform/executablePath'
 import {
@@ -94,6 +96,22 @@ export interface McpConnectionsDependencies {
   readonly language: () => LanguageId
   /** 書き込みを実行してよいか利用者に確かめる。true で実行する。 */
   readonly confirmWrite: (confirmation: McpWriteConfirmation) => Promise<boolean>
+  /**
+   * その接続を使ってよいか（§21.9）。Settings の2つの真偽値を見る
+   * （shared/mcp/settings.ts の `isMcpConnectionEnabled`）。
+   *
+   * ここを関数で受け取るのは、**設定はいつでも変わる**ため ── 起動時に1度
+   * 読んだ値を持つと、Settings で有効にした直後に接続テストが
+   * 「無効です」と答えることになる。
+   */
+  readonly isEnabled: (id: McpConnectionId) => boolean
+  /**
+   * 安全に保存された token（無ければ `null`）。`null` のときだけ環境変数を見る
+   * （main/mcp/mcpSecretStore.ts の `resolveMcpSecret`）。
+   */
+  readonly readStoredToken: (id: McpConnectionId) => string | null
+  /** この PC で token を保存できるか（画面へ出すためだけの値）。 */
+  readonly canStoreToken: () => boolean
   /** 時間切れの上限（テストで縮めるため）。 */
   readonly connectTimeoutMs?: number
   readonly requestTimeoutMs?: number
@@ -113,6 +131,18 @@ export interface McpConnections {
     operation: string,
     rawArguments: unknown
   ) => Promise<McpOperationResult>
+  /**
+   * 直近の接続テストの結末を忘れる（§21.9）。
+   *
+   * **token を入れ替えたら呼ぶ。** 結末は「その時点の token で試した結果」
+   * であって、token が変わればもう今の設定の話ではない ── 保存した token を
+   * 消して環境変数の token へ切り替わった後も「接続できました」が残ると、
+   * *消える前の* 資格情報での結果を、今の資格情報の結果として読むことになる。
+   *
+   * 設定（有効 / 無効）では忘れない。あちらは token を変えないので、
+   * 戻したときに前の結末がそのまま意味を持つ。
+   */
+  readonly forgetLastTest: (id: McpConnectionId) => void
   /** 動いているサーバーを待たずに終わらせる（アプリの終了時）。 */
   readonly terminateAll: () => void
 }
@@ -134,11 +164,52 @@ export function createMcpConnections(deps: McpConnectionsDependencies): McpConne
   const operationQueues = new Map<McpConnectionId, Promise<unknown>>()
   const transports = new Set<McpTransport>()
 
+  /**
+   * token をどこから取るか（§21.9）。保存したものが先で、無ければ環境変数。
+   *
+   * 出どころは画面にも出すので、config を解く手前で1つの関数にまとめてある
+   * ── `getStatus` と `resolveConfig` が別々に順序を書くと、
+   * 「画面は保存した token を指しているのに、繋ぐのは環境変数の方」がありうる。
+   */
+  function resolveSecret(id: McpConnectionId): {
+    readonly source: McpSecretSourceId
+    readonly token: ReturnType<typeof resolveMcpServerToken>
+  } {
+    const stored = deps.readStoredToken(id)
+
+    if (stored !== null) {
+      return { source: 'stored', token: { ok: true, token: stored } }
+    }
+
+    const fromEnvironment = resolveMcpServerToken(id, deps.env())
+
+    /*
+      秘密情報を要らないサーバー（`secret: null`）は `ok: true` / `token: null`
+      で返る。そこに「環境変数から来た」と書くと、token を求めていないサーバーの
+      画面に token の話が出る ── 無い扱いにする。
+    */
+    const missing = !fromEnvironment.ok || fromEnvironment.token === null
+
+    return { source: missing ? 'none' : 'environment', token: fromEnvironment }
+  }
+
+  function secretState(id: McpConnectionId): McpSecretState {
+    return { source: resolveSecret(id).source, canStore: deps.canStoreToken() }
+  }
+
   function resolveConfig(id: McpConnectionId): ResolvedConfig {
     const env = deps.env()
     const problems: McpConfigProblem[] = []
 
-    const token = resolveMcpServerToken(id, env)
+    /*
+      無効なら、ほかの理由は数えない。「無効です」と「token がありません」が
+      並ぶと、先に token を入れさせることになる ── 利用者の次の一手は1つでよい。
+    */
+    if (!deps.isEnabled(id)) {
+      return { ok: false, problems: ['disabled'] }
+    }
+
+    const token = resolveSecret(id).token
 
     if (!token.ok) {
       problems.push(token.problem)
@@ -366,6 +437,8 @@ export function createMcpConnections(deps: McpConnectionsDependencies): McpConne
         connectionId: id,
         configured: problems.length === 0,
         problems,
+        enabled: deps.isEnabled(id),
+        secret: secretState(id),
         testing: runningTests.has(id),
         lastTest: lastTests.get(id) ?? null
       }
@@ -409,6 +482,10 @@ export function createMcpConnections(deps: McpConnectionsDependencies): McpConne
       })
 
       return next
+    },
+
+    forgetLastTest: (id): void => {
+      lastTests.delete(id)
     },
 
     terminateAll: (): void => {

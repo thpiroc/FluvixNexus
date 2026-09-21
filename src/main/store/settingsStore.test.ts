@@ -55,7 +55,8 @@ describe('settings.json の読み書き', () => {
       editor: {},
       lsp: {},
       files: {},
-      terminal: {}
+      terminal: {},
+      mcp: {}
     })
 
     expect(await readdir(directory)).toEqual([])
@@ -90,7 +91,8 @@ describe('settings.json の読み書き', () => {
         editor: { autoSaveMode: 'afterDelay' },
         lsp: {},
         files: {},
-        terminal: {}
+        terminal: {},
+        mcp: {}
       }
     })
   })
@@ -123,7 +125,8 @@ describe('settings.json の読み書き', () => {
       editor: {},
       lsp: {},
       files: { viewMode: 'columns' },
-      terminal: { fontSize: 20, scrollback: 1000 }
+      terminal: { fontSize: 20, scrollback: 1000 },
+      mcp: {}
     })
   })
 
@@ -140,7 +143,8 @@ describe('settings.json の読み書き', () => {
       editor: {},
       lsp: {},
       files: {},
-      terminal: {}
+      terminal: {},
+      mcp: {}
     })
   })
 })
@@ -171,7 +175,8 @@ describe('旧 3 ファイルからの移行', () => {
       editor: { autoSaveMode: 'afterDelay', autoSaveDelayMs: 3000 },
       lsp: {},
       files: { viewMode: 'columns', columnWidth: 240 },
-      terminal: { fontSize: 20, scrollback: 1000 }
+      terminal: { fontSize: 20, scrollback: 1000 },
+      mcp: {}
     })
 
     // 読んだだけで（保存を1度もせずに）ファイルができている。
@@ -183,7 +188,8 @@ describe('旧 3 ファイルからの移行', () => {
         editor: { autoSaveMode: 'afterDelay', autoSaveDelayMs: 3000 },
         lsp: {},
         files: { viewMode: 'columns', columnWidth: 240 },
-        terminal: { fontSize: 20, scrollback: 1000 }
+        terminal: { fontSize: 20, scrollback: 1000 },
+        mcp: {}
       }
     })
   })
@@ -220,7 +226,8 @@ describe('旧 3 ファイルからの移行', () => {
       editor: {},
       lsp: {},
       files: {},
-      terminal: { fontSize: 20, scrollback: 1000 }
+      terminal: { fontSize: 20, scrollback: 1000 },
+      mcp: {}
     })
   })
 
@@ -238,7 +245,8 @@ describe('旧 3 ファイルからの移行', () => {
       editor: {},
       lsp: {},
       files: {},
-      terminal: { fontSize: 11 }
+      terminal: { fontSize: 11 },
+      mcp: {}
     })
   })
 
@@ -260,7 +268,8 @@ describe('旧 3 ファイルからの移行', () => {
       editor: {},
       lsp: {},
       files: {},
-      terminal: {}
+      terminal: {},
+      mcp: {}
     })
 
     expect(await readdir(directory)).toEqual([])

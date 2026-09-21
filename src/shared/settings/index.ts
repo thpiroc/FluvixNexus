@@ -17,6 +17,7 @@ export type {
   StoredFilesSettings,
   StoredGeneralSettings,
   StoredLspSettings,
+  StoredMcpSettings,
   StoredTerminalSettings
 } from './sections'
 

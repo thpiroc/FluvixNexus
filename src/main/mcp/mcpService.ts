@@ -1,7 +1,9 @@
-import { app, dialog } from 'electron'
+import { app, dialog, safeStorage } from 'electron'
 import { existsSync } from 'fs'
 import { join } from 'path'
 import { normalizeLanguageId, type LanguageId } from '@shared/language'
+import type { McpConnectionId } from '@shared/mcp'
+import { isMcpConnectionEnabled, normalizeMcpPreferences } from '@shared/mcp/settings'
 import { createLogger } from '../logger'
 import { currentPlatform } from '../platform'
 import { readUserSettingsSections } from '../store/settings'
@@ -11,12 +13,41 @@ import {
   type McpConnections,
   type McpWriteConfirmation
 } from './mcpConnections'
+import { createMcpSecretStore, type McpSecretStore } from './mcpSecretStore'
 import type { BundledNodeScriptLaunch } from './mcpServerLaunch'
 import { createMcpStdioTransport } from './mcpStdioTransport'
 
 const log = createLogger('mcp')
 
 let connections: McpConnections | null = null
+let secrets: McpSecretStore | null = null
+
+/**
+ * token の保存先（アプリに1つ）。
+ *
+ * `safeStorage` をそのまま渡す ── Electron の API をこの層でだけ見て、
+ * 保存の手続きは mcpSecretStore.ts が持つ（Vitest から読み込める側に置く）。
+ */
+export function getMcpSecretStore(): McpSecretStore {
+  secrets ??= createMcpSecretStore(app.getPath('userData'), safeStorage, {
+    onIssue: (message, ...details) => {
+      log.warn(message, ...details)
+    }
+  })
+
+  return secrets
+}
+
+/**
+ * Settings の MCP の設定（§21.9）。
+ *
+ * `readUserSettingsSections` を読むのは、この section が application scope
+ * だからにほかならない（shared/settings/scope.ts）── ワークスペース設定で
+ * 上書きできる値ではないので、効く値を解く必要が無い。
+ */
+function mcpPreferences(): ReturnType<typeof normalizeMcpPreferences> {
+  return normalizeMcpPreferences(readUserSettingsSections().mcp)
+}
 
 /**
  * MCP の接続（アプリに1つ）。Electron / OS から値を集めて渡すのはここだけで、
@@ -46,7 +77,15 @@ export function getMcpConnections(): McpConnections {
     now: () => new Date(),
     log,
     language: currentLanguage,
-    confirmWrite
+    confirmWrite,
+    /*
+      有効かどうかも token も、**呼ばれるたびに読み直す**。覚えると、
+      Settings で有効にした直後・token を入れた直後に、まだ古い答えが返る。
+      どちらもディスクの読み1回で、接続のたびにしか起きない。
+    */
+    isEnabled: (id: McpConnectionId) => isMcpConnectionEnabled(mcpPreferences(), id),
+    readStoredToken: (id: McpConnectionId) => getMcpSecretStore().read(id),
+    canStoreToken: () => getMcpSecretStore().canStore()
   })
 
   return connections

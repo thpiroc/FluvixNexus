@@ -550,3 +550,131 @@
 .fx-shortcuts__note:last-child {
   margin-bottom: 0;
 }
+
+/* ------------------------------------------------------------------ MCP */
+
+/*
+ * MCP の接続の面（§21.9。renderer/src/mcp/McpConnectionPanel.tsx）。
+ *
+ * 設定の行（`.fx-settings__row`）と違い、**1つの接続がひとかたまり**に
+ * 見える必要がある ── 名前・状態・token・接続テストは、どれも
+ * 「その接続について」の話で、行として縦に並べると、どこまでが
+ * 1つの接続の話なのかが読めなくなる。接続が増えるほど効いてくる。
+ */
+.fx-mcp {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-3);
+  padding-top: var(--fx-space-3);
+  border-top: 1px solid var(--fx-color-border);
+}
+
+.fx-mcp__card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-2);
+  padding: var(--fx-space-3);
+  border: 1px solid var(--fx-color-border);
+  border-radius: 4px;
+  background: var(--fx-color-surface-raised);
+}
+
+.fx-mcp__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--fx-space-2);
+}
+
+.fx-mcp__name {
+  color: var(--fx-color-text-strong);
+  font-size: var(--fx-font-size-md);
+  font-weight: 600;
+}
+
+/*
+ * 今の状態。**色だけで意味を伝えない** ── 文字がそのまま状態の名前に
+ * なっていて（「接続できました」「token がまだありません」）、色は
+ * それを速く見つけるための手掛かりにとどまる。
+ */
+.fx-mcp__status {
+  color: var(--fx-color-text-muted);
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-mcp__status[data-tone='connected'] {
+  color: var(--fx-accent-green);
+}
+
+.fx-mcp__status[data-tone='attention'] {
+  color: var(--fx-accent-orange);
+}
+
+.fx-mcp__status[data-tone='failed'] {
+  color: var(--fx-color-danger);
+}
+
+.fx-mcp__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-1);
+}
+
+.fx-mcp__label {
+  color: var(--fx-color-text);
+  font-size: var(--fx-font-size-sm);
+  font-weight: 600;
+}
+
+.fx-mcp__note {
+  margin: 0;
+  color: var(--fx-color-text-muted);
+  font-size: var(--fx-font-size-sm);
+  line-height: 1.5;
+}
+
+.fx-mcp__note[data-state='warning'] {
+  color: var(--fx-accent-orange);
+}
+
+.fx-mcp__row {
+  display: flex;
+  align-items: center;
+  gap: var(--fx-space-2);
+  flex-wrap: wrap;
+}
+
+/*
+ * token の欄。伸ばしてよい唯一の要素で、ボタンは幅を持たない
+ * ── 貼り付ける値が長い（Notion の token は 50 文字前後）。
+ */
+.fx-mcp__input {
+  flex: 1 1 16rem;
+  min-width: 0;
+  padding: var(--fx-space-1) var(--fx-space-2);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  background: var(--fx-color-surface-sunken);
+  color: var(--fx-color-text-strong);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-mcp__button {
+  padding: var(--fx-space-1) var(--fx-space-3);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  background: var(--fx-color-surface);
+  color: var(--fx-color-text);
+  font-size: var(--fx-font-size-sm);
+  cursor: pointer;
+}
+
+.fx-mcp__button:hover:not(:disabled) {
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-mcp__button:disabled {
+  color: var(--fx-color-text-faint);
+  cursor: default;
+}
