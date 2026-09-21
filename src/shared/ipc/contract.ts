@@ -7,6 +7,7 @@ import type { LspIpcContract } from './contracts/lsp'
 import type { SettingsIpcContract } from './contracts/settings'
 import type { SystemIpcContract } from './contracts/system'
 import type { TerminalIpcContract } from './contracts/terminal'
+import type { UpdatesIpcContract } from './contracts/updates'
 import type { WindowIpcContract } from './contracts/window'
 import type { WorkspaceIpcContract } from './contracts/workspace'
 import type { WorkspaceFolderIpcContract } from './contracts/workspaceFolder'
@@ -42,6 +43,7 @@ export interface IpcContract
     TerminalIpcContract,
     GitIpcContract,
     GitHubIpcContract,
+    UpdatesIpcContract,
     LspIpcContract,
     DebugIpcContract,
     FeedbackIpcContract {}

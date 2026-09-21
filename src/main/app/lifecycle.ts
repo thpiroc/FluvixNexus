@@ -22,6 +22,7 @@ import { flushSettingsDocument } from '../store/settings'
 import { flushWorkspaceFolderDocument } from '../store/workspaceFolder'
 import { flushWorkspaceLayoutDocument } from '../store/workspaceLayout'
 import { stopTerminalSessions } from '../terminal/terminalSessions'
+import { startUpdateService } from '../updates/updateService'
 import { createMainWindow, focusMainWindow, getMainWindow } from '../windows/mainWindow'
 import { onWorkspaceFolderChange } from '../workspaceFolder/currentWorkspaceFolder'
 import { applyApplicationMenu } from './menu'
@@ -168,6 +169,7 @@ export function bootstrapApp(): void {
     */
 
     createMainWindow()
+    startUpdateService()
 
     app.on('activate', () => {
       if (getMainWindow() === null) {

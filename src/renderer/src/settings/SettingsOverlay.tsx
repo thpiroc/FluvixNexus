@@ -32,6 +32,7 @@ import {
   TERMINAL_SCROLLBACK_MIN
 } from '../terminal/terminalDisplay'
 import { NumberField } from '../ui/NumberField'
+import { UpdateSettingsControl } from '../updates/UpdateSettingsControl'
 import { KeyboardShortcutsView } from './KeyboardShortcutsView'
 import {
   DEFAULT_SETTINGS_CATEGORY_ID,
@@ -261,6 +262,9 @@ function SettingsControl({ item }: { readonly item: SettingsItemDescriptor }): J
   switch (item.id) {
     case 'general.language':
       return <LanguageControl />
+
+    case 'general.updates':
+      return <UpdateSettingsControl />
 
     case 'editor.autoSaveMode':
       return <AutoSaveModeControl />

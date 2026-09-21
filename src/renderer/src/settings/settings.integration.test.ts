@@ -277,10 +277,11 @@ describe('Settings 画面の既定', () => {
     })
   })
 
-  /* 画面に並ぶ9項目と、この統合テストが触る9項目が食い違わないようにする。 */
+  /* 画面に並ぶ10項目と、この統合テストが触る値項目が食い違わないようにする。 */
   it('画面に並ぶ項目と、ここで確かめる項目が一致する', () => {
     expect(listSettingsItems().map((item) => item.id)).toEqual([
       'general.language',
+      'general.updates',
       'appearance.theme',
       'editor.autoSaveMode',
       'editor.autoSaveDelayMs',

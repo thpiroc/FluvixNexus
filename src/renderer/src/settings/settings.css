@@ -242,6 +242,101 @@
   font-size: var(--fx-font-size-sm);
 }
 
+.fx-updates {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-2);
+  min-width: 260px;
+  max-width: 360px;
+}
+
+.fx-updates__summary {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fx-updates__version,
+.fx-updates__state,
+.fx-updates__target,
+.fx-updates__source,
+.fx-updates__message,
+.fx-updates__progress-label {
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-updates__version,
+.fx-updates__state {
+  color: var(--fx-color-text-strong);
+}
+
+.fx-updates__target,
+.fx-updates__source,
+.fx-updates__progress-label {
+  color: var(--fx-color-text-muted);
+}
+
+.fx-updates__message {
+  margin: 0;
+  color: var(--fx-color-text-muted);
+  line-height: 1.4;
+}
+
+.fx-updates__progress {
+  position: relative;
+  height: 18px;
+  overflow: hidden;
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 2px;
+  background: var(--fx-color-surface-sunken);
+}
+
+.fx-updates__progress-bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--fx-accent-blue);
+}
+
+.fx-updates__progress-label {
+  position: relative;
+  display: block;
+  padding: 1px var(--fx-space-1);
+  color: var(--fx-color-text-strong);
+}
+
+.fx-updates__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fx-space-1);
+}
+
+.fx-updates__button {
+  padding: 2px var(--fx-space-2);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 2px;
+  background: var(--fx-color-surface-sunken);
+  color: var(--fx-color-text);
+  font: inherit;
+  font-size: var(--fx-font-size-sm);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.fx-updates__button:hover:not(:disabled) {
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-updates__button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.fx-updates__button--primary {
+  border-color: var(--fx-accent-blue);
+  background: var(--fx-color-surface-raised);
+  color: var(--fx-color-text-strong);
+}
+
 /*
  * Keyboard Shortcuts の一覧（settings/KeyboardShortcutsView.tsx。Session 4-7C）。
  *

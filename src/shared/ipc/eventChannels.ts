@@ -17,6 +17,7 @@ export const IPC_EVENT_CHANNELS = {
   TERMINAL_DATA: 'terminal:data',
   TERMINAL_EXIT: 'terminal:exit',
   GIT_CHANGED: 'git:changed',
+  UPDATES_STATUS_CHANGED: 'updates:status-changed',
   LSP_SYNC_REQUESTED: 'lsp:sync-requested',
   LSP_DIAGNOSTICS: 'lsp:diagnostics',
   LSP_DIAGNOSTICS_CLEARED: 'lsp:diagnostics-cleared',

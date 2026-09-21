@@ -145,6 +145,12 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategoryDescriptor[] = [
         titleKey: 'settings.items.general.language.title',
         descriptionKey: 'settings.items.general.language.description',
         section: 'general'
+      },
+      {
+        id: 'general.updates',
+        titleKey: 'settings.items.general.updates.title',
+        descriptionKey: 'settings.items.general.updates.description',
+        section: 'general'
       }
     ]
   },

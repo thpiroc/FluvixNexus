@@ -117,14 +117,15 @@ describe('SETTINGS_CATEGORIES', () => {
 
 describe('listSettingsItems', () => {
   /*
-    Session 4-3B の5つ ＋ Theme ＋ Language。保存されている設定は8つあるが、
+    Session 4-3B の5つ ＋ Theme ＋ Language ＋ Updates。保存されている設定は8つあるが、
     Files のカラムの幅だけは画面に載せない（settingsCatalog.ts の冒頭）。
 
     Keyboard Shortcuts は項目を1つも足していない ── 一覧表であって設定ではない。
   */
-  it('9つの設定が、カテゴリの順に並ぶ', () => {
+  it('10個の設定が、カテゴリの順に並ぶ', () => {
     expect(listSettingsItems().map((item) => item.id)).toEqual([
       'general.language',
+      'general.updates',
       'appearance.theme',
       'editor.autoSaveMode',
       'editor.autoSaveDelayMs',
