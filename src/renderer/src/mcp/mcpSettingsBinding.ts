@@ -1,4 +1,3 @@
-import type { McpConnectionId } from '@shared/mcp'
 import {
   DEFAULT_MCP_PREFERENCES,
   isSameMcpPreferences,
@@ -9,11 +8,13 @@ import {
 import type { SettingsSectionBinding, SettingsValueUpdate } from '../settings/settingsBinding'
 
 /**
- * MCP を使うかどうかの値の持ち主（§21.9）。
+ * MCP を使うかどうか（全体の元栓）の値の持ち主。
  *
  * 形は LSP の `lspSettingsBinding.ts` とまったく同じにしてある ── 読む・書く・
- * 同じなら据え置く、の3つだけで、**token は1つも通らない**
- * （token は設定の値ではなく、IPC の別の口から Main へ渡る）。
+ * 同じなら据え置く、の3つだけで、**秘密の値は1つも通らない**
+ * （秘密の値は設定の値ではなく、登録の IPC の口から Main へ渡る）。
+ *
+ * 登録したサーバーごとの有効 / 無効はここではなく、登録簿（`mcp-servers.json`）が持つ。
  *
  * この section は application scope なので、Settings 画面でワークスペースを
  * 選んでいる間は押せない状態で出る（shared/settings/scope.ts）。
@@ -27,7 +28,6 @@ export const MCP_SETTINGS_BINDING: SettingsSectionBinding<'mcp', McpPreferences>
 
 export interface McpSetters {
   readonly setEnabled: (enabled: boolean) => void
-  readonly setConnectionEnabled: (id: McpConnectionId, enabled: boolean) => void
 }
 
 /** 値の変え方（丸め・同じなら据え置く）。画面と打鍵の両方がこれを使う。 */
@@ -42,8 +42,6 @@ export function createMcpSetters(update: SettingsValueUpdate<McpPreferences>): M
   }
 
   return {
-    setEnabled: (enabled) => apply((previous) => ({ ...previous, enabled })),
-    setConnectionEnabled: (id, enabled) =>
-      apply((previous) => ({ ...previous, servers: { ...previous.servers, [id]: enabled } }))
+    setEnabled: (enabled) => apply((previous) => ({ ...previous, enabled }))
   }
 }

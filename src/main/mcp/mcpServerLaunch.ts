@@ -11,29 +11,20 @@ import { resolveNpmGlobalServerCommand, type NpmGlobalServerSpec } from './mcpNp
 /**
  * MCP サーバーの「起動のしかた」（MCP 共通。Electron / fs / child_process 非依存・テスト対象）。
  *
- * サーバーの定義（例: notionMcpServer.ts）は、次のどれか1つを選ぶ。
+ * サーバーの定義は、次のどれか1つを選ぶ。
  *
  * | 種類                  | 何を起動するか                                          | 利用者に求めるもの |
  * | --------------------- | ------------------------------------------------------- | ------------------ |
- * | `bundled-node-script` | アプリに同梱したスクリプトを、アプリ自身の Node で起動 | 何も無い           |
  * | `npm-global`          | 利用者が `npm install -g` したパッケージ（mcpNpmServer） | Node と npm        |
  * | `executable-on-path`  | PATH 上の実行ファイル（Go などで書かれたサーバー）      | その実行ファイル   |
- * | `user-command`        | 利用者が Settings で決めた Command と引数（§21.10）     | その Command       |
+ * | `user-command`        | 利用者が MCP Server Manager で決めた Command と引数     | その Command       |
  *
- * ## 同梱したスクリプトは、アプリ自身の Node で動かす
- *
- * Electron の実行ファイルは、`ELECTRON_RUN_AS_NODE=1` を付けて起動すると素の Node として
- * 動く。これを使えば、利用者の PC に Node が無くても、版を固定したサーバーを動かせる
- * （Node で書かれた MCP サーバーの多くは、1つのファイルにまとめて配られている）。
- *
- * 置き場所はアプリが決める（配布物では `resources/mcp-servers/<name>`、開発時は
- * `node_modules/<package>`。mcpService.ts）── 定義が書くのは「どのパッケージの、
- * どのファイルか」だけで、PATH も Workspace も起動されるものに影響しない。
+ * アプリは MCP サーバーを同梱しない。
  *
  * ## 起動に付く環境変数
  *
- * `environment` は起動のしかたそのものに要る変数（`ELECTRON_RUN_AS_NODE`）だけ。
- * サーバーの設定（token など）は環境の組み立て（mcpServerEnvironment.ts）が別に足す。
+ * `environment` は起動のしかたそのものに要る変数だけ。
+ * サーバーの設定（秘密の値など）は環境の組み立て（mcpServerEnvironment.ts）が別に足す。
  */
 
 /** 起動するもの1つ分。Main の中だけで使う（Renderer へは渡さない）。 */
@@ -71,19 +62,6 @@ export type McpServerCommandResolution =
       >
     }
 
-/** アプリに同梱したパッケージの、どのファイルを起動するか。 */
-export interface BundledNodeScriptLaunch {
-  readonly kind: 'bundled-node-script'
-  readonly name: string
-  /** npm のパッケージ名（開発時は node_modules から読む）。 */
-  readonly packageName: string
-  /** 配布物の中の置き場所の名前（`resources/mcp-servers/<bundleName>`）。 */
-  readonly bundleName: string
-  /** パッケージの中の入口（区切りごと）。 */
-  readonly entry: readonly string[]
-  readonly args: readonly string[]
-}
-
 export interface NpmGlobalLaunch {
   readonly kind: 'npm-global'
   readonly spec: NpmGlobalServerSpec
@@ -101,7 +79,7 @@ export interface ExecutableOnPathLaunch {
 }
 
 /**
- * 利用者が Settings で決めた Command と引数（§21.10）。
+ * 利用者が MCP Server Manager で決めた Command と引数。
  *
  * Command は絶対パスか、PATH を辿って探す名前（mcpServerLaunch.ts の
  * `resolveUserCommand`）。引数は配列のまま渡す。
@@ -113,25 +91,13 @@ export interface UserCommandLaunch {
   readonly args: readonly string[]
 }
 
-export type McpServerLaunch =
-  BundledNodeScriptLaunch | NpmGlobalLaunch | ExecutableOnPathLaunch | UserCommandLaunch
-
-/** 同梱したスクリプトを動かす Node（アプリ自身の Electron）。 */
-export interface McpNodeRuntime {
-  /** Electron の実行ファイルの絶対パス（`process.execPath`）。 */
-  readonly file: string
-  /** Node として動かすための変数（`ELECTRON_RUN_AS_NODE=1`）。 */
-  readonly environment: Readonly<Record<string, string>>
-}
+export type McpServerLaunch = NpmGlobalLaunch | ExecutableOnPathLaunch | UserCommandLaunch
 
 /** 起動のしかたを解決するのに要るもの。 */
 export interface McpLaunchContext {
   readonly platform: PlatformId
   readonly env: Readonly<Record<string, string | undefined>>
   readonly exists: FileExistsCheck
-  /** 同梱したパッケージの置き場所（絶対パス）。 */
-  readonly bundledPackageDirectory: (launch: BundledNodeScriptLaunch) => string
-  readonly nodeRuntime: McpNodeRuntime
 }
 
 export function resolveMcpServerLaunch(
@@ -139,9 +105,6 @@ export function resolveMcpServerLaunch(
   context: McpLaunchContext
 ): McpServerCommandResolution {
   switch (launch.kind) {
-    case 'bundled-node-script':
-      return resolveBundledNodeScript(launch, context)
-
     case 'npm-global':
       return resolveNpmGlobalServerCommand(
         launch.spec,
@@ -321,32 +284,6 @@ function resolveUserCommand(
       environment: {},
       windowsVerbatimArguments: true,
       killTreeWith
-    }
-  }
-}
-
-function resolveBundledNodeScript(
-  launch: BundledNodeScriptLaunch,
-  context: McpLaunchContext
-): McpServerCommandResolution {
-  const separator = context.platform === 'win32' ? '\\' : '/'
-  const entry = [
-    trimTrailingSeparator(context.bundledPackageDirectory(launch)),
-    ...launch.entry
-  ].join(separator)
-
-  // 同梱したはずのファイルが無いのは、配布物が壊れている（入れ直してもらう）。
-  if (!context.exists(entry)) {
-    return { ok: false, problem: 'server-not-installed' }
-  }
-
-  return {
-    ok: true,
-    command: {
-      name: launch.name,
-      file: context.nodeRuntime.file,
-      args: [entry, ...launch.args],
-      environment: context.nodeRuntime.environment
     }
   }
 }

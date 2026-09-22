@@ -11,11 +11,11 @@ import {
 import { createMcpCustomServerDefinition } from './mcpCustomServerDefinition'
 import type { McpCustomServerStore } from './mcpCustomServerStore'
 import type { McpSecretStore } from './mcpSecretStore'
-import type { McpServerDefinition } from './mcpServerCatalog'
+import type { McpServerDefinition } from './mcpServerDefinition'
 
 /**
  * 利用者が足した MCP サーバーの一覧・保存・削除・切り替え
- * （§21.10。Electron 非依存・テスト対象）。
+ * （§21.3。Electron 非依存・テスト対象）。
  *
  * 登録簿（mcpCustomServerStore.ts）と秘密の保存先（mcpSecretStore.ts）の
  * **両方にまたがる手続き**をここに置く。IPC のハンドラは要求の形を確かめて
@@ -40,7 +40,7 @@ import type { McpServerDefinition } from './mcpServerCatalog'
  * ## 変わったら、前の接続テストの結末を忘れる
  *
  * Command・引数・環境変数が変われば、前の結末はもう今の設定の話ではない
- * （token を入れ替えたときと同じ。mcpConnections.ts の `forgetLastTest`）。
+ * （mcpConnections.ts の `forgetLastTest`）。
  */
 
 export interface McpCustomServersDependencies {

@@ -146,6 +146,71 @@ describe('parseSettingsDocument', () => {
 })
 
 /**
+ * 撤去した key（settingsSections.ts の `RETIRED_SECTION_FIELDS`）。
+ *
+ * 知らない key は書き戻すが、旧 Notion MCP の `mcp.notionEnabled` のように
+ * **このアプリが昔書いたもの**は書き戻さない。ほかの設定は1つも変えない。
+ */
+describe('撤去した key', () => {
+  const legacy = {
+    ...valid,
+    workspace: { trustPrompt: false },
+    sections: {
+      ...valid.sections,
+      editor: { ...valid.sections.editor, minimap: true },
+      mcp: { enabled: true, notionEnabled: true }
+    }
+  }
+
+  it('mcp.notionEnabled を落とし、書き戻さない', () => {
+    const { document, issues, hasRetiredFields } = parseSettingsDocument(legacy)
+
+    expect(hasRetiredFields).toBe(true)
+    expect(issues).toEqual(['removed retired "mcp.notionEnabled"'])
+    expect(document.sections.mcp).toEqual({ enabled: true })
+    expect(document.preserved.fields.mcp).toEqual({})
+    expect(toStoredSettings(document).sections).not.toHaveProperty('mcp.notionEnabled')
+    expect((toStoredSettings(document).sections as Record<string, unknown>)['mcp']).toEqual({
+      enabled: true
+    })
+  })
+
+  it('ほかの設定・知らない内容は変わらない', () => {
+    const { document } = parseSettingsDocument(legacy)
+    const stored = toStoredSettings(document)
+
+    expect(stored).toEqual({
+      ...legacy,
+      sections: { ...legacy.sections, mcp: { enabled: true } }
+    })
+  })
+
+  it('何度読んでも同じ（2回目には撤去するものが無い）', () => {
+    const once = toStoredSettings(parseSettingsDocument(legacy).document)
+    const twice = parseSettingsDocument(once)
+
+    expect(twice.hasRetiredFields).toBe(false)
+    expect(twice.issues).toEqual([])
+    expect(toStoredSettings(twice.document)).toEqual(once)
+  })
+
+  it('撤去した key が無い文書では何もしない', () => {
+    expect(parseSettingsDocument(valid).hasRetiredFields).toBe(false)
+  })
+
+  it('値が読めない形でも落とす（真偽値でなくても書き戻さない）', () => {
+    const { document, hasRetiredFields } = parseSettingsDocument({
+      ...valid,
+      sections: { ...valid.sections, mcp: { notionEnabled: 'yes' } }
+    })
+
+    expect(hasRetiredFields).toBe(true)
+    expect(document.sections.mcp).toEqual({})
+    expect(document.preserved.fields.mcp).toEqual({})
+  })
+})
+
+/**
  * 版の扱い（Session 4-3A）。
  *
  * 「正の整数なら受け入れる」だけでは、新しい版のファイルを現在の形として

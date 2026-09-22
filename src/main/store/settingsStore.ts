@@ -88,6 +88,20 @@ export function createSettingsStore(
         report(`"${SETTINGS_FILE_NAME}": ${issue}`)
       }
 
+      /*
+        撤去した key が残っていたら、その場で1度だけ書き直す（間引きを待たない）。
+        読んだ文書はもうそれを持たないので、書けば次の起動からは見つからない
+        ── 利用者が何も保存しなくても、使われない設定がファイルに残り続けない。
+        書けなければ次の起動でもう一度試す。
+      */
+      if (parsed.hasRetiredFields) {
+        const written = writeJsonFile(filePath, toStoredSettings(parsed.document))
+
+        if (!written.ok) {
+          report(`failed to remove retired settings from "${SETTINGS_FILE_NAME}".`, written.cause)
+        }
+      }
+
       return parsed.document
     }
 

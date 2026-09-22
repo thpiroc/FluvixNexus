@@ -22,9 +22,10 @@ import { fileURLToPath } from 'url'
  *    `optionalDependencies`）を辿ったもの。`peerDependencies` は辿らない（持ち主は別に数える）
  *
  * 3. src が import しないが、**配布物へそのまま写すパッケージ**（`BUNDLED_PACKAGES`）と、
- *    それが実行時に要るもの。同梱する MCP サーバー（electron-builder.yml の `extraResources`）が
- *    これにあたる。写すのは依存をまとめた1ファイルだが、中身は依存のコードそのものなので、
- *    依存を辿って全部載せる（載せ過ぎる側に倒す）
+ *    それが実行時に要るもの（electron-builder.yml の `extraResources` で写すもの）。
+ *    写すのが依存をまとめた1ファイルでも、中身は依存のコードそのものなので、
+ *    依存を辿って全部載せる（載せ過ぎる側に倒す）。今は該当するものが無い
+ *    （アプリは MCP サーバーを同梱しない。MCP サーバーは利用者が登録して、その PC の上で動く）
  *
  * Electron は数えない。Electron / Chromium / Node.js のライセンスは electron-builder が
  * `LICENSE.electron.txt` / `LICENSES.chromium.html` としてインストール先へ置く。
@@ -41,7 +42,7 @@ const SOURCE_ROOT = join(ROOT, 'src')
  * src が import せず、electron-builder.yml の `extraResources` で配布物へ写すパッケージ（冒頭の 3）。
  * 写す設定を足したら、ここにも足す。
  */
-const BUNDLED_PACKAGES = ['@notionhq/notion-mcp-server']
+const BUNDLED_PACKAGES = []
 
 /** 数えないパッケージ（理由は冒頭）。 */
 const EXCLUDED_PACKAGES = new Set(['electron'])

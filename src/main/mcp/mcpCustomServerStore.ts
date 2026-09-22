@@ -11,7 +11,7 @@ import {
 import { readJsonFile, writeJsonFile } from '../store/jsonFile'
 
 /**
- * 利用者が足した MCP サーバーの登録簿（§21.10。Electron 非依存・テスト対象）。
+ * MCP Server Manager の登録簿（§21.3。Electron 非依存・テスト対象）。
  *
  * ```
  * userData/mcp-servers.json   { version: 1, servers: [ { id, name, enabled, transport, env } ] }

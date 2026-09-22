@@ -7,20 +7,22 @@ import type {
   McpConnectionId,
   McpCustomServerId,
   McpConnectionStatus,
-  McpConnectionTestResult,
-  McpOperationResult,
-  McpSecretState,
-  McpSecretWriteOutcome
+  McpConnectionTestResult
 } from '../../mcp'
 
 /**
- * mcp ドメインの IPC 契約（Notion MCP 連携の土台）。
+ * mcp ドメインの IPC 契約（MCP Server Manager）。
  *
  * ## 要求に載るのは接続の id だけ
  *
- * 実行ファイル・引数・token・ツール名の欄は無い ── 何を起動し、何を渡すかは
- * Main の表が決める（shared/mcp の冒頭）。例外は利用者が足したサーバーの
- * 保存の口（`mcp:save-custom-server`。§21.10）で、下のその型に理由を書いてある。
+ * 実行ファイル・引数・秘密の値・ツール名の欄は無い ── 何を起動し、何を渡すかは
+ * Main が登録簿から決める（shared/mcp の冒頭）。例外は登録の口
+ * （`mcp:save-custom-server`）で、下のその型に理由を書いてある。
+ *
+ * ## ツールを呼ぶ口は無い
+ *
+ * Renderer から MCP のツールを呼ぶ要求は定義しない。ツールの呼び出しは Main の中だけの
+ * 手続きで、FN Agent からは Security Core を通す（DESIGN.md §6）。
  *
  * ## 繋がらないのは IPC の失敗ではない
  *
@@ -32,47 +34,13 @@ export interface McpConnectionRequest {
   readonly connectionId: McpConnectionId
 }
 
-/**
- * 操作（tools/call）の要求。
- *
- * 載るのは「許可された接続 id」「その接続で許可された操作名」「その操作の引数」だけ。
- * ツール名・URL・token・コマンドの欄は無い。操作名と引数は Main が表
- * （main/mcp/ の各サーバーの操作表）で確かめ、合わなければ IPC の失敗
- * （INVALID_REQUEST）として断る。
- *
- * 書き込みの操作は、実行の前に Main が利用者に確認する。確認を飛ばす欄も無い。
- */
-export interface McpOperationRequest {
-  readonly connectionId: McpConnectionId
-  readonly operation: string
-  readonly arguments: unknown
-}
-
-/**
- * token を入れる要求（§21.9）。
- *
- * ## token が通るのは、この1本の、この向きだけ
- *
- * Renderer → Main の一方通行にほかならない。返る `McpSecretWriteOutcome` にも
- * `McpConnectionStatus` にも token の値の欄は無く、**Main から Renderer へ
- * token が戻る経路は存在しない**（shared/mcp の冒頭）。
- *
- * 入れ直すときは、画面が今の値を読んで直すのではなく、新しい値を丸ごと送る
- * ── 「読めないが入っている」ものを編集させない。
- */
-export interface McpSetSecretRequest {
-  readonly connectionId: McpConnectionId
-  /** 入れる token。空文字は「消す」ではなく、形が通らないものとして断る。 */
-  readonly token: string
-}
-
-/** 利用者が足したサーバー1つを指す要求（§21.10）。 */
+/** 利用者が足したサーバー1つを指す要求。 */
 export interface McpCustomServerRequest {
   readonly id: McpCustomServerId
 }
 
 /**
- * 利用者が足したサーバーを保存する要求（§21.10）。
+ * 利用者が足したサーバーを保存する要求。
  *
  * ## Command と引数が Renderer から渡るのは、この1本だけ
  *
@@ -84,7 +52,7 @@ export interface McpCustomServerRequest {
  *
  * 秘密の環境変数の値もこの口で Renderer → Main へ渡る。返る
  * `McpCustomServerSaveOutcome` には「保存されているか」だけが載り、
- * 値が戻る経路は無い（token と同じ一方通行。§21.9）。
+ * 値が戻る経路は無い（Renderer → Main の一方通行）。
  */
 export interface McpSaveCustomServerRequest {
   /** 編集なら、そのサーバーの id。新しく足すなら null（id は Main が作る）。 */
@@ -108,21 +76,6 @@ export interface McpIpcContract {
   'mcp:test-connection': {
     request: McpConnectionRequest
     response: McpConnectionTestResult
-  }
-  /** 操作を1つ実行する（起動 → 接続 → ツールを呼ぶ → 切断）。 */
-  'mcp:call-operation': {
-    request: McpOperationRequest
-    response: McpOperationResult
-  }
-  /** token を安全な保存先へ入れる（既にあれば置き換える）。 */
-  'mcp:set-secret': {
-    request: McpSetSecretRequest
-    response: McpSecretWriteOutcome
-  }
-  /** 保存された token を消す（環境変数の token には触れない）。 */
-  'mcp:clear-secret': {
-    request: McpConnectionRequest
-    response: McpSecretState
   }
   /** 利用者が足したサーバーの一覧（秘密の値は含まない）。 */
   'mcp:list-custom-servers': {

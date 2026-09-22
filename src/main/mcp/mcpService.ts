@@ -1,24 +1,17 @@
-import { app, dialog, safeStorage } from 'electron'
+import { app, safeStorage } from 'electron'
 import { randomUUID } from 'crypto'
 import { existsSync } from 'fs'
-import { join } from 'path'
 import { normalizeLanguageId, type LanguageId } from '@shared/language'
-import { isMcpBuiltinConnectionId, type McpConnectionId } from '@shared/mcp'
-import { isMcpConnectionEnabled, normalizeMcpPreferences } from '@shared/mcp/settings'
+import type { McpConnectionId } from '@shared/mcp'
+import { normalizeMcpPreferences } from '@shared/mcp/settings'
 import { createLogger } from '../logger'
 import { currentPlatform } from '../platform'
 import { readUserSettingsSections } from '../store/settings'
-import { getMainWindow } from '../windows/mainWindow'
-import {
-  createMcpConnections,
-  type McpConnections,
-  type McpWriteConfirmation
-} from './mcpConnections'
+import { createMcpConnections, type McpConnections } from './mcpConnections'
 import { createMcpCustomServerStore } from './mcpCustomServerStore'
 import { createMcpCustomServers, type McpCustomServers } from './mcpCustomServers'
+import { removeLegacyNotionSecret } from './mcpLegacyNotionCleanup'
 import { createMcpSecretStore, type McpSecretStore } from './mcpSecretStore'
-import { MCP_SERVER_DEFINITIONS } from './mcpServerCatalog'
-import type { BundledNodeScriptLaunch } from './mcpServerLaunch'
 import { createMcpStdioTransport } from './mcpStdioTransport'
 
 const log = createLogger('mcp')
@@ -28,7 +21,7 @@ let secrets: McpSecretStore | null = null
 let customServers: McpCustomServers | null = null
 
 /**
- * token の保存先（アプリに1つ）。
+ * 秘密の環境変数の保存先（アプリに1つ）。
  *
  * `safeStorage` をそのまま渡す ── Electron の API をこの層でだけ見て、
  * 保存の手続きは mcpSecretStore.ts が持つ（Vitest から読み込める側に置く）。
@@ -44,7 +37,7 @@ export function getMcpSecretStore(): McpSecretStore {
 }
 
 /**
- * 利用者が足したサーバー（§21.10。アプリに1つ）。
+ * MCP Server Manager に登録したサーバー（アプリに1つ）。
  *
  * 登録簿（`mcp-servers.json`）も秘密の保存先も userData にある。id は Main が作る
  * （`custom-` ＋ UUID）── Renderer が id を決める経路は無い。
@@ -68,7 +61,7 @@ export function getMcpCustomServers(): McpCustomServers {
 }
 
 /**
- * Settings の MCP の設定（§21.9）。
+ * Settings の MCP の設定（全体の元栓）。
  *
  * `readUserSettingsSections` を読むのは、この section が application scope
  * だからにほかならない（shared/settings/scope.ts）── ワークスペース設定で
@@ -89,13 +82,6 @@ export function getMcpConnections(): McpConnections {
     env: () => process.env,
     platform: currentPlatform,
     exists: existsSync,
-    bundledPackageDirectory,
-    /*
-      同梱したサーバーは、アプリ自身の実行ファイルを Node として動かす
-      （利用者の PC に Node が無くてよい。mcpServerLaunch.ts）。
-      `ELECTRON_RUN_AS_NODE` はこの子プロセスの環境にだけ付き、Main には付かない。
-    */
-    nodeRuntime: { file: process.execPath, environment: { ELECTRON_RUN_AS_NODE: '1' } },
     /*
       サーバーの作業ディレクトリは Workspace にしない。MCP サーバーの起動に
       利用者が開いたフォルダの中身を手がかりにしない（mcpServerLaunch.ts）。
@@ -106,26 +92,39 @@ export function getMcpConnections(): McpConnections {
     now: () => new Date(),
     log,
     language: currentLanguage,
-    confirmWrite,
     /*
-      有効かどうかも token も、**呼ばれるたびに読み直す**。覚えると、
-      Settings で有効にした直後・token を入れた直後に、まだ古い答えが返る。
+      MCP の書き込みを許可する経路は今は無い（DESIGN.md §6: v1 では使わない）。
+      書き込みの操作が表に載っても、確かめずに断る ── 許可するかを決めるのは
+      将来の Security Core で、ここで利用者に訊く形にはしない。
+    */
+    confirmWrite: () => Promise.resolve(false),
+    /*
+      有効かどうかも登録簿も、**呼ばれるたびに読み直す**。覚えると、
+      Settings で有効にした直後・登録を変えた直後に、まだ古い答えが返る。
       どちらもディスクの読み1回で、接続のたびにしか起きない。
     */
     isEnabled: (id: McpConnectionId) =>
-      isMcpBuiltinConnectionId(id)
-        ? isMcpConnectionEnabled(mcpPreferences(), id)
-        : // 利用者が足したサーバーにも、全体の元栓（mcp.enabled）は効く。
-          mcpPreferences().enabled && getMcpCustomServers().isEnabled(id),
-    definitionOf: (id: McpConnectionId) =>
-      isMcpBuiltinConnectionId(id)
-        ? MCP_SERVER_DEFINITIONS[id]
-        : getMcpCustomServers().definitionOf(id),
-    readStoredToken: (id: McpConnectionId) => getMcpSecretStore().read(id),
-    canStoreToken: () => getMcpSecretStore().canStore()
+      // 全体の元栓（mcp.enabled）と、そのサーバーの栓の両方。
+      mcpPreferences().enabled && getMcpCustomServers().isEnabled(id),
+    definitionOf: (id: McpConnectionId) => getMcpCustomServers().definitionOf(id)
   })
 
   return connections
+}
+
+/**
+ * 旧 Notion MCP の token を `mcp-secrets.json` から取り除く（起動時。何度呼んでも同じ）。
+ *
+ * 登録したサーバーの秘密の値には触れない（mcpLegacyNotionCleanup.ts）。
+ */
+export function removeLegacyMcpSecrets(): void {
+  const result = removeLegacyNotionSecret(app.getPath('userData'), (message, ...details) => {
+    log.warn(message, ...details)
+  })
+
+  if (result === 'removed') {
+    log.info('removed the legacy Notion MCP token from mcp-secrets.json.')
+  }
 }
 
 /**
@@ -138,55 +137,7 @@ export function stopMcpConnections(): void {
   connections?.terminateAll()
 }
 
-/**
- * 同梱したサーバーの置き場所。
- *
- * 配布物では electron-builder.yml の `extraResources` が
- * `resources/mcp-servers/<bundleName>` へ写す（asar の外 ── 子プロセスの Node が
- * そのまま読めるように）。開発時は写す前の `node_modules/<packageName>` を読む。
- */
-function bundledPackageDirectory(launch: BundledNodeScriptLaunch): string {
-  return app.isPackaged
-    ? join(process.resourcesPath, 'mcp-servers', launch.bundleName)
-    : join(app.getAppPath(), 'node_modules', ...launch.packageName.split('/'))
-}
-
 function currentLanguage(): LanguageId {
   // 表示言語はユーザー設定専用（shared/settings/scope.ts）。main/windows/mainWindow.ts と同じ読み方。
   return normalizeLanguageId(readUserSettingsSections().general.language)
-}
-
-const CONFIRM_BUTTONS: Record<LanguageId, readonly [string, string]> = {
-  ja: ['実行する', 'キャンセル'],
-  en: ['Run', 'Cancel']
-}
-
-/**
- * 書き込みの確認（ネイティブのダイアログ）。
- *
- * Renderer の画面ではなく Main が出す ── Renderer の中の確認は、Renderer 自身が
- * 飛ばせてしまう。既定のボタン（Enter）とキャンセル（Esc）はどちらも
- * 「キャンセル」にしてあり、うっかり押しても書き込まない。
- */
-async function confirmWrite(confirmation: McpWriteConfirmation): Promise<boolean> {
-  const window = getMainWindow()
-
-  if (window === null) {
-    // 確認を出す先が無い。黙って書き込まない。
-    return false
-  }
-
-  const [run, cancel] = CONFIRM_BUTTONS[currentLanguage()]
-  const { response } = await dialog.showMessageBox(window, {
-    type: 'question',
-    title: 'Fluvix Nexus',
-    message: confirmation.title,
-    detail: confirmation.detail,
-    buttons: [run, cancel],
-    defaultId: 1,
-    cancelId: 1,
-    noLink: true
-  })
-
-  return response === 0
 }

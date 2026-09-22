@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import {
   buildWindowsBatchCommandLine,
   resolveMcpServerLaunch,
-  type BundledNodeScriptLaunch,
   type McpLaunchContext,
   type UserCommandLaunch
 } from './mcpServerLaunch'
@@ -11,9 +10,6 @@ import {
  * MCP サーバーの起動のしかた（mcpServerLaunch.ts・MCP 共通）。架空のサーバーで確かめる。
  */
 
-const APP_EXE = 'C:\\Program Files\\Fluvix Nexus\\Fluvix Nexus.exe'
-const RESOURCES = 'C:\\Program Files\\Fluvix Nexus\\resources\\mcp-servers'
-
 function context(present: readonly string[], overrides: Partial<McpLaunchContext> = {}) {
   const set = new Set(present.map((path) => path.toLowerCase()))
 
@@ -21,65 +17,9 @@ function context(present: readonly string[], overrides: Partial<McpLaunchContext
     platform: 'win32',
     env: { PATH: 'C:\\tools;C:\\Windows\\System32' },
     exists: (path: string) => set.has(path.toLowerCase()),
-    bundledPackageDirectory: (launch: BundledNodeScriptLaunch) =>
-      `${RESOURCES}\\${launch.bundleName}`,
-    nodeRuntime: { file: APP_EXE, environment: { ELECTRON_RUN_AS_NODE: '1' } },
     ...overrides
   } satisfies McpLaunchContext
 }
-
-const BUNDLED: BundledNodeScriptLaunch = {
-  kind: 'bundled-node-script',
-  name: 'Example MCP',
-  packageName: '@example/mcp-server',
-  bundleName: 'example-mcp-server',
-  entry: ['bin', 'cli.mjs'],
-  args: ['--stdio']
-}
-
-const BUNDLED_ENTRY = `${RESOURCES}\\example-mcp-server\\bin\\cli.mjs`
-
-describe('bundled-node-script', () => {
-  it('同梱した入口を、アプリ自身の Node（Electron を Node として）で起動する', () => {
-    expect(resolveMcpServerLaunch(BUNDLED, context([BUNDLED_ENTRY]))).toEqual({
-      ok: true,
-      command: {
-        name: 'Example MCP',
-        file: APP_EXE,
-        args: [BUNDLED_ENTRY, '--stdio'],
-        environment: { ELECTRON_RUN_AS_NODE: '1' }
-      }
-    })
-  })
-
-  it('PATH に node が無くても起動できる（利用者の PC の Node に頼らない）', () => {
-    const resolved = resolveMcpServerLaunch(BUNDLED, context([BUNDLED_ENTRY], { env: {} }))
-
-    expect(resolved.ok).toBe(true)
-  })
-
-  it('同梱したはずの入口が無ければ server-not-installed（配布物が壊れている）', () => {
-    expect(resolveMcpServerLaunch(BUNDLED, context([]))).toEqual({
-      ok: false,
-      problem: 'server-not-installed'
-    })
-  })
-
-  it('Unix 系では / で繋ぐ', () => {
-    const resolved = resolveMcpServerLaunch(
-      BUNDLED,
-      context(['/opt/fluvix/resources/mcp-servers/example-mcp-server/bin/cli.mjs'], {
-        platform: 'linux',
-        bundledPackageDirectory: (launch) =>
-          `/opt/fluvix/resources/mcp-servers/${launch.bundleName}/`
-      })
-    )
-
-    expect(resolved.ok && resolved.command.args[0]).toBe(
-      '/opt/fluvix/resources/mcp-servers/example-mcp-server/bin/cli.mjs'
-    )
-  })
-})
 
 describe('executable-on-path', () => {
   const LAUNCH = {
@@ -143,7 +83,7 @@ describe('npm-global', () => {
   })
 })
 
-describe('user-command（利用者が足したサーバー。§21.10）', () => {
+describe('user-command（MCP Server Manager に登録したサーバー。§21.4）', () => {
   const SYSTEM32 = 'C:\\Windows\\System32'
   const WIN_ENV = { PATH: `C:\\nodejs;.\\bin;${SYSTEM32}`, SystemRoot: 'C:\\Windows' }
 

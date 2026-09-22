@@ -39,6 +39,11 @@ export interface ParsedSettingsDocument {
   readonly document: SettingsDocument
   /** 既定へ落とした場所（ログ用。空なら全部そのまま読めた）。 */
   readonly issues: readonly string[]
+  /**
+   * 撤去した key（settingsSections.ts の `RETIRED_SECTION_FIELDS`）がファイルに残っていたか。
+   * 真なら、読んだ文書はもうそれを持たないので、書き直せばファイルからも消える。
+   */
+  readonly hasRetiredFields: boolean
 }
 
 /** 何も保存されていない状態の文書。 */
@@ -69,14 +74,22 @@ function emptyPreservedSettings(): PreservedSettings {
 /** 素の値を設定文書として読む。読めなかったところは空になる（null は返さない）。 */
 export function parseSettingsDocument(raw: unknown): ParsedSettingsDocument {
   if (!isPlainObject(raw)) {
-    return { document: defaultSettingsDocument(), issues: ['document is not an object'] }
+    return {
+      document: defaultSettingsDocument(),
+      issues: ['document is not an object'],
+      hasRetiredFields: false
+    }
   }
 
   const version = classifySettingsSchemaVersion(raw.schemaVersion)
   const issues: string[] = []
 
   if (version.kind === 'invalid') {
-    return { document: defaultSettingsDocument(), issues: ['schemaVersion is not readable'] }
+    return {
+      document: defaultSettingsDocument(),
+      issues: ['schemaVersion is not readable'],
+      hasRetiredFields: false
+    }
   }
 
   let source = raw
@@ -88,7 +101,8 @@ export function parseSettingsDocument(raw: unknown): ParsedSettingsDocument {
     if (migrated === null) {
       return {
         document: defaultSettingsDocument(),
-        issues: [`no migration from schemaVersion ${version.version}`]
+        issues: [`no migration from schemaVersion ${version.version}`],
+        hasRetiredFields: false
       }
     }
 
@@ -127,12 +141,14 @@ export function parseSettingsDocument(raw: unknown): ParsedSettingsDocument {
         sections: emptySettingsSections(),
         preserved: emptyPreservedSettings()
       },
-      issues: [...issues, 'sections is not an object']
+      issues: [...issues, 'sections is not an object'],
+      hasRetiredFields: false
     }
   }
 
   const sections: Record<string, unknown> = {}
   const fields: Record<string, Record<string, unknown>> = {}
+  let hasRetiredFields = false
 
   for (const id of SETTINGS_SECTION_IDS) {
     const parsed = parseStoredSection(id, rawSections[id])
@@ -148,6 +164,11 @@ export function parseSettingsDocument(raw: unknown): ParsedSettingsDocument {
     for (const name of parsed.droppedFields) {
       issues.push(`dropped "${id}.${name}"`)
     }
+
+    for (const name of parsed.retiredFields) {
+      hasRetiredFields = true
+      issues.push(`removed retired "${id}.${name}"`)
+    }
   }
 
   return {
@@ -160,7 +181,8 @@ export function parseSettingsDocument(raw: unknown): ParsedSettingsDocument {
         fields: fields as PreservedSettings['fields']
       }
     },
-    issues
+    issues,
+    hasRetiredFields
   }
 }
 

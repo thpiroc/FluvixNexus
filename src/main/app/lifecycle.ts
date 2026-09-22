@@ -14,7 +14,7 @@ import { startLanguageServerSettings } from '../lsp/languageServerSettings'
 import { startLanguageServerHosting, stopLanguageServers } from '../lsp/languageServers'
 import { startLanguageServerStatusReporting } from '../lsp/serverStatus'
 import { createLogger } from '../logger'
-import { stopMcpConnections } from '../mcp/mcpService'
+import { removeLegacyMcpSecrets, stopMcpConnections } from '../mcp/mcpService'
 import { isMacOS } from '../platform'
 import { applySessionSecurityPolicy, applyWebContentsSecurityPolicy } from '../security'
 import { flushDebugBreakpointsDocument } from '../store/debugBreakpoints'
@@ -89,6 +89,13 @@ export function bootstrapApp(): void {
       設定より先に張る ── 受け手がそこで Workspace ごとの値へ切り替われるように。
     */
     startSettingsScopeTracking()
+
+    /*
+      旧 Notion MCP の token が `mcp-secrets.json` に残っていれば取り除く。
+      登録したサーバーの秘密の値には触れず、残っていなければファイルを読むだけで終わる
+      （main/mcp/mcpLegacyNotionCleanup.ts）。
+    */
+    removeLegacyMcpSecrets()
 
     /*
       Language Server を使うかどうか（Session 5-4）。**文書同期より先に読む** ──

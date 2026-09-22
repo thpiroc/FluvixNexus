@@ -14,16 +14,13 @@ import type { McpServerCommand } from './mcpServerLaunch'
  * 4. 待つ（CLOSE_GRACE_MS）  … それでも exit が来なければ諦めて返す
  * ```
  *
- * `cmd.exe` を挟まずに node を直接起動している（mcpServerCatalog.ts）ので、
- * kill が届く相手はサーバーそのものになる。
- *
- * 利用者が足したサーバー（§21.10）は、起動したもの（`npx`・`uvx`・`cmd.exe`）が
+ * 登録したサーバーは、起動したもの（`npx`・`uvx`・`cmd.exe`・`docker`）が
  * 本体を子として立てることがある。そのときは起動の解決が `killTreeWith` を付け、
  * 3 の kill が子孫ごとになる（`killChild`）。
  *
  * ## stderr は電文ではない
  *
- * サーバーのログなので、行に切って `onStderrLine` へ渡す。token が混ざりうるので、
+ * サーバーのログなので、行に切って `onStderrLine` へ渡す。秘密の値が混ざりうるので、
  * 伏せるのは受け取る側（mcpConnections.ts）の仕事。行の数には上限を置く。
  */
 
@@ -184,7 +181,7 @@ export function createMcpStdioTransport(options: McpStdioTransportOptions): McpT
   }
 
   /**
-   * 子を終わらせる。`killTreeWith` がある（利用者が足したサーバー。§21.10）なら、
+   * 子を終わらせる。`killTreeWith` がある（登録したサーバー。§21.4）なら、
    * 子孫ごと `taskkill /T /F` で終わらせる。
    *
    * taskkill は親子の繋がりを辿って子孫を探すので、**先に子だけを kill しない**

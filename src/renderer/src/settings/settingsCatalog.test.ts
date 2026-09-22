@@ -116,7 +116,7 @@ describe('SETTINGS_CATEGORIES', () => {
   })
 
   /*
-    §21.9 で足した `panel`。値の項目の下に続く面で、**設定ファイルに
+    MCP の `panel`（§21.6）。値の項目の下に続く面で、**設定ファイルに
     書けないもの**（token・接続状態・接続テスト）だけがそこに出る。
   */
   describe('panel', () => {
@@ -151,10 +151,10 @@ describe('listSettingsItems', () => {
 
     Keyboard Shortcuts は項目を1つも足していない ── 一覧表であって設定ではない。
 
-    MCP の token も**ここには無い**（§21.9）。設定の値ではなく、
+    MCP の秘密の値も**ここには無い**（§21.3）。設定の値ではなく、
     カテゴリの `panel` が出すものにほかならない。
   */
-  it('12個の設定が、カテゴリの順に並ぶ', () => {
+  it('11個の設定が、カテゴリの順に並ぶ', () => {
     expect(listSettingsItems().map((item) => item.id)).toEqual([
       'general.language',
       'general.updates',
@@ -166,8 +166,7 @@ describe('listSettingsItems', () => {
       'files.viewMode',
       'terminal.fontSize',
       'terminal.scrollback',
-      'mcp.enabled',
-      'mcp.servers'
+      'mcp.enabled'
     ])
   })
 

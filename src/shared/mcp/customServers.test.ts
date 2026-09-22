@@ -9,7 +9,7 @@ import {
 import { isMcpConnectionId, isMcpCustomServerId } from './index'
 
 /**
- * 利用者が足す MCP サーバーの下書きの検証（shared/mcp/customServers.ts。§21.10）。
+ * 利用者が足す MCP サーバーの下書きの検証（shared/mcp/customServers.ts。§21.3）。
  *
  * 秘密の値はすべて架空のもの。
  */
@@ -39,9 +39,9 @@ describe('id の形', () => {
     expect(isMcpCustomServerId(42)).toBe(false)
   })
 
-  it('接続の id は組み込みか、利用者が足したものの形', () => {
-    expect(isMcpConnectionId('notion')).toBe(true)
+  it('接続の id は登録したサーバーの形だけ（組み込みの接続は無い）', () => {
     expect(isMcpConnectionId('custom-0f1e2d3c-4b5a-4968-8778-695a4b3c2d1e')).toBe(true)
+    expect(isMcpConnectionId('notion')).toBe(false)
     expect(isMcpConnectionId('github')).toBe(false)
   })
 })

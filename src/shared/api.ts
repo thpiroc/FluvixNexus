@@ -76,10 +76,8 @@ import type { SubmitFeedbackRequest } from './ipc/contracts/feedback'
 import type {
   McpConnectionRequest,
   McpCustomServerRequest,
-  McpOperationRequest,
   McpSaveCustomServerRequest,
-  McpSetCustomServerEnabledRequest,
-  McpSetSecretRequest
+  McpSetCustomServerEnabledRequest
 } from './ipc/contracts/mcp'
 import type { PingRequest } from './ipc/contracts/system'
 import type {
@@ -1282,30 +1280,17 @@ export interface FeedbackApi {
 }
 
 /**
- * MCP サーバー（Notion MCP など）との接続を扱う API。
+ * MCP Server Manager（利用者が登録した MCP サーバー）を扱う API。
  *
- * 渡せるのは接続の id だけで、起動するもの・token・ツール名は Main が決める
- * （shared/ipc/contracts/mcp.ts）。フィードバックの Notion 保存とは別の経路で、
- * 設定も共有しない。
+ * 状態・接続テストで渡せるのは接続の id だけで、起動するもの・秘密の値は Main が
+ * 登録簿から決める（shared/ipc/contracts/mcp.ts）。ツールを呼ぶ口は無い。
  */
 export interface McpApi {
   /** 設定が揃っているかと直近の接続テストの結末（起動も通信もしない）。 */
   readonly getStatus: (request: McpConnectionRequest) => IpcInvokeResult<'mcp:get-status'>
   /** サーバーを起動して接続し、ツールの一覧を取って切断する。 */
   readonly testConnection: (request: McpConnectionRequest) => IpcInvokeResult<'mcp:test-connection'>
-  /**
-   * 許可された操作を1つ実行する。書き込みの操作は、実行の前に Main が確認を出す。
-   */
-  readonly callOperation: (request: McpOperationRequest) => IpcInvokeResult<'mcp:call-operation'>
-  /**
-   * token を安全な保存先へ入れる（§21.9）。**token が通る唯一の口**で、
-   * 向きは Renderer → Main の一方通行にあたる。返るのは在り処だけで、
-   * 値を読み出す口はこの API に無い。
-   */
-  readonly setSecret: (request: McpSetSecretRequest) => IpcInvokeResult<'mcp:set-secret'>
-  /** 保存された token を消す。環境変数の token には触れない。 */
-  readonly clearSecret: (request: McpConnectionRequest) => IpcInvokeResult<'mcp:clear-secret'>
-  /** 利用者が足したサーバー（§21.10）の一覧。秘密の値は含まない。 */
+  /** 登録したサーバーの一覧。秘密の値は含まない。 */
   readonly listCustomServers: () => IpcInvokeResult<'mcp:list-custom-servers'>
   /**
    * 利用者が足したサーバーを保存する（新規は id が null）。**Command・引数・秘密の値が
@@ -1360,7 +1345,7 @@ export interface FluvixApi {
   readonly keybindings: KeybindingsApi
   /** フィードバックを設定済みの保存先（Notion など）へ送る。 */
   readonly feedback: FeedbackApi
-  /** MCP サーバー（Notion MCP など）との接続。 */
+  /** MCP Server Manager（登録した MCP サーバー）との接続。 */
   readonly mcp: McpApi
 }
 

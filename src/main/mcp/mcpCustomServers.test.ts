@@ -9,7 +9,7 @@ import { createMcpCustomServers, type McpCustomServers } from './mcpCustomServer
 import { createMcpSecretStore, MCP_SECRETS_FILE_NAME, type McpSecretCipher } from './mcpSecretStore'
 
 /**
- * 利用者が足したサーバーの一覧・保存・削除・切り替え（mcpCustomServers.ts。§21.10）。
+ * 利用者が足したサーバーの一覧・保存・削除・切り替え（mcpCustomServers.ts。§21.3）。
  *
  * 登録簿と秘密の保存先は本物（一時フォルダ）を使う ── 確かめたいのは
  * 「秘密の値が mcp-servers.json に入らない」「一覧に秘密の値が載らない」
@@ -121,7 +121,7 @@ describe('保存', () => {
       ok: true,
       server: { name: 'Renamed', env: [{ name: 'EXAMPLE_API_KEY', secret: true, stored: true }] }
     })
-    expect(servers.definitionOf(id as McpCustomServerId)?.environment(null)).toEqual({
+    expect(servers.definitionOf(id as McpCustomServerId)?.environment()).toEqual({
       reservedVariables: ['EXAMPLE_API_KEY'],
       providedVariables: { EXAMPLE_API_KEY: SECRET }
     })
@@ -273,12 +273,11 @@ describe('表の行', () => {
         command: 'npx',
         args: ['-y', '@example/mcp-server']
       },
-      secret: null,
       operations: {},
       configProblems: [],
       redactions: [SECRET]
     })
-    expect(definition?.environment(null)).toEqual({
+    expect(definition?.environment()).toEqual({
       reservedVariables: ['EXAMPLE_REGION', 'EXAMPLE_API_KEY'],
       providedVariables: { EXAMPLE_REGION: 'ap-northeast-1', EXAMPLE_API_KEY: SECRET }
     })

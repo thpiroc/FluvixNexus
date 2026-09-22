@@ -11,7 +11,7 @@ import { createTranslator } from '../i18n/messages'
 import { McpConnectionPanel } from './McpConnectionPanel'
 
 /**
- * MCP の面（McpConnectionPanel.tsx）の「+ New MCP Server」（§21.10）。
+ * MCP Server Manager の面（McpConnectionPanel.tsx）。
  *
  * Main の代わりに、一覧を持つだけの偽の `fluvix.mcp` を置く。確かめたいのは
  * 「どこに何が出るか」と「押したら何が送られるか」で、保存の規則そのものは
@@ -45,7 +45,6 @@ function statusOf(connectionId: McpConnectionId): McpConnectionStatus {
     configured: enabled,
     problems: enabled ? [] : ['disabled'],
     enabled,
-    secret: { source: 'none', canStore: true },
     testing: false,
     lastTest: null
   }
@@ -91,8 +90,6 @@ beforeEach(() => {
         data: statusOf(request.connectionId)
       })),
       testConnection: vi.fn(),
-      setSecret: vi.fn(),
-      clearSecret: vi.fn(),
       listCustomServers: vi.fn(async () => ({ ok: true, data: list })),
       saveCustomServer,
       deleteCustomServer,
@@ -165,18 +162,32 @@ async function submit(): Promise<void> {
 }
 
 describe('+ New MCP Server', () => {
-  it('面の先頭に置き、組み込みの接続（Notion）より前に出る', async () => {
+  it('面の先頭に置き、追加したサーバーの一覧より前に出る', async () => {
     await render()
 
     const button = byTestId('settings-mcp-new-server')
-    const notion = container.querySelector('[data-connection="notion"]')
+    const servers = byTestId('settings-mcp-custom-servers')
 
     expect(button?.textContent).toBe('+ New MCP Server')
     expect(
       button !== null &&
-        notion !== null &&
-        button.compareDocumentPosition(notion) & Node.DOCUMENT_POSITION_FOLLOWING
+        servers !== null &&
+        button.compareDocumentPosition(servers) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
+  })
+
+  /*
+    旧 Notion MCP（組み込みの接続）のカード・token の欄は無い。Notion も含め、
+    どのサービスも「+ New MCP Server」から同じ形で登録する。
+  */
+  it('特定のサービスだけのカードや token の欄を出さない', async () => {
+    await render()
+
+    expect(container.querySelector('[data-connection="notion"]')).toBeNull()
+    expect(container.querySelector('[data-testid^="settings-mcp-token-"]')).toBeNull()
+    expect(container.querySelector('[data-testid^="settings-mcp-secret-source-"]')).toBeNull()
+    expect(container.querySelectorAll('.fx-mcp__card')).toHaveLength(1)
+    expect(container.textContent).not.toContain('FLUVIX_NOTION_MCP_TOKEN')
   })
 
   it('押すと入力欄が開き、Command と引数を分けたまま保存の要求に載せる', async () => {

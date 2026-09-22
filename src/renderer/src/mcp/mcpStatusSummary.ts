@@ -2,17 +2,16 @@ import type {
   McpConfigProblem,
   McpConnectionFailure,
   McpConnectionStatus,
-  McpConnectionTestResult,
-  McpSecretSourceId
+  McpConnectionTestResult
 } from '@shared/mcp'
 import type { TranslationKey } from '../i18n/messages'
 
 /**
- * 接続の状態を、画面に出す1行へまとめる（§21.9。React 非依存・テスト対象）。
+ * 接続の状態を、画面に出す1行へまとめる（React 非依存・テスト対象）。
  *
  * 判断をここへ出したのは、settingsCatalog.ts を分けてあるのと同じ理由になる
  * ── **「どの状態のときに何が出るか」だけを、画面を起動せずに試せるように
- * するため**にほかならない。「無効なのに『token がありません』と出る」
+ * するため**にほかならない。「無効なのに『秘密の値がありません』と出る」
  * のような取り違えは、見た目ではなくこの対応表の誤りにあたる。
  */
 
@@ -24,7 +23,7 @@ export type McpStatusTone =
   | 'ready'
   /** 使わないと決めてある。 */
   | 'disabled'
-  /** 利用者の次の一手がある（token が無い等）。 */
+  /** 利用者の次の一手がある（Command が見つからない等）。 */
   | 'attention'
   /** 揃っていたのに繋がらなかった。 */
   | 'failed'
@@ -38,8 +37,6 @@ export interface McpStatusSummary {
 
 const PROBLEM_KEYS: Readonly<Record<McpConfigProblem, TranslationKey>> = {
   disabled: 'settings.mcp.status.disabled',
-  'token-missing': 'settings.mcp.status.tokenMissing',
-  'token-invalid': 'settings.mcp.status.tokenInvalid',
   'node-not-found': 'settings.mcp.status.nodeNotFound',
   'server-not-installed': 'settings.mcp.status.serverNotInstalled',
   'command-not-found': 'settings.mcp.status.commandNotFound',
@@ -56,12 +53,6 @@ const FAILURE_KEYS: Readonly<Record<McpConnectionFailure, TranslationKey>> = {
   rejected: 'settings.mcp.failure.rejected'
 }
 
-const SECRET_SOURCE_KEYS: Readonly<Record<McpSecretSourceId, TranslationKey>> = {
-  stored: 'settings.mcp.secret.source.stored',
-  environment: 'settings.mcp.secret.source.environment',
-  none: 'settings.mcp.secret.source.none'
-}
-
 /**
  * 今の状態の1行。
  *
@@ -74,7 +65,7 @@ const SECRET_SOURCE_KEYS: Readonly<Record<McpSecretSourceId, TranslationKey>> = 
  * 5. 揃っているが、まだ試していない
  *
  * 3 を 4 より先に見るのは、**設定を変えた後も古い結果が残る**ため
- * ── token を消した直後に「繋がりました」と出続けてはいけない。
+ * ── 秘密の値を消した直後に「繋がりました」と出続けてはいけない。
  */
 export function summarizeMcpStatus(status: McpConnectionStatus | null): McpStatusSummary {
   if (status === null) {
@@ -120,21 +111,6 @@ export function summarizeTestResult(result: McpConnectionTestResult): McpStatusS
     case 'failed':
       return { tone: 'failed', messageKey: FAILURE_KEYS[result.failure] }
   }
-}
-
-/** token がどこから来ているか（値は扱わない）。 */
-export function secretSourceKey(source: McpSecretSourceId): TranslationKey {
-  return SECRET_SOURCE_KEYS[source]
-}
-
-/**
- * 保存した token を消せるか。
- *
- * 環境変数から来ている token は**このアプリが消せるものではない**
- * ── 押せる形にしておくと、押しても何も変わらない操作ができてしまう。
- */
-export function canClearStoredSecret(status: McpConnectionStatus | null): boolean {
-  return status !== null && status.secret.source === 'stored'
 }
 
 /**

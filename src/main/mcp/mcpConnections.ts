@@ -4,10 +4,7 @@ import type {
   McpConfigProblem,
   McpConnectionId,
   McpConnectionStatus,
-  McpConnectionTestResult,
-  McpOperationResult,
-  McpSecretSourceId,
-  McpSecretState
+  McpConnectionTestResult
 } from '@shared/mcp'
 import type { FileExistsCheck } from '../platform/executablePath'
 import {
@@ -17,16 +14,19 @@ import {
   type McpFailure,
   type McpTransport
 } from './mcpClient'
-import { redactSecrets } from './mcpConfig'
-import { findMcpOperation, McpRequestError, type McpOperationDescription } from './mcpOperations'
+import {
+  findMcpOperation,
+  McpRequestError,
+  type McpOperationDescription,
+  type McpOperationResult
+} from './mcpOperations'
+import { redactSecrets } from './mcpRedaction'
 import {
   createMcpServerEnvironment,
   resolveMcpServerCommand,
-  resolveMcpServerToken,
   type McpServerCommand,
   type McpServerDefinition
-} from './mcpServerCatalog'
-import type { McpLaunchContext, McpNodeRuntime } from './mcpServerLaunch'
+} from './mcpServerDefinition'
 import type { McpStdioTransportOptions } from './mcpStdioTransport'
 
 /**
@@ -41,17 +41,17 @@ import type { McpStdioTransportOptions } from './mcpStdioTransport'
  * ```
  *
  * 今は**接続を持ち続けない**。テストや操作のたびに立てて畳む。1回ごとに
- * node の起動（数百 ms）がかかるが、使っていない間に利用者の PC で
+ * サーバーの起動（数百 ms〜数秒）がかかるが、使っていない間に利用者の PC で
  * サーバーが動き続けることは無い。
  *
  * 操作は接続ごとに**1つずつ**実行する（前の操作が終わるまで次は起動しない）。
- * 画面から続けて押されても、サーバーが何本も並んで立つことは無い。
+ * 続けて呼ばれても、サーバーが何本も並んで立つことは無い。
  *
  * ## 書き込みの確認
  *
  * `write` の操作は、**サーバーを起動する前に** `confirmWrite` を呼ぶ。
- * 断られたら何も起動せずに `declined` を返す。確認を出すのは Main
- * （mcpService.ts のネイティブのダイアログ）で、Renderer から飛ばす手段は無い。
+ * 断られたら何も起動せずに `declined` を返す。今は書き込みを許可する経路が無いので、
+ * mcpService.ts は常に断る（DESIGN.md §6）。
  *
  * ## 設定はそのたびに読む
  *
@@ -59,9 +59,9 @@ import type { McpStdioTransportOptions } from './mcpStdioTransport'
  * （ただし Windows では、アプリを起動した時点の環境変数を引き継ぐので、
  * `setx` した値はアプリを起動し直すまで見えない）。
  *
- * ## ログに token も引数も出さない
+ * ## ログに秘密の値も引数も出さない
  *
- * サーバーの stderr と失敗の詳細は、token の値を伏せてからログへ渡す。
+ * サーバーの stderr と失敗の詳細は、秘密の環境変数の値を伏せてからログへ渡す。
  * 操作の引数（ページの本文など）はログに書かない ── 残すのは操作名と結末だけ。
  */
 
@@ -82,10 +82,6 @@ export interface McpConnectionsDependencies {
   readonly env: () => Readonly<Record<string, string | undefined>>
   readonly platform: PlatformId
   readonly exists: FileExistsCheck
-  /** 同梱したサーバーの置き場所（mcpServerLaunch.ts）。 */
-  readonly bundledPackageDirectory: McpLaunchContext['bundledPackageDirectory']
-  /** 同梱したスクリプトを動かす Node（アプリ自身の Electron）。 */
-  readonly nodeRuntime: McpNodeRuntime
   /** サーバーの作業ディレクトリ（Workspace ではない場所）。 */
   readonly cwd: () => string
   readonly createTransport: (options: McpStdioTransportOptions) => McpTransport
@@ -94,11 +90,11 @@ export interface McpConnectionsDependencies {
   readonly log: McpConnectionsLogger
   /** 確認の文に使う言語。 */
   readonly language: () => LanguageId
-  /** 書き込みを実行してよいか利用者に確かめる。true で実行する。 */
+  /** 書き込みを実行してよいかを確かめる。true で実行する。 */
   readonly confirmWrite: (confirmation: McpWriteConfirmation) => Promise<boolean>
   /**
-   * その接続を使ってよいか（§21.9）。Settings の2つの真偽値を見る
-   * （shared/mcp/settings.ts の `isMcpConnectionEnabled`）。
+   * その接続を使ってよいか。全体の元栓（Settings の `mcp.enabled`）と、
+   * 登録簿のそのサーバーの栓の両方を見る（mcpService.ts）。
    *
    * ここを関数で受け取るのは、**設定はいつでも変わる**ため ── 起動時に1度
    * 読んだ値を持つと、Settings で有効にした直後に接続テストが
@@ -106,16 +102,8 @@ export interface McpConnectionsDependencies {
    */
   readonly isEnabled: (id: McpConnectionId) => boolean
   /**
-   * 安全に保存された token（無ければ `null`）。`null` のときだけ環境変数を見る
-   * （main/mcp/mcpSecretStore.ts の `resolveMcpSecret`）。
-   */
-  readonly readStoredToken: (id: McpConnectionId) => string | null
-  /** この PC で token を保存できるか（画面へ出すためだけの値）。 */
-  readonly canStoreToken: () => boolean
-  /**
-   * 接続 id から、表の行へ（§21.10）。組み込みの行は mcpServerCatalog.ts の表から、
-   * 利用者が足したサーバーは登録簿の行からそのつど作る（mcpCustomServerDefinition.ts）。
-   * 無ければ null ── 消されたサーバーの id が届いた（Renderer の不具合）。
+   * 接続 id から、定義へ。登録簿の行からそのつど作る（mcpCustomServerDefinition.ts）。
+   * 無ければ null ── 消されたサーバーの id が届いた（呼び手の不具合）。
    *
    * 関数で受け取るのは、有効 / 無効と同じく**登録簿はいつでも変わる**ため。
    */
@@ -131,8 +119,8 @@ export interface McpConnections {
   /** 接続テスト。テスト中にもう一度呼ばれたら、同じ結末を待つ。 */
   readonly testConnection: (id: McpConnectionId) => Promise<McpConnectionTestResult>
   /**
-   * 操作を1つ実行する。知らない操作名・壊れた引数は `McpRequestError` を投げる
-   * （Renderer の不具合。IPC の INVALID_REQUEST になる）。
+   * 操作を1つ実行する（Main の中だけの口。Renderer からは呼べない）。
+   * 知らない操作名・壊れた引数は `McpRequestError` を投げる（呼び手の不具合）。
    */
   readonly callOperation: (
     id: McpConnectionId,
@@ -140,15 +128,15 @@ export interface McpConnections {
     rawArguments: unknown
   ) => Promise<McpOperationResult>
   /**
-   * 直近の接続テストの結末を忘れる（§21.9）。
+   * 直近の接続テストの結末を忘れる。
    *
-   * **token を入れ替えたら呼ぶ。** 結末は「その時点の token で試した結果」
-   * であって、token が変わればもう今の設定の話ではない ── 保存した token を
-   * 消して環境変数の token へ切り替わった後も「接続できました」が残ると、
-   * *消える前の* 資格情報での結果を、今の資格情報の結果として読むことになる。
+   * **登録の中身（Command・引数・環境変数・秘密の値）を変えたら呼ぶ。** 結末は
+   * 「その時点の設定で試した結果」であって、設定が変わればもう今の話ではない
+   * ── 秘密の値を入れ替えた後も「接続できました」が残ると、前の資格情報での
+   * 結果を、今の資格情報の結果として読むことになる。
    *
-   * 設定（有効 / 無効）では忘れない。あちらは token を変えないので、
-   * 戻したときに前の結末がそのまま意味を持つ。
+   * 有効 / 無効では忘れない。あちらは中身を変えないので、戻したときに
+   * 前の結末がそのまま意味を持つ。
    */
   readonly forgetLastTest: (id: McpConnectionId) => void
   /** 動いているサーバーを待たずに終わらせる（アプリの終了時）。 */
@@ -159,7 +147,6 @@ type ResolvedConfig =
   | {
       readonly ok: true
       readonly definition: McpServerDefinition
-      readonly token: string | null
       readonly command: McpServerCommand
     }
   | { readonly ok: false; readonly problems: readonly McpConfigProblem[] }
@@ -177,7 +164,7 @@ export function createMcpConnections(deps: McpConnectionsDependencies): McpConne
   const operationQueues = new Map<McpConnectionId, Promise<unknown>>()
   const transports = new Set<McpTransport>()
 
-  /** 表の行。無い id は Renderer の不具合として断る（IPC の INVALID_REQUEST）。 */
+  /** 定義。無い id は呼び手の不具合として断る（IPC なら INVALID_REQUEST）。 */
   function definitionOf(id: McpConnectionId): McpServerDefinition {
     const definition = deps.definitionOf(id)
 
@@ -188,54 +175,13 @@ export function createMcpConnections(deps: McpConnectionsDependencies): McpConne
     return definition
   }
 
-  /**
-   * token をどこから取るか（§21.9）。保存したものが先で、無ければ環境変数。
-   *
-   * 出どころは画面にも出すので、config を解く手前で1つの関数にまとめてある
-   * ── `getStatus` と `resolveConfig` が別々に順序を書くと、
-   * 「画面は保存した token を指しているのに、繋ぐのは環境変数の方」がありうる。
-   */
-  function resolveSecret(
-    id: McpConnectionId,
-    definition: McpServerDefinition
-  ): {
-    readonly source: McpSecretSourceId
-    readonly token: ReturnType<typeof resolveMcpServerToken>
-  } {
-    // token を持たない行（利用者が足したサーバー）は、保存先も環境変数も見ない。
-    if (definition.secret === null) {
-      return { source: 'none', token: { ok: true, token: null } }
-    }
-
-    const stored = deps.readStoredToken(id)
-
-    if (stored !== null) {
-      return { source: 'stored', token: { ok: true, token: stored } }
-    }
-
-    const fromEnvironment = resolveMcpServerToken(definition, deps.env())
-
-    /*
-      秘密情報を要らないサーバー（`secret: null`）は `ok: true` / `token: null`
-      で返る。そこに「環境変数から来た」と書くと、token を求めていないサーバーの
-      画面に token の話が出る ── 無い扱いにする。
-    */
-    const missing = !fromEnvironment.ok || fromEnvironment.token === null
-
-    return { source: missing ? 'none' : 'environment', token: fromEnvironment }
-  }
-
-  function secretState(id: McpConnectionId, definition: McpServerDefinition): McpSecretState {
-    return { source: resolveSecret(id, definition).source, canStore: deps.canStoreToken() }
-  }
-
   function resolveConfig(id: McpConnectionId, definition: McpServerDefinition): ResolvedConfig {
     const env = deps.env()
     const problems: McpConfigProblem[] = []
 
     /*
-      無効なら、ほかの理由は数えない。「無効です」と「token がありません」が
-      並ぶと、先に token を入れさせることになる ── 利用者の次の一手は1つでよい。
+      無効なら、ほかの理由は数えない。「無効です」と「Command が見つかりません」が
+      並ぶと、先にそちらを直させることになる ── 利用者の次の一手は1つでよい。
     */
     if (!deps.isEnabled(id)) {
       return { ok: false, problems: ['disabled'] }
@@ -243,29 +189,21 @@ export function createMcpConnections(deps: McpConnectionsDependencies): McpConne
 
     problems.push(...(definition.configProblems ?? []))
 
-    const token = resolveSecret(id, definition).token
-
-    if (!token.ok) {
-      problems.push(token.problem)
-    }
-
     const command = resolveMcpServerCommand(definition, {
       platform: deps.platform,
       env,
-      exists: deps.exists,
-      bundledPackageDirectory: deps.bundledPackageDirectory,
-      nodeRuntime: deps.nodeRuntime
+      exists: deps.exists
     })
 
     if (!command.ok) {
       problems.push(command.problem)
     }
 
-    if (!token.ok || !command.ok || problems.length > 0) {
+    if (!command.ok || problems.length > 0) {
       return { ok: false, problems }
     }
 
-    return { ok: true, definition, token: token.token, command: command.command }
+    return { ok: true, definition, command: command.command }
   }
 
   /**
@@ -276,13 +214,12 @@ export function createMcpConnections(deps: McpConnectionsDependencies): McpConne
     config: Extract<ResolvedConfig, { ok: true }>,
     use: (session: McpSession) => Promise<T>
   ): Promise<{ readonly ok: true; readonly value: T } | McpFailure> {
-    const { definition, token, command } = config
-    const redact = (text: string): string =>
-      redactSecrets(text, [token, ...(definition.redactions ?? [])])
+    const { definition, command } = config
+    const redact = (text: string): string => redactSecrets(text, definition.redactions ?? [])
 
     const transport = deps.createTransport({
       command,
-      env: createMcpServerEnvironment(definition, deps.env(), token, command.environment),
+      env: createMcpServerEnvironment(definition, deps.env(), command.environment),
       cwd: deps.cwd(),
       onStderrLine: (line) => deps.log.debug(`${command.name} stderr: ${redact(line)}`),
       onStderrDropped: (count) =>
@@ -423,7 +360,7 @@ export function createMcpConnections(deps: McpConnectionsDependencies): McpConne
         if (!called.ok) {
           /*
             書き込みを送った後に途切れたなら、相手の側では反映されたかもしれない。
-            ただの失敗として返すと、利用者が押し直して二重に書き込む。
+            ただの失敗として返すと、呼び手がやり直して二重に書き込む。
             相手が失敗として返した（rejected）なら、反映されていない。
           */
           const unknown = isWrite && called.requestSent === true && called.failure !== 'rejected'
@@ -473,7 +410,6 @@ export function createMcpConnections(deps: McpConnectionsDependencies): McpConne
         configured: problems.length === 0,
         problems,
         enabled: deps.isEnabled(id),
-        secret: secretState(id, definition),
         testing: runningTests.has(id),
         lastTest: lastTests.get(id) ?? null
       }

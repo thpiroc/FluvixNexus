@@ -164,23 +164,20 @@ export interface StoredAppearanceSettings {
 }
 
 /**
- * MCP 連携を使うかどうか（§21.9）。
+ * MCP 連携を使うかどうか（全体の元栓）。
  *
- * **ここに入るのは「使う意思」だけで、token は1つも入らない。**
+ * **ここに入るのは「使う意思」だけで、秘密の値は1つも入らない。**
  * 秘密情報はこのファイル（`settings.json`）へ平文で書かず、OS の資格情報で
  * 暗号化した別のファイルが持つ（main/mcp/mcpSecretStore.ts）── 設定ファイルは
  * 利用者が開いて読める場所にあり、バックアップや画面共有にも普通に写る。
  *
- * サーバーごとの key を1つずつ増やしていく形にしてあるのは、`lsp` の
- * `typescriptEnabled` … とまったく同じ分担にほかならない ── 保存の形は
- * 平らな真偽値だけにして、「どのサーバーがあるか」は shared の側
- * （shared/mcp の `MCP_CONNECTION_IDS`）が決める。
+ * 登録したサーバーごとの栓は、ここではなく登録簿（`mcp-servers.json`）が持つ。
+ * 旧 Notion MCP の `notionEnabled` は、版 1 → 2 の移行で消える
+ * （main/store/settingsMigration.ts）。
  */
 export interface StoredMcpSettings {
   /** MCP 連携そのものを使うか。無ければ既定（使わない）。 */
   readonly enabled?: boolean
-  /** Notion MCP を使うか。無ければ既定（使わない）。 */
-  readonly notionEnabled?: boolean
 }
 
 /**

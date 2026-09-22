@@ -15,17 +15,17 @@
  * ```
  * 共通の許可（MCP_SERVER_BASE_VARIABLES） … OS とプロセスが動くのに要るもの・
  *                                              ネットワークの経路（プロキシ・証明書）
- * サーバーごとの許可（inheritedVariables）  … 行が明示したものだけ（Notion は無し）
- * サーバーの設定（providedVariables）       … 表が渡す値（token など）
- * 起動のしかたの変数                        … `ELECTRON_RUN_AS_NODE`（mcpServerLaunch.ts）
+ * サーバーごとの許可（inheritedVariables）  … 定義が明示したものだけ（登録したサーバーは無し）
+ * サーバーの設定（providedVariables）       … 利用者が登録した環境変数の値（秘密の値を含む）
+ * 起動のしかたの変数                        … 起動の解決が付けるもの（mcpServerLaunch.ts）
  * ```
  *
  * ## それでも通さないもの
  *
  * - このアプリ自身の設定（`FLUVIX_` で始まるもの） … サーバーごとの許可に書いても通さない
- * - サーバーが設定として読む変数（reservedVariables） … 親の値は通さず、表の値だけにする。
- *   Notion MCP サーバーの `BASE_URL`（API の接続先の上書き）のように、ありふれた名前が
- *   設定として読まれることがある
+ * - サーバーが設定として読む変数（reservedVariables） … 親の値は通さず、登録した値だけにする。
+ *   `BASE_URL`（API の接続先の上書き）のように、ありふれた名前が設定として
+ *   読まれることがある
  *
  * 比べるときは大文字に揃える ── Windows の環境変数は大文字小文字を区別しない。
  */
@@ -80,7 +80,7 @@ export const MCP_SERVER_BASE_VARIABLES: readonly string[] = [
   'SSL_CERT_DIR'
 ]
 
-/** このアプリ自身の設定の接頭辞（token を含む）。どのサーバーにも渡さない。 */
+/** このアプリ自身の設定の接頭辞（利用者が置いた資格情報を含みうる）。どのサーバーにも渡さない。 */
 const APP_VARIABLE_PREFIX = 'FLUVIX_'
 
 /** サーバー1つ分の、環境変数についての宣言。 */
@@ -90,7 +90,7 @@ export interface McpServerEnvironmentProfile {
    */
   readonly reservedVariables: readonly string[]
   /**
-   * 表が渡す値。名前は `reservedVariables` に含まれていなければならない
+   * 定義が渡す値。名前は `reservedVariables` に含まれていなければならない
    * ── 宣言していない名前を書けると、親の値との取り違えを守れなくなる。
    */
   readonly providedVariables: Readonly<Record<string, string>>

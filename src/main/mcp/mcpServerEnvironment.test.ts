@@ -5,7 +5,7 @@ import { createMcpServerEnvironment, MCP_SERVER_BASE_VARIABLES } from './mcpServ
  * MCP サーバーへ渡す環境変数の共通の規則（mcpServerEnvironment.ts）。
  *
  * どのサーバーでも同じに効くことを、架空のサーバーの宣言で確かめる
- * （Notion の宣言は mcpServerCatalog.test.ts）。
+ * （登録したサーバーの宣言は mcpServerDefinition.test.ts）。
  */
 
 const SECRET = 'fictitious-secret-value'

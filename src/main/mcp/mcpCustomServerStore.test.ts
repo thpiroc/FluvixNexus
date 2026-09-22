@@ -10,7 +10,7 @@ import {
 } from './mcpCustomServerStore'
 
 /**
- * 利用者が足した MCP サーバーの登録簿（mcpCustomServerStore.ts。§21.10）。
+ * MCP Server Manager の登録簿（mcpCustomServerStore.ts。§21.3）。
  *
  * mcpSecretStore.test.ts と同じく実際のディスクを触る。確かめたいのは、
  *

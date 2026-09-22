@@ -150,6 +150,78 @@ describe('settings.json の読み書き', () => {
 })
 
 /**
+ * 撤去した key の掃除（旧 Notion MCP の `mcp.notionEnabled`）。
+ *
+ * 読んだ時点で落とし、利用者が何も保存しなくてもその場で1度だけ書き直す。
+ * ほかの設定は1つも変えず、2回目の起動では書かない。
+ */
+describe('撤去した key の掃除', () => {
+  const legacyFile = {
+    schemaVersion: SETTINGS_SCHEMA_VERSION,
+    futureTopLevel: { kept: true },
+    sections: {
+      general: { language: 'en' },
+      editor: { autoSaveMode: 'afterDelay', minimap: true },
+      terminal: { fontSize: 20 },
+      mcp: { enabled: true, notionEnabled: true }
+    }
+  }
+
+  it('読み込んだ時点で mcp.notionEnabled をファイルから消し、ほかは変えない', async () => {
+    await writeJson(SETTINGS_FILE_NAME, legacyFile)
+    const issues: string[] = []
+
+    const sections = createSettingsStore(directory, {
+      onIssue: (message) => issues.push(message)
+    }).read()
+
+    expect(sections.mcp).toEqual({ enabled: true })
+    expect(sections.general).toEqual({ language: 'en' })
+    expect(sections.terminal).toEqual({ fontSize: 20 })
+    expect(issues).toContain(`"${SETTINGS_FILE_NAME}": removed retired "mcp.notionEnabled"`)
+
+    /* flush を呼ばなくても、もうファイルに無い。 */
+    expect(await readSettingsFile()).toEqual({
+      schemaVersion: SETTINGS_SCHEMA_VERSION,
+      futureTopLevel: { kept: true },
+      sections: {
+        general: { language: 'en' },
+        appearance: {},
+        editor: { autoSaveMode: 'afterDelay', minimap: true },
+        lsp: {},
+        files: {},
+        terminal: { fontSize: 20 },
+        mcp: { enabled: true }
+      }
+    })
+  })
+
+  it('2回目の起動では書き直さない（何度起動しても同じ）', async () => {
+    await writeJson(SETTINGS_FILE_NAME, legacyFile)
+    storeWith().read()
+    const afterFirst = await readFile(join(directory, SETTINGS_FILE_NAME), 'utf8')
+
+    const issues: string[] = []
+    createSettingsStore(directory, { onIssue: (message) => issues.push(message) }).read()
+
+    expect(issues).toEqual([])
+    expect(await readFile(join(directory, SETTINGS_FILE_NAME), 'utf8')).toBe(afterFirst)
+  })
+
+  it('撤去した key が無ければ、読むだけで書かない', async () => {
+    const content = JSON.stringify({
+      schemaVersion: SETTINGS_SCHEMA_VERSION,
+      sections: { mcp: { enabled: false } }
+    })
+    await writeFile(join(directory, SETTINGS_FILE_NAME), content, 'utf8')
+
+    storeWith().read()
+
+    expect(await readFile(join(directory, SETTINGS_FILE_NAME), 'utf8')).toBe(content)
+  })
+})
+
+/**
  * 旧3ファイルからの取り込み。
  *
  * `settings.json` が**無いときだけ**通る道で、取り込めたらその場で1度書く。

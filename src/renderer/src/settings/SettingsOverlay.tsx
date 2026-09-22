@@ -34,7 +34,6 @@ import type { TranslationKey } from '../i18n/messages'
 import { languageServerNameKey } from '../lsp/languageServerLabels'
 import { createLanguageServerSetters, LSP_SETTINGS_BINDING } from '../lsp/lspSettingsBinding'
 import { LANGUAGE_SERVER_IDS } from '@shared/lsp'
-import { MCP_BUILTIN_CONNECTION_IDS } from '@shared/mcp'
 import { McpConnectionPanel } from '../mcp/McpConnectionPanel'
 import { createMcpSetters, MCP_SETTINGS_BINDING } from '../mcp/mcpSettingsBinding'
 import {
@@ -305,10 +304,10 @@ function SettingsCategoryBody({
 }
 
 /**
- * 値の項目の下に続く、そのカテゴリだけの面（§21.9）。
+ * 値の項目の下に続く、そのカテゴリだけの面（MCP Server Manager）。
  *
  * **ユーザー設定を見ているときだけ出す。** MCP は application scope なので
- * （shared/settings/scope.ts）、ワークスペースを選んでいる間に token の欄や
+ * （shared/settings/scope.ts）、ワークスペースを選んでいる間に登録したサーバーや
  * 接続テストを出すと、「このプロジェクトだけの設定」に見える ── 上の行が
  * 押せない状態で理由を添えているので、面は畳んでよい。
  */
@@ -564,9 +563,6 @@ function SettingsControl({
     case 'mcp.enabled':
       return <McpEnabledControl scope={scope} />
 
-    case 'mcp.servers':
-      return <McpConnectionChoicesControl scope={scope} />
-
     default:
       /*
         目録に項目を足して、ここへの分岐を書き忘れた場合。
@@ -810,7 +806,7 @@ function LanguageServerChoicesControl({ scope }: ScopeProps): JSX.Element {
 /* ----------------------------------------------------------------- MCP */
 
 /**
- * MCP 連携を使うか（§21.9）。
+ * MCP 連携を使うか（全体の元栓）。
  *
  * 並べる順を **「使わない → 使う」** にしてある ── Theme・LSP は
  * 「既定の方を先に」で揃えてあり、ここの既定は**無効**にほかならない
@@ -852,46 +848,6 @@ function McpEnabledControl({ scope }: ScopeProps): JSX.Element {
 
 /** 並べる順（使わない → 使う）。既定の方を先に置く。 */
 const MCP_ENABLED_CHOICES: readonly boolean[] = [false, true]
-
-/**
- * 接続ごとに使うか（§21.9）。
- *
- * LSP の言語ごとの切り替えとまったく同じ形にしてある ── 同じ性格の
- * 切り替えを1行にまとめ、**全体が OFF でも押せる**ままにする
- * （全体を戻したときに、どれを使っていたかを確かめられなくなるため）。
- */
-function McpConnectionChoicesControl({ scope }: ScopeProps): JSX.Element {
-  const { value: preferences, setConnectionEnabled } = useScopedSetters(
-    MCP_SETTINGS_BINDING,
-    scope,
-    createMcpSetters
-  )
-  const { t } = useI18n()
-
-  return (
-    <div
-      className="fx-settings__choices"
-      role="group"
-      aria-label={t('settings.controls.mcpServers.aria')}
-      data-testid="settings-mcp-servers"
-      data-inactive={!preferences.enabled}
-    >
-      {MCP_BUILTIN_CONNECTION_IDS.map((id) => (
-        <button
-          key={id}
-          type="button"
-          className="fx-settings__choice"
-          data-testid={`settings-mcp-server-${id}`}
-          data-active={preferences.servers[id]}
-          aria-pressed={preferences.servers[id]}
-          onClick={() => setConnectionEnabled(id, !preferences.servers[id])}
-        >
-          {t(`settings.mcp.connections.${id}`)}
-        </button>
-      ))}
-    </div>
-  )
-}
 
 /* --------------------------------------------------------------- Files */
 

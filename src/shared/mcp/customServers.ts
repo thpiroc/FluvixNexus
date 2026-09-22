@@ -1,7 +1,7 @@
 import type { McpCustomServerId } from './index'
 
 /**
- * 利用者が Settings から足す MCP サーバー（「+ New MCP Server」。§21.10）の語彙と検証。
+ * 利用者が Settings から足す MCP サーバー（「+ New MCP Server」。§21.3）の語彙と検証。
  *
  * ## 置き場所は3つに分かれる
  *
@@ -29,7 +29,7 @@ import type { McpCustomServerId } from './index'
  * 「秘密」にした環境変数は、値が暗号化した別ファイルへ入り、Renderer へ返る
  * 形（`McpCustomServerSummary`）には**保存されているかどうか**だけが載る。
  * 編集で値を入れ直さないときは `value: null`（今のまま）を送る ──
- * 「読めないが入っている」値を画面に出して直させない（token と同じ。§21.9）。
+ * 「読めないが入っている」値を画面に出して直させない（§21.3）。
  *
  * ## ここは形だけを見る
  *
@@ -427,7 +427,7 @@ export function readMcpEnvVariablePlainValue(raw: unknown, index: number): Field
  *
  * 貼り付けた token の末尾に改行が付いてくるのはよくあるので、前後の空白は
  * 落とす。途中の改行・制御文字は断る（相手の API がすべての要求を断る形に
- * なり、原因が見えない ── mcpConfig.ts の token と同じ理由）。
+ * なり、原因が見えない）。
  */
 export function readMcpEnvVariableSecretValue(raw: unknown, index: number): FieldRead<string> {
   if (typeof raw !== 'string') {

@@ -6,21 +6,123 @@ import {
   type McpWriteConfirmation
 } from './mcpConnections'
 import { createMcpCustomServerDefinition } from './mcpCustomServerDefinition'
-import { McpRequestError } from './mcpOperations'
-import { MCP_SERVER_DEFINITIONS, type McpServerDefinition } from './mcpServerCatalog'
+import { isRecord } from './mcpMessage'
+import {
+  defineMcpOperation,
+  McpRequestError,
+  readArgumentObject,
+  readJsonTextContent,
+  readStringArgument,
+  type McpArgumentsParse
+} from './mcpOperations'
+import type { McpServerDefinition } from './mcpServerDefinition'
 import type { McpStdioTransportOptions } from './mcpStdioTransport'
 
 /**
  * MCP の接続を束ねる層（mcpConnections.ts）。
  *
- * token はテスト用の架空の値。
+ * 題材は MCP Server Manager に登録したサーバー（mcpCustomServerDefinition.ts が
+ * 登録簿の行から作る定義）。操作（callOperation）は、登録したサーバーの定義に
+ * テスト用の操作表を足したもので確かめる ── 今は操作表を持つサーバーが無いが、
+ * ツール呼び出しの手続き（tool-unavailable・outcome-unknown など）は将来の
+ * 呼び手（MCP Gateway）のために残してある。
+ *
+ * 秘密の値はテスト用の架空のもの。
  */
 
-const TOKEN = 'ntn_fictitiousTestToken0123456789'
-const APP_EXE = 'C:\\Program Files\\Fluvix Nexus\\Fluvix Nexus.exe'
-const RESOURCES = 'C:\\Program Files\\Fluvix Nexus\\resources\\mcp-servers'
-const ENTRY = `${RESOURCES}\\notion-mcp-server\\bin\\cli.mjs`
+const SECRET = 'ghp_fictitiousTestSecret0123456789'
 const SYSTEM_PATH = 'C:\\Windows\\System32'
+const SERVER_ID = 'custom-0f1e2d3c-4b5a-4968-8778-695a4b3c2d1e'
+const UNREGISTERED_ID = 'custom-11111111-2222-4333-8444-555555555555'
+const SERVER_EXE = 'C:\\tools\\example-server.exe'
+const ITEM_ID = 'item-42'
+const NOTE_TEXT = 'Fluvix Nexus MCP 書き込みテスト'
+
+/* ------------------------------------------------------------------ テスト用の操作表 */
+
+function parseItem(raw: unknown): McpArgumentsParse<{ readonly id: string }> {
+  const args = readArgumentObject(raw, ['id'])
+
+  if (!args.ok) {
+    return args
+  }
+
+  const id = readStringArgument(args.value, 'id', { minLength: 1, maxLength: 64, multiline: false })
+
+  return id.ok ? { ok: true, value: { id: id.value } } : id
+}
+
+function parseNote(
+  raw: unknown
+): McpArgumentsParse<{ readonly id: string; readonly text: string }> {
+  const args = readArgumentObject(raw, ['id', 'text'])
+
+  if (!args.ok) {
+    return args
+  }
+
+  const id = readStringArgument(args.value, 'id', { minLength: 1, maxLength: 64, multiline: false })
+
+  if (!id.ok) {
+    return id
+  }
+
+  const text = readStringArgument(args.value, 'text', {
+    minLength: 1,
+    maxLength: 200,
+    multiline: true
+  })
+
+  return text.ok ? { ok: true, value: { id: id.value, text: text.value } } : text
+}
+
+/** 本文に `{ object: 'error', status, code }` が入っていれば失敗（`isError` の無いサーバーの返し方）。 */
+function readExampleError(
+  result: Parameters<typeof readJsonTextContent>[0]
+): { status: number | null; code: string | null } | null {
+  const json = readJsonTextContent(result)
+
+  if (!isRecord(json) || json['object'] !== 'error') {
+    return null
+  }
+
+  return {
+    status: typeof json['status'] === 'number' ? json['status'] : null,
+    code: typeof json['code'] === 'string' ? json['code'] : null
+  }
+}
+
+const OPERATIONS = {
+  'get-item': defineMcpOperation<{ readonly id: string }>({
+    kind: 'read',
+    tool: 'example-get-item',
+    parseArguments: parseItem,
+    toolArguments: (args) => ({ item_id: args.id }),
+    readResult: (result) => {
+      const json = readJsonTextContent(result)
+      return isRecord(json) && typeof json['id'] === 'string' ? { id: json['id'] } : null
+    },
+    readToolError: readExampleError
+  }),
+  'append-note': defineMcpOperation<{ readonly id: string; readonly text: string }>({
+    kind: 'write',
+    tool: 'example-append-note',
+    parseArguments: parseNote,
+    toolArguments: (args) => ({ item_id: args.id, note: args.text }),
+    readResult: (result, args) => {
+      const json = readJsonTextContent(result)
+      return isRecord(json) && typeof json['noteId'] === 'string'
+        ? { id: args.id, noteId: json['noteId'] }
+        : null
+    },
+    readToolError: readExampleError,
+    describe: (args) => ({ title: 'ノートを追記します', detail: args.text })
+  })
+}
+
+const ITEM_RESULT = { content: [{ type: 'text', text: JSON.stringify({ id: ITEM_ID }) }] }
+
+/* ------------------------------------------------------------------ 足場 */
 
 interface Harness {
   readonly deps: McpConnectionsDependencies
@@ -34,69 +136,59 @@ interface Harness {
   readonly confirmations: McpWriteConfirmation[]
 }
 
-type Behavior = 'healthy' | 'silent' | 'stderr-with-token'
+type Behavior = 'healthy' | 'silent' | 'stderr-with-secret'
 
 interface HarnessOptions {
   /** 書き込みの確認への答え。 */
   readonly confirm?: boolean
   /** サーバーが公開するツール名。 */
   readonly tools?: readonly string[]
-  /** tools/call への応答の result（既定は Notion の検索結果）。 */
+  /** tools/call への応答の result（既定は get-item の結果）。 */
   readonly toolResult?: (name: unknown) => unknown
-  /** 同梱したサーバーのファイルがあるか（既定は有る）。 */
-  readonly serverInstalled?: boolean
   /** tools/call に応答しない（送った後に時間切れ）。 */
   readonly silentToolCall?: boolean
-  /** Settings で有効にしてあるか（既定は有効 ── 既定値そのものは shared 側で試す）。 */
+  /** Settings と登録簿の両方で有効にしてあるか（既定は有効）。 */
   readonly enabled?: boolean
-  /** 安全に保存された token（既定は無く、環境変数を見る）。 */
-  readonly storedToken?: string | null
-  /** この PC で token を保存できるか（既定はできる）。 */
-  readonly canStoreToken?: boolean
-  /** 組み込み以外の行（利用者が足したサーバー。§21.10）。 */
-  readonly customDefinitions?: Readonly<Record<string, McpServerDefinition>>
-  /** 在ると見なす実行ファイル（同梱したサーバー以外。既定は無し）。 */
+  /** 秘密の環境変数の値（null で「読めない」）。 */
+  readonly secret?: string | null
+  /** 在ると見なす実行ファイル（既定はサーバーの Command だけ）。 */
   readonly existingFiles?: readonly string[]
+  /** 定義に操作表を付けるか（既定は付けない ── 登録したサーバーそのまま）。 */
+  readonly withOperations?: boolean
 }
 
-const SEARCH_RESULT = {
-  content: [
+/** MCP Server Manager に登録したサーバー1つ分の定義（登録簿の行から作る）。 */
+function registeredServer(secret: string | null, withOperations: boolean): McpServerDefinition {
+  const definition = createMcpCustomServerDefinition(
     {
-      type: 'text',
-      text: JSON.stringify({
-        object: 'list',
-        results: [
-          {
-            object: 'page',
-            id: '0f1e2d3c4b5a49688778695a4b3c2d1e',
-            in_trash: false,
-            properties: {
-              title: { type: 'title', title: [{ plain_text: 'Cursor MCP 接続テスト' }] }
-            }
-          }
-        ]
-      })
-    }
-  ]
+      id: SERVER_ID,
+      name: 'Example Server',
+      enabled: true,
+      transport: { kind: 'stdio', command: SERVER_EXE, args: ['--stdio', 'C:\\My Files'] },
+      env: [
+        { name: 'EXAMPLE_REGION', secret: false, value: 'ap-northeast-1' },
+        { name: 'EXAMPLE_API_KEY', secret: true }
+      ]
+    },
+    () => secret
+  )
+
+  return withOperations ? { ...definition, operations: OPERATIONS } : definition
 }
 
 function harness(behavior: Behavior = 'healthy', setup: HarnessOptions = {}): Harness {
   const toolCalls: { readonly name: unknown; readonly arguments: unknown }[] = []
   const confirmations: McpWriteConfirmation[] = []
-  const toolNames = setup.tools ?? [
-    'API-post-search',
-    'API-retrieve-a-page',
-    'API-get-block-children',
-    'API-patch-block-children'
-  ]
+  const toolNames = setup.tools ?? ['example-get-item', 'example-append-note']
   const logs: string[] = []
   const spawned: McpStdioTransportOptions[] = []
+  const definition = registeredServer(
+    setup.secret === undefined ? SECRET : setup.secret,
+    setup.withOperations ?? false
+  )
   let terminated = 0
   let closed = 0
-  let env: Record<string, string | undefined> = {
-    PATH: SYSTEM_PATH,
-    FLUVIX_NOTION_MCP_TOKEN: TOKEN
-  }
+  let env: Record<string, string | undefined> = { PATH: SYSTEM_PATH, SystemRoot: 'C:\\Windows' }
 
   function createTransport(options: McpStdioTransportOptions): McpTransport {
     spawned.push(options)
@@ -115,8 +207,8 @@ function harness(behavior: Behavior = 'healthy', setup: HarnessOptions = {}): Ha
     function reply(message: Record<string, unknown>): unknown {
       switch (message['method']) {
         case 'initialize':
-          if (behavior === 'stderr-with-token') {
-            options.onStderrLine?.(`request failed: Authorization: ${TOKEN}`)
+          if (behavior === 'stderr-with-secret') {
+            options.onStderrLine?.(`request failed: Authorization: ${SECRET}`)
           }
 
           return {
@@ -125,7 +217,7 @@ function harness(behavior: Behavior = 'healthy', setup: HarnessOptions = {}): Ha
             result: {
               protocolVersion: '2025-06-18',
               capabilities: { tools: {} },
-              serverInfo: { name: 'Notion API', version: '2.5.1' }
+              serverInfo: { name: 'example-server', version: '1.2.3' }
             }
           }
         case 'tools/list':
@@ -145,7 +237,7 @@ function harness(behavior: Behavior = 'healthy', setup: HarnessOptions = {}): Ha
           return {
             jsonrpc: '2.0',
             id: message['id'],
-            result: setup.toolResult?.(params.name) ?? SEARCH_RESULT
+            result: setup.toolResult?.(params.name) ?? ITEM_RESULT
           }
         }
         default:
@@ -186,14 +278,12 @@ function harness(behavior: Behavior = 'healthy', setup: HarnessOptions = {}): Ha
     }
   }
 
+  const existing = setup.existingFiles ?? [SERVER_EXE]
+
   const deps: McpConnectionsDependencies = {
     env: () => env,
     platform: 'win32',
-    exists: (path) =>
-      ((setup.serverInstalled ?? true) && path.toLowerCase() === ENTRY.toLowerCase()) ||
-      (setup.existingFiles ?? []).some((file) => file.toLowerCase() === path.toLowerCase()),
-    bundledPackageDirectory: (launch) => `${RESOURCES}\\${launch.bundleName}`,
-    nodeRuntime: { file: APP_EXE, environment: { ELECTRON_RUN_AS_NODE: '1' } },
+    exists: (path) => existing.some((file) => file.toLowerCase() === path.toLowerCase()),
     cwd: () => 'C:\\Users\\dev\\AppData\\Roaming\\Fluvix Nexus',
     createTransport,
     clientInfo: { name: 'Fluvix Nexus', version: '1.0.0' },
@@ -209,10 +299,7 @@ function harness(behavior: Behavior = 'healthy', setup: HarnessOptions = {}): Ha
       return setup.confirm ?? false
     },
     isEnabled: () => setup.enabled ?? true,
-    readStoredToken: () => setup.storedToken ?? null,
-    canStoreToken: () => setup.canStoreToken ?? true,
-    definitionOf: (id) =>
-      id === 'notion' ? MCP_SERVER_DEFINITIONS.notion : (setup.customDefinitions?.[id] ?? null),
+    definitionOf: (id) => (id === SERVER_ID ? definition : null),
     connectTimeoutMs: 30,
     requestTimeoutMs: 30
   }
@@ -231,17 +318,18 @@ function harness(behavior: Behavior = 'healthy', setup: HarnessOptions = {}): Ha
   }
 }
 
+/* ------------------------------------------------------------------ 状態 */
+
 describe('getStatus', () => {
   it('起動も通信もせずに、設定が揃っているかを返す', () => {
     const h = harness()
-    const status = createMcpConnections(h.deps).getStatus('notion')
+    const status = createMcpConnections(h.deps).getStatus(SERVER_ID)
 
     expect(status).toEqual({
-      connectionId: 'notion',
+      connectionId: SERVER_ID,
       configured: true,
       problems: [],
       enabled: true,
-      secret: { source: 'environment', canStore: true },
       testing: false,
       lastTest: null
     })
@@ -249,36 +337,51 @@ describe('getStatus', () => {
   })
 
   it('足りないものをすべて挙げる', () => {
-    const h = harness('healthy', { serverInstalled: false })
-    h.setEnv({ PATH: SYSTEM_PATH })
+    const h = harness('healthy', { secret: null, existingFiles: [] })
 
-    expect(createMcpConnections(h.deps).getStatus('notion')).toMatchObject({
+    expect(createMcpConnections(h.deps).getStatus(SERVER_ID)).toMatchObject({
       configured: false,
-      problems: ['token-missing', 'server-not-installed']
+      problems: ['secret-missing', 'command-not-found']
     })
   })
 
-  it('環境変数を呼ぶたびに読み直す', () => {
-    const h = harness()
-    const connections = createMcpConnections(h.deps)
+  it('環境変数を呼ぶたびに読み直す（名前だけの Command は PATH を辿る）', () => {
+    const h = harness('healthy', { existingFiles: ['C:\\tools\\bin\\example-server.exe'] })
+    const connections = createMcpConnections({
+      ...h.deps,
+      definitionOf: (id) =>
+        id === SERVER_ID
+          ? {
+              ...registeredServer(SECRET, false),
+              launch: {
+                kind: 'user-command',
+                name: 'Example Server',
+                command: 'example-server',
+                args: []
+              }
+            }
+          : null
+    })
 
-    h.setEnv({ PATH: SYSTEM_PATH })
-    expect(connections.getStatus('notion').problems).toEqual(['token-missing'])
+    expect(connections.getStatus(SERVER_ID).problems).toEqual(['command-not-found'])
 
-    h.setEnv({ PATH: SYSTEM_PATH, FLUVIX_NOTION_MCP_TOKEN: TOKEN })
-    expect(connections.getStatus('notion').problems).toEqual([])
+    h.setEnv({ PATH: `${SYSTEM_PATH};C:\\tools\\bin`, SystemRoot: 'C:\\Windows' })
+    expect(connections.getStatus(SERVER_ID).problems).toEqual([])
+  })
+
+  it('登録簿に無い id は McpRequestError（呼び手の不具合）', async () => {
+    const connections = createMcpConnections(harness().deps)
+
+    expect(() => connections.getStatus(UNREGISTERED_ID)).toThrow(McpRequestError)
+    await expect(connections.testConnection(UNREGISTERED_ID)).rejects.toThrow(McpRequestError)
   })
 })
 
-/*
-  §21.9 で足した2つ ── Settings の有効 / 無効と、token の在り処。
-*/
-describe('有効 / 無効（Settings）', () => {
+describe('有効 / 無効（全体の元栓とサーバーの栓）', () => {
   it('無効なら、ほかに何が足りていても理由は disabled だけ', () => {
-    const h = harness('healthy', { enabled: false, serverInstalled: false })
-    h.setEnv({ PATH: SYSTEM_PATH })
+    const h = harness('healthy', { enabled: false, secret: null, existingFiles: [] })
 
-    expect(createMcpConnections(h.deps).getStatus('notion')).toMatchObject({
+    expect(createMcpConnections(h.deps).getStatus(SERVER_ID)).toMatchObject({
       configured: false,
       enabled: false,
       problems: ['disabled']
@@ -287,17 +390,17 @@ describe('有効 / 無効（Settings）', () => {
 
   it('無効なら、接続テストはサーバーを起動しない', async () => {
     const h = harness('healthy', { enabled: false })
-    const result = await createMcpConnections(h.deps).testConnection('notion')
+    const result = await createMcpConnections(h.deps).testConnection(SERVER_ID)
 
     expect(result).toMatchObject({ outcome: 'not-configured', problems: ['disabled'] })
     expect(h.spawned).toEqual([])
   })
 
   it('無効なら、操作は起動も確認もせずに断る', async () => {
-    const h = harness('healthy', { enabled: false, confirm: true })
+    const h = harness('healthy', { enabled: false, confirm: true, withOperations: true })
 
-    const result = await createMcpConnections(h.deps).callOperation('notion', 'append-paragraph', {
-      pageId: '0f1e2d3c4b5a49688778695a4b3c2d1e',
+    const result = await createMcpConnections(h.deps).callOperation(SERVER_ID, 'append-note', {
+      id: ITEM_ID,
       text: 'x'
     })
 
@@ -312,141 +415,94 @@ describe('有効 / 無効（Settings）', () => {
     const h = harness()
     const connections = createMcpConnections({ ...h.deps, isEnabled: () => enabled })
 
-    expect(connections.getStatus('notion').problems).toEqual(['disabled'])
+    expect(connections.getStatus(SERVER_ID).problems).toEqual(['disabled'])
 
     enabled = true
-    expect(connections.getStatus('notion').problems).toEqual([])
+    expect(connections.getStatus(SERVER_ID).problems).toEqual([])
   })
 })
 
-describe('token の在り処', () => {
-  it('保存された token が環境変数より優先される', async () => {
-    const stored = 'ntn_fictitiousStoredToken987654321'
-    const h = harness('healthy', { storedToken: stored })
-
-    expect(createMcpConnections(h.deps).getStatus('notion').secret).toEqual({
-      source: 'stored',
-      canStore: true
-    })
-
-    await createMcpConnections(h.deps).testConnection('notion')
-
-    /* 子プロセスへ渡るのも、保存された方でなければならない。 */
-    expect(h.spawned[0]?.env['NOTION_TOKEN']).toBe(stored)
-  })
-
-  it('保存が無ければ環境変数から読む', () => {
-    const h = harness()
-
-    expect(createMcpConnections(h.deps).getStatus('notion').secret).toEqual({
-      source: 'environment',
-      canStore: true
-    })
-  })
-
-  it('どちらにも無ければ none と token-missing', () => {
-    const h = harness()
-    h.setEnv({ PATH: SYSTEM_PATH })
-
-    expect(createMcpConnections(h.deps).getStatus('notion')).toMatchObject({
-      problems: ['token-missing'],
-      secret: { source: 'none', canStore: true }
-    })
-  })
-
-  /*
-    token を入れ替えた後に、前の token での結末が残らないこと。
-    実機の確認で見つけた ── 保存した token を消すと環境変数の token へ
-    切り替わるが、「接続できました」が残ったままだと、*消える前の*
-    資格情報での結果を今の結果として読むことになる。
-  */
-  it('forgetLastTest で、前の token での結末を忘れる', async () => {
-    const h = harness()
-    const connections = createMcpConnections(h.deps)
-
-    await connections.testConnection('notion')
-    expect(connections.getStatus('notion').lastTest).toMatchObject({ outcome: 'connected' })
-
-    connections.forgetLastTest('notion')
-
-    expect(connections.getStatus('notion').lastTest).toBeNull()
-  })
-
-  it('保存できない PC でも、環境変数の token は使える', () => {
-    const h = harness('healthy', { canStoreToken: false })
-
-    expect(createMcpConnections(h.deps).getStatus('notion')).toMatchObject({
-      configured: true,
-      secret: { source: 'environment', canStore: false }
-    })
-  })
-})
+/* ------------------------------------------------------------------ 接続テスト */
 
 describe('testConnection', () => {
   it('接続してツールの一覧を取り、切断する', async () => {
-    const h = harness('healthy', { tools: ['API-post-search'] })
+    const h = harness('healthy', { tools: ['example-get-item'] })
     const connections = createMcpConnections(h.deps)
-    const result = await connections.testConnection('notion')
+    const result = await connections.testConnection(SERVER_ID)
 
     expect(result).toEqual({
       outcome: 'connected',
       testedAt: '2026-09-19T00:00:00.000Z',
-      server: { name: 'Notion API', version: '2.5.1' },
+      server: { name: 'example-server', version: '1.2.3' },
       protocolVersion: '2025-06-18',
-      tools: [{ name: 'API-post-search', description: 'API-post-search' }]
+      tools: [{ name: 'example-get-item', description: 'example-get-item' }]
     })
     expect(h.closed()).toBeGreaterThanOrEqual(1)
-    expect(connections.getStatus('notion').lastTest).toEqual(result)
+    expect(connections.getStatus(SERVER_ID).lastTest).toEqual(result)
   })
 
-  it('表の行どおりに起動し、token は環境変数でだけ渡す', async () => {
-    const h = harness()
+  it('公開されたツールをすべて数える（GitHub MCP の 45 個のように多くても落とさない）', async () => {
+    const tools = Array.from({ length: 45 }, (_, index) => `tool_${index}`)
+    const h = harness('healthy', { tools })
+    const result = await createMcpConnections(h.deps).testConnection(SERVER_ID)
 
-    await createMcpConnections(h.deps).testConnection('notion')
-
-    const [options] = h.spawned
-
-    expect(options?.command).toEqual({
-      name: 'Notion MCP',
-      file: APP_EXE,
-      args: [ENTRY, '--transport', 'stdio'],
-      environment: { ELECTRON_RUN_AS_NODE: '1' }
-    })
-    expect(options?.command.args.join(' ')).not.toContain(TOKEN)
-    expect(options?.env).toEqual({
-      PATH: SYSTEM_PATH,
-      NOTION_TOKEN: TOKEN,
-      ELECTRON_RUN_AS_NODE: '1'
-    })
-    expect(options?.cwd).toBe('C:\\Users\\dev\\AppData\\Roaming\\Fluvix Nexus')
+    expect(result.outcome === 'connected' ? result.tools.length : null).toBe(45)
   })
 
-  it('親の環境に BASE_URL があっても、起動するサーバーへは渡さない', async () => {
+  it('Command と引数を配列のまま起動し、登録した変数と共通の許可だけを渡す', async () => {
     const h = harness()
     h.setEnv({
       PATH: SYSTEM_PATH,
-      FLUVIX_NOTION_MCP_TOKEN: TOKEN,
+      SystemRoot: 'C:\\Windows',
+      FLUVIX_NOTION_MCP_TOKEN: 'ntn_fictitious',
+      GITHUB_TOKEN: 'ghp_parent',
+      OPENAI_API_KEY: 'sk-fictitious',
       BASE_URL: '/',
-      GITHUB_TOKEN: 'ghp_fictitious',
-      OPENAI_API_KEY: 'sk-fictitious'
+      EXAMPLE_REGION: 'parent-value'
     })
 
-    const result = await createMcpConnections(h.deps).testConnection('notion')
+    const result = await createMcpConnections(h.deps).testConnection(SERVER_ID)
+    const [options] = h.spawned
 
     expect(result.outcome).toBe('connected')
-    expect(h.spawned[0]?.env).not.toHaveProperty('BASE_URL')
-    expect(h.spawned[0]?.env).not.toHaveProperty('GITHUB_TOKEN')
-    expect(h.spawned[0]?.env).not.toHaveProperty('OPENAI_API_KEY')
+    expect(options?.command).toEqual({
+      name: 'Example Server',
+      file: SERVER_EXE,
+      args: ['--stdio', 'C:\\My Files'],
+      environment: {},
+      killTreeWith: 'C:\\Windows\\System32\\taskkill.exe'
+    })
+    /*
+      親の秘密情報（GITHUB_TOKEN・FLUVIX_*）はどれも渡らない。登録した名前は
+      親の値ではなく、登録した値になる。秘密の値は引数ではなく環境変数でだけ渡す。
+    */
+    expect(options?.env).toEqual({
+      PATH: SYSTEM_PATH,
+      SystemRoot: 'C:\\Windows',
+      EXAMPLE_REGION: 'ap-northeast-1',
+      EXAMPLE_API_KEY: SECRET
+    })
+    expect(options?.command.args.join(' ')).not.toContain(SECRET)
+    expect(options?.cwd).toBe('C:\\Users\\dev\\AppData\\Roaming\\Fluvix Nexus')
   })
 
-  it('設定が足りなければ起動せずに not-configured', async () => {
-    const h = harness()
-    h.setEnv({ PATH: SYSTEM_PATH })
+  it('秘密の値が読めなければ、起動せずに secret-missing', async () => {
+    const h = harness('healthy', { secret: null })
 
-    expect(await createMcpConnections(h.deps).testConnection('notion')).toEqual({
+    expect(await createMcpConnections(h.deps).testConnection(SERVER_ID)).toEqual({
       outcome: 'not-configured',
       testedAt: '2026-09-19T00:00:00.000Z',
-      problems: ['token-missing']
+      problems: ['secret-missing']
+    })
+    expect(h.spawned).toEqual([])
+  })
+
+  it('Command が見つからなければ、起動せずに command-not-found', async () => {
+    const h = harness('healthy', { existingFiles: [] })
+
+    expect(await createMcpConnections(h.deps).testConnection(SERVER_ID)).toMatchObject({
+      outcome: 'not-configured',
+      problems: ['command-not-found']
     })
     expect(h.spawned).toEqual([])
   })
@@ -454,7 +510,7 @@ describe('testConnection', () => {
   it('繋がらなければ failed で、経路は閉じる', async () => {
     const h = harness('silent')
 
-    expect(await createMcpConnections(h.deps).testConnection('notion')).toEqual({
+    expect(await createMcpConnections(h.deps).testConnection(SERVER_ID)).toEqual({
       outcome: 'failed',
       testedAt: '2026-09-19T00:00:00.000Z',
       failure: 'timeout'
@@ -465,30 +521,48 @@ describe('testConnection', () => {
   it('テスト中にもう一度呼ばれても、サーバーは1本しか立てない', async () => {
     const h = harness()
     const connections = createMcpConnections(h.deps)
-    const first = connections.testConnection('notion')
-    const second = connections.testConnection('notion')
+    const first = connections.testConnection(SERVER_ID)
+    const second = connections.testConnection(SERVER_ID)
 
-    expect(connections.getStatus('notion').testing).toBe(true)
+    expect(connections.getStatus(SERVER_ID).testing).toBe(true)
     expect(await second).toEqual(await first)
     expect(h.spawned).toHaveLength(1)
-    expect(connections.getStatus('notion').testing).toBe(false)
+    expect(connections.getStatus(SERVER_ID).testing).toBe(false)
   })
 
-  it('サーバーの stderr に出た token はログへ出る前に伏せる', async () => {
-    const h = harness('stderr-with-token')
-
-    await createMcpConnections(h.deps).testConnection('notion')
-
-    expect(h.logs.join('\n')).not.toContain(TOKEN)
-    expect(h.logs).toContain('debug Notion MCP stderr: request failed: Authorization: <redacted>')
-  })
-
-  it('結果にもログにも token が現れない', async () => {
+  /*
+    登録を変えた後に、前の設定での結末が残らないこと。秘密の値を入れ替えても
+    「接続できました」が残ったままだと、前の資格情報での結果を今の結果として読む。
+  */
+  it('forgetLastTest で、前の設定での結末を忘れる', async () => {
     const h = harness()
-    const result = await createMcpConnections(h.deps).testConnection('notion')
+    const connections = createMcpConnections(h.deps)
 
-    expect(JSON.stringify(result)).not.toContain(TOKEN)
-    expect(h.logs.join('\n')).not.toContain(TOKEN)
+    await connections.testConnection(SERVER_ID)
+    expect(connections.getStatus(SERVER_ID).lastTest).toMatchObject({ outcome: 'connected' })
+
+    connections.forgetLastTest(SERVER_ID)
+
+    expect(connections.getStatus(SERVER_ID).lastTest).toBeNull()
+  })
+
+  it('サーバーの stderr に出た秘密の値はログへ出る前に伏せる', async () => {
+    const h = harness('stderr-with-secret')
+
+    await createMcpConnections(h.deps).testConnection(SERVER_ID)
+
+    expect(h.logs.join('\n')).not.toContain(SECRET)
+    expect(h.logs).toContain(
+      'debug Example Server stderr: request failed: Authorization: <redacted>'
+    )
+  })
+
+  it('結果にもログにも秘密の値が現れない', async () => {
+    const h = harness()
+    const result = await createMcpConnections(h.deps).testConnection(SERVER_ID)
+
+    expect(JSON.stringify(result)).not.toContain(SECRET)
+    expect(h.logs.join('\n')).not.toContain(SECRET)
   })
 })
 
@@ -496,7 +570,7 @@ describe('terminateAll', () => {
   it('テスト中のサーバーを待たずに終わらせる', async () => {
     const h = harness('silent')
     const connections = createMcpConnections(h.deps)
-    const testing = connections.testConnection('notion')
+    const testing = connections.testConnection(SERVER_ID)
 
     connections.terminateAll()
 
@@ -513,40 +587,35 @@ describe('terminateAll', () => {
   })
 })
 
+/* ------------------------------------------------------------------ 操作（Main の中だけの口） */
+
 describe('callOperation', () => {
-  const PAGE_ID = '0f1e2d3c-4b5a-4968-8778-695a4b3c2d1e'
-  const WRITE_TEXT = 'FluvixNexus MCP 書き込みテスト成功'
+  it('登録したサーバーは操作表を持たないので、ツールは呼べない（サーバーも起動しない）', async () => {
+    const h = harness()
+
+    await expect(
+      createMcpConnections(h.deps).callOperation(SERVER_ID, 'get-item', { id: ITEM_ID })
+    ).rejects.toThrow(McpRequestError)
+    expect(h.spawned).toEqual([])
+  })
 
   it('読み取りの操作は確認なしで、表のツールと組み立て直した引数で呼ぶ', async () => {
-    const h = harness()
-    const result = await createMcpConnections(h.deps).callOperation('notion', 'search-pages', {
-      query: '  Cursor MCP 接続テスト  '
+    const h = harness('healthy', { withOperations: true })
+    const result = await createMcpConnections(h.deps).callOperation(SERVER_ID, 'get-item', {
+      id: `  ${ITEM_ID}  `
     })
 
-    expect(result).toEqual({
-      outcome: 'completed',
-      operation: 'search-pages',
-      data: { pages: [{ id: PAGE_ID, title: 'Cursor MCP 接続テスト', inTrash: false }] }
-    })
+    expect(result).toEqual({ outcome: 'completed', operation: 'get-item', data: { id: ITEM_ID } })
     expect(h.confirmations).toEqual([])
-    expect(h.toolCalls).toEqual([
-      {
-        name: 'API-post-search',
-        arguments: {
-          query: 'Cursor MCP 接続テスト',
-          filter: { property: 'object', value: 'page' },
-          page_size: 10
-        }
-      }
-    ])
+    expect(h.toolCalls).toEqual([{ name: 'example-get-item', arguments: { item_id: ITEM_ID } }])
   })
 
   it('知らない操作名は McpRequestError で、サーバーを起動しない', async () => {
-    const h = harness()
+    const h = harness('healthy', { withOperations: true })
     const connections = createMcpConnections(h.deps)
 
-    for (const name of ['API-delete-a-block', 'toString', '__proto__', '']) {
-      await expect(connections.callOperation('notion', name, {})).rejects.toBeInstanceOf(
+    for (const name of ['example-get-item', 'toString', '__proto__', '']) {
+      await expect(connections.callOperation(SERVER_ID, name, {})).rejects.toBeInstanceOf(
         McpRequestError
       )
     }
@@ -555,96 +624,80 @@ describe('callOperation', () => {
   })
 
   it('壊れた引数は McpRequestError で、サーバーを起動しない', async () => {
-    const h = harness()
+    const h = harness('healthy', { withOperations: true })
     const connections = createMcpConnections(h.deps)
 
     await expect(
-      connections.callOperation('notion', 'get-page', { pageId: '../users' })
+      connections.callOperation(SERVER_ID, 'get-item', { id: '' })
     ).rejects.toBeInstanceOf(McpRequestError)
     await expect(
-      connections.callOperation('notion', 'search-pages', { query: 'x', tool: 'API-delete' })
+      connections.callOperation(SERVER_ID, 'get-item', { id: ITEM_ID, tool: 'example-delete' })
     ).rejects.toBeInstanceOf(McpRequestError)
 
     expect(h.spawned).toEqual([])
   })
 
   it('書き込みは起動する前に確かめ、断られたら何も起動しない', async () => {
-    const h = harness('healthy', { confirm: false })
-    const result = await createMcpConnections(h.deps).callOperation('notion', 'append-paragraph', {
-      pageId: PAGE_ID,
-      text: WRITE_TEXT
+    const h = harness('healthy', { confirm: false, withOperations: true })
+    const result = await createMcpConnections(h.deps).callOperation(SERVER_ID, 'append-note', {
+      id: ITEM_ID,
+      text: NOTE_TEXT
     })
 
-    expect(result).toEqual({ outcome: 'declined', operation: 'append-paragraph' })
+    expect(result).toEqual({ outcome: 'declined', operation: 'append-note' })
     expect(h.confirmations).toEqual([
       {
-        connectionId: 'notion',
-        operation: 'append-paragraph',
-        title: 'Notion のページに段落を追記します',
-        detail: expect.stringContaining(WRITE_TEXT)
+        connectionId: SERVER_ID,
+        operation: 'append-note',
+        title: 'ノートを追記します',
+        detail: NOTE_TEXT
       }
     ])
     expect(h.spawned).toEqual([])
     expect(h.toolCalls).toEqual([])
   })
 
-  it('確認で実行を選ぶと、末尾への追記だけを送る', async () => {
+  it('確認で実行を選ぶと、表のツールだけを送る', async () => {
     const h = harness('healthy', {
       confirm: true,
-      toolResult: () => ({
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({
-              object: 'list',
-              results: [{ object: 'block', id: '11111111-2222-3333-4444-555555555555' }]
-            })
-          }
-        ]
-      })
+      withOperations: true,
+      toolResult: () => ({ content: [{ type: 'text', text: JSON.stringify({ noteId: 'n-1' }) }] })
     })
-    const result = await createMcpConnections(h.deps).callOperation('notion', 'append-paragraph', {
-      pageId: PAGE_ID,
-      text: WRITE_TEXT
+    const result = await createMcpConnections(h.deps).callOperation(SERVER_ID, 'append-note', {
+      id: ITEM_ID,
+      text: NOTE_TEXT
     })
 
     expect(result).toEqual({
       outcome: 'completed',
-      operation: 'append-paragraph',
-      data: { pageId: PAGE_ID, appendedBlockIds: ['11111111-2222-3333-4444-555555555555'] }
+      operation: 'append-note',
+      data: { id: ITEM_ID, noteId: 'n-1' }
     })
     expect(h.toolCalls).toEqual([
-      {
-        name: 'API-patch-block-children',
-        arguments: {
-          block_id: PAGE_ID,
-          children: [
-            {
-              type: 'paragraph',
-              paragraph: { rich_text: [{ type: 'text', text: { content: WRITE_TEXT } }] }
-            }
-          ]
-        }
-      }
+      { name: 'example-append-note', arguments: { item_id: ITEM_ID, note: NOTE_TEXT } }
     ])
   })
 
-  it('ログに操作の引数（本文）も token も書かない', async () => {
-    const h = harness('healthy', { confirm: true })
+  it('ログに操作の引数（本文）も秘密の値も書かない', async () => {
+    const h = harness('healthy', {
+      confirm: true,
+      withOperations: true,
+      toolResult: () => ({ content: [{ type: 'text', text: JSON.stringify({ noteId: 'n-1' }) }] })
+    })
 
-    await createMcpConnections(h.deps).callOperation('notion', 'append-paragraph', {
-      pageId: PAGE_ID,
+    await createMcpConnections(h.deps).callOperation(SERVER_ID, 'append-note', {
+      id: ITEM_ID,
       text: 'secret-looking body text'
     })
 
     expect(h.logs.join('\n')).not.toContain('secret-looking body text')
-    expect(h.logs.join('\n')).not.toContain(TOKEN)
+    expect(h.logs.join('\n')).not.toContain(SECRET)
   })
 
   it('サーバーがツールを公開していなければ tool-unavailable で、呼ばない', async () => {
-    const h = harness('healthy', { tools: ['API-get-self'] })
-    const result = await createMcpConnections(h.deps).callOperation('notion', 'get-page', {
-      pageId: PAGE_ID
+    const h = harness('healthy', { tools: ['example-other'], withOperations: true })
+    const result = await createMcpConnections(h.deps).callOperation(SERVER_ID, 'get-item', {
+      id: ITEM_ID
     })
 
     expect(result).toMatchObject({ outcome: 'failed', failure: 'tool-unavailable' })
@@ -653,6 +706,7 @@ describe('callOperation', () => {
 
   it('ツールの失敗は tool-error で、番号と分類だけを返す', async () => {
     const h = harness('healthy', {
+      withOperations: true,
       toolResult: () => ({
         isError: true,
         content: [
@@ -662,54 +716,82 @@ describe('callOperation', () => {
               object: 'error',
               status: 404,
               code: 'object_not_found',
-              message: 'Could not find page with ID ...'
+              message: 'Could not find item with ID ...'
             })
           }
         ]
       })
     })
-    const result = await createMcpConnections(h.deps).callOperation('notion', 'get-page', {
-      pageId: PAGE_ID
+    const result = await createMcpConnections(h.deps).callOperation(SERVER_ID, 'get-item', {
+      id: ITEM_ID
     })
 
     expect(result).toEqual({
       outcome: 'failed',
-      operation: 'get-page',
+      operation: 'get-item',
       failure: 'tool-error',
       toolError: { status: 404, code: 'object_not_found' }
     })
   })
 
+  it('isError の付かない API のエラーも、操作が失敗と読めば tool-error にする', async () => {
+    const h = harness('healthy', {
+      withOperations: true,
+      toolResult: () => ({
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({ status: 401, object: 'error', code: 'unauthorized' })
+          }
+        ]
+      })
+    })
+
+    expect(
+      await createMcpConnections(h.deps).callOperation(SERVER_ID, 'get-item', { id: ITEM_ID })
+    ).toEqual({
+      outcome: 'failed',
+      operation: 'get-item',
+      failure: 'tool-error',
+      toolError: { status: 401, code: 'unauthorized' }
+    })
+  })
+
   it('結果が読めなければ invalid-result', async () => {
     const h = harness('healthy', {
+      withOperations: true,
       toolResult: () => ({ content: [{ type: 'text', text: 'not json' }] })
     })
 
     expect(
-      await createMcpConnections(h.deps).callOperation('notion', 'get-page', { pageId: PAGE_ID })
+      await createMcpConnections(h.deps).callOperation(SERVER_ID, 'get-item', { id: ITEM_ID })
     ).toMatchObject({ outcome: 'failed', failure: 'invalid-result' })
   })
 
   it('設定が足りなければ起動も確認もせずに not-configured', async () => {
-    const h = harness('healthy', { confirm: true, serverInstalled: false })
-    h.setEnv({ PATH: SYSTEM_PATH })
+    const h = harness('healthy', {
+      confirm: true,
+      withOperations: true,
+      secret: null,
+      existingFiles: []
+    })
 
     expect(
-      await createMcpConnections(h.deps).callOperation('notion', 'append-paragraph', {
-        pageId: PAGE_ID,
+      await createMcpConnections(h.deps).callOperation(SERVER_ID, 'append-note', {
+        id: ITEM_ID,
         text: 'x'
       })
     ).toEqual({
       outcome: 'not-configured',
-      operation: 'append-paragraph',
-      problems: ['token-missing', 'server-not-installed']
+      operation: 'append-note',
+      problems: ['secret-missing', 'command-not-found']
     })
     expect(h.confirmations).toEqual([])
     expect(h.spawned).toEqual([])
   })
 
   it('同じ接続の操作は1つずつ実行する（サーバーを同時に2本立てない）', async () => {
-    const h = harness()
+    const h = harness('healthy', { withOperations: true })
     let running = 0
     let maxRunning = 0
     const serial = createMcpConnections({
@@ -730,9 +812,9 @@ describe('callOperation', () => {
     })
 
     const results = await Promise.all([
-      serial.callOperation('notion', 'search-pages', { query: 'a' }),
-      serial.callOperation('notion', 'search-pages', { query: 'b' }),
-      serial.callOperation('notion', 'search-pages', { query: 'c' })
+      serial.callOperation(SERVER_ID, 'get-item', { id: 'a' }),
+      serial.callOperation(SERVER_ID, 'get-item', { id: 'b' }),
+      serial.callOperation(SERVER_ID, 'get-item', { id: 'c' })
     ])
 
     expect(results.map((result) => result.outcome)).toEqual(['completed', 'completed', 'completed'])
@@ -740,70 +822,43 @@ describe('callOperation', () => {
   })
 
   it('前の操作が壊れた要求で失敗しても、次の操作は動く', async () => {
-    const h = harness()
+    const h = harness('healthy', { withOperations: true })
     const connections = createMcpConnections(h.deps)
-    const broken = connections.callOperation('notion', 'unknown-operation', {})
-    const next = connections.callOperation('notion', 'search-pages', { query: 'a' })
+    const broken = connections.callOperation(SERVER_ID, 'unknown-operation', {})
+    const next = connections.callOperation(SERVER_ID, 'get-item', { id: ITEM_ID })
 
     await expect(broken).rejects.toBeInstanceOf(McpRequestError)
     expect((await next).outcome).toBe('completed')
   })
 
-  it('isError の付かない API のエラー（Notion MCP サーバーの返し方）も tool-error にする', async () => {
-    const h = harness('healthy', {
-      toolResult: () => ({
-        // 架空の token で実物に送ったときの形（isError 無し・本文に status / code）。
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({
-              status: 401,
-              object: 'error',
-              code: 'unauthorized',
-              message: 'API token is invalid.'
-            })
-          }
-        ]
-      })
-    })
-
-    expect(
-      await createMcpConnections(h.deps).callOperation('notion', 'get-page', { pageId: PAGE_ID })
-    ).toEqual({
-      outcome: 'failed',
-      operation: 'get-page',
-      failure: 'tool-error',
-      toolError: { status: 401, code: 'unauthorized' }
-    })
-  })
-
-  it('書き込みを送った後に時間切れになったら outcome-unknown（押し直すと二重に書きうる）', async () => {
-    const h = harness('healthy', { confirm: true, silentToolCall: true })
-    const result = await createMcpConnections(h.deps).callOperation('notion', 'append-paragraph', {
-      pageId: PAGE_ID,
-      text: WRITE_TEXT
+  it('書き込みを送った後に時間切れになったら outcome-unknown（やり直すと二重に書きうる）', async () => {
+    const h = harness('healthy', { confirm: true, withOperations: true, silentToolCall: true })
+    const result = await createMcpConnections(h.deps).callOperation(SERVER_ID, 'append-note', {
+      id: ITEM_ID,
+      text: NOTE_TEXT
     })
 
     expect(h.toolCalls).toHaveLength(1)
     expect(result).toEqual({
       outcome: 'failed',
-      operation: 'append-paragraph',
+      operation: 'append-note',
       failure: 'outcome-unknown',
       toolError: null
     })
   })
 
-  it('読み取りの時間切れは timeout のまま（押し直して困ることが無い）', async () => {
-    const h = harness('healthy', { silentToolCall: true })
+  it('読み取りの時間切れは timeout のまま（やり直して困ることが無い）', async () => {
+    const h = harness('healthy', { withOperations: true, silentToolCall: true })
 
     expect(
-      await createMcpConnections(h.deps).callOperation('notion', 'get-page', { pageId: PAGE_ID })
+      await createMcpConnections(h.deps).callOperation(SERVER_ID, 'get-item', { id: ITEM_ID })
     ).toMatchObject({ outcome: 'failed', failure: 'timeout' })
   })
 
-  it('書き込みで Notion がエラーを返したら tool-error（反映されていないと分かる）', async () => {
+  it('書き込みで相手がエラーを返したら tool-error（反映されていないと分かる）', async () => {
     const h = harness('healthy', {
       confirm: true,
+      withOperations: true,
       toolResult: () => ({
         content: [
           {
@@ -815,9 +870,9 @@ describe('callOperation', () => {
     })
 
     expect(
-      await createMcpConnections(h.deps).callOperation('notion', 'append-paragraph', {
-        pageId: PAGE_ID,
-        text: WRITE_TEXT
+      await createMcpConnections(h.deps).callOperation(SERVER_ID, 'append-note', {
+        id: ITEM_ID,
+        text: NOTE_TEXT
       })
     ).toMatchObject({ failure: 'tool-error', toolError: { status: 403 } })
   })
@@ -825,149 +880,15 @@ describe('callOperation', () => {
   it('書き込みの結果が読めなければ outcome-unknown', async () => {
     const h = harness('healthy', {
       confirm: true,
+      withOperations: true,
       toolResult: () => ({ content: [{ type: 'text', text: 'not json' }] })
     })
 
     expect(
-      await createMcpConnections(h.deps).callOperation('notion', 'append-paragraph', {
-        pageId: PAGE_ID,
-        text: WRITE_TEXT
+      await createMcpConnections(h.deps).callOperation(SERVER_ID, 'append-note', {
+        id: ITEM_ID,
+        text: NOTE_TEXT
       })
     ).toMatchObject({ failure: 'outcome-unknown' })
-  })
-})
-
-describe('利用者が足したサーバー（§21.10）', () => {
-  const CUSTOM_ID = 'custom-0f1e2d3c-4b5a-4968-8778-695a4b3c2d1e'
-  const SERVER_EXE = 'C:\\tools\\example-server.exe'
-
-  function customHarness(
-    behavior: Behavior = 'healthy',
-    options: {
-      readonly secret?: string | null
-      readonly command?: string
-      readonly existingFiles?: readonly string[]
-      readonly enabled?: boolean
-    } = {}
-  ): Harness {
-    const secret = options.secret === undefined ? TOKEN : options.secret
-
-    return harness(behavior, {
-      enabled: options.enabled,
-      existingFiles: options.existingFiles ?? [SERVER_EXE],
-      customDefinitions: {
-        [CUSTOM_ID]: createMcpCustomServerDefinition(
-          {
-            id: CUSTOM_ID,
-            name: 'Example Custom',
-            enabled: true,
-            transport: {
-              kind: 'stdio',
-              command: options.command ?? SERVER_EXE,
-              args: ['--stdio', 'C:\\My Files']
-            },
-            env: [
-              { name: 'EXAMPLE_REGION', secret: false, value: 'ap-northeast-1' },
-              { name: 'EXAMPLE_API_KEY', secret: true }
-            ]
-          },
-          () => secret
-        )
-      }
-    })
-  }
-
-  it('Command と引数を配列のまま起動し、利用者が決めた変数と共通の許可だけを渡す', async () => {
-    const h = customHarness()
-    h.setEnv({
-      PATH: SYSTEM_PATH,
-      SystemRoot: 'C:\\Windows',
-      FLUVIX_NOTION_MCP_TOKEN: TOKEN,
-      GITHUB_TOKEN: 'ghp_fictitious',
-      EXAMPLE_REGION: 'parent-value'
-    })
-
-    const result = await createMcpConnections(h.deps).testConnection(CUSTOM_ID)
-
-    expect(result.outcome).toBe('connected')
-    expect(h.spawned[0]?.command).toEqual({
-      name: 'Example Custom',
-      file: SERVER_EXE,
-      args: ['--stdio', 'C:\\My Files'],
-      environment: {},
-      killTreeWith: 'C:\\Windows\\System32\\taskkill.exe'
-    })
-    expect(h.spawned[0]?.env).toEqual({
-      PATH: SYSTEM_PATH,
-      SystemRoot: 'C:\\Windows',
-      EXAMPLE_REGION: 'ap-northeast-1',
-      EXAMPLE_API_KEY: TOKEN
-    })
-  })
-
-  it('token を持たない行なので、環境変数に Notion の token があっても在り処は none', () => {
-    const status = createMcpConnections(customHarness().deps).getStatus(CUSTOM_ID)
-
-    expect(status).toMatchObject({
-      connectionId: CUSTOM_ID,
-      configured: true,
-      problems: [],
-      secret: { source: 'none' }
-    })
-  })
-
-  it('秘密の値が読めなければ、起動せずに secret-missing', async () => {
-    const h = customHarness('healthy', { secret: null })
-    const connections = createMcpConnections(h.deps)
-
-    expect(connections.getStatus(CUSTOM_ID).problems).toEqual(['secret-missing'])
-    expect(await connections.testConnection(CUSTOM_ID)).toMatchObject({
-      outcome: 'not-configured',
-      problems: ['secret-missing']
-    })
-    expect(h.spawned).toEqual([])
-  })
-
-  it('Command が見つからなければ、起動せずに command-not-found', async () => {
-    const h = customHarness('healthy', { existingFiles: [] })
-
-    expect(await createMcpConnections(h.deps).testConnection(CUSTOM_ID)).toMatchObject({
-      outcome: 'not-configured',
-      problems: ['command-not-found']
-    })
-    expect(h.spawned).toEqual([])
-  })
-
-  it('無効なら、ほかの理由は数えない', () => {
-    const h = customHarness('healthy', { secret: null, enabled: false })
-
-    expect(createMcpConnections(h.deps).getStatus(CUSTOM_ID).problems).toEqual(['disabled'])
-  })
-
-  it('stderr に出た秘密の値は、ログへ出る前に伏せる', async () => {
-    const h = customHarness('stderr-with-token')
-
-    await createMcpConnections(h.deps).testConnection(CUSTOM_ID)
-
-    expect(h.logs.join('\n')).not.toContain(TOKEN)
-    expect(h.logs).toContain(
-      'debug Example Custom stderr: request failed: Authorization: <redacted>'
-    )
-  })
-
-  it('操作の表が無いので、ツールは呼べない（サーバーも起動しない）', async () => {
-    const h = customHarness()
-
-    await expect(
-      createMcpConnections(h.deps).callOperation(CUSTOM_ID, 'search-pages', { query: 'x' })
-    ).rejects.toThrow(McpRequestError)
-    expect(h.spawned).toEqual([])
-  })
-
-  it('登録簿に無い id は McpRequestError（Renderer の不具合）', async () => {
-    const connections = createMcpConnections(harness().deps)
-
-    expect(() => connections.getStatus(CUSTOM_ID)).toThrow(McpRequestError)
-    await expect(connections.testConnection(CUSTOM_ID)).rejects.toThrow(McpRequestError)
   })
 })

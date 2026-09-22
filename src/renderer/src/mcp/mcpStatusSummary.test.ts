@@ -5,19 +5,13 @@ import type {
   McpConnectionStatus,
   McpConnectionTestResult
 } from '@shared/mcp'
-import {
-  canClearStoredSecret,
-  canTestConnection,
-  secretSourceKey,
-  summarizeMcpStatus,
-  summarizeTestResult
-} from './mcpStatusSummary'
+import { canTestConnection, summarizeMcpStatus, summarizeTestResult } from './mcpStatusSummary'
 
 /**
  * 接続の状態を1行にまとめる（mcpStatusSummary.ts）。
  *
  * ここで確かめたいのは見た目ではなく**対応表**にほかならない ──
- * 「無効なのに token の話が出る」「token を消したのに『繋がりました』が
+ * 「無効なのに秘密の値の話が出る」「秘密の値が読めなくなったのに『繋がりました』が
  * 残る」のような取り違えは、この表の誤りとして現れる。
  */
 
@@ -25,11 +19,10 @@ const TESTED_AT = '2026-09-21T00:00:00.000Z'
 
 function statusWith(overrides: Partial<McpConnectionStatus> = {}): McpConnectionStatus {
   return {
-    connectionId: 'notion',
+    connectionId: 'custom-0f1e2d3c-4b5a-4968-8778-695a4b3c2d1e',
     configured: true,
     problems: [],
     enabled: true,
-    secret: { source: 'stored', canStore: true },
     testing: false,
     lastTest: null,
     ...overrides
@@ -62,11 +55,8 @@ describe('summarizeMcpStatus', () => {
   /* 足りないものは、利用者の次の一手ごとに言い回しが違う。 */
   it('足りないものごとに、別の言い回しを出す', () => {
     const cases: readonly [McpConfigProblem, string][] = [
-      ['token-missing', 'settings.mcp.status.tokenMissing'],
-      ['token-invalid', 'settings.mcp.status.tokenInvalid'],
       ['node-not-found', 'settings.mcp.status.nodeNotFound'],
       ['server-not-installed', 'settings.mcp.status.serverNotInstalled'],
-      // 利用者が足したサーバー（§21.10）
       ['command-not-found', 'settings.mcp.status.commandNotFound'],
       ['arguments-unsupported', 'settings.mcp.status.argumentsUnsupported'],
       ['secret-missing', 'settings.mcp.status.secretMissing']
@@ -98,26 +88,25 @@ describe('summarizeMcpStatus', () => {
   })
 
   /*
-    ここが一番大事 ── 繋がった後に token を消した場合。
+    ここが一番大事 ── 繋がった後に秘密の値が読めなくなった場合。
     古い「繋がりました」を出し続けると、消えていないように見える。
   */
   it('繋がった後に設定が足りなくなったら、古い結果より足りないものを先に出す', () => {
     const summary = summarizeMcpStatus(
       statusWith({
         configured: false,
-        problems: ['token-missing'],
-        secret: { source: 'none', canStore: true },
+        problems: ['secret-missing'],
         lastTest: {
           outcome: 'connected',
           testedAt: TESTED_AT,
-          server: { name: 'Notion API', version: '2.5.1' },
+          server: { name: 'github-mcp-server', version: '1.0.0' },
           protocolVersion: '2025-06-18',
           tools: []
         }
       })
     )
 
-    expect(summary).toEqual({ tone: 'attention', messageKey: 'settings.mcp.status.tokenMissing' })
+    expect(summary).toEqual({ tone: 'attention', messageKey: 'settings.mcp.status.secretMissing' })
   })
 
   it('設定が揃っているなら、直近の結末を出す', () => {
@@ -136,7 +125,7 @@ describe('summarizeTestResult', () => {
     const result: McpConnectionTestResult = {
       outcome: 'connected',
       testedAt: TESTED_AT,
-      server: { name: 'Notion API', version: '2.5.1' },
+      server: { name: 'github-mcp-server', version: '1.0.0' },
       protocolVersion: '2025-06-18',
       tools: []
     }
@@ -176,32 +165,7 @@ describe('summarizeTestResult', () => {
   })
 })
 
-describe('secretSourceKey', () => {
-  it('在り処ごとに、別の言い回しを出す', () => {
-    const keys = [
-      secretSourceKey('stored'),
-      secretSourceKey('environment'),
-      secretSourceKey('none')
-    ]
-
-    expect(new Set(keys).size).toBe(3)
-  })
-})
-
 describe('押せるかどうか', () => {
-  it('消せるのは、この PC に保存されている token だけ', () => {
-    expect(canClearStoredSecret(statusWith())).toBe(true)
-
-    /* 環境変数の token は、このアプリが消せるものではない。 */
-    expect(
-      canClearStoredSecret(statusWith({ secret: { source: 'environment', canStore: true } }))
-    ).toBe(false)
-    expect(canClearStoredSecret(statusWith({ secret: { source: 'none', canStore: true } }))).toBe(
-      false
-    )
-    expect(canClearStoredSecret(null)).toBe(false)
-  })
-
   it('接続テストは、有効で、試していないときだけ押せる', () => {
     expect(canTestConnection(statusWith())).toBe(true)
     expect(canTestConnection(statusWith({ enabled: false }))).toBe(false)
@@ -210,15 +174,11 @@ describe('押せるかどうか', () => {
   })
 
   /*
-    token が無くても押せる ── 押した結果が「token がありません」で、
+    秘密の値が無くても押せる ── 押した結果が「秘密の値がありません」で、
     それが利用者の次の一手そのものになる。
   */
-  it('token が無くても接続テストは押せる', () => {
-    const status = statusWith({
-      configured: false,
-      problems: ['token-missing'],
-      secret: { source: 'none', canStore: true }
-    })
+  it('秘密の値が無くても接続テストは押せる', () => {
+    const status = statusWith({ configured: false, problems: ['secret-missing'] })
 
     expect(canTestConnection(status)).toBe(true)
   })

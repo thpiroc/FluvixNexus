@@ -4,15 +4,15 @@ import { fluvix } from '../api/fluvix'
 import type { TranslationKey } from '../i18n/messages'
 
 /**
- * 接続1つの「今の状態」と、それに対する操作の足場（§21.9 / §21.10）。
+ * 接続1つの「今の状態」と、それに対する操作の足場。
  *
- * 組み込みの接続（Notion）のカードと、利用者が足したサーバーのカードの両方が使う
- * ── 状態の訊き方・訊き直す間隔・接続テストの押し方を、カードごとに書き分けない。
+ * 登録したサーバーのカード（McpCustomServerCard.tsx）が使う ── 状態の訊き方・
+ * 訊き直す間隔・接続テストの押し方を、カードの描画から分けておく。
  */
 export interface McpConnectionStatusController {
   readonly status: McpConnectionStatus | null
   readonly busy: boolean
-  /** 直前の操作の知らせ（保存した・消した・繋がった）。次の操作で消える。 */
+  /** 直前の操作の知らせ（保存した・消した・繋がらなかった）。次の操作で消える。 */
   readonly noticeKey: TranslationKey | null
   readonly refresh: () => Promise<void>
   /** 操作を1つ実行する。返した知らせを出し、終わったら状態を訊き直す。 */

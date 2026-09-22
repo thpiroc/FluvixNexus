@@ -10,7 +10,7 @@ import {
 } from './mcpCustomServerDraft'
 
 /**
- * 「+ New MCP Server」の入力欄と、保存の要求の形との行き来（mcpCustomServerDraft.ts。§21.10）。
+ * 「+ New MCP Server」の入力欄と、保存の要求の形との行き来（mcpCustomServerDraft.ts。§21.6）。
  */
 
 const SERVER: McpCustomServerSummary = {
@@ -35,7 +35,7 @@ describe('parseArgsText', () => {
 })
 
 describe('formStateFromServer', () => {
-  it('新規は「使う」を切った空の欄（組み込みの接続と同じく既定は無効）', () => {
+  it('新規は「使う」を切った空の欄（MCP 全体の元栓と同じく既定は無効）', () => {
     expect(formStateFromServer(null)).toEqual({
       name: '',
       transportKind: 'stdio',

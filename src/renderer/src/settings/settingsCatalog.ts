@@ -125,14 +125,14 @@ interface SettingsCategoryBase {
 }
 
 /**
- * 値の項目の下に続く、そのカテゴリだけの面（§21.9）。
+ * 値の項目の下に続く、そのカテゴリだけの面（MCP Server Manager）。
  *
- * MCP は「使うかどうか」の2つの真偽値のほかに、**設定ファイルに無いもの**を
- * 画面に出す必要がある ── token（保存先は別のファイル）・今の接続状態・
- * 接続テストの3つにほかならない。どれも `SettingsItemDescriptor`
+ * MCP は「使うかどうか」（全体の元栓）のほかに、**設定ファイルに無いもの**を
+ * 画面に出す必要がある ── 登録したサーバー（登録簿は別のファイル）・今の接続状態・
+ * 接続テストにほかならない。どれも `SettingsItemDescriptor`
  * （section と key を指すもの）では表せない。
  *
- * カテゴリごと `kind` を分けなかったのは、**2つの真偽値は普通の設定項目**
+ * カテゴリごと `kind` を分けなかったのは、**全体の元栓は普通の設定項目**
  * だからになる。分けると scope の扱い（application なので
  * ワークスペースでは押せない）・上書きの表示・保存の経路を、
  * このカテゴリのためにもう一組書くことになる。
@@ -296,11 +296,11 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategoryDescriptor[] = [
     ]
   },
   /*
-    §21.9 で足したカテゴリ。Terminal の次・Keyboard Shortcuts の手前に置いたのは、
+    MCP のカテゴリ。Terminal の次・Keyboard Shortcuts の手前に置いたのは、
     値カテゴリの並びを `SETTINGS_SECTION_IDS` と同じまま保つためにほかならない。
 
-    並べる項目は「使うかどうか」の2つだけで、**token の欄はここに無い**
-    ── token は設定の値ではないため（`panel` が出す）。
+    並べる項目は全体の元栓の1つだけで、**登録したサーバーはここに無い**
+    ── 登録簿は設定の値ではないため（`panel` が出す MCP Server Manager）。
   */
   {
     kind: 'items',
@@ -314,13 +314,6 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategoryDescriptor[] = [
         descriptionKey: 'settings.items.mcp.enabled.description',
         section: 'mcp',
         keys: ['enabled']
-      },
-      {
-        id: 'mcp.servers',
-        titleKey: 'settings.items.mcp.servers.title',
-        descriptionKey: 'settings.items.mcp.servers.description',
-        section: 'mcp',
-        keys: ['notionEnabled']
       }
     ],
     panel: 'mcp'

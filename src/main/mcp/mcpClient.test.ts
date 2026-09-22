@@ -91,7 +91,7 @@ function initializeResult(id: unknown, overrides: Record<string, unknown> = {}):
     result: {
       protocolVersion: '2025-06-18',
       capabilities: { tools: {} },
-      serverInfo: { name: 'Notion API', version: '2.5.1' },
+      serverInfo: { name: 'example-server', version: '1.2.3' },
       ...overrides
     }
   }
@@ -143,7 +143,7 @@ describe('connectMcpClient', () => {
 
     if (connected.ok) {
       expect(connected.client.protocolVersion).toBe('2025-06-18')
-      expect(connected.client.serverInfo).toEqual({ name: 'Notion API', version: '2.5.1' })
+      expect(connected.client.serverInfo).toEqual({ name: 'example-server', version: '1.2.3' })
     }
   })
 

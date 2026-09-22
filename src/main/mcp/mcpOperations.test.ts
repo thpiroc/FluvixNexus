@@ -9,7 +9,7 @@ import {
 
 /**
  * MCP の操作の共通の枠（mcpOperations.ts）。架空の操作で確かめる
- * （Notion の操作表は notionMcpOperations.test.ts）。
+ * （実際の呼び手との組み合わせは mcpConnections.test.ts）。
  */
 
 const READ = defineMcpOperation<{ readonly value: string }>({

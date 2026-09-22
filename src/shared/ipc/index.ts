@@ -122,7 +122,6 @@ export type {
   McpConnectionRequest,
   McpCustomServerRequest,
   McpIpcContract,
-  McpOperationRequest,
   McpSaveCustomServerRequest,
   McpSetCustomServerEnabledRequest
 } from './contracts/mcp'

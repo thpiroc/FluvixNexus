@@ -6617,7 +6617,7 @@ Session 3-7-5 では、下書きを持って Enter / blur で確定する欄は 
 
 保存ファイル・IPC・Preload・scope の仕組みには触れない。Main 側で値が要る機能は `readEffectiveSettingsSections()` / `getEffectiveSettingValue()` を読み、変化は `onEffectiveSettingsChange` で受け取る（保存・Workspace の切り替えの両方で届く）。
 
-**秘密情報（token・パスワード）はこの5手順に載せない。** `settings.json` は暗号化されておらず、利用者が開いて読める場所にある ── OS の資格情報で暗号化した専用のファイルへ置く（`main/mcp/mcpSecretStore.ts`）。設定に載るのは「使うかどうか」までで、値そのものは別の口を通る。実例は §21.9。
+**秘密情報（token・パスワード）はこの5手順に載せない。** `settings.json` は暗号化されておらず、利用者が開いて読める場所にある ── OS の資格情報で暗号化した専用のファイルへ置く（`main/mcp/mcpSecretStore.ts`）。設定に載るのは「使うかどうか」までで、値そのものは別の口を通る。実例は §21.3。
 
 カテゴリに、設定の値では表せないもの（状態の表示・接続テストのような操作）を並べたいときは、`SettingsItemsCategoryDescriptor` の `panel` を使う。**面だけのカテゴリは作らない** ── 値の項目を1つも持たないカテゴリは、面が出せなかったときに何も無い場所として残る。
 
@@ -9320,203 +9320,88 @@ Session 7-1C で、`adapter-unavailable` の案内は言語と閉じた集合の
 | 使われていない `EvaluateView.tsx`      | 6-8 で Debug Console に置き換わった面がテストと一緒に残っている。動作には影響しない                                                |
 | Renderer の `file://` 読み込み元       | production build の Renderer から `fetch('file:///...')` でローカルファイルを読める。ログ専用の問題ではなく、別 Session で扱う     |
 
-## 21. MCP 連携（Notion MCP。feature/notion-mcp）
+## 21. MCP 連携（MCP Server Manager）
 
-MCP（Model Context Protocol）サーバーを Main の子プロセスとして起動し、許可した操作だけを Renderer から呼べるようにする土台。最初の接続先は Notion MCP（`@notionhq/notion-mcp-server`）。フィードバックの Notion 保存（`src/main/feedback/`）とは**別の経路**で、コード・token・設定を共有しない。Settings への統合（有効 / 無効・token の保存・状態の表示・接続テスト）は §21.9。
+MCP（Model Context Protocol）サーバーを Main の子プロセスとして起動し、接続テストと状態の表示を Settings から行う土台。**アプリに組み込みの MCP サーバーは無い。** どのサーバー（GitHub・Notion・Google Drive など）も、利用者が Settings の「+ New MCP Server」で登録し、同じ道を通る。
 
-### 21.1 責務の分け方
+フィードバックの Notion 保存（`src/main/feedback/`・`FLUVIX_NOTION_TOKEN`）は MCP とは**別の経路**で、コード・token・設定を共有しない。
 
-MCP 共通の部品は Notion を知らない。Notion について知っていることは3つのファイルに閉じる。
+### 21.1 全体の形
 
-| 層              | ファイル                   | 持つもの                                                                                        |
-| --------------- | -------------------------- | ----------------------------------------------------------------------------------------------- |
-| 経路            | `mcpStdioTransport.ts`     | 子プロセスの起動・stdin / stdout・終了（stdin を閉じる → 待つ → kill）                          |
-| 電文            | `mcpMessage.ts`            | 改行区切りの JSON-RPC 2.0（LSP の `Content-Length` 形式とは別に持つ）                           |
-| クライアント    | `mcpClient.ts`             | initialize・tools/list・tools/call・時間切れ・「要求を送った後の失敗か」                        |
-| 起動のしかた    | `mcpServerLaunch.ts`       | 同梱スクリプト（アプリ自身の Node）・npm グローバル（`mcpNpmServer.ts`）・PATH 上の実行ファイル |
-| 環境変数        | `mcpServerEnvironment.ts`  | 許可リスト・サーバーの設定の変数・起動用の変数（§21.4）                                         |
-| 秘密情報        | `mcpConfig.ts`             | token の形の確かめ方・ログ用の伏せ字                                                            |
-| 秘密情報の保存  | `mcpSecretStore.ts`        | OS の資格情報で暗号化した専用ファイル・取り出す順序（§21.9）                                    |
-| 操作            | `mcpOperations.ts`         | 操作の枠（read / write・引数の検証・結果の読み替え・ツールの失敗の判定・確認の文）              |
-| 束ね            | `mcpConnections.ts`        | 設定の確認 → 確認 → 起動 → 接続 → 呼び出し → 切断。接続ごとに1つずつ実行                        |
-| 表              | `mcpServerCatalog.ts`      | 行を並べるだけ（`MCP_SERVER_DEFINITIONS`）                                                      |
-| Electron        | `mcpService.ts`            | 同梱の置き場所・`process.execPath`・確認ダイアログ・言語                                        |
-| **Notion 固有** | `notionMcpServer.ts`       | 同梱パッケージ・token の変数名・サーバーが読む変数の宣言                                        |
-| **Notion 固有** | `notionMcpOperations.ts`   | 操作表（`search-pages` / `get-page` / `get-page-content` / `append-paragraph`）                 |
-| **Notion 固有** | `src/shared/mcp/notion.ts` | Renderer 向けの操作名・引数・結果の型                                                           |
+```
+Settings の MCP カテゴリ
+  ├─ 全体の元栓（settings.json の mcp.enabled）
+  └─ MCP Server Manager（+ New MCP Server・登録したサーバーの一覧）
+        ↓ 登録・編集・削除・有効 / 無効・接続テスト（IPC。§21.5）
+Main
+  MCP Server Manager … 登録簿（mcp-servers.json）と秘密の値（mcp-secrets.json）
+        ↓ 接続 id → 定義（McpServerDefinition）をそのつど作る
+  mcpConnections    … 設定の確認 → 起動 → 接続 → tools/list（→ tools/call）→ 切断
+        ↓
+  登録した MCP サーバー（子プロセス・stdio）
+```
 
-ファイルは特に書かない限り `src/main/mcp/` にある。
+FN Agent v1（DESIGN.md §6）からは、次の形で使う予定になっている（まだ作っていない）。
 
-### 21.2 Renderer との境界
+```
+FN Agent → Security Core → MCP Gateway → MCP Server Manager → 許可された MCP Tool
+```
 
-IPC は `mcp:get-status` / `mcp:test-connection` / `mcp:call-operation` の3本。要求に載るのは**接続 id（閉じた集合）・操作名・引数だけ**で、ツール名・URL・token・コマンドの欄は無い。例外は利用者が足すサーバーの保存の口で、§21.10 に線の引き直しを書いてある。
+- **登録しただけではツールを呼べない。** 登録したサーバーの定義は操作表を持たず（§21.8）、呼べるツールを決めるのは Security Core の Allowlist になる
+- サーバーの自己申告（`readOnlyHint` など）は信用しない。Allowlist で明示的に許可した読み取りだけを使う
+- MCP の書き込みは v1 では使わない（Main の `confirmWrite` は常に断る。§21.8）
 
-- 操作名は表にあるものだけ（`Object.hasOwn` で引く）。無ければ `INVALID_REQUEST` で、サーバーは起動しない
-- 引数は操作ごとに形を確かめ、ツールの引数へ**組み立て直す**。知らない引数名は断る（黙って捨てない）
-- Notion のページ ID は UUID の形だけを受け付ける。サーバーは ID を API の URL のパスへ埋め込むため、`../users` のような値で別の API を叩かせない
-- 削除・移動・上書きのツールは表に載せていないので呼べない
-- 結果はサーバーの生の応答ではなく、操作ごとに読み替えた JSON（id・タイトル・平文など）だけを返す。ツールの失敗は `status` と `code` だけで、本文（`message`）は返さない
+### 21.2 責務の分け方
 
-### 21.3 書き込みの確認と、結果の分け方
+ファイルは特に書かない限り `src/main/mcp/` にある。どのファイルも特定のサービスを知らない。
 
-`write` の操作は、**サーバーを起動する前に** Main がネイティブのダイアログで確かめる（Renderer の中の確認は Renderer 自身が飛ばせる）。Enter / Esc はどちらも「キャンセル」。文言は設定の言語（ja / en）。確認の文が無い書き込みは `defineMcpOperation` が作らせない。
+| 層           | ファイル                          | 持つもの                                                                      |
+| ------------ | --------------------------------- | ----------------------------------------------------------------------------- |
+| 経路         | `mcpStdioTransport.ts`            | 子プロセスの起動・stdin / stdout・終了（stdin を閉じる → 待つ → kill）        |
+| 電文         | `mcpMessage.ts`                   | 改行区切りの JSON-RPC 2.0（LSP の `Content-Length` 形式とは別に持つ）         |
+| クライアント | `mcpClient.ts`                    | initialize・tools/list・tools/call・時間切れ・「要求を送った後の失敗か」      |
+| 起動のしかた | `mcpServerLaunch.ts`              | Command の解決・`.cmd` / `.bat` の包み方・子孫ごとの終わらせ方（§21.4）       |
+| 環境変数     | `mcpServerEnvironment.ts`         | 許可リスト・サーバーの設定の変数（§21.4）                                     |
+| 定義         | `mcpServerDefinition.ts`          | `McpServerDefinition`（起動・環境変数・操作表・足りないもの・伏せる値）       |
+| 伏せ字       | `mcpRedaction.ts`                 | ログへ出す前に秘密の値を伏せる                                                |
+| 語彙と検証   | `src/shared/mcp/customServers.ts` | 登録の下書きの検証（画面と Main で同じ1つ）                                   |
+| 登録簿       | `mcpCustomServerStore.ts`         | `mcp-servers.json` の読み書き                                                 |
+| 秘密の値     | `mcpSecretStore.ts`               | `mcp-secrets.json`（OS の資格情報で暗号化）                                   |
+| 登録の手続き | `mcpCustomServers.ts`             | 保存・削除・有効 / 無効（書く順序。§21.3）                                    |
+| 行から定義へ | `mcpCustomServerDefinition.ts`    | 登録簿の行 → `McpServerDefinition`（秘密の値はそのつど読む）                  |
+| 操作         | `mcpOperations.ts`                | ツール呼び出し1回分の決まり（Main の中だけ。§21.8）                           |
+| 束ね         | `mcpConnections.ts`               | 状態・接続テスト・操作。接続ごとに1つずつ実行・終了時にまとめて終わらせる     |
+| Electron     | `mcpService.ts`                   | `safeStorage`・userData・全体の元栓の読み方・書き込みを断ること               |
+| 旧版の掃除   | `mcpLegacyNotionCleanup.ts`       | 旧 Notion MCP の token を1度だけ取り除く（§21.9）                             |
+| 画面         | `src/renderer/src/mcp/`           | `McpConnectionPanel`・`McpCustomServerCard` / `Form`・`mcpStatusSummary` など |
 
-| 結末                         | 意味                                                                                                                                                       |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `completed`                  | 読み替えた結果を返す                                                                                                                                       |
-| `declined`                   | 確認で実行しなかった。何も起動・送信していない                                                                                                             |
-| `not-configured`             | token が無い・同梱したサーバーが無い など（`problems`）                                                                                                    |
-| `failed` / `tool-error`      | ツールが失敗を返した。**`isError` が無くても**操作の `readToolError` が失敗と読めば失敗（Notion MCP サーバー 2.5.1 は API のエラーを普通の結果として返す） |
-| `failed` / `outcome-unknown` | 書き込みを**送った後に**時間切れ・終了・読めない応答。反映されたかもしれないので、押し直す前に相手の側で確かめる（そのまま押し直すと二重に書き込みうる）   |
-| `failed` / その他            | 接続できない・時間切れ（読み取り）・ツールが無い（`tool-unavailable`）など                                                                                 |
+### 21.3 登録簿と秘密の値
 
-呼ぶ前に tools/list でツールが公開されているかを確かめる。サーバーの版が変わって名前が消えたときに、別の意味のツールを呼ばないため。
+```
+userData/settings.json      全体の元栓 mcp.enabled（真偽値だけ）          … 平文・利用者が読める
+userData/mcp-servers.json   { version: 1, servers: [ { id, name, enabled, transport, env } ] } … 平文
+userData/mcp-secrets.json   秘密の環境変数の値（key は custom-<uuid>:env:<NAME>） … 暗号文
+```
+
+**登録簿を `settings.json` に入れない。** section は平らな素の値しか持てず（§15.9）、「設定ファイルが起動するものを決める場所」にしないと決めてある（`settingsSections.ts` の `lsp` の注記）。Debug Profile の `debug-profiles.json` と同じ分け方で、Main だけが書く。
+
+- 読むたびに保存するときと同じ規則（`validateMcpCustomServerDraft`）を1件ずつ通し、通らない行だけを落とす（手で書き換えられる場所にある）
+- JSON として読めない・知らない版のファイルは空として扱い、**上書きもしない**（新しい版が書いたファイルを古い版が塗りつぶさない）
+- `enabled` が真偽値でなければ無効として読む（「読めなければ無効」。§21.6 と同じ向き）
+- id は Main が作る（`custom-` ＋ UUID）
+
+**秘密の値は `mcp-servers.json` にも `settings.json` にも入らない。** 登録簿に残るのは `{ name, secret: true }` だけで、値は `mcp-secrets.json` に OS の資格情報で暗号化して置く（Electron の `safeStorage`。Windows では DPAPI ── 鍵はログインしている利用者アカウントに紐づき、他の PC や他のアカウントへ持って行っても復号できない）。
+
+- **暗号化できない PC では、秘密の値のあるサーバーを保存しない**（平文へ落ちる実装にはしない ── 利用者から見るとどちらも「保存できた」に見えるため）
+- **Main から Renderer へ秘密の値が戻る経路は無い。** 一覧に載るのは「保存されているか」だけで、入れ直すときは新しい値を丸ごと送る。編集で入れ直さない値は `value: null`（今のまま）で送る。名前を変えた・秘密に切り替えた変数は、前の値を流用せずに入れ直させる
+- 復号できない暗号文（別の PC から持ってきた等）は「無い」として読み、状態は `secret-missing` になる
+- `mcpSecretStore.ts` が Electron を直接見ないのは `settingsStore.ts` と同じ理由で、本物の `safeStorage` を渡すのは `mcpService.ts` の役目
+
+書く順序は「保存 … 秘密の値 → 行」「削除 … 行 → 秘密の値」。途中で失敗しても「行があるのに秘密の値が無い」が残らない向きにしてある。登録の中身が変わったら、そのサーバーの直近の接続テストの結末を忘れる（前の設定での「接続できました」を残さない）。
 
 ### 21.4 起動のしかたと環境変数
 
-**同梱する。** Notion MCP サーバーは `bin/cli.mjs`（依存をまとめた1ファイル）と `scripts/notion-openapi.json` だけで `node_modules` 無しに動く（2.5.1 で確かめた）。package.json の devDependencies に**完全一致で固定**し、`electron-builder.yml` の `extraResources` が `resources/mcp-servers/notion-mcp-server/` へ4ファイル（上の2つと `package.json`・`LICENSE`）だけを写す。asar の外に置くのは、子プロセスの Node がそのまま読むため。開発時は `node_modules/@notionhq/notion-mcp-server` を読む（`mcpService.ts`）。ライセンス表記は `tools/third-party-notices.mjs` の `BUNDLED_PACKAGES` から依存を辿って載せる（docs/RELEASE.md §4）。
-
-起動するのは**アプリ自身の実行ファイル**（`process.execPath`）に `ELECTRON_RUN_AS_NODE=1` を付けたもの。利用者に Node も `npm install -g` も求めない。この変数は子プロセスの環境にだけ付き、Main には付かない。Electron Fuses の RunAsNode は v1.0.0 から無効にしていない（node-pty の `fork` が使う。docs/RELEASE.md §5.4）。
-
-**環境変数は許可リスト。** 親の環境をそのまま渡すと、利用者の別の秘密情報（`GITHUB_TOKEN`・AI サービスの API キー・クラウドの認証情報）まで第三者のサーバーが読める。渡すのは次だけ（名前は大文字で比べる）。
-
-| 種類               | 中身                                                                                                       |
-| ------------------ | ---------------------------------------------------------------------------------------------------------- |
-| 共通の許可         | OS とプロセスの基本（`SystemRoot`・`PATH`・`TEMP`・`USERPROFILE`・`APPDATA` など）・言語・プロキシ・証明書 |
-| サーバーごとの許可 | 行が `inheritedVariables` に書いたものだけ（Notion は無し）。`FLUVIX_*` と設定の変数は書けない             |
-| サーバーの設定     | 行が宣言した変数（`reservedVariables`）には**親の値を通さず**、表の値（token）だけを入れる                 |
-| 起動用             | `ELECTRON_RUN_AS_NODE=1`（同梱スクリプトのとき）                                                           |
-
-Notion MCP サーバーが設定として読む変数（2.5.1 で確かめた）は `NOTION_TOKEN`・`OPENAPI_MCP_HEADERS`（`NOTION_TOKEN` より優先）・`BASE_URL`（**API の接続先の上書き**）・`AUTH_TOKEN`・`ENABLE_TOKEN_PASSTHROUGH`。`BASE_URL` は実接続の確認で `Invalid URL` として表に出た（vitest がテストのプロセスに `BASE_URL=/` を入れる）。どれも共通の許可に無いので親からは渡らないが、許可リストが将来広がっても混ざらないよう宣言してある。
-
-### 21.5 秘密情報
-
-- token は「**この PC に暗号化して保存したもの → 環境変数 `FLUVIX_NOTION_MCP_TOKEN`**」の順で読む（§21.9）。**`settings.json` には書かない・読まない**
-- フィードバックの `FLUVIX_NOTION_TOKEN` とは共有しない（求める権限が違う）。`FLUVIX_*` はどのサーバーにも渡らない
-- 子プロセスへは環境変数 `NOTION_TOKEN` で渡す。引数には載せない（同じ PC のほかのプロセスから見える）
-- サーバーの stderr と失敗の詳細は、token の値を伏せてからログへ出す（`redactToken`）。ログの側の伏せ字は `Bearer …` の形しか拾わないため。操作の引数（本文）はログに書かない
-- **Renderer へ返す型に token の欄は無い。** Settings から入れられるようになった後も向きは一方通行で、Main から Renderer へ token が戻る経路は存在しない（§21.9）
-
-### 21.6 接続の寿命
-
-テストや操作のたびに起動して畳む（1回あたり 0.4〜0.8 秒）。使っていない間にサーバーが動き続けないことと、token を変えたときにすぐ効くことを取った。Agent から連続して呼ぶ段階で、一定時間使わなければ閉じる形の保持を検討する。アプリの終了時（`will-quit`）は動いているサーバーを待たずに kill する。Main が落ちた場合も、サーバーは stdin が閉じたところで自分で終わる。
-
-### 21.7 次の MCP サーバーを足すとき
-
-1. サーバーの定義（`McpServerDefinition`）── 起動のしかた（3種類から選ぶ）・秘密情報（任意）・サーバーが読む変数の宣言
-2. 操作表 ── 呼べる操作と、その引数・結果・確認の文
-3. `mcpServerCatalog.ts` の `MCP_SERVER_DEFINITIONS` に1行
-4. `src/shared/mcp` の `MCP_BUILTIN_CONNECTION_IDS`（§21.10 で `MCP_CONNECTION_IDS` から改名）に1語と、Renderer 向けの操作の語彙
-5. 同梱するなら `electron-builder.yml` の `extraResources` と `tools/third-party-notices.mjs` の `BUNDLED_PACKAGES` に1行ずつ
-
-経路・クライアント・環境変数の規則・確認ダイアログ・IPC は変えなくてよい。
-
-### 21.8 このブランチで入れていないもの
-
-| 項目                          | 扱い                                                                          |
-| ----------------------------- | ----------------------------------------------------------------------------- |
-| UI・Settings                  | **§21.9 で入れた**（token の入力と保存・状態の表示・有効 / 無効・接続テスト） |
-| 接続の保持                    | Agent から呼ぶ段階                                                            |
-| リモートの MCP（HTTP・OAuth） | 将来（§21.10 の利用者が足すサーバーも、今は stdio だけ）                      |
-| macOS / Linux                 | 配布は Windows だけ。Unix 系の分岐は単体テストだけで、実機では確かめていない  |
-| 確認ダイアログのページ名      | 今はページ ID だけ。タイトルを出すには確認の前に読み取りが1回要る             |
-
-### 21.9 Settings への統合（feature/settings-mcp-integration）
-
-Settings に **MCP カテゴリ**を足し、有効 / 無効・token・接続状態・接続テストをそこから扱えるようにした。§21.1〜§21.7 の共通基盤・Notion 固有・IPC・接続テストは**作り直していない** ── 足したのは「設定として何を持つか」と「それをどう見せるか」だけになる。
-
-#### 既定は無効、scope は application
-
-| 決めごと                                 | 理由                                                                                      |
-| ---------------------------------------- | ----------------------------------------------------------------------------------------- |
-| 既定は**どれも無効**                     | 外部サービスへ、利用者の権限で繋ぐ。Language Server（既定で有効）と**わざと逆**にしてある |
-| `mcp` section は **application scope**   | 人から受け取ったプロジェクトを開いただけで Notion への接続が有効になる、を作らない        |
-| 全体の元栓（`enabled`）＋ 接続ごと（栓） | 元栓を戻したときに「どれを使っていたか」が消えない（`lsp` と同じ2段）                     |
-| token を入れても有効にはならない         | 入れることと使うことは別の意思。「token を消さずに一時的に止める」ができる                |
-
-読めない値（真偽値でない・欠けている）は**すべて無効へ落ちる**。`lsp` は同じ場面で「有効」へ落とすが、こちらで同じことをすると壊れた設定ファイルで外部サービスへの接続が有効になってしまう（`shared/mcp/settings.ts`）。
-
-#### token は `settings.json` に書かない
-
-```
-userData/settings.json       使う意思（真偽値2つ）  … 平文・利用者が読める
-userData/mcp-secrets.json    token                  … 暗号文・この PC のこの利用者だけ
-```
-
-暗号化は Electron の `safeStorage`（Windows では DPAPI ── 鍵はログインしている利用者アカウントに紐づき、他の PC や他のアカウントへファイルを持って行っても復号できない）。**`safeStorage` が使えない環境では保存を断る**（平文へ落ちる実装にはしない ── 利用者から見るとどちらも「保存できた」に見えるため）。断られた利用者には環境変数という道が残っている。
-
-`mcpSecretStore.ts` が Electron を直接見ないのは `settingsStore.ts` と同じ理由で、本物の `safeStorage` を渡すのは `mcpService.ts` の役目になる（Vitest から読み込める側に手続きを置く）。
-
-#### 取り出す順序は「保存したもの → 環境変数」
-
-保存した方を先に見る。画面から入れた値が、前に設定した環境変数に負けて効かない、という形を作らないため ── 利用者から見ると「保存したのに古い token で繋がる」は原因の見えない不具合になる。どちらが効いているかは画面に出す（`McpSecretState`）ので、**「消したのにまだ繋がる」が設定として読める**。
-
-順序を解くのは `mcpConnections.ts` の `resolveSecret` 1つだけで、画面へ出す在り処も実際に繋ぐ token も同じ関数から出る（別々に書くと、画面と接続がずれうる）。
-
-#### 無効は `McpConfigProblem` の1語
-
-「使わないと決めてある」を専用の outcome にせず、`disabled` として**設定が足りない理由と同じ集合**に置いた。呼ぶ側から見た扱いが同じ（今は動かせない・理由がこれ）ためで、別の outcome を作ると状態・テスト・操作の3箇所が「動かない理由」を2通りずつ持つことになる。無効なときは他の理由を数えない（利用者の次の一手は1つでよい）。
-
-#### 画面
-
-MCP カテゴリは `kind: 'items'` のままで、値の項目（有効 / 無効の2つ）はほかのカテゴリとまったく同じ道を通る ── scope の扱い・上書きの表示・保存の経路をこのカテゴリのために書き直さない。**設定ファイルに書けないもの**（token・接続状態・接続テスト）だけを、カテゴリの `panel` が出す面が持つ（`renderer/src/mcp/McpConnectionPanel.tsx`）。
-
-- token の欄は `type="password"` で、**保存済みの値は入らない**。入れ直すときは新しい値を丸ごと送り、送った時点で欄は空に戻る
-- 面はユーザー設定を見ているときだけ出す（application scope なので、ワークスペース側では上の行が押せない状態で理由を添える）
-- 並べるのは `MCP_BUILTIN_CONNECTION_IDS` の全部で、Notion という名前は面のコードに1つも無い（名前は i18n が接続 id から引く）
-- 「どの状態のときに何が出るか」は `mcpStatusSummary.ts` に出してある（React 非依存・テスト対象）。設定を変えた後に古い結果が残らないこと ── token を消した直後に「繋がりました」と出続けないこと ── はここで確かめる
-
-#### 足したときに触ったもの
-
-§15.9 の5手順（`sections.ts` → `scope.ts` → `settingsSections.ts` → 機能側の binding → 目録と `SettingsControl`）に、MCP だけの3つが加わる。
-
-1. `shared/mcp/settings.ts` ── 保存の形と使う形の変換（`lsp` の `serverSettings.ts` と同じ位置）
-2. `main/mcp/mcpSecretStore.ts` ── token の保存と、取り出す順序
-3. IPC 2本（`mcp:set-secret` / `mcp:clear-secret`）── **token が通る唯一の口**で、向きは Renderer → Main のみ。読み出す口は作らない
-
-接続を足すときは §21.7 の5手順に、`StoredMcpSettings` の key 1つと `CONNECTION_ENABLED_KEYS` の1行が加わる（`satisfies` があるので書き忘れると型が通らない）。
-
-### 21.10 利用者が足す MCP サーバー（「+ New MCP Server」。feature/mcp-server-manager）
-
-Settings の MCP カテゴリから、利用者が任意の MCP サーバー（stdio）を追加・編集・削除・有効 / 無効の切り替え・接続テストできるようにした。Notion・GitHub・Google Drive などを**コードに1行も足さずに**登録できる汎用の口で、§21.7 の「組み込みの行を足す」手順とは別の道になる。§21.1〜§21.9 の共通基盤（経路・クライアント・環境変数の許可リスト・接続テスト・秘密の保存）は作り直さず、そのまま通す。
-
-#### 境界の線の引き直し
-
-§21.2 の「要求に載るのは接続 id だけ」は、利用者が起動するものを決める機能と両立しない。そこで**口を1本だけ**開けた。
-
-| 口                                       | 何が渡るか                                                         |
-| ---------------------------------------- | ------------------------------------------------------------------ |
-| `mcp:save-custom-server`                 | 名前・接続方式・Command・引数（配列）・環境変数・有効 / 無効       |
-| `mcp:list-custom-servers`                | （要求の欄なし）。応答に秘密の値は無く、保存されているかだけ       |
-| `mcp:delete-custom-server`               | id だけ                                                            |
-| `mcp:set-custom-server-enabled`          | id と真偽値だけ                                                    |
-| `mcp:get-status` / `mcp:test-connection` | 今までどおり id だけ。起動するものはそのとき Main が登録簿から読む |
-
-- 保存の口で届いた下書きは、Main が `validateMcpCustomServerDraft`（`shared/mcp/customServers.ts`）でもう一度確かめてから書く。画面の案内も同じ関数を使う（規則が2つにならない）
-- **保存しても起動しない。** 接続テストは保存の後に利用者が押す。未保存の下書きを起動する口は作っていない
-- id は Main が作る（`custom-` ＋ UUID）。形が合っていても登録簿に無い id は、どの口も `INVALID_REQUEST` で断る
-- 追加したサーバーには操作表が無いので `mcp:call-operation` は断る（ツールを呼ぶのは Agent 連携の段階）
-- token の口（`mcp:set-secret` / `mcp:clear-secret`）は組み込みの接続の id しか受け付けない
-
-#### 置き場所
-
-```
-userData/settings.json      全体の元栓 mcp.enabled（今までどおり。追加したサーバーにも効く）
-userData/mcp-servers.json   { version: 1, servers: [ { id, name, enabled, transport, env } ] }
-userData/mcp-secrets.json   秘密の環境変数の値（key は custom-<uuid>:env:<NAME>）… OS の資格情報で暗号化
-```
-
-`settings.json` に入れないのは、section が平らな素の値しか持てず（§15.9）、「設定ファイルが起動するものを決める場所」にしないと決めてあるため（`settingsSections.ts` の `lsp` の注記）。Debug Profile の `debug-profiles.json` と同じ分け方で、Main だけが書く。
-
-- 読むたびに保存するときと同じ規則を1件ずつ通し、通らない行だけを落とす（手で書き換えられる場所にある）
-- JSON として読めない・知らない版のファイルは空として扱い、**上書きもしない**（新しい版が書いたファイルを古い版が塗りつぶさない）
-- `enabled` が真偽値でなければ無効として読む（§21.9 の「読めなければ無効」と同じ向き）
-- 秘密の値は `mcp-servers.json` に入らない（`{ name, secret: true }` だけ）。編集で入れ直さない秘密の値は `value: null`（今のまま）で送る。名前を変えた・秘密に切り替えた変数は、前の値を流用せずに入れ直させる
-- 暗号化できない PC では秘密の値のあるサーバーを保存しない（平文へ落ちない。§21.9 と同じ）
-
-書く順序は「保存 … 秘密の値 → 行」「削除 … 行 → 秘密の値」。途中で失敗しても「行があるのに秘密の値が無い」が残らない向きにしてある。
-
-#### 起動（`user-command`。`mcpServerLaunch.ts`）
+**起動（`user-command`。`mcpServerLaunch.ts`）**
 
 | Command の書き方         | 探し方                                                                            |
 | ------------------------ | --------------------------------------------------------------------------------- |
@@ -9526,51 +9411,129 @@ userData/mcp-secrets.json   秘密の環境変数の値（key は custom-<uuid>:
 
 - `shell: false` のまま、引数は配列で渡す。利用者の PATHEXT は読まない
 - `.cmd` / `.bat`（`npx` など）は Node が直接は起動しない（CVE-2024-27980）。System32 の `cmd.exe /d /s /c "…"` で包み、`windowsVerbatimArguments` で渡す。どの引数も `"…"` で囲み、**囲みの中でも効く `"` `%` `!` を含む引数は起動しない**（`arguments-unsupported`）。`.exe` へは同じ引数をそのまま渡せる
-- 起動したもの（`npx`・`uvx`・`cmd.exe`）が本体を子として立てるので、Windows では `taskkill /T /F` で子孫ごと終わらせる（`killTreeWith`。通常は stdin を閉じれば自分で終わる）
-- 作業フォルダは今までどおり userData（Workspace ではない）
+- 起動したもの（`npx`・`uvx`・`cmd.exe`・`docker`）が本体を子として立てるので、Windows では `taskkill /T /F` で子孫ごと終わらせる（`killTreeWith`。通常は stdin を閉じれば自分で終わる）
+- 作業フォルダは userData（Workspace ではない。利用者が開いたフォルダの中身を起動の手がかりにしない）
+- アプリは MCP サーバーを同梱しない。`mcpServerLaunch.ts` には `npm-global` / `executable-on-path` の起動のしかたも残っているが、今はどの定義からも使っていない
 
-#### 環境変数
+**環境変数は許可リスト。** 親の環境をそのまま渡すと、利用者の別の秘密情報（`GITHUB_TOKEN`・AI サービスの API キー・クラウドの認証情報）まで第三者のサーバーが読める。渡すのは次だけ（名前は大文字で比べる）。
 
-利用者が決めた名前は `reservedVariables` に入り、親の同じ名前は引き継がず利用者の値だけが入る。それ以外は §21.4 の共通の許可リストだけが通る ── `GITHUB_TOKEN` のような親の秘密情報は、利用者がその名前で値を入れない限り渡らない。
+| 種類           | 中身                                                                                                       |
+| -------------- | ---------------------------------------------------------------------------------------------------------- |
+| 共通の許可     | OS とプロセスの基本（`SystemRoot`・`PATH`・`TEMP`・`USERPROFILE`・`APPDATA` など）・言語・プロキシ・証明書 |
+| サーバーの設定 | 利用者が登録した変数。親に同じ名前があっても**親の値は通さず**、登録した値だけを入れる                     |
 
-`PATH`・`PATHEXT`・`COMSPEC`・`SYSTEMROOT`・`WINDIR`・`ELECTRON_RUN_AS_NODE`・`NODE_OPTIONS`・`FLUVIX_*` は名前として使えない（`reserved-name`）。利用者は Command そのものを決められるので防御の表ではなく、このアプリが決めている前提（どの実行ファイルを、どう包み、どう終わらせるか）を環境変数で黙って変えさせないための表。
+- `FLUVIX_*`（このアプリ自身の設定。旧 Notion MCP の `FLUVIX_NOTION_MCP_TOKEN`・フィードバックの `FLUVIX_NOTION_TOKEN` を含む）は**どのサーバーにも渡らない**
+- `BASE_URL` のようなありふれた名前が、サーバーによっては API の接続先の上書きとして読まれる。共通の許可に無いので、利用者が登録しない限り親の値は渡らない
+- `PATH`・`PATHEXT`・`COMSPEC`・`SYSTEMROOT`・`WINDIR`・`ELECTRON_RUN_AS_NODE`・`NODE_OPTIONS`・`FLUVIX_*` は登録する名前として使えない（`reserved-name`）。利用者は Command そのものを決められるので防御の表ではなく、このアプリが決めている前提（どの実行ファイルを、どう包み、どう終わらせるか）を環境変数で黙って変えさせないための表
+- 秘密の値は子プロセスへ環境変数で渡し、引数には載せない（タスクマネージャーなどから見える）。stderr と失敗の詳細は値を伏せてからログへ出す（`redactSecrets`。ログの側の伏せ字は `Bearer …` の形しか拾わないため）
 
-秘密の値は子プロセスへ環境変数で渡し、stderr と失敗の詳細は値を伏せてからログへ出す（`redactSecrets`）。引数はタスクマネージャーなどから見えるので、秘密は環境変数に入れるよう画面で案内している。
+### 21.5 Renderer との境界（IPC）
 
-#### 状態の理由（`McpConfigProblem`）に足したもの
+| 口                                       | 何が渡るか                                                   |
+| ---------------------------------------- | ------------------------------------------------------------ |
+| `mcp:get-status` / `mcp:test-connection` | id だけ。起動するものはそのとき Main が登録簿から読む        |
+| `mcp:list-custom-servers`                | （要求の欄なし）。応答に秘密の値は無く、保存されているかだけ |
+| `mcp:save-custom-server`                 | 名前・接続方式・Command・引数（配列）・環境変数・有効 / 無効 |
+| `mcp:delete-custom-server`               | id だけ                                                      |
+| `mcp:set-custom-server-enabled`          | id と真偽値だけ                                              |
 
-| 値                      | 次の一手                                               |
-| ----------------------- | ------------------------------------------------------ |
-| `command-not-found`     | Command を直す・入れる                                 |
-| `arguments-unsupported` | `.cmd` の代わりに実体（`node.exe` など）を指す         |
-| `secret-missing`        | 編集して秘密の値を入れ直す（別の PC から持ってきた等） |
+- **Command・引数・秘密の値が Renderer から渡るのは保存の口だけ。** 届いた下書きは Main が `validateMcpCustomServerDraft` でもう一度確かめてから書く。画面の案内も同じ関数を使う（規則が2つにならない）。通らない下書きは IPC の失敗ではなく `failure: 'invalid'` として返す
+- **保存しても起動しない。** 接続テストは保存の後に利用者が押す。未保存の下書きを起動する口は無い
+- 形が合っていても登録簿に無い id は、どの口も `INVALID_REQUEST` で断る
+- **Renderer から MCP のツールを呼ぶ口は無い。** ツールの呼び出しは Main の中だけの手続き（§21.8）
+- 設定が無い・サーバーが落ちた・時間切れは利用者の PC で普通に起こることで、IPC の失敗ではなく応答の `outcome` として返す
 
-#### 表の行の作り方
+### 21.6 Settings（全体の元栓と MCP Server Manager の面）
 
-`mcpServerCatalog.ts` の関数は、id ではなく**定義（`McpServerDefinition`）を受け取る**形にした。組み込みの行は `MCP_SERVER_DEFINITIONS` から、追加したサーバーは登録簿の行から `createMcpCustomServerDefinition` がそのつど作る（秘密の値もそのつど読む）。`mcpConnections.ts` は `definitionOf(id)` で行を引くだけで、どちらの行かを知らない。
+```
+MCP カテゴリ
+  MCP を使う（全体の元栓。settings.json の mcp.enabled）
+  ─────────────────────────────
+  [+ New MCP Server]        … 押すとすぐ下に入力欄が開く
+  追加した MCP サーバー     … 登録簿の順。状態・ツールの数・接続テスト・有効 / 無効・編集・削除
+```
 
-| 層                 | ファイル                                                                                                                   |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------- |
-| 語彙と検証         | `shared/mcp/customServers.ts`                                                                                              |
-| 登録簿             | `main/mcp/mcpCustomServerStore.ts`                                                                                         |
-| 行の作り方         | `main/mcp/mcpCustomServerDefinition.ts`                                                                                    |
-| 保存・削除の手続き | `main/mcp/mcpCustomServers.ts`                                                                                             |
-| 画面               | `renderer/src/mcp/McpConnectionPanel.tsx`・`McpCustomServerCard.tsx`・`McpCustomServerForm.tsx`・`mcpCustomServerDraft.ts` |
+| 決めごと                                     | 理由                                                                                               |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| 既定は**無効**（元栓もサーバーも）           | 外部サービスへ、利用者の権限で繋ぐ。Language Server（既定で有効）と**わざと逆**にしてある          |
+| `mcp` section は **application scope**       | 人から受け取ったプロジェクトを開いただけで外部サービスへの接続が有効になる、を作らない             |
+| 読めない値は**無効へ落ちる**                 | `lsp` は同じ場面で「有効」へ落とすが、こちらで同じことをすると壊れた設定で接続が有効になってしまう |
+| 元栓とサーバーの栓の両方が入っているときだけ | 元栓を切れば、登録したサーバーの選択を消さずに全部止められる（`mcpService.ts` の `isEnabled`）     |
 
-#### 画面
+- 値の項目は元栓の1つだけで、ほかのカテゴリとまったく同じ道（scope の扱い・上書きの表示・保存の経路）を通る。**設定ファイルに書けないもの**（登録したサーバー・接続状態・接続テスト）だけを、カテゴリの `panel` が出す面が持つ
+- 面はユーザー設定を見ているときだけ出す（application scope なので、ワークスペース側では上の行が押せない状態で理由を添える）
+- 新規の「このサーバーを使う」は**切ってある**。環境変数の行は「秘密」が既定で入っている（API キーをうっかり平文で保存しない側）。引数は1行に1つで、行の中の空白では区切らない。削除は2段で押させる
+- 特定のサービスだけのカードや入力欄は持たない
+- 「どの状態のときに何が出るか」は `mcpStatusSummary.ts` に出してある（React 非依存・テスト対象）。設定が足りなくなった後に古い「繋がりました」が残らないことはここで確かめる
 
-MCP カテゴリの面の先頭に「+ New MCP Server」を置き、押すとすぐ下に入力欄が開く。組み込みの接続（Notion）の後に「追加した MCP サーバー」を並べる。カードの状態の1行・接続テスト・ツールの数は組み込みと同じ部品（`useMcpConnectionStatus`・`mcpStatusSummary`）を使う。
+無効は `McpConfigProblem` の1語（`disabled`）で、設定が足りない理由と同じ集合に置いた。呼ぶ側から見た扱いが同じ（今は動かせない・理由がこれ）ためで、無効なときは他の理由を数えない（利用者の次の一手は1つでよい）。
 
-- 新規の「このサーバーを使う」は**切ってある**（§21.9 の「既定は無効」と同じ理由）
-- 環境変数の行は「秘密」が既定で入っている（API キーをうっかり平文で保存しない側）
-- 引数は1行に1つ。行の中の空白では区切らない
-- 削除は2段で押させる
+### 21.7 接続テストと接続の寿命
 
-#### 入れていないもの
+接続テストは「起動 → initialize → tools/list → 切断」。結果は名乗った名前と版・取り決めた MCP の版・ツールの名前と説明（入力の形は渡さない）で、画面はツールの数を出す。
 
-| 項目                             | 扱い                                                              |
-| -------------------------------- | ----------------------------------------------------------------- |
-| HTTP / Streamable HTTP           | 次の段階。`McpCustomServerTransport` の union と経路を1つずつ足す |
-| 未保存の下書きの接続テスト       | 作らない（保存してから試す）                                      |
-| 追加したサーバーのツール呼び出し | Agent 連携の段階                                                  |
-| Cursor の `mcp.json` の取り込み  | 未定                                                              |
+| 状態の理由（`McpConfigProblem`） | 次の一手                                               |
+| -------------------------------- | ------------------------------------------------------ |
+| `disabled`                       | 元栓かサーバーの栓を入れる                             |
+| `command-not-found`              | Command を直す・入れる                                 |
+| `arguments-unsupported`          | `.cmd` の代わりに実体（`node.exe` など）を指す         |
+| `secret-missing`                 | 編集して秘密の値を入れ直す（別の PC から持ってきた等） |
+
+設定は揃っていたのに繋がらなかった理由（`spawn-failed`・`timeout`・`server-exited`・`protocol-error`・`unsupported-protocol`・`rejected`）は別の集合で、生のエラー文・stderr は画面へ渡さない（Main のログに残る）。
+
+**接続を持ち続けない。** テストや操作のたびに起動して畳む。使っていない間にサーバーが動き続けないことと、設定を変えたときにすぐ効くことを取った。テスト中にもう一度押されても、サーバーは1本しか立てない。アプリの終了時（`will-quit`）は動いているサーバーを待たずに kill する。Main が落ちた場合も、サーバーは stdin が閉じたところで自分で終わる。Agent から連続して呼ぶ段階で、一定時間使わなければ閉じる形の保持を検討する。
+
+### 21.8 ツールの呼び出し（Main の中だけ）
+
+`mcpConnections.ts` の `callOperation` は、定義の**操作表**（`mcpOperations.ts`）に載った操作だけを実行する。Renderer からは呼べず、今は呼び手も無い ── 将来の MCP Gateway（Security Core の下）が使う接続点として残してある。
+
+- 操作表に載っていない名前は `McpRequestError`（サーバーは起動しない）。登録したサーバーの定義は**操作表を持たない**ので、登録しただけではどのツールも呼べない
+- 引数は操作ごとに形を確かめ、ツールの引数へ**組み立て直す**。知らない引数名は断る（黙って捨てない）
+- 呼ぶ前に tools/list でツールが公開されているかを確かめる（`tool-unavailable`）。サーバーの版が変わって名前が消えたときに、別の意味のツールを呼ばないため
+- 結果はサーバーの生の応答ではなく、操作ごとに読み替えた JSON だけを返す。ツールの失敗は `status` と `code` だけで、本文は返さない
+- 同じ接続の操作は1つずつ実行する（サーバーを同時に2本立てない）
+
+| 結末                         | 意味                                                                                                                                    |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `completed`                  | 読み替えた結果を返す                                                                                                                    |
+| `declined`                   | 書き込みの確認で実行しないと決まった。何も起動・送信していない                                                                          |
+| `not-configured`             | 設定が足りない（`problems`）。起動も確認もしない                                                                                        |
+| `failed` / `tool-error`      | ツールが失敗を返した。**`isError` が無くても**操作の `readToolError` が失敗と読めば失敗（API のエラーを普通の結果で返すサーバーがある） |
+| `failed` / `outcome-unknown` | 書き込みを**送った後に**時間切れ・終了・読めない応答。反映されたかもしれないので、やり直す前に相手の側で確かめる                        |
+| `failed` / その他            | 接続できない・時間切れ（読み取り）・ツールが無い（`tool-unavailable`）・読めない結果（`invalid-result`）                                |
+
+**書き込みは今は誰も許可しない。** `write` の操作はサーバーを起動する前に `confirmWrite` を呼ぶが、`mcpService.ts` は常に `false` を返す（DESIGN.md §6.4: MCP の書き込みは v2 以降）。許可するかを決めるのは将来の Security Core で、ここで利用者にダイアログで訊く形にはしない。
+
+### 21.9 旧 Notion MCP の撤去と移行（refactor/remove-legacy-notion-mcp）
+
+以前は Notion MCP を**アプリに組み込みの接続**として持っていた（`@notionhq/notion-mcp-server` 2.5.1 を同梱し、アプリ自身の Node で起動・Settings に Notion 専用のカードと token の欄・4つの Notion 操作と書き込みの確認ダイアログ）。MCP Server Manager ができた後はそれが「Notion だけの特別な経路」になったので撤去し、MCP の経路を一本にした。**この機能はリリースに含まれていない**（v1.0.0 には `src/main/mcp` が無い）。
+
+撤去したもの：組み込みの接続 id（`notion`）・Notion の行と操作表・Renderer 向けの Notion の語彙・token の保存と環境変数 `FLUVIX_NOTION_MCP_TOKEN` の読み取り・IPC 3本（`mcp:call-operation` / `mcp:set-secret` / `mcp:clear-secret`）・Notion のカードと「接続ごと」の行・書き込みの確認ダイアログ・同梱（`electron-builder.yml` の `extraResources` と `THIRD_PARTY_NOTICES.txt` の依存）・起動のしかた `bundled-node-script`。
+
+Notion を使うときも、ほかのサーバーと同じく「+ New MCP Server」から登録する。
+
+**旧版が残したものは、自動で変換せずに片付ける。**
+
+| 残っていたもの                                         | 扱い                                                                                                                                                                                                     |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mcp-secrets.json` の key `notion`（暗号化した token） | 起動のたびに `mcpLegacyNotionCleanup.ts` が取り除く。残っていなければファイルを読むだけで終わる。**`custom-<uuid>:env:<NAME>` には触れない**（復号もしない）。読めない・知らない版のファイルには触れない |
+| `settings.json` の `mcp.notionEnabled`                 | 撤去した key（`settingsSections.ts` の `RETIRED_SECTION_FIELDS`）として、読み込んだ時点で落とし、その場で1度だけ書き直す。ほかの設定・知らない内容は変えない                                             |
+| 環境変数 `FLUVIX_NOTION_MCP_TOKEN`                     | 利用者のものなので、アプリからは変えない・消さない。もう読まず、`FLUVIX_*` なのでどのサーバーにも渡らない                                                                                                |
+
+自動変換（旧 token から Notion のサーバーを登録簿に作る）をしなかったのは、利用者の同意なしに `npx` でパッケージを取ってきて起動する登録を作ることになり、版も固定されない（旧版は 2.5.1 に固定していた）ため。旧版を使っていたのは開発版の環境だけなので、登録し直してもらう方が安全で単純になる。
+
+**撤去した key は書き戻さない。** 設定文書は「知らない key は新しい版が書いたものとして書き戻す」決まりだが（§15.9）、撤去した key は**古い版のこのアプリが書いたもの**で、もう誰も読まない。版（`schemaVersion`）は上げていない ── key を消すだけの変更では版を上げない約束（`shared/settings/settingsDocument.ts`）どおりで、撤去した名前は再利用しない。
+
+`mcpLegacyNotionCleanup.ts` と `RETIRED_SECTION_FIELDS` の `notionEnabled` は、開発版の環境で移行が済んだ後に消してよい。
+
+### 21.10 入れていないもの
+
+| 項目                            | 扱い                                                                         |
+| ------------------------------- | ---------------------------------------------------------------------------- |
+| Agent からのツール呼び出し      | Security Core・MCP Gateway の段階（§21.1・§21.8）                            |
+| MCP の書き込み                  | v2 以降（DESIGN.md §6.4）                                                    |
+| HTTP / Streamable HTTP・OAuth   | 次の段階。`McpCustomServerTransport` の union と経路を1つずつ足す            |
+| 未保存の下書きの接続テスト      | 作らない（保存してから試す）                                                 |
+| 接続の保持                      | Agent から呼ぶ段階                                                           |
+| Cursor の `mcp.json` の取り込み | 未定                                                                         |
+| macOS / Linux                   | 配布は Windows だけ。Unix 系の分岐は単体テストだけで、実機では確かめていない |

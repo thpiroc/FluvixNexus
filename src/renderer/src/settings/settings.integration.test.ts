@@ -9,10 +9,8 @@ import {
   type LanguageServerId,
   type LanguageServerPreferences
 } from '@shared/lsp'
-import type { McpConnectionId } from '@shared/mcp'
 import {
   DEFAULT_MCP_PREFERENCES,
-  isMcpConnectionEnabled,
   isSameMcpPreferences,
   normalizeMcpPreferences,
   toStoredMcpSettings,
@@ -136,7 +134,7 @@ class Store {
   */
   lsp: LanguageServerPreferences = DEFAULT_LANGUAGE_SERVER_PREFERENCES
   /*
-    MCP を使うか（§21.9）。`lsp` とまったく同じ形で、**既定だけが逆**になる
+    MCP を使うか（全体の元栓）。`lsp` とまったく同じ形で、**既定だけが逆**になる
     （外部サービスへ繋ぐので、既定は無効。shared/mcp/settings.ts）。
 
     token はここに無い。設定の値ではなく、別の口から Main へ渡るもので、
@@ -197,12 +195,6 @@ class Store {
 
   setMcpEnabled(enabled: boolean): void {
     const next = { ...this.mcp, enabled }
-
-    this.mcp = isSameMcpPreferences(this.mcp, next) ? this.mcp : next
-  }
-
-  setMcpConnectionEnabled(id: McpConnectionId, enabled: boolean): void {
-    const next = { ...this.mcp, servers: { ...this.mcp.servers, [id]: enabled } }
 
     this.mcp = isSameMcpPreferences(this.mcp, next) ? this.mcp : next
   }
@@ -270,7 +262,6 @@ function readSettingsScreen(store: Store): {
   lspEnabled: boolean
   lspServers: Readonly<Record<LanguageServerId, boolean>>
   mcpEnabled: boolean
-  mcpConnections: Readonly<Record<McpConnectionId, boolean>>
 } {
   return {
     language: store.language.language,
@@ -282,15 +273,14 @@ function readSettingsScreen(store: Store): {
     theme: store.appearance.theme,
     lspEnabled: store.lsp.enabled,
     lspServers: store.lsp.servers,
-    mcpEnabled: store.mcp.enabled,
-    mcpConnections: store.mcp.servers
+    mcpEnabled: store.mcp.enabled
   }
 }
 
 /* -------------------------------------------------------------------------- */
 
 describe('Settings 画面の既定', () => {
-  it('保存が1つも無ければ、11項目すべてが既定で出る', () => {
+  it('保存が1つも無ければ、10項目すべてが既定で出る', () => {
     const store = new Store()
     store.loadSections(emptySettingsSections())
 
@@ -310,17 +300,16 @@ describe('Settings 画面の既定', () => {
       lspEnabled: true,
       lspServers: { typescript: true, python: true, csharp: true },
       /*
-        MCP の既定は「使わない」（§21.9）。**Language Server とわざと逆**に
+        MCP の既定は「使わない」。**Language Server とわざと逆**に
         してある ── 何も設定していない利用者の手元で、外部サービスへ
         繋ぐ設定が最初から入っていてはいけない（shared/mcp/settings.ts）。
       */
-      mcpEnabled: false,
-      mcpConnections: { notion: false }
+      mcpEnabled: false
     })
   })
 
   /*
-    画面に並ぶ12項目と、この統合テストが触る11の値項目が食い違わないようにする
+    画面に並ぶ11項目と、この統合テストが触る10の値項目が食い違わないようにする
     （Updates は値を持たない行）。
   */
   it('画面に並ぶ項目と、ここで確かめる項目が一致する', () => {
@@ -335,13 +324,12 @@ describe('Settings 画面の既定', () => {
       'files.viewMode',
       'terminal.fontSize',
       'terminal.scrollback',
-      'mcp.enabled',
-      'mcp.servers'
+      'mcp.enabled'
     ])
   })
 })
 
-describe('Settings 画面から11項目を変える', () => {
+describe('Settings 画面から10項目を変える', () => {
   it('変えた値が、閉じて開き直しても、再起動しても残る', () => {
     const store = new Store()
     store.loadSections(emptySettingsSections())
@@ -356,7 +344,6 @@ describe('Settings 画面から11項目を変える', () => {
     store.setLanguage('en')
     store.setLspServerEnabled('python', false)
     store.setMcpEnabled(true)
-    store.setMcpConnectionEnabled('notion', true)
 
     const opened = readSettingsScreen(store)
 
@@ -370,8 +357,7 @@ describe('Settings 画面から11項目を変える', () => {
       theme: 'light',
       lspEnabled: true,
       lspServers: { typescript: true, python: false, csharp: true },
-      mcpEnabled: true,
-      mcpConnections: { notion: true }
+      mcpEnabled: true
     })
 
     // 面を閉じて開き直す（画面は値を持たないので、読み直すだけで同じ）。
@@ -463,71 +449,39 @@ describe('Settings 画面から11項目を変える', () => {
   })
 
   /*
-    MCP（§21.9）。形は Language Server と同じ2段だが、**既定が逆**で、
+    MCP の全体の元栓。形は Language Server と同じだが、**既定が逆**で、
     効いたときに起きることが「自分の PC の中」ではなく「外部サービスへの接続」
-    になる ── そのぶん、有効になる条件をここでも見ておく。
+    になる。登録したサーバーごとの栓は settings.json ではなく登録簿
+    （mcp-servers.json）が持つので、ここには現れない。
   */
-  it('MCP は、全体と接続の両方を有効にしないと効かない', () => {
-    const store = new Store()
-    store.loadSections(emptySettingsSections())
-
-    expect(isMcpConnectionEnabled(store.mcp, 'notion')).toBe(false)
-
-    // 全体だけ入れても効かない。
-    store.setMcpEnabled(true)
-    expect(isMcpConnectionEnabled(store.mcp, 'notion')).toBe(false)
-
-    // 接続だけでも効かない。
-    store.setMcpEnabled(false)
-    store.setMcpConnectionEnabled('notion', true)
-    expect(isMcpConnectionEnabled(store.mcp, 'notion')).toBe(false)
-
-    store.setMcpEnabled(true)
-    expect(isMcpConnectionEnabled(store.mcp, 'notion')).toBe(true)
-  })
-
-  it('MCP の元栓を切っても、接続ごとの選択は残る（戻せば元どおり）', () => {
-    const store = new Store()
-    store.loadSections(emptySettingsSections())
-
-    store.setMcpEnabled(true)
-    store.setMcpConnectionEnabled('notion', true)
-    store.setMcpEnabled(false)
-
-    expect(readSettingsScreen(store).mcpConnections).toEqual({ notion: true })
-
-    store.setMcpEnabled(true)
-    expect(isMcpConnectionEnabled(store.mcp, 'notion')).toBe(true)
-  })
-
   it('MCP を有効にしたことは再起動しても残る', () => {
     const store = new Store()
     store.loadSections(emptySettingsSections())
 
     store.setMcpEnabled(true)
-    store.setMcpConnectionEnabled('notion', true)
 
-    const restarted = restart(store)
+    expect(restart(store).mcp).toEqual({ enabled: true })
 
-    expect(restarted.mcp).toEqual({ enabled: true, servers: { notion: true } })
+    store.setMcpEnabled(false)
+
+    expect(restart(store).mcp).toEqual({ enabled: false })
   })
 
   /*
-    token はディスクの往復（`toSections` / `loadSections`）に**現れない**。
+    秘密の値はディスクの往復（`toSections` / `loadSections`）に**現れない**。
     設定ファイルへ平文で書かないという線を、保存の形そのもので見ておく
     （main/mcp/mcpSecretStore.ts が別のファイルへ暗号化して入れる）。
   */
-  it('MCP の保存に token の欄が無い', () => {
+  it('MCP の保存は全体の元栓だけ（秘密の値もサーバーごとの栓も無い）', () => {
     const store = new Store()
     store.loadSections(emptySettingsSections())
 
     store.setMcpEnabled(true)
-    store.setMcpConnectionEnabled('notion', true)
 
     const saved = store.toSections().mcp
 
-    expect(Object.keys(saved).sort()).toEqual(['enabled', 'notionEnabled'])
-    expect(JSON.stringify(saved)).not.toMatch(/token/i)
+    expect(Object.keys(saved)).toEqual(['enabled'])
+    expect(JSON.stringify(saved)).not.toMatch(/token|notion/i)
   })
 
   it('MCP を往復させても、他の項目は動かない', () => {
@@ -731,8 +685,8 @@ describe('Settings 画面から入る値の正規化', () => {
       },
       files: { viewMode: 'auto', columnWidth: FILES_COLUMN_WIDTH_MAX },
       terminal: { fontSize: TERMINAL_FONT_SIZE_MAX, scrollback: TERMINAL_SCROLLBACK_MIN },
-      /* MCP も同じく省略せずに書く。**token の欄は無い**（§21.9）。 */
-      mcp: { enabled: false, notionEnabled: false }
+      /* MCP も同じく省略せずに書く。**秘密の値の欄は無い**。 */
+      mcp: { enabled: false }
     })
   })
 
@@ -782,11 +736,11 @@ describe('Settings 画面から入る値の正規化', () => {
       files: { viewMode: 'gallery', columnWidth: DEFAULT_FILES_COLUMN_WIDTH },
       terminal: { fontSize: 15, scrollback: 5000 },
       /*
-        MCP は同じ場面で**逆へ落ちる**（§21.9）。`lsp` が「読めなければ使う」
+        MCP は同じ場面で**逆へ落ちる**。`lsp` が「読めなければ使う」
         なのに対し、こちらは「読めなければ使わない」にほかならない
         ── 壊れた設定ファイルで外部サービスへの接続が有効になってはいけない。
       */
-      mcp: { enabled: 'yes', notionEnabled: true } as unknown as SettingsSections['mcp']
+      mcp: { enabled: 'yes' } as unknown as SettingsSections['mcp']
     })
 
     expect(readSettingsScreen(store)).toEqual({
@@ -802,9 +756,8 @@ describe('Settings 画面から入る値の正規化', () => {
       lspEnabled: true,
       // 読めた key は落とさない（Main の検証と同じく key ごとに独立）。
       lspServers: { typescript: true, python: false, csharp: true },
-      // 読めなかった元栓は「使わない」へ。読めた key はそのまま残る。
-      mcpEnabled: false,
-      mcpConnections: { notion: true }
+      // 読めなかった元栓は「使わない」へ。
+      mcpEnabled: false
     })
   })
 })

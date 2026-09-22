@@ -19,7 +19,7 @@ import {
 } from './mcpCustomServerDraft'
 
 /**
- * 利用者が足す MCP サーバーの入力欄（§21.10）。新規と編集で同じものを使う。
+ * MCP Server Manager に登録するサーバーの入力欄。新規と編集で同じものを使う。
  *
  * ## 保存するまで何も起動しない
  *
@@ -224,7 +224,7 @@ export function McpCustomServerForm({
               className="fx-mcp__input"
               data-testid={`settings-mcp-custom-env-value-${index}`}
               aria-label={`${t('settings.mcp.custom.placeholders.envValue')} ${index + 1}`}
-              // 秘密の値は肩越しに読まれないように伏せる（token の欄と同じ）。
+              // 秘密の値は肩越しに読まれないように伏せる。
               type={row.secret ? 'password' : 'text'}
               autoComplete="off"
               spellCheck={false}

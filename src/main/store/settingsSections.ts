@@ -94,14 +94,31 @@ const SECTION_FIELDS: { readonly [Id in SettingsSectionId]: SectionFieldSpec<Id>
   files: { viewMode: 'string', columnWidth: 'number' },
   terminal: { fontSize: 'number', scrollback: 'number' },
   /*
-    §21.9 で足した section。`lsp` と同じく Main も値の意味を読む
+    MCP の全体の元栓。`lsp` と同じく Main も値の意味を読む
     （MCP サーバーを起動するのは Main の側。main/mcp/mcpService.ts）。
 
-    **ここに token の欄は無い。** 欄を1つ足した時点で、`settings.json` は
+    **ここに秘密の値の欄は無い。** 欄を1つ足した時点で、`settings.json` は
     平文の秘密情報が載るファイルになる ── 置き場所は OS の資格情報で
     暗号化した別ファイルにあたる（main/mcp/mcpSecretStore.ts）。
   */
-  mcp: { enabled: 'boolean', notionEnabled: 'boolean' }
+  mcp: { enabled: 'boolean' }
+}
+
+/**
+ * このアプリがかつて持っていて、撤去した key。
+ *
+ * 知らない key は「新しい版が書いたもの」として書き戻すが、ここに挙げた key は
+ * **古い版のこのアプリが書いたもの**で、もう誰も読まない。読み込んだ時点で落とし、
+ * 書き戻さない（見つけたら store が1度だけ書き直す。settingsStore.ts）。
+ *
+ * 名前は再利用しない ── 既にある key の意味は版をまたいで変えない約束
+ * （shared/settings/settingsDocument.ts）の裏返しにあたる。
+ */
+export const RETIRED_SECTION_FIELDS: Readonly<
+  Partial<Record<SettingsSectionId, readonly string[]>>
+> = {
+  // 旧 Notion MCP（アプリに組み込みだった接続）の栓。MCP Server Manager へ一本化した。
+  mcp: ['notionEnabled']
 }
 
 /** ファイルから読んだ section 1つの結果。 */
@@ -112,6 +129,8 @@ export interface ParsedStoredSection {
   readonly unknownFields: Record<string, unknown>
   /** 落とした key の名前（ログ用）。section ごと読めなかった場合は空になる。 */
   readonly droppedFields: readonly string[]
+  /** 撤去した key で、ファイルに残っていたもの（書き戻さない）。 */
+  readonly retiredFields: readonly string[]
   /** section として読めたか（object だったか）。 */
   readonly readable: boolean
 }
@@ -124,7 +143,7 @@ export interface ParsedStoredSection {
  */
 export function parseStoredSection(id: SettingsSectionId, raw: unknown): ParsedStoredSection {
   if (!isPlainObject(raw)) {
-    return { value: {}, unknownFields: {}, droppedFields: [], readable: false }
+    return { value: {}, unknownFields: {}, droppedFields: [], retiredFields: [], readable: false }
   }
 
   const fields = SECTION_FIELDS[id] as Readonly<Record<string, FieldKind>>
@@ -146,10 +165,13 @@ export function parseStoredSection(id: SettingsSectionId, raw: unknown): ParsedS
     }
   }
 
+  const retired = RETIRED_SECTION_FIELDS[id] ?? []
+
   return {
     value,
-    unknownFields: preservableEntries(raw, Object.keys(fields)),
+    unknownFields: preservableEntries(raw, [...Object.keys(fields), ...retired]),
     droppedFields: dropped,
+    retiredFields: retired.filter((name) => raw[name] !== undefined),
     readable: true
   }
 }

@@ -1,27 +1,26 @@
 import { join } from 'path'
 import { rmSync } from 'fs'
-import type { McpConnectionId, McpCustomServerId } from '@shared/mcp'
+import type { McpCustomServerId } from '@shared/mcp'
 import { readMcpEnvVariableSecretValue } from '@shared/mcp/customServers'
 import { readJsonFile, writeJsonFile } from '../store/jsonFile'
-import { validateMcpTokenValue } from './mcpConfig'
 
 /**
- * MCP の token の保存（§21.9）。
+ * MCP サーバーの秘密の環境変数の保存（§21.3）。
  *
- * ## `settings.json` には絶対に入れない
+ * ## `settings.json` にも `mcp-servers.json` にも入れない
  *
  * 設定ファイルは利用者が開いて読める場所（`userData/settings.json`）にあり、
- * 質問のたびに貼られ、バックアップにも画面共有にも普通に写る。token は
- * **それとは別のファイル**に、**OS の資格情報で暗号化して**置く。
+ * 質問のたびに貼られ、バックアップにも画面共有にも普通に写る。登録簿
+ * （`mcp-servers.json`）も同じく平文にあたる。秘密の値は **それとは別のファイル**に、
+ * **OS の資格情報で暗号化して**置く。
  *
  * ```
- * userData/settings.json       使う意思（真偽値だけ）  … 平文・利用者が読める
- * userData/mcp-secrets.json    token                   … 暗号文・この PC のこの利用者だけ
+ * userData/settings.json       使う意思（真偽値だけ）            … 平文・利用者が読める
+ * userData/mcp-servers.json    登録したサーバー（秘密の値は無し） … 平文・利用者が読める
+ * userData/mcp-secrets.json    秘密の環境変数の値                … 暗号文・この PC のこの利用者だけ
  * ```
  *
- * §21.10 で、利用者が足したサーバーの**秘密の環境変数**も同じファイルに入る
- * ようになった（key は `custom-<uuid>:env:<NAME>`）。暗号化・暗号化できないときに
- * 書かないこと・読めない暗号文を無いものとして扱うことは、token とまったく同じ。
+ * key は `custom-<uuid>:env:<NAME>`。
  *
  * 暗号化は Electron の `safeStorage` に任せる（Windows では DPAPI ──
  * 鍵はログインしている利用者アカウントに紐づき、ファイルを他の PC や
@@ -34,8 +33,7 @@ import { validateMcpTokenValue } from './mcpConfig'
  * `safeStorage` が使えない環境（Linux で資格情報サービスが無い等）では
  * **保存を断る**。平文へ落ちる実装にはしない ── 利用者から見ると
  * どちらも「保存できた」に見えるので、落ちたことに気づけないため。
- * 断られた利用者には環境変数という道が残っている
- * （取り出す順序は mcpConnections.ts の `resolveSecret`）。
+ * 断られた場合、そのサーバーは秘密の環境変数を持てない（Settings がそう案内する）。
  *
  * ## Electron を直接見ない
  *
@@ -67,8 +65,8 @@ export interface McpSecretCipher {
 export type McpSecretWriteFailure =
   /** この PC では OS の暗号化が使えない（平文では保存しない）。 */
   | 'encryption-unavailable'
-  /** token の形が通らない（空・見えない文字が混ざっている）。 */
-  | 'token-invalid'
+  /** 値の形が通らない（空・見えない文字が混ざっている）。 */
+  | 'value-invalid'
   /** ファイルへ書けなかった。 */
   | 'write-failed'
 
@@ -76,18 +74,10 @@ export type McpSecretWriteResult =
   { readonly ok: true } | { readonly ok: false; readonly failure: McpSecretWriteFailure }
 
 export interface McpSecretStore {
-  /** この PC で token を保存できるか。 */
+  /** この PC で秘密の値を保存できるか。 */
   readonly canStore: () => boolean
-  /** 保存されている token。無い・読めないなら `null`。 */
-  readonly read: (id: McpConnectionId) => string | null
-  /** 保存されているか（token の値は返さない）。 */
-  readonly has: (id: McpConnectionId) => boolean
-  /** 保存する。既にあれば置き換える。 */
-  readonly write: (id: McpConnectionId, token: string) => McpSecretWriteResult
-  /** 消す。無かった場合も成功として扱う（押した結果は同じ「無い」）。 */
-  readonly clear: (id: McpConnectionId) => boolean
   /**
-   * 利用者が足したサーバーの、秘密の環境変数の値（§21.10）。無い・読めないなら `null`。
+   * 登録したサーバーの、秘密の環境変数の値。無い・読めないなら `null`。
    * 名前は大文字小文字を区別しない（Windows の環境変数と同じ）。
    */
   readonly readVariable: (id: McpCustomServerId, name: string) => string | null
@@ -110,8 +100,7 @@ export interface McpSecretStore {
 /**
  * 秘密の環境変数の key（`custom-<uuid>:env:<NAME>`）。
  *
- * 組み込みの接続の token は接続 id そのものを key にしている（`notion`）。
- * `:` は接続 id にも環境変数の名前にも現れないので、どちらとも重ならない。
+ * `:` は接続 id にも環境変数の名前にも現れないので、サーバーをまたいで重ならない。
  */
 function variableKey(id: McpCustomServerId, name: string): string {
   return `${variablePrefix(id)}${name.toUpperCase()}`
@@ -209,7 +198,7 @@ export function createMcpSecretStore(
   function available(): boolean {
     /*
       `isEncryptionAvailable` は環境によっては投げる。使えないものとして扱う
-      ── ここで投げさせると、token を保存していない利用者の Settings が開かなくなる。
+      ── ここで投げさせると、秘密の値を保存していない利用者の Settings が開かなくなる。
     */
     try {
       return cipher.isEncryptionAvailable()
@@ -222,7 +211,7 @@ export function createMcpSecretStore(
   /**
    * 暗号文1つを復号して、形を確かめる。読めなければ null。
    *
-   * `label` はログ用の呼び名（`token for notion` など）で、値は決して含めない。
+   * `label` はログ用の呼び名（`variable NAME for custom-…`）で、値は決して含めない。
    */
   function decrypt(
     encoded: string | undefined,
@@ -240,7 +229,7 @@ export function createMcpSecretStore(
     } catch (cause) {
       /*
         他の PC・他のアカウントからファイルを持ってきた場合にここへ来る。
-        値そのものは決してログへ出さない（例外の中身にも token は入らないが、
+        値そのものは決してログへ出さない（例外の中身にも値は入らないが、
         出す理由が無い）。
       */
       report(`the stored ${label} could not be decrypted.`, cause)
@@ -270,48 +259,6 @@ export function createMcpSecretStore(
   return {
     canStore: available,
 
-    read: (id): string | null =>
-      decrypt(readAll()[id], `token for ${id}`, (plain) => {
-        const token = validateMcpTokenValue(plain)
-        return token.ok ? token.token : null
-      }),
-
-    has: (id): boolean => readAll()[id] !== undefined,
-
-    write: (id, token): McpSecretWriteResult => {
-      const validated = validateMcpTokenValue(token)
-
-      if (!validated.ok) {
-        return { ok: false, failure: 'token-invalid' }
-      }
-
-      if (!available()) {
-        return { ok: false, failure: 'encryption-unavailable' }
-      }
-
-      const encoded = encrypt(validated.token, `token for ${id}`)
-
-      if (encoded === null) {
-        return { ok: false, failure: 'encryption-unavailable' }
-      }
-
-      return writeAll({ ...readAll(), [id]: encoded })
-        ? { ok: true }
-        : { ok: false, failure: 'write-failed' }
-    },
-
-    clear: (id): boolean => {
-      const secrets = readAll()
-
-      if (secrets[id] === undefined) {
-        return true
-      }
-
-      delete secrets[id]
-
-      return writeAll(secrets)
-    },
-
     readVariable: (id, name): string | null =>
       decrypt(readAll()[variableKey(id, name)], `variable ${name} for ${id}`, (plain) => {
         const value = readMcpEnvVariableSecretValue(plain, 0)
@@ -325,7 +272,7 @@ export function createMcpSecretStore(
       const prefix = variablePrefix(id)
       const secrets: Record<string, string> = {}
 
-      // ほかのサーバー・組み込みの token はそのまま残す。
+      // ほかのサーバーの値はそのまま残す。
       for (const [key, value] of Object.entries(current)) {
         if (!key.startsWith(prefix)) {
           secrets[key] = value
@@ -348,7 +295,7 @@ export function createMcpSecretStore(
         const validated = readMcpEnvVariableSecretValue(plain, 0)
 
         if (!validated.ok) {
-          return { ok: false, failure: 'token-invalid' }
+          return { ok: false, failure: 'value-invalid' }
         }
 
         if (!available()) {
@@ -387,13 +334,3 @@ export function createMcpSecretStore(
     }
   }
 }
-
-/*
-  token をどこから取るか（保存 → 環境変数）の順序は**ここには無い**。
-  置き場所は mcpConnections.ts の `resolveSecret` 1つだけで、そこが
-  画面へ出す在り処と、実際に子プロセスへ渡す token の両方を返す。
-
-  この module にも同じ順序を書くと、「画面は保存した token を指しているのに、
-  繋ぐのは環境変数の方」がありうる ── ここが持つのは「保存されているか」
-  までにとどめる。
-*/

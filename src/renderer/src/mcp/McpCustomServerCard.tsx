@@ -9,11 +9,11 @@ import { canTestConnection, summarizeMcpStatus } from './mcpStatusSummary'
 import { useMcpConnectionStatus } from './useMcpConnectionStatus'
 
 /**
- * 利用者が足した MCP サーバー1つのカード（§21.10）。
+ * MCP Server Manager に登録したサーバー1つのカード。
  *
- * 状態の1行・接続テスト・繋がったときのツールの数は、組み込みの接続のカードと
- * 同じもの（useMcpConnectionStatus / mcpStatusSummary / ConnectedTools）を使う。
- * 違うのは token の欄が無いことと、編集・削除・有効 / 無効の切り替えがあること。
+ * 状態の1行・接続テスト・繋がったときのツールの数を出し、編集・削除・
+ * 有効 / 無効を切り替えられる（useMcpConnectionStatus / mcpStatusSummary /
+ * ConnectedTools）。
  *
  * 削除は2段で押させる（押し間違えで、入れ直せない秘密の値ごと消えないように）。
  */

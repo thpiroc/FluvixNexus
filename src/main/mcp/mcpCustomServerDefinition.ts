@@ -1,27 +1,26 @@
 import type { McpConfigProblem } from '@shared/mcp'
 import type { McpStoredCustomServer } from '@shared/mcp/customServers'
-import type { McpServerDefinition } from './mcpServerCatalog'
+import type { McpServerDefinition } from './mcpServerDefinition'
 
 /**
- * 利用者が足したサーバーの行から、表の行（`McpServerDefinition`）を作る
- * （§21.10。Electron / fs 非依存・テスト対象）。
+ * MCP Server Manager の登録簿の行から、定義（`McpServerDefinition`）を作る
+ * （Electron / fs 非依存・テスト対象）。
  *
- * 組み込みの行（notionMcpServer.ts）と**同じ形**にそろえることで、
- * 起動・環境変数の許可リスト・接続テスト・ログの伏せ字は、組み込みと
+ * 起動・環境変数の許可リスト・接続テスト・ログの伏せ字は、どのサーバーも
  * 同じ道（mcpConnections.ts）を通る。ここが決めるのは次の4つだけ。
  *
  * | 欄             | 中身                                                                |
  * | -------------- | ------------------------------------------------------------------- |
  * | 起動のしかた   | `user-command`（Command と引数を配列のまま）                         |
  * | 環境変数       | 利用者が決めた変数だけを「サーバーの設定」として渡す                  |
- * | 操作           | **無い**。Renderer からツールを呼ぶ口は、今は組み込みの行だけ         |
+ * | 操作           | **無い**。ツールを呼ぶ許可は、将来 Security Core が与える           |
  * | 足りないもの   | 秘密の値が読めない（保存されていない・この PC で復号できない）         |
  *
  * ## 環境変数は「予約して、表の値だけを入れる」
  *
  * 利用者が決めた名前は `reservedVariables` に入る ── 親（このアプリ）の環境に
  * 同じ名前があっても引き継がず、利用者が決めた値だけが入る。それ以外は、
- * 組み込みの行と同じ共通の許可リスト（mcpServerEnvironment.ts）だけが通る。
+ * 共通の許可リスト（mcpServerEnvironment.ts）だけが通る。
  * `GITHUB_TOKEN` のような親の秘密情報は、利用者がその名前で値を入れない限り
  * どのサーバーにも渡らない。
  *
@@ -69,7 +68,6 @@ export function createMcpCustomServerDefinition(
       command: server.transport.command,
       args: server.transport.args
     },
-    secret: null,
     environment: () => ({ reservedVariables, providedVariables: provided }),
     operations: {},
     configProblems,

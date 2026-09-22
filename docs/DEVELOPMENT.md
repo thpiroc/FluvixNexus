@@ -2574,16 +2574,14 @@ main（`9ca5857`）から作った統合ブランチに、`git merge --no-ff` �
 
 実装は「Session 1-1」「Session 1-2」のような番号付きセッション単位で進める。各セッションではその範囲だけを実装し、完了したら次へ進まずに停止する。次のセッションで実装する箇所には、コード中に継ぎ目（コメント）だけ残しておく。
 
-### Notion MCP（feature/notion-mcp）
+### MCP の実機確認（MCP Server Manager）
 
-MCP 共通の土台と Notion MCP（同梱・許可リストの環境・tools/call・書き込みの確認）を入れ、実 Notion で接続・検索・取得・書き込み（テスト用ページの末尾に段落1つ）・再取得までを確かめた。設計は docs/ARCHITECTURE.md §21。UI と Settings はまだ無いので、確かめるのは `window.fluvix.mcp.*` を Renderer から直接呼ぶ形になる。
+MCP は「+ New MCP Server」で登録したサーバーだけを扱う（docs/ARCHITECTURE.md §21）。組み込みの Notion MCP（feature/notion-mcp）は refactor/remove-legacy-notion-mcp で撤去した（§21.9）── Notion を試すときも、ほかのサーバーと同じく登録してから接続テストを押す。
 
-- **token を画面にもログにも出さない。** 有無は PowerShell で `[bool]($env:FLUVIX_NOTION_MCP_TOKEN)` のように真偽値だけを見る。確認スクリプトの出力・アプリの `main.log` は、表示する前に `.Contains($env:FLUVIX_NOTION_MCP_TOKEN.Trim())` で照合し、含まれていたら表示しない
-- **vitest の中から実物を起動すると `BASE_URL=/` が付いてくる。** Vite がテストのプロセスに入れる。Notion MCP サーバーはこれを API の接続先として読むので、環境変数を許可リストにする前は `Invalid URL` で落ちた。今は子へ渡らないので、そのまま確かめてよい
-- **配布物で確かめるときは Node を PATH から外す。** `release/win-unpacked/Fluvix Nexus.exe` を `_electron.launch({ executablePath, args: ['--user-data-dir=…'] })` で起こし、PATH を `C:\Windows\System32;C:\Windows` にしても同梱のサーバーが立つこと（アプリ自身の exe を `ELECTRON_RUN_AS_NODE=1` で起動する）を見る
-- **子プロセスに渡った環境は、Main の `child_process.spawn` を包んで名前だけ控える。** `app.evaluate(() => { const cp = process.mainModule.require('child_process'); … })`。親の環境に架空の `GITHUB_TOKEN` / `OPENAI_API_KEY` / `BASE_URL` を入れておき、名前の一覧に出ないことを見る（値は控えない）
-- **書き込みの確認ダイアログは `dialog.showMessageBox` を差し替えて答える。** 先に「キャンセル」（response 1）で何も書かれないことを確かめてから、「実行する」（response 0）で1回だけ書く。出た文言は差し替えた関数の中で控える
-- **Notion のエラーは `isError` の無い普通の結果で返る。** 存在しない UUID で `get-page` を呼ぶと `tool-error` / `{ status: 404, code: 'object_not_found' }` になる（読み取りだけで、エラーの分け方を確かめられる）
+- **秘密の値を画面にもログにも出さない。** 有無は PowerShell で `[bool]($env:GITHUB_PERSONAL_ACCESS_TOKEN)` のように真偽値だけを見る。確認スクリプトの出力・アプリの `main.log` は、表示する前に `.Contains(<値>.Trim())` で照合し、含まれていたら表示しない。`mcp-secrets.json` を覗くときも key の名前だけにする
+- **vitest の中から実物を起動すると `BASE_URL=/` が付いてくる。** Vite がテストのプロセスに入れる。サーバーによってはこれを API の接続先として読む。子へは許可リストで渡らないので、そのまま確かめてよい
+- **子プロセスに渡った環境は、Main の `child_process.spawn` を包んで名前だけ控える。** `app.evaluate(() => { const cp = process.mainModule.require('child_process'); … })`。親の環境に架空の `GITHUB_TOKEN` / `OPENAI_API_KEY` / `BASE_URL` / `FLUVIX_NOTION_MCP_TOKEN` を入れておき、名前の一覧に出ないことを見る（値は控えない）
+- **旧 Notion MCP の設定の掃除は、一時 userData で確かめる。** `mcp-secrets.json` に key `notion` を、`settings.json` の `mcp` に `notionEnabled` を足した状態で起動し、両方が消えて `custom-…:env:…` と他の設定が残ることを見る。本物の userData の `mcp-secrets.json` を手で書き換えない（DPAPI の暗号文は作り直せない）
 - **`npm run dist` は `release/` を上書きする。** 公開済み v1.0.0 の手元の写し（`SHA256SUMS.txt` と照合する installer）が置き換わる。配布物で確かめる前に `release/` を確かめ、写しを残したいなら出力先を分ける
 - 一時 userData のパスに利用者名（日本語）が入るので、PowerShell 5.1 で読むときは `Get-Content -Encoding utf8` を付ける（付けないとパスが化けて「無い」と読む）
 

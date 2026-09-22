@@ -1102,11 +1102,6 @@ export const enMessages = {
           title: 'Use MCP',
           description:
             'The main switch for every MCP connection. While this is off, no MCP server is started and no request leaves this PC.'
-        },
-        servers: {
-          title: 'Connections',
-          description:
-            'Choose which services to connect to. These have no effect while the setting above is off.'
         }
       }
     },
@@ -1144,9 +1139,6 @@ export const enMessages = {
       },
       mcpEnabled: {
         aria: 'Use MCP'
-      },
-      mcpServers: {
-        aria: 'Services to connect to'
       }
     },
     values: {
@@ -1334,20 +1326,17 @@ export const enMessages = {
       }
     },
     /*
-      MCP の接続の面（§21.9）。
+      MCP Server Manager の面。
 
       `status.*` は「今どうなっているか」の1行で、利用者の次の一手が
       それぞれ違うので分けてある（shared/mcp の `McpConfigProblem`）。
       `failure.*` は設定が揃っていたのに繋がらなかった場合になる。
 
-      **token の値に触れる言い回しは1つも無い。** 出せるのは
-      「どこから来ているか」までで、これは画面がそもそも値を受け取らない
+      **秘密の値に触れる言い回しは1つも無い。** 出せるのは
+      「保存されているか」までで、これは画面がそもそも値を受け取らない
       ことの裏返しにほかならない。
     */
     mcp: {
-      connections: {
-        notion: 'Notion'
-      },
       status: {
         loading: 'Checking…',
         testing: 'Connecting…',
@@ -1355,8 +1344,6 @@ export const enMessages = {
         ready: 'Ready to connect',
         connected: 'Connected',
         notConfigured: 'Not set up yet',
-        tokenMissing: 'No token yet',
-        tokenInvalid: 'The token contains characters that cannot be used',
         nodeNotFound: 'Node.js was not found',
         serverNotInstalled: 'The MCP server is not installed',
         commandNotFound: 'The command was not found',
@@ -1372,34 +1359,13 @@ export const enMessages = {
         unsupportedProtocol: 'The server speaks a version of MCP this app does not support',
         rejected: 'The server refused the connection'
       },
-      secret: {
-        label: 'Token',
-        placeholder: 'Paste your token',
-        save: 'Save',
-        clear: 'Delete',
-        cannotStore:
-          'This PC cannot store the token securely, so it will not be saved. Set FLUVIX_NOTION_MCP_TOKEN as an environment variable instead.',
-        source: {
-          stored: 'A token is saved on this PC, encrypted.',
-          environment: 'Using the token from the FLUVIX_NOTION_MCP_TOKEN environment variable.',
-          none: 'No token yet. Paste one below, or set FLUVIX_NOTION_MCP_TOKEN.'
-        }
-      },
       test: 'Test connection',
       tools: 'Connected to {name}. It offers {count} tool(s).',
       unknownServer: 'the server',
       notice: {
-        saved: 'The token was saved.',
-        saveFailed: 'The token could not be saved.',
-        tokenInvalid: 'That token contains characters that cannot be used. Check what you pasted.',
-        encryptionUnavailable: 'This PC cannot store the token securely, so nothing was saved.',
-        cleared: 'The saved token was deleted.',
-        clearedButEnvironment:
-          'The saved token was deleted. The FLUVIX_NOTION_MCP_TOKEN environment variable is still set, so that one is used now.',
-        clearFailed: 'The saved token could not be deleted.',
         testFailed: 'The connection could not be tested.'
       },
-      /* MCP servers the user adds (§21.10). */
+      /* MCP servers the user registers in MCP Server Manager. */
       custom: {
         newServer: '+ New MCP Server',
         heading: 'Added MCP servers',
