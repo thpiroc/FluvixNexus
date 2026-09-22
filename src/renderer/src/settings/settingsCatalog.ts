@@ -72,8 +72,26 @@ import type { TranslationKey } from '../i18n/messages'
  * `shared/settings/sections.ts` は Session 4-7C で1行も変えていない。
  */
 
-/** 値の項目が並ぶカテゴリ。**`SettingsSectionId` と1対1**（並びも同じ）。 */
-export type SettingsValueCategoryId = SettingsSectionId
+/**
+ * 保存形式にはあるが、**Settings 画面にまだカテゴリを持たない** section。
+ *
+ * `security`（FN Agent の Permission。Security Core v1 の STEP1）が最初にあたる。
+ * 値を読む Agent がまだ無く、効き目の無い項目を画面に出すと利用者が迷うため、
+ * 画面は Agent が実際にこの設定を使う段階で足す（そのときここから外す）。
+ * 画面が無い間は、Renderer からこの section を書く経路も無い。
+ *
+ * 1対1の約束は「**画面を持つ** section」に掛かる。ここに挙げた section は
+ * `SETTINGS_SECTION_IDS` の末尾に置き、値カテゴリの並びが前方一致のまま残るようにしてある。
+ */
+export const SETTINGS_SECTIONS_WITHOUT_CATEGORY = [
+  'security'
+] as const satisfies readonly SettingsSectionId[]
+
+/** 値の項目が並ぶカテゴリ。**画面を持つ `SettingsSectionId` と1対1**（並びも同じ）。 */
+export type SettingsValueCategoryId = Exclude<
+  SettingsSectionId,
+  (typeof SETTINGS_SECTIONS_WITHOUT_CATEGORY)[number]
+>
 
 /** Settings 画面のカテゴリ。**中身のあるものだけ**を並べる。 */
 export type SettingsCategoryId = SettingsValueCategoryId | 'keyboard'

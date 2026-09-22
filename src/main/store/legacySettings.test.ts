@@ -25,7 +25,8 @@ describe('migrateLegacySettings', () => {
       lsp: {},
       files: { viewMode: 'columns', columnWidth: 240 },
       terminal: { fontSize: 20, scrollback: 1000 },
-      mcp: {}
+      mcp: {},
+      security: {}
     })
     expect(migrated).toEqual(['editor', 'files', 'terminal'])
   })

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { SETTINGS_TEXT_MAX_LENGTH } from '@shared/settings'
-import { parseSettingsSectionUpdate, parseStoredSection } from './settingsSections'
+import { emptySettingsSections, SETTINGS_TEXT_MAX_LENGTH } from '@shared/settings'
+import {
+  failClosedSettingsSections,
+  FAIL_CLOSED_SECTION_VALUES,
+  parseSettingsSectionUpdate,
+  parseStoredSection
+} from './settingsSections'
 
 /**
  * section 1つ分の検証（Main が見る範囲。Session 4-3A）。
@@ -262,5 +267,127 @@ describe('parseSettingsSectionUpdate（Renderer からの保存要求）', () =>
         }
       })
     ).toEqual({ section: 'lsp', value: { enabled: true } })
+  })
+})
+
+/*
+  Security（FN Agent の Permission。Security Core v1 の STEP1）。
+  この section だけは形に加えて値の意味まで Main が見る ── 保存では read / ask 以外を拒み、
+  読み込みでは読めない値を落とさず read に置き換える（どちらも緩む側へ倒れない）。
+*/
+describe('security（Main の検証）', () => {
+  it('read / ask は保存できる', () => {
+    for (const permissionMode of ['read', 'ask']) {
+      expect(
+        parseSettingsSectionUpdate({ section: 'security', value: { permissionMode } })
+      ).toEqual({ section: 'security', value: { permissionMode } })
+    }
+  })
+
+  it('未設定（key を省く）は保存できる ＝ 既定に戻す', () => {
+    expect(parseSettingsSectionUpdate({ section: 'security', value: {} })).toEqual({
+      section: 'security',
+      value: {}
+    })
+  })
+
+  it('read / ask 以外の文字列は要求ごと拒む（auto も含む）', () => {
+    for (const permissionMode of [
+      'auto',
+      'allow',
+      'none',
+      'ASK',
+      ' ask',
+      'Read',
+      '',
+      'x'.repeat(8)
+    ]) {
+      expect(
+        parseSettingsSectionUpdate({ section: 'security', value: { permissionMode } })
+      ).toBeNull()
+    }
+  })
+
+  it('文字列でない値は要求ごと拒む', () => {
+    for (const permissionMode of [null, 0, true, {}, ['ask']]) {
+      expect(
+        parseSettingsSectionUpdate({ section: 'security', value: { permissionMode } })
+      ).toBeNull()
+    }
+  })
+
+  it('Security を止める欄は無い（送っても保存されない）', () => {
+    expect(
+      parseSettingsSectionUpdate({
+        section: 'security',
+        value: {
+          permissionMode: 'ask',
+          enabled: false,
+          disabled: true,
+          bypass: true,
+          allowOutsideWorkspace: true,
+          mcpWrite: 'allow'
+        }
+      })
+    ).toEqual({ section: 'security', value: { permissionMode: 'ask' } })
+  })
+
+  it('ファイルの read / ask はそのまま読む', () => {
+    expect(parseStoredSection('security', { permissionMode: 'ask' }).value).toEqual({
+      permissionMode: 'ask'
+    })
+    expect(parseStoredSection('security', { permissionMode: 'read' }).value).toEqual({
+      permissionMode: 'read'
+    })
+  })
+
+  it('ファイルに key が無いのは正常（＝既定 ask。置き換えない）', () => {
+    const parsed = parseStoredSection('security', {})
+
+    expect(parsed.value).toEqual({})
+    expect(parsed.droppedFields).toEqual([])
+  })
+
+  it('ファイルの知らない文字列（旧値・新しい版の値）は持ったまま読み、使う側が read へ倒す', () => {
+    expect(parseStoredSection('security', { permissionMode: 'auto' }).value).toEqual({
+      permissionMode: 'auto'
+    })
+  })
+
+  it('ファイルの読めない値（文字列でない・長すぎる）は落とさず read に置き換える', () => {
+    for (const permissionMode of [
+      42,
+      true,
+      null,
+      {},
+      ['ask'],
+      'x'.repeat(SETTINGS_TEXT_MAX_LENGTH + 1)
+    ]) {
+      const parsed = parseStoredSection('security', { permissionMode })
+
+      expect(parsed.value).toEqual({ permissionMode: 'read' })
+      expect(parsed.droppedFields).toEqual(['permissionMode'])
+    }
+  })
+
+  it('section が object でなければ read で始める（無いときは既定のまま）', () => {
+    for (const raw of ['ask', 42, null, [], true]) {
+      expect(parseStoredSection('security', raw).value).toEqual({ permissionMode: 'read' })
+    }
+
+    expect(parseStoredSection('security', undefined).value).toEqual({})
+  })
+
+  it('読めないときに置き換えるのは security だけ（他の section は従来どおり落とす）', () => {
+    expect(parseStoredSection('mcp', { enabled: 'yes' }).value).toEqual({})
+    expect(parseStoredSection('terminal', 'x').value).toEqual({})
+  })
+
+  it('文書が読めないときの section も、Security だけは read', () => {
+    expect(failClosedSettingsSections()).toEqual({
+      ...emptySettingsSections(),
+      security: { permissionMode: 'read' }
+    })
+    expect(FAIL_CLOSED_SECTION_VALUES).toEqual({ security: { permissionMode: 'read' } })
   })
 })

@@ -109,7 +109,8 @@ describe('workspace-settings.json の読み書き', () => {
         lsp: {},
         files: {},
         terminal: { fontSize: 20 },
-        mcp: {}
+        mcp: {},
+        security: {}
       }
     })
   })

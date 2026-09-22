@@ -1,4 +1,10 @@
-import { SETTINGS_SECTION_IDS, type SettingsSectionId, type SettingsSections } from './sections'
+import { restrictSecuritySettings } from '../security/permissionMode'
+import {
+  SETTINGS_SECTION_IDS,
+  type SettingsSectionId,
+  type SettingsSections,
+  type StoredSecuritySettings
+} from './sections'
 
 /**
  * 設定の **scope**（ユーザー設定 / ワークスペース設定）。
@@ -20,6 +26,10 @@ import { SETTINGS_SECTION_IDS, type SettingsSectionId, type SettingsSections } f
  * **key 単位で** `ワークスペース設定 > ユーザー設定 > 既定` の順に探す。
  * section 単位にしないのは、「このプロジェクトだけ文字を大きくしたい」ときに
  * さかのぼれる行数までワークスペースへ固定されてしまうため。
+ *
+ * **例外は `security`**（FN Agent の Permission）で、こちらは上書きではなく
+ * 常に厳しい方を採る（下の `restrictive`）。ワークスペース設定からユーザー設定より
+ * 緩めることはできない。
  *
  * 既定値そのものはここに無い（既定を知っているのは読む側。shared/settings/sections.ts）。
  * ここが返すのは「どの scope にも無い ＝ 既定で読んでほしい」ことを表す `undefined` まで。
@@ -44,6 +54,7 @@ export const SETTINGS_SCOPES: readonly SettingsScope[] = ['user', 'workspace']
  *
  *   `workspace`   … ユーザー設定・ワークスペース設定の両方で変えられる（既定）
  *   `application` … ユーザー設定でだけ変えられる
+ *   `restrictive` … 両方で変えられるが、**ワークスペース設定は厳しくする方向にしか効かない**
  *
  * `general`（表示言語）を `application` にしてあるのは、**アプリの言葉は
  * 使う人のもの**でプロジェクトの持ち物ではないため（VS Code も表示言語は
@@ -57,10 +68,18 @@ export const SETTINGS_SCOPES: readonly SettingsScope[] = ['user', 'workspace']
  * そもそも設定ファイルに無い（sections.ts の `StoredMcpSettings`）が、
  * 「使う」の側だけでも Workspace に決めさせない。
  *
+ * `security`（FN Agent の Permission）が `restrictive` にあたる。`workspace > user` で重ねると、 `workspace > user` で重ねると、
+ * ワークスペース設定がユーザー設定の `read` を `ask` へ緩められてしまう。
+ * そこで key ごとに**厳しい方**を採る（shared/security/permissionMode.ts）。
+ * ワークスペースで変えられること自体は残す ── 「このプロジェクトでは読み取りだけ」は
+ * 普通に意味のある使い方で、それは厳しくする側の変更だから。
+ *
  * section を足すときはここにも1行足す（`Record` なので書き忘れると型が通らない）。
  */
+export type SettingsSectionScopeKind = 'application' | 'workspace' | 'restrictive'
+
 export const SETTINGS_SECTION_SCOPES: {
-  readonly [Id in SettingsSectionId]: 'application' | 'workspace'
+  readonly [Id in SettingsSectionId]: SettingsSectionScopeKind
 } = {
   general: 'application',
   appearance: 'workspace',
@@ -68,12 +87,63 @@ export const SETTINGS_SECTION_SCOPES: {
   lsp: 'workspace',
   files: 'workspace',
   terminal: 'workspace',
-  mcp: 'application'
+  mcp: 'application',
+  security: 'restrictive'
 }
 
-/** その section をワークスペース設定で上書きできるか。 */
+/**
+ * その section をワークスペース設定で変えられるか（`restrictive` を含む）。
+ *
+ * 保存の可否と Settings 画面の「押せるか」はこれで決まる。**どう効くか**は
+ * `resolveEffectiveSettings` が scope の種類ごとに分ける。
+ */
 export function isWorkspaceScopedSection(section: SettingsSectionId): boolean {
-  return SETTINGS_SECTION_SCOPES[section] === 'workspace'
+  return SETTINGS_SECTION_SCOPES[section] !== 'application'
+}
+
+/**
+ * `restrictive` の section ごとの重ね方（ユーザー設定とワークスペース設定 → 効く値）。
+ *
+ * 渡されるワークスペース側は、上書きが無ければ `undefined`。
+ */
+type RestrictiveSectionResolver = (user: object, workspace: object | undefined) => object
+
+const RESTRICTIVE_SECTION_RESOLVERS: Readonly<
+  Partial<Record<SettingsSectionId, RestrictiveSectionResolver>>
+> = {
+  security: (user, workspace) =>
+    restrictSecuritySettings(
+      user as StoredSecuritySettings,
+      workspace as StoredSecuritySettings | undefined
+    )
+}
+
+/** section 1つの、実際に効く値（`previous` との同一性は呼ぶ側が見る）。 */
+function resolveSection(
+  id: SettingsSectionId,
+  user: SettingsSections,
+  workspace: SettingsSections | null
+): object {
+  const kind = SETTINGS_SECTION_SCOPES[id]
+
+  if (kind === 'application' || workspace === null) {
+    return user[id]
+  }
+
+  const overrides = workspace[id]
+  const defined = hasEntries(overrides) ? definedEntries(overrides) : undefined
+
+  if (kind === 'restrictive') {
+    const resolve = RESTRICTIVE_SECTION_RESOLVERS[id]
+
+    /*
+      重ね方が無い `restrictive` はワークスペース側を使わない。ユーザー設定より
+      緩くなる読み方を、書き忘れ1つで作らないため（厳しくもならないが、緩みもしない）。
+    */
+    return resolve === undefined ? user[id] : resolve(user[id], defined)
+  }
+
+  return defined === undefined ? user[id] : { ...user[id], ...defined }
 }
 
 /** 素の値が scope の名前か（IPC の要求を Main で確かめるため）。 */
@@ -100,8 +170,7 @@ export function resolveEffectiveSettings(
   const resolved: Record<string, unknown> = {}
 
   for (const id of SETTINGS_SECTION_IDS) {
-    const overrides = workspace !== null && isWorkspaceScopedSection(id) ? workspace[id] : undefined
-    const merged = hasEntries(overrides) ? { ...user[id], ...definedEntries(overrides) } : user[id]
+    const merged = resolveSection(id, user, workspace)
     const before = previous?.[id]
 
     resolved[id] = before !== undefined && isShallowEqual(before, merged) ? before : merged
@@ -126,6 +195,13 @@ export function getEffectiveSetting<
   section: Id,
   key: K
 ): SettingsSections[Id][K] | undefined {
+  if (workspace !== null && SETTINGS_SECTION_SCOPES[section] === 'restrictive') {
+    // 厳しい方を採る section は、key だけを見ても決まらない（section ごと重ねてから読む）。
+    const resolved = resolveSection(section, user, workspace) as SettingsSections[Id]
+
+    return resolved[key]
+  }
+
   if (workspace !== null && isWorkspaceScopedSection(section)) {
     const overridden = workspace[section][key]
 

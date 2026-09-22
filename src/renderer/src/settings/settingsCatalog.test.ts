@@ -8,7 +8,8 @@ import {
   listSettingsCategories,
   listSettingsItems,
   listSettingsValueCategories,
-  SETTINGS_CATEGORIES
+  SETTINGS_CATEGORIES,
+  SETTINGS_SECTIONS_WITHOUT_CATEGORY
 } from './settingsCatalog'
 
 /**
@@ -54,10 +55,30 @@ describe('SETTINGS_CATEGORIES', () => {
     「すべてのカテゴリ」から「値カテゴリ」へ移っただけで、保存ファイルの
     section の並びと一致することは今も成り立つ（settingsCatalog.ts）。
   */
-  it('値カテゴリの並びが、保存側の section の並びと一致する', () => {
-    expect(listSettingsValueCategories().map((category) => category.id)).toEqual([
-      ...SETTINGS_SECTION_IDS
+  it('値カテゴリの並びが、保存側の section の並び（画面を持つもの）と一致する', () => {
+    const withoutCategory: readonly string[] = SETTINGS_SECTIONS_WITHOUT_CATEGORY
+
+    expect(listSettingsValueCategories().map((category) => category.id)).toEqual(
+      SETTINGS_SECTION_IDS.filter((id) => !withoutCategory.includes(id))
+    )
+  })
+
+  /*
+    画面を持たない section は末尾にまとめる。途中に挟むと、画面の並びと
+    保存ファイルの並びが食い違う。
+  */
+  it('画面を持たない section は、section の並びの末尾にある', () => {
+    const count = SETTINGS_SECTIONS_WITHOUT_CATEGORY.length
+
+    expect(SETTINGS_SECTION_IDS.slice(SETTINGS_SECTION_IDS.length - count)).toEqual([
+      ...SETTINGS_SECTIONS_WITHOUT_CATEGORY
     ])
+  })
+
+  /* STEP1 では Security の項目を画面に出さない（Agent が使う段階で足す）。 */
+  it('Security の項目は Settings 画面にまだ無い', () => {
+    expect(listSettingsItems().some((item) => item.section === 'security')).toBe(false)
+    expect(isSettingsCategoryId('security')).toBe(false)
   })
 
   it('一覧表のカテゴリは Keyboard Shortcuts の1つだけで、末尾に置く', () => {

@@ -10,7 +10,12 @@ import {
   type SettingsSectionUpdate
 } from '@shared/settings'
 import { migrateStoredSettings } from './settingsMigration'
-import { isPlainObject, parseStoredSection, preservableEntries } from './settingsSections'
+import {
+  failClosedSettingsSections,
+  isPlainObject,
+  parseStoredSection,
+  preservableEntries
+} from './settingsSections'
 
 /**
  * 設定文書の検証と組み立て（Electron にも fs にも依存しない。Session 4-3A）。
@@ -55,6 +60,18 @@ export function defaultSettingsDocument(): SettingsDocument {
   }
 }
 
+/**
+ * 読めなかった文書の代わり（Security Core v1）。
+ *
+ * 中身は `defaultSettingsDocument` と同じく空だが、**Security を緩める側へ倒れない
+ * 値だけは入っている**（settingsSections.ts の `FAIL_CLOSED_SECTION_VALUES`）──
+ * `read` を選んでいた人の設定ファイルが壊れただけで、既定の `ask` へ戻らないように。
+ * ファイルが「無い」ときは使わない（そちらは `defaultSettingsDocument`）。
+ */
+export function failClosedSettingsDocument(): SettingsDocument {
+  return { ...defaultSettingsDocument(), sections: failClosedSettingsSections() }
+}
+
 function emptyPreservedSettings(): PreservedSettings {
   return {
     document: {},
@@ -66,7 +83,8 @@ function emptyPreservedSettings(): PreservedSettings {
       lsp: {},
       files: {},
       terminal: {},
-      mcp: {}
+      mcp: {},
+      security: {}
     }
   }
 }
@@ -75,7 +93,7 @@ function emptyPreservedSettings(): PreservedSettings {
 export function parseSettingsDocument(raw: unknown): ParsedSettingsDocument {
   if (!isPlainObject(raw)) {
     return {
-      document: defaultSettingsDocument(),
+      document: failClosedSettingsDocument(),
       issues: ['document is not an object'],
       hasRetiredFields: false
     }
@@ -86,7 +104,7 @@ export function parseSettingsDocument(raw: unknown): ParsedSettingsDocument {
 
   if (version.kind === 'invalid') {
     return {
-      document: defaultSettingsDocument(),
+      document: failClosedSettingsDocument(),
       issues: ['schemaVersion is not readable'],
       hasRetiredFields: false
     }
@@ -100,7 +118,7 @@ export function parseSettingsDocument(raw: unknown): ParsedSettingsDocument {
 
     if (migrated === null) {
       return {
-        document: defaultSettingsDocument(),
+        document: failClosedSettingsDocument(),
         issues: [`no migration from schemaVersion ${version.version}`],
         hasRetiredFields: false
       }
@@ -138,7 +156,7 @@ export function parseSettingsDocument(raw: unknown): ParsedSettingsDocument {
     return {
       document: {
         sourceVersion,
-        sections: emptySettingsSections(),
+        sections: failClosedSettingsSections(),
         preserved: emptyPreservedSettings()
       },
       issues: [...issues, 'sections is not an object'],

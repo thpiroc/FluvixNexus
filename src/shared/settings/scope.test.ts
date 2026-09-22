@@ -5,7 +5,8 @@ import {
   isOverriddenInWorkspace,
   isSettingsScope,
   isWorkspaceScopedSection,
-  resolveEffectiveSettings
+  resolveEffectiveSettings,
+  SETTINGS_SECTION_SCOPES
 } from './scope'
 
 /**
@@ -114,5 +115,69 @@ describe('scope の判定', () => {
     )
     expect(isOverriddenInWorkspace(workspace, 'lsp', ['enabled'])).toBe(false)
     expect(isOverriddenInWorkspace(null, 'lsp', ['pythonEnabled'])).toBe(false)
+  })
+})
+
+/*
+  Security（FN Agent の Permission）は `workspace > user` ではなく、常に厳しい方を採る
+  （Security Core v1 の STEP1）。Renderer が画面に出す効く値も、Main の Policy と同じ答えになる。
+*/
+describe('security（restrictive）', () => {
+  it('ワークスペース設定で変えられるが、種類は restrictive', () => {
+    expect(isWorkspaceScopedSection('security')).toBe(true)
+    expect(SETTINGS_SECTION_SCOPES.security).toBe('restrictive')
+  })
+
+  it('User Read + Workspace Ask → Read（ワークスペースから緩められない）', () => {
+    const user = sections({ security: { permissionMode: 'read' } })
+    const workspace = sections({ security: { permissionMode: 'ask' } })
+
+    expect(resolveEffectiveSettings(user, workspace).security).toEqual({ permissionMode: 'read' })
+    expect(getEffectiveSetting(user, workspace, 'security', 'permissionMode')).toBe('read')
+  })
+
+  it('User Ask + Workspace Read → Read', () => {
+    const user = sections({ security: { permissionMode: 'ask' } })
+    const workspace = sections({ security: { permissionMode: 'read' } })
+
+    expect(resolveEffectiveSettings(user, workspace).security).toEqual({ permissionMode: 'read' })
+    expect(getEffectiveSetting(user, workspace, 'security', 'permissionMode')).toBe('read')
+  })
+
+  it('User Ask + Workspace Ask → Ask、User Read + Workspace Read → Read', () => {
+    const askBoth = sections({ security: { permissionMode: 'ask' } })
+    const readBoth = sections({ security: { permissionMode: 'read' } })
+
+    expect(getEffectiveSetting(askBoth, askBoth, 'security', 'permissionMode')).toBe('ask')
+    expect(getEffectiveSetting(readBoth, readBoth, 'security', 'permissionMode')).toBe('read')
+  })
+
+  it('User が未設定（既定 Ask）でも、Workspace の Read は効く', () => {
+    const workspace = sections({ security: { permissionMode: 'read' } })
+
+    expect(getEffectiveSetting(sections({}), workspace, 'security', 'permissionMode')).toBe('read')
+  })
+
+  it('Workspace の上書きが無ければ User の section がそのまま（同じ object）', () => {
+    const user = sections({ security: { permissionMode: 'read' } })
+
+    expect(resolveEffectiveSettings(user, sections({})).security).toBe(user.security)
+    expect(resolveEffectiveSettings(user, null).security).toBe(user.security)
+  })
+
+  it('Workspace 側の読めない値は Read へ倒れる（緩む側へは倒れない）', () => {
+    const user = sections({ security: { permissionMode: 'ask' } })
+    const workspace = sections({ security: { permissionMode: 'auto' } })
+
+    expect(getEffectiveSetting(user, workspace, 'security', 'permissionMode')).toBe('read')
+  })
+
+  it('他の section の重ね方（workspace > user）は変わらない', () => {
+    const user = sections({ terminal: { fontSize: 14 }, security: { permissionMode: 'read' } })
+    const workspace = sections({ terminal: { fontSize: 20 }, security: { permissionMode: 'ask' } })
+    const effective = resolveEffectiveSettings(user, workspace)
+
+    expect(effective.terminal).toEqual({ fontSize: 20 })
+    expect(effective.security).toEqual({ permissionMode: 'read' })
   })
 })

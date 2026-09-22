@@ -209,7 +209,9 @@ class Store {
       lsp: toStoredLspSettings(this.lsp),
       files: toFilesSettingsSection(this.files),
       terminal: toTerminalSettingsSection(this.terminal),
-      mcp: toStoredMcpSettings(this.mcp)
+      mcp: toStoredMcpSettings(this.mcp),
+      // Settings 画面に Security の項目はまだ無い（STEP1）。画面からは何も書かない。
+      security: {}
     }
   }
 
@@ -686,7 +688,9 @@ describe('Settings 画面から入る値の正規化', () => {
       files: { viewMode: 'auto', columnWidth: FILES_COLUMN_WIDTH_MAX },
       terminal: { fontSize: TERMINAL_FONT_SIZE_MAX, scrollback: TERMINAL_SCROLLBACK_MIN },
       /* MCP も同じく省略せずに書く。**秘密の値の欄は無い**。 */
-      mcp: { enabled: false }
+      mcp: { enabled: false },
+      // Security は Settings 画面から書かない（項目が無い）。
+      security: {}
     })
   })
 
@@ -740,7 +744,8 @@ describe('Settings 画面から入る値の正規化', () => {
         なのに対し、こちらは「読めなければ使わない」にほかならない
         ── 壊れた設定ファイルで外部サービスへの接続が有効になってはいけない。
       */
-      mcp: { enabled: 'yes' } as unknown as SettingsSections['mcp']
+      mcp: { enabled: 'yes' } as unknown as SettingsSections['mcp'],
+      security: {}
     })
 
     expect(readSettingsScreen(store)).toEqual({

@@ -27,7 +27,8 @@ const valid = {
     lsp: { enabled: false, pythonEnabled: false },
     files: { viewMode: 'columns', columnWidth: 240 },
     terminal: { fontSize: 15, scrollback: 7000 },
-    mcp: {}
+    mcp: {},
+    security: {}
   }
 }
 
@@ -40,7 +41,7 @@ describe('parseSettingsDocument', () => {
   })
 
   /* 文書ごと捨てるのは、この3つだけ（一番大きな捨て方を増やさない）。 */
-  it('文書として読めなければ、全 section が既定', () => {
+  it('文書として読めなければ、全 section が既定（Security だけは read）', () => {
     for (const raw of [null, undefined, 42, 'x', [], true]) {
       expect(parseSettingsDocument(raw).document.sections).toEqual({
         general: {},
@@ -49,7 +50,8 @@ describe('parseSettingsDocument', () => {
         lsp: {},
         files: {},
         terminal: {},
-        mcp: {}
+        mcp: {},
+        security: { permissionMode: 'read' }
       })
     }
   })
@@ -62,7 +64,7 @@ describe('parseSettingsDocument', () => {
     }
   })
 
-  it('sections が object でなければ、全 section が既定', () => {
+  it('sections が object でなければ、全 section が既定（Security だけは read）', () => {
     for (const sections of [null, 42, 'x', [], true]) {
       expect(parseSettingsDocument({ ...valid, sections }).document.sections).toEqual({
         general: {},
@@ -71,7 +73,8 @@ describe('parseSettingsDocument', () => {
         lsp: {},
         files: {},
         terminal: {},
-        mcp: {}
+        mcp: {},
+        security: { permissionMode: 'read' }
       })
     }
   })
@@ -112,7 +115,8 @@ describe('parseSettingsDocument', () => {
       lsp: {},
       files: {},
       terminal: { fontSize: 15 },
-      mcp: {}
+      mcp: {},
+      security: {}
     })
     expect(issues).toEqual([])
   })
@@ -315,7 +319,8 @@ describe('toStoredSettings / withSettingsSection', () => {
         lsp: {},
         files: {},
         terminal: {},
-        mcp: {}
+        mcp: {},
+        security: {}
       }
     })
   })
@@ -351,6 +356,7 @@ describe('toStoredSettings / withSettingsSection', () => {
       files: valid.sections.files,
       terminal: { cursorStyle: 'bar', fontSize: 20 },
       mcp: {},
+      security: {},
       keybindings: { profile: 'vim' }
     })
   })

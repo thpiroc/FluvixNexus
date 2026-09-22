@@ -229,15 +229,45 @@ Tools（Files / Editor / Terminal / Git / MCP）・Provider（外部の生成 AI
 
 ### 6.4 v1 の操作と承認
 
-| 操作                      | v1 での扱い                                                            |
-| ------------------------- | ---------------------------------------------------------------------- |
-| 副作用の無い読み取り      | Security Core の範囲内で行う（Workspace の中だけ・Secret は除く）      |
-| Files への書き込み        | **Ask（利用者の承認が必要）**                                          |
-| Terminal でのコマンド実行 | **Ask（利用者の承認が必要）**                                          |
-| Git の Commit / Push など | **Agent からは行わない。** 利用者が既存の Git パネルから手動で操作する |
-| MCP の書き込み            | **v2 以降**                                                            |
+| 操作                      | v1 での扱い                                                                                            |
+| ------------------------- | ------------------------------------------------------------------------------------------------------ |
+| 副作用の無い読み取り      | Security Core の範囲内で行う（Workspace の中だけ・Secret は除く）                                      |
+| Files への書き込み        | **Ask（利用者の承認が必要）。** Permission が Read なら実行しない                                      |
+| Terminal でのコマンド実行 | **Ask（毎回、利用者の承認が必要）。** Permission が Read なら実行しない                                |
+| Git の Commit / Push など | **Agent からは行わない。** 利用者が既存の Git パネルから手動で操作する                                 |
+| MCP の読み取り            | Security Core の Allowlist で明示的に許可した Tool だけ（MCP Server Manager への登録だけでは使えない） |
+| MCP の書き込み・副作用    | **v2 以降**（v1 では拒否）                                                                             |
 
 Agent がプロジェクトフォルダへ書き込むのは、**利用者が承認した変更だけ**になる。§3 の「アプリはプロジェクトフォルダの中に何も書かない」は、アプリ自身の設定・状態について引き続き守る。
+
+#### Permission（Security Core v1。2026-09-22 確定）
+
+FN Agent の Permission は **Read / Ask の2つ**で、既定は **Ask**。操作を承認なしで自動的に通す Auto は v2 以降。
+
+| Permission | 意味                                                                                                                                                                                                 |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Read       | **読み取り専用。** 副作用のある操作（Files への書き込み・Terminal でのコマンド実行など）は、承認を求める対象でもなく、**実行できない**                                                               |
+| Ask        | 副作用のある操作を**自動で許可するモードではない。** 操作ごとに Main 側の承認（Renderer の Diff 表示 ＋ Main の Native 確認の二段階。Renderer だけでは承認が成立しない）を求めてから実行できるモード |
+
+- **Security の強さは Read の方が Ask より厳しい。**
+- **User / Workspace は常に厳しい方（strictest）を採る。** 他の設定の「ワークスペース設定 > ユーザー設定」とは違い、ワークスペース設定はユーザー設定より厳しくする方向にしか効かない ── Workspace から Security を弱めることはできない。
+
+  | User | Workspace | 効く Permission |
+  | ---- | --------- | --------------- |
+  | Ask  | Ask       | Ask             |
+  | Ask  | Read      | Read            |
+  | Read | Ask       | Read            |
+  | Read | Read      | Read            |
+
+  **Ask になるのは両方が Ask のときだけ。** Workspace で上書きしていなければ User の値がそのまま効く。
+
+- **値の扱い：** 未設定だけが既定の Ask。`read` / `ask` はそのまま。`auto`・知らない値・文字列でない値は **Read**（安全側）。
+  - 保存：`security.permissionMode` に `read` / `ask` 以外が届いたら、Main が保存を拒む（INVALID_REQUEST）。
+  - 読み込み：保存済みの値が壊れている・旧値である、または `settings.json` そのものが読めない場合は、既定の Ask へ戻さず **Read** へ倒す。
+- **Permission で変わらない固定の規則**（Policy・設定では変えられない。`src/main/security/policy/securityDecision.ts`）：Workspace の外 → 拒否、Secret ファイルへの書き込み → 拒否、hard link を通した書き込み → 拒否、MCP の書き込み・副作用 → 拒否、Git の Commit / Push → 拒否、知らない操作 → 拒否。Terminal は Ask なら毎回承認、Read なら拒否。MCP の読み取りは、Security Core の Allowlist で明示的に許可した Tool だけ（MCP サーバー側の `readOnlyHint` などの自己申告では許可しない。Allowlist の初期値は空）。
+- **Policy は Main が保存から判定のたびに読み直す。** Renderer・Agent・FN Engine が持つ値からは決まらない。Security Core を無効化・迂回・上書きする API は作らない（6.3）。
+- Read → Ask への変更に、追加の Native 確認は求めない（Ask でも副作用のある操作は毎回 Main の Native 確認を通るため）。Audit Log を実装した後は、設定の変更を記録する。
+- 設定の Settings 画面は、Agent が実際にこの設定を使う段階で足す。
 
 ### 6.5 v1 に含めないもの
 

@@ -1,4 +1,6 @@
+import { AGENT_PERMISSION_MODES, FAIL_CLOSED_AGENT_PERMISSION_MODE } from '@shared/security'
 import {
+  emptySettingsSections,
   isSettingsSectionId,
   SETTINGS_PRESERVED_MAX_BYTES,
   SETTINGS_TEXT_MAX_LENGTH,
@@ -101,7 +103,62 @@ const SECTION_FIELDS: { readonly [Id in SettingsSectionId]: SectionFieldSpec<Id>
     平文の秘密情報が載るファイルになる ── 置き場所は OS の資格情報で
     暗号化した別ファイルにあたる（main/mcp/mcpSecretStore.ts）。
   */
-  mcp: { enabled: 'boolean' }
+  mcp: { enabled: 'boolean' },
+  /*
+    FN Agent の Permission（Security Core v1）。形は文字列だが、この section だけは
+    **形に加えて値の意味まで Main が見る**（下の2つの表）── Security を緩める側へ
+    倒れる読み替えを、Renderer 側の分担に任せない。
+  */
+  security: { permissionMode: 'string' }
+}
+
+/**
+ * 保存要求で受け付ける値を、形より狭く限る key（Security Core v1）。
+ *
+ * 他の key は「後で解釈できる形か」しか見ない（上の分担）が、ここに挙げた key は
+ * **知らない値を保存させない**。`security.permissionMode` に `auto` や `allow` を
+ * 送っても、要求ごと拒まれる（INVALID_REQUEST。ipc/handlers/settings.ts）。
+ *
+ * 読み込みには掛けない ── ディスクにある知らない値は、落とさず次の表の値に置き換える
+ * （読めた文字列はそのまま持ち、使う側が `read` へ倒す。shared/security/permissionMode.ts）。
+ */
+const SECTION_FIELD_CHOICES: {
+  readonly [Id in SettingsSectionId]?: {
+    readonly [K in keyof SettingsSections[Id] & string]?: readonly string[]
+  }
+} = {
+  security: { permissionMode: AGENT_PERMISSION_MODES }
+}
+
+/**
+ * 読めなかったときに、落とさずに置き換える値（Security Core v1）。
+ *
+ * 他の key は読めなければ落とす（＝既定）。既定が「緩い側」にある key でそれをすると、
+ * **ファイルが壊れただけで Security が緩む**（`read` を選んでいた人が既定の `ask` へ戻る）。
+ * ここに挙げた key は、次の場合に最も厳しい値へ置き換える。
+ *
+ * ```
+ * key の値が読めない（文字列でない・長すぎる）
+ * section が object でない
+ * 文書そのものが読めない（壊れた JSON・版が読めない・移行できない・sections が object でない）
+ * ```
+ *
+ * 置き換えた値はメモリ上の文書に入るので、次に何かを保存すればファイルにも
+ * そのまま書かれる（壊れた跡が、厳しい値として残る）。
+ */
+export const FAIL_CLOSED_SECTION_VALUES: {
+  readonly [Id in SettingsSectionId]?: SettingsSections[Id]
+} = {
+  security: { permissionMode: FAIL_CLOSED_AGENT_PERMISSION_MODE }
+}
+
+/**
+ * 文書が読めなかったときの section（すべて空、ただし `FAIL_CLOSED_SECTION_VALUES` は入る）。
+ *
+ * **「ファイルが無い」には使わない。** 無いのは初回起動の正常な状態で、既定で始める。
+ */
+export function failClosedSettingsSections(): SettingsSections {
+  return { ...emptySettingsSections(), ...FAIL_CLOSED_SECTION_VALUES }
 }
 
 /**
@@ -142,8 +199,17 @@ export interface ParsedStoredSection {
  * 「文字の大きさを手で書き換えて壊した」だけでさかのぼれる行数まで失われる。
  */
 export function parseStoredSection(id: SettingsSectionId, raw: unknown): ParsedStoredSection {
+  const failClosed = (FAIL_CLOSED_SECTION_VALUES[id] ?? {}) as Readonly<Record<string, unknown>>
+
   if (!isPlainObject(raw)) {
-    return { value: {}, unknownFields: {}, droppedFields: [], retiredFields: [], readable: false }
+    return {
+      // 無い section は既定。在るのに読めない section は、置き換える値があればそれで始める。
+      value: raw === undefined ? {} : { ...failClosed },
+      unknownFields: {},
+      droppedFields: [],
+      retiredFields: [],
+      readable: false
+    }
   }
 
   const fields = SECTION_FIELDS[id] as Readonly<Record<string, FieldKind>>
@@ -161,7 +227,12 @@ export function parseStoredSection(id: SettingsSectionId, raw: unknown): ParsedS
     if (isReadableValue(found, kind)) {
       value[name] = found
     } else {
+      // 落とした上で、置き換える値がある key はそれを入れる（既定へ緩めない）。
       dropped.push(name)
+
+      if (failClosed[name] !== undefined) {
+        value[name] = failClosed[name]
+      }
     }
   }
 
@@ -198,6 +269,9 @@ export function parseSettingsSectionUpdate(raw: unknown): SettingsSectionUpdate 
   }
 
   const fields = SECTION_FIELDS[section] as Readonly<Record<string, FieldKind>>
+  const choices = (SECTION_FIELD_CHOICES[section] ?? {}) as Readonly<
+    Record<string, readonly string[] | undefined>
+  >
   const accepted: Record<string, unknown> = {}
 
   for (const [name, kind] of Object.entries(fields)) {
@@ -208,6 +282,13 @@ export function parseSettingsSectionUpdate(raw: unknown): SettingsSectionUpdate 
     }
 
     if (!isReadableValue(found, kind)) {
+      return null
+    }
+
+    // 値を限ってある key は、知らない値を保存しない（Security を緩める値を書かせない）。
+    const allowed = choices[name]
+
+    if (allowed !== undefined && !allowed.includes(found as string)) {
       return null
     }
 

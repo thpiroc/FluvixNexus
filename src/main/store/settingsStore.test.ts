@@ -56,7 +56,8 @@ describe('settings.json の読み書き', () => {
       lsp: {},
       files: {},
       terminal: {},
-      mcp: {}
+      mcp: {},
+      security: {}
     })
 
     expect(await readdir(directory)).toEqual([])
@@ -92,7 +93,8 @@ describe('settings.json の読み書き', () => {
         lsp: {},
         files: {},
         terminal: {},
-        mcp: {}
+        mcp: {},
+        security: {}
       }
     })
   })
@@ -126,11 +128,12 @@ describe('settings.json の読み書き', () => {
       lsp: {},
       files: { viewMode: 'columns' },
       terminal: { fontSize: 20, scrollback: 1000 },
-      mcp: {}
+      mcp: {},
+      security: {}
     })
   })
 
-  it('JSON として壊れていれば既定で始まる（旧ファイルへは戻らない）', async () => {
+  it('JSON として壊れていれば既定で始まる（旧ファイルへは戻らない。Security だけは read）', async () => {
     await writeFile(join(directory, SETTINGS_FILE_NAME), '{ not json', 'utf8')
     await writeJson('terminal-settings.json', {
       schemaVersion: 1,
@@ -144,7 +147,9 @@ describe('settings.json の読み書き', () => {
       lsp: {},
       files: {},
       terminal: {},
-      mcp: {}
+      mcp: {},
+      // 在るのに読めないファイル。Security は既定（ask）へ緩めず read で始める。
+      security: { permissionMode: 'read' }
     })
   })
 })
@@ -191,7 +196,8 @@ describe('撤去した key の掃除', () => {
         lsp: {},
         files: {},
         terminal: { fontSize: 20 },
-        mcp: { enabled: true }
+        mcp: { enabled: true },
+        security: {}
       }
     })
   })
@@ -248,7 +254,8 @@ describe('旧 3 ファイルからの移行', () => {
       lsp: {},
       files: { viewMode: 'columns', columnWidth: 240 },
       terminal: { fontSize: 20, scrollback: 1000 },
-      mcp: {}
+      mcp: {},
+      security: {}
     })
 
     // 読んだだけで（保存を1度もせずに）ファイルができている。
@@ -261,7 +268,8 @@ describe('旧 3 ファイルからの移行', () => {
         lsp: {},
         files: { viewMode: 'columns', columnWidth: 240 },
         terminal: { fontSize: 20, scrollback: 1000 },
-        mcp: {}
+        mcp: {},
+        security: {}
       }
     })
   })
@@ -299,7 +307,8 @@ describe('旧 3 ファイルからの移行', () => {
       lsp: {},
       files: {},
       terminal: { fontSize: 20, scrollback: 1000 },
-      mcp: {}
+      mcp: {},
+      security: {}
     })
   })
 
@@ -318,7 +327,8 @@ describe('旧 3 ファイルからの移行', () => {
       lsp: {},
       files: {},
       terminal: { fontSize: 11 },
-      mcp: {}
+      mcp: {},
+      security: {}
     })
   })
 
@@ -341,7 +351,8 @@ describe('旧 3 ファイルからの移行', () => {
       lsp: {},
       files: {},
       terminal: {},
-      mcp: {}
+      mcp: {},
+      security: {}
     })
 
     expect(await readdir(directory)).toEqual([])

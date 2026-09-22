@@ -18,6 +18,7 @@ export type {
   StoredGeneralSettings,
   StoredLspSettings,
   StoredMcpSettings,
+  StoredSecuritySettings,
   StoredTerminalSettings
 } from './sections'
 
@@ -31,7 +32,7 @@ export {
   SETTINGS_SECTION_SCOPES
 } from './scope'
 
-export type { SettingsScope } from './scope'
+export type { SettingsScope, SettingsSectionScopeKind } from './scope'
 
 export {
   classifySettingsSchemaVersion,

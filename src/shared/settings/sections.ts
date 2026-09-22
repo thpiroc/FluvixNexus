@@ -73,7 +73,8 @@ export const SETTINGS_SECTION_IDS = [
   'lsp',
   'files',
   'terminal',
-  'mcp'
+  'mcp',
+  'security'
 ] as const
 
 /** 既知の section の名前。ここに無い名前は section ではない。 */
@@ -181,6 +182,30 @@ export interface StoredMcpSettings {
 }
 
 /**
+ * FN Agent の Security（Security Core v1 の STEP1。DESIGN.md §6.4）。
+ *
+ * **他の section と3つの点で扱いが違う。**
+ *
+ * ```
+ * 重ね方   ワークスペース > ユーザー ではなく、常に厳しい方（shared/settings/scope.ts の restrictive）
+ * 保存     read / ask 以外は Main が拒む（main/store/settingsSections.ts の SECTION_FIELD_CHOICES）
+ * 読み込み 読めない値は落とさず、最も厳しい値（read）に置き換える（同 FAIL_CLOSED_SECTION_VALUES）
+ * ```
+ *
+ * どれも「この section は Security を**緩める側へ倒れてはいけない**」の言い換えにあたる。
+ * 値の意味は shared/security/permissionMode.ts が持つ。
+ *
+ * ここに入るのは Permission だけで、**Security Core そのものを止める欄は無い**
+ * ── Workspace の外への禁止・Secret ファイルへの書き込み禁止・MCP の書き込み禁止などの
+ * 固定の規則は設定ではなく Main の定数にある（main/security/policy/securityDecision.ts）。
+ * Settings 画面の項目もまだ無い（Agent が実際にこの設定を使う段階で足す）。
+ */
+export interface StoredSecuritySettings {
+  /** `read` / `ask`。無ければ既定（`ask`）、読めない値は `read`。 */
+  readonly permissionMode?: string
+}
+
+/**
  * 既知の section をすべて持つ器。
  *
  * **どの section も必ず存在する**（中身が空の `{}` にはなりうる）。
@@ -195,6 +220,7 @@ export interface SettingsSections {
   readonly files: StoredFilesSettings
   readonly terminal: StoredTerminalSettings
   readonly mcp: StoredMcpSettings
+  readonly security: StoredSecuritySettings
 }
 
 /** section 名から、その section の値の型へ。 */
@@ -217,7 +243,16 @@ export type SettingsSectionUpdate = {
 
 /** 何も保存されていない状態（section はすべて空）。 */
 export function emptySettingsSections(): SettingsSections {
-  return { general: {}, appearance: {}, editor: {}, lsp: {}, files: {}, terminal: {}, mcp: {} }
+  return {
+    general: {},
+    appearance: {},
+    editor: {},
+    lsp: {},
+    files: {},
+    terminal: {},
+    mcp: {},
+    security: {}
+  }
 }
 
 /** 素の文字列が既知の section 名か。 */

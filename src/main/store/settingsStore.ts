@@ -8,6 +8,7 @@ import {
 } from './legacySettings'
 import {
   defaultSettingsDocument,
+  failClosedSettingsDocument,
   parseSettingsDocument,
   toStoredSettings,
   withSettingsSection
@@ -107,7 +108,8 @@ export function createSettingsStore(
 
     if (found.kind === 'unreadable') {
       report(`failed to read "${SETTINGS_FILE_NAME}"; falling back to defaults.`, found.cause)
-      return defaultSettingsDocument()
+      // 在るのに読めない。Security だけは既定（ask）ではなく read で始める（settingsDocument.ts）。
+      return failClosedSettingsDocument()
     }
 
     return loadFromLegacyFiles()
