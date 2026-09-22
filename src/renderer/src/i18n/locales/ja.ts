@@ -965,6 +965,30 @@ export const jaMessages = {
     closeLabel: '設定を閉じる',
     categoryNavLabel: '設定のカテゴリ',
     missingControl: 'この設定を操作する UI がありません。',
+    /* ユーザー設定 / ワークスペース設定（feature/settings-scope）。 */
+    scope: {
+      aria: '編集する設定の種類',
+      user: 'ユーザー',
+      workspace: 'ワークスペース',
+      userDescription:
+        'ユーザー設定を編集しています。Fluvix Nexus で開くすべてのプロジェクトに適用されます。',
+      workspaceDescription:
+        '「{name}」のワークスペース設定を編集しています。このプロジェクトだけに適用され、ユーザー設定より優先されます。',
+      workspaceDescriptionNone:
+        'ワークスペース設定は、開いているプロジェクトだけに適用され、ユーザー設定より優先されます。',
+      noWorkspace: {
+        title: 'ワークスペースを開くと、このプロジェクト専用の設定を変更できます。',
+        note: 'ワークスペース設定はプロジェクトごとに保存され、そのプロジェクトでだけユーザー設定を上書きします。開くまでは、ユーザー設定がどこでも使われます。'
+      },
+      status: {
+        inherited: 'ユーザー設定を使用中',
+        overridden: 'このワークスペースで変更済み',
+        shadowedByWorkspace:
+          '開いているワークスペースでは、ワークスペース設定の値が優先されています。',
+        userOnly: 'この設定はユーザー設定でのみ変更できます。'
+      },
+      reset: 'ユーザー設定に戻す'
+    },
     categories: {
       general: {
         title: '一般',
@@ -991,6 +1015,11 @@ export const jaMessages = {
         title: 'ターミナル',
         description: 'ターミナルの見え方。開いているタブすべてに効きます。'
       },
+      mcp: {
+        title: 'MCP',
+        description:
+          'MCP サーバーを通じて、Fluvix Nexus を外部サービスにつなぎます。どれも有効にするまで動きません。この設定はアプリ全体のもので、プロジェクトごとには変えられません。'
+      },
       keyboard: {
         title: 'キーボードショートカット',
         description: 'アプリの操作に割り当てる打鍵の一覧。変更はその場で保存され、すぐに効きます。'
@@ -1001,6 +1030,10 @@ export const jaMessages = {
         language: {
           title: '言語',
           description: 'Fluvix Nexus の表示言語を選びます。'
+        },
+        updates: {
+          title: 'アップデート',
+          description: 'GitHub Releases から Fluvix Nexus の新しい版を確認します。'
         }
       },
       appearance: {
@@ -1049,6 +1082,17 @@ export const jaMessages = {
           title: 'さかのぼれる行数',
           description: '減らすと、そのぶん古い出力はその場で捨てられます。'
         }
+      },
+      mcp: {
+        enabled: {
+          title: 'MCP を使う',
+          description:
+            'MCP 連携全体の元栓です。切っている間は MCP サーバーを起動せず、この PC から外へ何も送りません。'
+        },
+        servers: {
+          title: '接続先',
+          description: 'どのサービスにつなぐかを選びます。上を切っている間は効きません。'
+        }
       }
     },
     controls: {
@@ -1082,6 +1126,12 @@ export const jaMessages = {
       },
       theme: {
         aria: 'テーマ'
+      },
+      mcpEnabled: {
+        aria: 'MCP を使うか'
+      },
+      mcpServers: {
+        aria: 'つなぐサービス'
       }
     },
     values: {
@@ -1092,6 +1142,10 @@ export const jaMessages = {
         onWindowChange: '自動保存: ウィンドウが切り替わったら'
       },
       lsp: {
+        on: '使う',
+        off: '使わない'
+      },
+      mcp: {
         on: '使う',
         off: '使わない'
       },
@@ -1245,6 +1299,82 @@ export const jaMessages = {
         user: 'ユーザー',
         workspace: 'Workspace'
       }
+    },
+    /* 英語側（locales/en.ts の `settings.mcp`）に、言い回しを分けてある理由がある。 */
+    mcp: {
+      connections: {
+        notion: 'Notion'
+      },
+      status: {
+        loading: '確認中…',
+        testing: '接続中…',
+        disabled: '使わない設定です',
+        ready: '接続できる状態です',
+        connected: '接続できました',
+        notConfigured: 'まだ設定されていません',
+        tokenMissing: 'token がまだありません',
+        tokenInvalid: 'token に使えない文字が含まれています',
+        nodeNotFound: 'Node.js が見つかりません',
+        serverNotInstalled: 'MCP サーバーが入っていません'
+      },
+      failure: {
+        spawnFailed: 'サーバーを起動できませんでした',
+        timeout: 'サーバーから時間内に応答がありませんでした',
+        serverExited: 'サーバーが自分で終了しました',
+        protocolError: 'サーバーの応答をこの版では読めませんでした',
+        unsupportedProtocol: 'このアプリが対応していない版の MCP を話すサーバーです',
+        rejected: 'サーバーに接続を断られました'
+      },
+      secret: {
+        label: 'token',
+        placeholder: 'token を貼り付けます',
+        save: '保存',
+        clear: '削除',
+        cannotStore:
+          'この PC では token を安全に保存できないため、保存しません。環境変数 FLUVIX_NOTION_MCP_TOKEN を使ってください。',
+        source: {
+          stored: 'この PC に暗号化して保存されています。',
+          environment: '環境変数 FLUVIX_NOTION_MCP_TOKEN の token を使っています。',
+          none: 'token がまだありません。下の欄に貼り付けるか、環境変数 FLUVIX_NOTION_MCP_TOKEN を設定してください。'
+        }
+      },
+      test: '接続テスト',
+      tools: '{name} に接続しました。{count} 個のツールがあります。',
+      unknownServer: 'サーバー',
+      notice: {
+        saved: 'token を保存しました。',
+        saveFailed: 'token を保存できませんでした。',
+        tokenInvalid:
+          'この token には使えない文字が含まれています。貼り付けた内容を確認してください。',
+        encryptionUnavailable: 'この PC では token を安全に保存できないため、保存しませんでした。',
+        cleared: '保存されていた token を削除しました。',
+        clearedButEnvironment:
+          '保存されていた token を削除しました。環境変数 FLUVIX_NOTION_MCP_TOKEN が残っているため、今はそちらが使われます。',
+        clearFailed: '保存されていた token を削除できませんでした。',
+        testFailed: '接続テストを実行できませんでした。'
+      }
+    }
+  },
+  updates: {
+    currentVersion: '現在のバージョン: {version}',
+    availableVersion: '利用できるバージョン: {version}',
+    source: '更新元: GitHub Releases（{owner}/{repo}）',
+    progress: '{percent}%（{transferred} / {total}）',
+    status: {
+      loading: '更新状態を読み込んでいます…',
+      idle: 'まだ更新を確認していません。',
+      checking: '更新を確認しています…',
+      'not-available': '最新版を使用中です。',
+      available: '新しいバージョンがあります。',
+      downloading: '更新データをダウンロードしています…',
+      downloaded: '更新の準備ができました。作業が落ち着いたら再起動できます。',
+      error: '更新確認に失敗しました。',
+      unsupported: 'この環境ではアップデートを利用できません。'
+    },
+    actions: {
+      check: '更新を確認',
+      download: '更新をダウンロード',
+      install: '今すぐ再起動して更新'
     }
   },
   /* 英語側（locales/en.ts の `lsp`）に、名前と言い回しを分けてある理由がある。 */
@@ -1490,6 +1620,34 @@ export const jaMessages = {
       terminating: 'Debug Session を終了しています。'
     }
   },
+  /* 英語側（locales/en.ts の `feedback`）に説明がある。 */
+  feedback: {
+    title: 'フィードバック',
+    description:
+      '種別を選び、気づいたことを書いてください。このバージョンでは、内容はどこへも送信・保存されません。',
+    closeTitle: 'フィードバックを閉じる（Esc）',
+    closeLabel: 'フィードバックを閉じる',
+    categoryLabel: '種別',
+    categories: {
+      bug: 'バグ',
+      bad: 'Bad',
+      good: 'Good',
+      safety: '安全性チェック',
+      other: 'その他'
+    },
+    detailLabel: '詳細',
+    detailPlaceholder: '起きたこと・期待していた動き・良かった点などを書いてください。',
+    submit: '送信',
+    sending: '送信中…',
+    accepted: 'フィードバックを受け付けました。ありがとうございます。',
+    failed:
+      'フィードバックを受け付けられませんでした。入力内容は残してあります。もう一度お試しください。',
+    errors: {
+      categoryRequired: 'フィードバックの種別を選んでください。',
+      detailEmpty: '詳細を入力してください。',
+      detailBlank: '空白だけでは送信できません。内容を入力してください。'
+    }
+  },
   workspace: {
     noWorkspace: 'Workspace 未選択',
     noWorkspaceOpen: 'Workspace が開かれていません。',
@@ -1502,6 +1660,8 @@ export const jaMessages = {
     modified: '変更あり',
     settingsTitle: 'アプリ全体の設定を開きます。',
     settingsButton: '設定',
+    feedbackTitle: 'Fluvix Nexus へのフィードバックを書きます。',
+    feedbackButton: 'フィードバック',
     resetLayout: 'レイアウトを初期化',
     emptyDock: 'パネルがありません（View メニューから表示できます）',
     closePanel: '{title} を閉じる',

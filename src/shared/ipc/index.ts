@@ -114,9 +114,17 @@ export type {
   ToggleDebugBreakpointRequest
 } from './contracts/debug'
 export type {
+  FeedbackIpcContract,
+  SubmitFeedbackRequest,
+  SubmitFeedbackResponse
+} from './contracts/feedback'
+export type { McpConnectionRequest, McpIpcContract, McpOperationRequest } from './contracts/mcp'
+export type {
   LoadSettingsResponse,
   SaveSettingsSectionRequest,
-  SettingsIpcContract
+  SettingsIpcContract,
+  SettingsSaveTarget,
+  WorkspaceSettingsSnapshot
 } from './contracts/settings'
 export type {
   KeybindingsIpcContract,
@@ -163,6 +171,13 @@ export type {
   PublishGitHubRepositoryResponse
 } from './contracts/github'
 export type {
+  CheckForUpdatesResponse,
+  DownloadUpdateResponse,
+  GetUpdateStatusResponse,
+  InstallUpdateResponse,
+  UpdatesIpcContract
+} from './contracts/updates'
+export type {
   CreateTerminalSessionRequest,
   CreateTerminalSessionResponse,
   DisposeTerminalSessionRequest,
@@ -190,6 +205,7 @@ export type {
   DebugStatusChangedEvent
 } from './events/debug'
 export type { GitChangedEvent, GitIpcEventContract } from './events/git'
+export type { UpdateStatusChangedEvent, UpdatesIpcEventContract } from './events/updates'
 export type {
   LspDiagnosticsClearedEvent,
   LspDiagnosticsEvent,
@@ -202,4 +218,5 @@ export type {
   TerminalIpcEventContract,
   TerminalOutputEvent
 } from './events/terminal'
+export type { SettingsIpcEventContract, SettingsWorkspaceChangedEvent } from './events/settings'
 export type { WindowCloseRequestedEvent, WindowIpcEventContract } from './events/window'

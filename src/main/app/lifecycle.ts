@@ -14,15 +14,17 @@ import { startLanguageServerSettings } from '../lsp/languageServerSettings'
 import { startLanguageServerHosting, stopLanguageServers } from '../lsp/languageServers'
 import { startLanguageServerStatusReporting } from '../lsp/serverStatus'
 import { createLogger } from '../logger'
+import { stopMcpConnections } from '../mcp/mcpService'
 import { isMacOS } from '../platform'
 import { applySessionSecurityPolicy, applyWebContentsSecurityPolicy } from '../security'
 import { flushDebugBreakpointsDocument } from '../store/debugBreakpoints'
 import { flushDebugProfilesDocument } from '../store/debugProfiles'
 import { flushKeybindingsDocument } from '../store/keybindings'
-import { flushSettingsDocument } from '../store/settings'
+import { flushSettingsDocument, startSettingsScopeTracking } from '../store/settings'
 import { flushWorkspaceFolderDocument } from '../store/workspaceFolder'
 import { flushWorkspaceLayoutDocument } from '../store/workspaceLayout'
 import { stopTerminalSessions } from '../terminal/terminalSessions'
+import { startUpdateService } from '../updates/updateService'
 import { createMainWindow, focusMainWindow, getMainWindow } from '../windows/mainWindow'
 import { onWorkspaceFolderChange } from '../workspaceFolder/currentWorkspaceFolder'
 import { applyApplicationMenu } from './menu'
@@ -81,6 +83,12 @@ export function bootstrapApp(): void {
       答えを返すため（main/lsp/languageServers.ts）。
     */
     startLanguageServerHosting()
+
+    /*
+      ワークスペース設定の切り替えへの追従（feature/settings-scope）。Language Server の
+      設定より先に張る ── 受け手がそこで Workspace ごとの値へ切り替われるように。
+    */
+    startSettingsScopeTracking()
 
     /*
       Language Server を使うかどうか（Session 5-4）。**文書同期より先に読む** ──
@@ -169,6 +177,7 @@ export function bootstrapApp(): void {
     */
 
     createMainWindow()
+    startUpdateService()
 
     app.on('activate', () => {
       if (getMainWindow() === null) {
@@ -204,6 +213,12 @@ export function bootstrapApp(): void {
       Renderer へ adapter executable / args / cwd を露出する口はまだ無い。
     */
     disposeDebugSession('the application is quitting.')
+
+    /*
+      MCP サーバー（接続テストの途中など）も Main の子プロセスなので終わらせる
+      （main/mcp/mcpService.ts）。
+    */
+    stopMcpConnections()
 
     flushWorkspaceLayoutDocument()
     flushWorkspaceFolderDocument()

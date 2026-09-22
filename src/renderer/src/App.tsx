@@ -12,6 +12,7 @@ import { LanguageProvider } from './i18n/LanguageProvider'
 import { KeybindingProvider } from './keybindings/KeybindingProvider'
 import { LspSettingsProvider } from './lsp/LspSettingsProvider'
 import { TerminalProvider } from './terminal/TerminalProvider'
+import { SettingsScopeProvider } from './settings/SettingsScopeProvider'
 import { ThemeProvider } from './theme/ThemeProvider'
 import { UnsavedChangesProvider } from './unsaved/UnsavedChangesProvider'
 import { WorkspaceShell } from './workspace/WorkspaceShell'
@@ -24,10 +25,12 @@ import { WorkspaceFolderProvider } from './workspaceFolder/WorkspaceFolderProvid
  * アプリ全体に関わるもの（エラーバウンダリ、独立ウィンドウ化した際のルート分岐など）が
  * 必要になったときだけこの層に足す。
  *
- * Shell より外側に置いているものが13ある。どれも**レイアウトの都合でパネルが
+ * Shell より外側に置いているものが14ある。どれも**レイアウトの都合でパネルが
  * 作り直されても消えてはいけない状態**で、パネルは自由に配置を変えられて
  * 親子関係が固定されていないため prop では配れない。
  *
+ *   SettingsScopeProvider   … ユーザー設定 / ワークスペース設定の写し（feature/settings-scope。
+ *                             設定を読む Provider すべてより外。settings/SettingsScopeProvider.tsx）
  *   ThemeProvider           … アプリ全体の見た目（Session 4-4。theme/ThemeProvider.tsx）
  *   CommandProvider         … 実行できる操作の表（Session 4-7A。commands/CommandProvider.tsx）
  *   UnsavedChangesProvider  … 失われるものがある操作に挟む確認（unsaved/types.ts）
@@ -86,18 +89,19 @@ import { WorkspaceFolderProvider } from './workspaceFolder/WorkspaceFolderProvid
  */
 function App(): JSX.Element {
   return (
-    <ThemeProvider>
-      <LanguageProvider>
-        <CommandProvider>
-          <UnsavedChangesProvider>
-            <WorkspaceFolderProvider>
-              <EditorProvider>
-                <TerminalProvider>
-                  {/* 表示方式の選択は他の4つに依存しない。一番内側で足りる。 */}
-                  <FilesViewProvider>
-                    <FileTreeStateProvider>
-                      <GitDraftProvider>
-                        {/*
+    <SettingsScopeProvider>
+      <ThemeProvider>
+        <LanguageProvider>
+          <CommandProvider>
+            <UnsavedChangesProvider>
+              <WorkspaceFolderProvider>
+                <EditorProvider>
+                  <TerminalProvider>
+                    {/* 表示方式の選択は他の4つに依存しない。一番内側で足りる。 */}
+                    <FilesViewProvider>
+                      <FileTreeStateProvider>
+                        <GitDraftProvider>
+                          {/*
                           Language Server を使うかどうか（Session 5-4）。
                           Files の表示方式と同じく他に依存しないので内側で足りる。
 
@@ -105,8 +109,8 @@ function App(): JSX.Element {
                           Settings 画面の表示だけで、実際にサーバを立てる / 終わらせるのは
                           Main が自分で読んだ同じ設定になる（lsp/LspSettingsProvider.tsx）。
                         */}
-                        <LspSettingsProvider>
-                          {/*
+                          <LspSettingsProvider>
+                            {/*
                             Breakpoint（Session 6-3）。**Editor より外**に置く必要がある
                             ── 印は Editor パネルより長く生き、パネルを閉じても
                             別の場所へ運んでも消えない（debug/context.ts）。
@@ -114,31 +118,32 @@ function App(): JSX.Element {
                             Workspace には依存する（相対位置は Workspace が変われば
                             別のファイルを指す）ので、WorkspaceFolderProvider の内側になる。
                           */}
-                          <DebugProvider>
-                            <BreakpointProvider>
-                              <CallStackProvider>
-                                {/*
+                            <DebugProvider>
+                              <BreakpointProvider>
+                                <CallStackProvider>
+                                  {/*
                                   止まったら、その位置を Editor で開く（Session 6-13）。Debug パネルを
                                   閉じていても働くよう、パネルではなくここに1つだけ置く。
                                 */}
-                                <ExecutionLocationFollower />
-                                <KeybindingProvider>
-                                  <WorkspaceShell />
-                                </KeybindingProvider>
-                              </CallStackProvider>
-                            </BreakpointProvider>
-                          </DebugProvider>
-                        </LspSettingsProvider>
-                      </GitDraftProvider>
-                    </FileTreeStateProvider>
-                  </FilesViewProvider>
-                </TerminalProvider>
-              </EditorProvider>
-            </WorkspaceFolderProvider>
-          </UnsavedChangesProvider>
-        </CommandProvider>
-      </LanguageProvider>
-    </ThemeProvider>
+                                  <ExecutionLocationFollower />
+                                  <KeybindingProvider>
+                                    <WorkspaceShell />
+                                  </KeybindingProvider>
+                                </CallStackProvider>
+                              </BreakpointProvider>
+                            </DebugProvider>
+                          </LspSettingsProvider>
+                        </GitDraftProvider>
+                      </FileTreeStateProvider>
+                    </FilesViewProvider>
+                  </TerminalProvider>
+                </EditorProvider>
+              </WorkspaceFolderProvider>
+            </UnsavedChangesProvider>
+          </CommandProvider>
+        </LanguageProvider>
+      </ThemeProvider>
+    </SettingsScopeProvider>
   )
 }
 

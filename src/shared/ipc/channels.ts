@@ -73,6 +73,10 @@ export const IPC_CHANNELS = {
   GIT_RESOLVE_CONFLICT: 'git:resolve-conflict',
   GITHUB_GET_STATUS: 'github:get-status',
   GITHUB_PUBLISH: 'github:publish',
+  UPDATES_GET_STATUS: 'updates:get-status',
+  UPDATES_CHECK: 'updates:check',
+  UPDATES_DOWNLOAD: 'updates:download',
+  UPDATES_INSTALL: 'updates:install',
   LSP_DID_OPEN: 'lsp:did-open',
   LSP_DID_CHANGE: 'lsp:did-change',
   LSP_DID_SAVE: 'lsp:did-save',
@@ -106,7 +110,13 @@ export const IPC_CHANNELS = {
   SETTINGS_LOAD: 'settings:load',
   SETTINGS_SAVE_SECTION: 'settings:save-section',
   KEYBINDINGS_LOAD: 'keybindings:load',
-  KEYBINDINGS_SAVE: 'keybindings:save'
+  KEYBINDINGS_SAVE: 'keybindings:save',
+  FEEDBACK_SUBMIT: 'feedback:submit',
+  MCP_GET_STATUS: 'mcp:get-status',
+  MCP_TEST_CONNECTION: 'mcp:test-connection',
+  MCP_CALL_OPERATION: 'mcp:call-operation',
+  MCP_SET_SECRET: 'mcp:set-secret',
+  MCP_CLEAR_SECRET: 'mcp:clear-secret'
 } as const satisfies Record<string, IpcChannel>
 
 /**

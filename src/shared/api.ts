@@ -72,6 +72,12 @@ import type {
 import type { IpcEventListener, IpcEventUnsubscribe } from './ipc/event'
 import type { SaveKeybindingsRequest } from './ipc/contracts/keybindings'
 import type { SaveSettingsSectionRequest } from './ipc/contracts/settings'
+import type { SubmitFeedbackRequest } from './ipc/contracts/feedback'
+import type {
+  McpConnectionRequest,
+  McpOperationRequest,
+  McpSetSecretRequest
+} from './ipc/contracts/mcp'
 import type { PingRequest } from './ipc/contracts/system'
 import type {
   CreateTerminalSessionRequest,
@@ -158,6 +164,13 @@ export interface SettingsApi {
   readonly saveSection: (
     request: SaveSettingsSectionRequest
   ) => IpcInvokeResult<'settings:save-section'>
+  /**
+   * 今の Workspace が切り替わった（開いた / 閉じた）ことを受け取る。
+   * ワークスペース設定が変わるので、受け手は `load` で読み直す。
+   */
+  readonly onWorkspaceChanged: (
+    listener: IpcEventListener<'settings:workspace-changed'>
+  ) => IpcEventUnsubscribe
 }
 
 /**
@@ -971,6 +984,23 @@ export interface GitHubApi {
 }
 
 /**
+ * Fluvix Nexus 本体の更新。
+ *
+ * 更新元は Main 側で固定した GitHub Releases だけで、Renderer から URL や
+ * 実行ファイルのパスを渡す口は持たない。利用者が作業中のままにできるよう、
+ * インストール済み更新の適用も明示操作にしてある。
+ */
+export interface UpdatesApi {
+  readonly getStatus: () => IpcInvokeResult<'updates:get-status'>
+  readonly check: () => IpcInvokeResult<'updates:check'>
+  readonly download: () => IpcInvokeResult<'updates:download'>
+  readonly install: () => IpcInvokeResult<'updates:install'>
+  readonly onStatusChanged: (
+    listener: IpcEventListener<'updates:status-changed'>
+  ) => IpcEventUnsubscribe
+}
+
+/**
  * 開いている文書を Language Server と同期する API（Session 5-2）。
  *
  * ## 公開しているのは「開いた」「変わった」「保存した」「閉じた」の4つ
@@ -1238,6 +1268,43 @@ export interface DebugApi {
 }
 
 /**
+ * フィードバックを送る API。
+ *
+ * 渡せるのは種別と詳細だけで、送信日時・バージョン・OS は Main が付ける。
+ * 保存先とその秘密情報（Notion の token など）は Main の外へ出ない
+ * （shared/ipc/contracts/feedback.ts）。
+ */
+export interface FeedbackApi {
+  readonly submit: (request: SubmitFeedbackRequest) => IpcInvokeResult<'feedback:submit'>
+}
+
+/**
+ * MCP サーバー（Notion MCP など）との接続を扱う API。
+ *
+ * 渡せるのは接続の id だけで、起動するもの・token・ツール名は Main が決める
+ * （shared/ipc/contracts/mcp.ts）。フィードバックの Notion 保存とは別の経路で、
+ * 設定も共有しない。
+ */
+export interface McpApi {
+  /** 設定が揃っているかと直近の接続テストの結末（起動も通信もしない）。 */
+  readonly getStatus: (request: McpConnectionRequest) => IpcInvokeResult<'mcp:get-status'>
+  /** サーバーを起動して接続し、ツールの一覧を取って切断する。 */
+  readonly testConnection: (request: McpConnectionRequest) => IpcInvokeResult<'mcp:test-connection'>
+  /**
+   * 許可された操作を1つ実行する。書き込みの操作は、実行の前に Main が確認を出す。
+   */
+  readonly callOperation: (request: McpOperationRequest) => IpcInvokeResult<'mcp:call-operation'>
+  /**
+   * token を安全な保存先へ入れる（§21.9）。**token が通る唯一の口**で、
+   * 向きは Renderer → Main の一方通行にあたる。返るのは在り処だけで、
+   * 値を読み出す口はこの API に無い。
+   */
+  readonly setSecret: (request: McpSetSecretRequest) => IpcInvokeResult<'mcp:set-secret'>
+  /** 保存された token を消す。環境変数の token には触れない。 */
+  readonly clearSecret: (request: McpConnectionRequest) => IpcInvokeResult<'mcp:clear-secret'>
+}
+
+/**
  * `window.fluvix` として Renderer に公開される API 全体。
  *
  * Files / Terminal / GitHub など OS に触れるドメイン API は、
@@ -1261,6 +1328,8 @@ export interface FluvixApi {
   readonly git: GitApi
   /** そのリポジトリを GitHub へ公開する（Session 3-8-10）。 */
   readonly github: GitHubApi
+  /** Fluvix Nexus 本体の更新。 */
+  readonly updates: UpdatesApi
   /** 開いている文書を Language Server と同期する（Session 5-2）。 */
   readonly lsp: LspApi
   /** その Workspace の breakpoint（Session 6-3）と実行制御（Session 6-4）。 */
@@ -1269,6 +1338,10 @@ export interface FluvixApi {
   readonly settings: SettingsApi
   /** ユーザーのキー割り当ての永続化（Shortcuts S3）。 */
   readonly keybindings: KeybindingsApi
+  /** フィードバックを設定済みの保存先（Notion など）へ送る。 */
+  readonly feedback: FeedbackApi
+  /** MCP サーバー（Notion MCP など）との接続。 */
+  readonly mcp: McpApi
 }
 
 /** `window` に API を公開する際のキー。Preload と Renderer の双方から参照する。 */

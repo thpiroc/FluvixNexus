@@ -17,6 +17,7 @@ export const IPC_EVENT_CHANNELS = {
   TERMINAL_DATA: 'terminal:data',
   TERMINAL_EXIT: 'terminal:exit',
   GIT_CHANGED: 'git:changed',
+  UPDATES_STATUS_CHANGED: 'updates:status-changed',
   LSP_SYNC_REQUESTED: 'lsp:sync-requested',
   LSP_DIAGNOSTICS: 'lsp:diagnostics',
   LSP_DIAGNOSTICS_CLEARED: 'lsp:diagnostics-cleared',
@@ -24,7 +25,8 @@ export const IPC_EVENT_CHANNELS = {
   DEBUG_BREAKPOINTS_CHANGED: 'debug:breakpoints-changed',
   DEBUG_CALL_STACK_CHANGED: 'debug:call-stack-changed',
   DEBUG_CONSOLE_ENTRY: 'debug:console-entry',
-  DEBUG_STATUS_CHANGED: 'debug:status-changed'
+  DEBUG_STATUS_CHANGED: 'debug:status-changed',
+  SETTINGS_WORKSPACE_CHANGED: 'settings:workspace-changed'
 } as const satisfies Record<string, IpcEventChannel>
 
 /**

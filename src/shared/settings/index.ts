@@ -17,8 +17,21 @@ export type {
   StoredFilesSettings,
   StoredGeneralSettings,
   StoredLspSettings,
+  StoredMcpSettings,
   StoredTerminalSettings
 } from './sections'
+
+export {
+  getEffectiveSetting,
+  isOverriddenInWorkspace,
+  isSettingsScope,
+  isWorkspaceScopedSection,
+  resolveEffectiveSettings,
+  SETTINGS_SCOPES,
+  SETTINGS_SECTION_SCOPES
+} from './scope'
+
+export type { SettingsScope } from './scope'
 
 export {
   classifySettingsSchemaVersion,

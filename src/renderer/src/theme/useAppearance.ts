@@ -1,10 +1,9 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { ThemeId } from '@shared/theme'
 import { useSettingsSection } from '../settings/useSettingsSection'
 import {
-  isSameAppearanceSettings,
-  toAppearanceSection,
-  toAppearanceSettings,
+  APPEARANCE_SETTINGS_BINDING,
+  createAppearanceSetters,
   type AppearanceSettings
 } from './appearanceSettings'
 import { readDocumentTheme } from './documentTheme'
@@ -65,28 +64,10 @@ export function useAppearance(): AppearanceController {
   const [initial] = useState<AppearanceSettings>(() => ({ theme: readDocumentTheme() }))
 
   const { value: settings, update } = useSettingsSection({
-    section: 'appearance',
-    initial,
-    fromStored: toAppearanceSettings,
-    toStored: toAppearanceSection,
-    label: 'Appearance の設定'
+    ...APPEARANCE_SETTINGS_BINDING,
+    initial
   })
-
-  /*
-    同じなら据え置く。既に選ばれている方をもう一度押したときに、保存と
-    再描画（＝ Monaco と全部の端末への当て直し）が走らないようにするため。
-    Files の `setPreference` ・Terminal の `apply` と同じ形にしてある。
-  */
-  const setTheme = useCallback(
-    (theme: ThemeId): void => {
-      update((previous) => {
-        const next = toAppearanceSettings({ theme })
-
-        return isSameAppearanceSettings(previous, next) ? previous : next
-      })
-    },
-    [update]
-  )
+  const { setTheme } = useMemo(() => createAppearanceSetters(update), [update])
 
   return useMemo(() => ({ settings, setTheme }), [settings, setTheme])
 }

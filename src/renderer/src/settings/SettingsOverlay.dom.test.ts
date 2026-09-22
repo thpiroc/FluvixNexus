@@ -3,21 +3,15 @@
  */
 import { act, createElement, useMemo, useState, type ReactElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
+import type { LoadSettingsResponse, WorkspaceSettingsSnapshot } from '@shared/ipc'
 import { emptySettingsSections, type SettingsSections } from '@shared/settings'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  DEFAULT_AUTO_SAVE_SETTINGS,
-  normalizeAutoSaveSettings,
-  type AutoSaveMode
-} from '../editor/autoSave'
+import { AUTO_SAVE_SETTINGS_BINDING, createAutoSaveSetters } from '../editor/autoSave'
 import { EditorContext } from '../editor/context'
 import type { EditorController } from '../editor/useEditorSession'
-import {
-  DEFAULT_TERMINAL_DISPLAY_SETTINGS,
-  type TerminalDisplaySettings
-} from '../terminal/terminalSettings'
 import { TerminalContext } from '../terminal/context'
 import { TerminalSettingsMenu } from '../terminal/TerminalSettingsMenu'
+import { useTerminalSettings } from '../terminal/useTerminalSettings'
 import type { TerminalTabsController } from '../terminal/useTerminalTabs'
 import { WorkspaceFolderContext, type WorkspaceFolderController } from '../workspaceFolder/context'
 import { WorkspaceTopBar } from '../workspace/shell/WorkspaceTopBar'
@@ -31,6 +25,8 @@ import { readDocumentLanguage } from '../i18n/documentLanguage'
 import { ThemeProvider } from '../theme/ThemeProvider'
 import { readDocumentTheme } from '../theme/documentTheme'
 import { SettingsOverlay } from './SettingsOverlay'
+import { SettingsScopeProvider } from './SettingsScopeProvider'
+import { useSettingsSection } from './useSettingsSection'
 
 const settingsStore = vi.hoisted(() => ({
   sections: {
@@ -38,20 +34,69 @@ const settingsStore = vi.hoisted(() => ({
     editor: {},
     files: {},
     terminal: {},
+    mcp: {},
     appearance: {}
   } as SettingsSections,
   load: vi.fn(),
-  saveSection: vi.fn()
+  saveSection: vi.fn(),
+  /** Main から届く「Workspace が切り替わった」の受け手（試験から流す）。 */
+  workspaceListeners: [] as Array<(event: { workspaceId: string | null }) => void>,
+  onWorkspaceChanged: vi.fn(),
+  updateStatus: {
+    status: 'idle',
+    currentVersion: '1.0.0',
+    updateVersion: null,
+    releaseName: null,
+    releaseDate: null,
+    message: null,
+    lastCheckedAt: null,
+    progress: null,
+    source: {
+      provider: 'github',
+      owner: 'thpiroc',
+      repo: 'FluvixNexus'
+    }
+  },
+  getUpdateStatus: vi.fn(),
+  checkUpdates: vi.fn(),
+  downloadUpdate: vi.fn(),
+  installUpdate: vi.fn(),
+  onUpdateStatusChanged: vi.fn()
 }))
 
 vi.mock('../api/fluvix', () => ({
   fluvix: {
     settings: {
       load: settingsStore.load,
-      saveSection: settingsStore.saveSection
+      saveSection: settingsStore.saveSection,
+      onWorkspaceChanged: settingsStore.onWorkspaceChanged
+    },
+    updates: {
+      getStatus: settingsStore.getUpdateStatus,
+      check: settingsStore.checkUpdates,
+      download: settingsStore.downloadUpdate,
+      install: settingsStore.installUpdate,
+      onStatusChanged: settingsStore.onUpdateStatusChanged
     }
   }
 }))
+
+/** `settings:load` の応答を差し替える（ユーザー設定と、開いている Workspace の設定）。 */
+function respondWith(user: SettingsSections, workspace: WorkspaceSettingsSnapshot | null): void {
+  const data: LoadSettingsResponse = { user, workspace }
+
+  settingsStore.sections = user
+  settingsStore.load.mockResolvedValue({ ok: true, data })
+}
+
+/** 開いている Workspace のワークスペース設定（上書きの無い section は空）。 */
+function workspaceSnapshot(
+  sections: Partial<SettingsSections> = {},
+  workspaceId = 'workspace-a',
+  displayName = 'project-a'
+): WorkspaceSettingsSnapshot {
+  return { workspaceId, displayName, sections: { ...emptySettingsSections(), ...sections } }
+}
 
 function mockWorkspace(): WorkspaceFolderController {
   return {
@@ -110,31 +155,50 @@ function FilesToolbarProbe(): ReactElement {
 }
 
 function SettingsDomHarness(): ReactElement {
-  const [settingsOpen, setSettingsOpen] = useState(false)
-  const [autoSave, setAutoSave] = useState(DEFAULT_AUTO_SAVE_SETTINGS)
-  const [terminal, setTerminal] = useState<TerminalDisplaySettings>(
-    DEFAULT_TERMINAL_DISPLAY_SETTINGS
+  /*
+    ユーザー設定 / ワークスペース設定の器（feature/settings-scope）。**実物を使う** ──
+    確かめたいのが「Settings 画面で変えた値が、各機能の読む値そのものになること」で、
+    その値はこの器にしか無い。中身は上の `settingsStore`（fluvix のモック）から読む。
+  */
+  return createElement(
+    SettingsScopeProvider,
+    null,
+    createElement(
+      /*
+        Theme は実物の Provider を使う（Session 4-4）── 確かめたいのが
+        「選ぶと `<html>` に当たること」なので、ここを差し替えるとその経路ごと
+        試験の外に出てしまう。
+      */
+      ThemeProvider,
+      null,
+      createElement(LanguageProvider, null, createElement(SettingsDomHarnessBody))
+    )
   )
+}
+
+function SettingsDomHarnessBody(): ReactElement {
+  const [settingsOpen, setSettingsOpen] = useState(false)
+
+  /*
+    Editor / Terminal は本物の器ごと立てると Monaco / xterm まで要るので、
+    **設定の部分だけ本物の hook を使う。** Editor（useEditorSession）と同じ
+    binding・同じ変え方、Terminal は useTerminalSettings そのもの ── 読む値は
+    アプリ本体と同じ「実際に効く値」になる。
+  */
+  const { value: autoSave, update: updateAutoSave } = useSettingsSection(AUTO_SAVE_SETTINGS_BINDING)
+  const terminal = useTerminalSettings()
 
   const editorController = useMemo(
-    () =>
-      ({
-        autoSave,
-        setAutoSaveMode: (mode: AutoSaveMode) =>
-          setAutoSave((previous) => normalizeAutoSaveSettings({ ...previous, mode })),
-        setAutoSaveDelayMs: (delayMs: number) =>
-          setAutoSave((previous) => normalizeAutoSaveSettings({ ...previous, delayMs }))
-      }) as unknown as EditorController,
-    [autoSave]
+    () => ({ autoSave, ...createAutoSaveSetters(updateAutoSave) }) as unknown as EditorController,
+    [autoSave, updateAutoSave]
   )
 
   const terminalController = useMemo(
     () =>
       ({
-        display: terminal,
-        setFontSize: (fontSize: number) => setTerminal((previous) => ({ ...previous, fontSize })),
-        setScrollback: (scrollback: number) =>
-          setTerminal((previous) => ({ ...previous, scrollback }))
+        display: terminal.settings,
+        setFontSize: terminal.setFontSize,
+        setScrollback: terminal.setScrollback
       }) as unknown as TerminalTabsController,
     [terminal]
   )
@@ -142,76 +206,59 @@ function SettingsDomHarness(): ReactElement {
   const visiblePanelIds: ReadonlySet<PanelId> = new Set(['files', 'editor', 'terminal', 'git'])
 
   return createElement(
-    /*
-      Theme は実物の Provider を使う（Session 4-4）── 確かめたいのが
-      「選ぶと `<html>` に当たること」なので、ここを差し替えるとその経路ごと
-      試験の外に出てしまう。値は上の `settingsStore`（fluvix のモック）から読む。
-    */
-    ThemeProvider,
-    null,
+    WorkspaceFolderContext.Provider,
+    { value: mockWorkspace() },
     createElement(
-      LanguageProvider,
-      null,
+      EditorContext.Provider,
+      { value: editorController },
       createElement(
-        WorkspaceFolderContext.Provider,
-        { value: mockWorkspace() },
+        TerminalContext.Provider,
+        { value: terminalController },
         createElement(
-          EditorContext.Provider,
-          { value: editorController },
+          FilesViewProvider,
+          null,
           createElement(
-            TerminalContext.Provider,
-            { value: terminalController },
+            /*
+              Language Server の設定（Session 5-4）。実物の Provider を使う
+              ── 確かめたいのが「押すと保存され、その値が画面に出ること」で、
+              差し替えるとその経路ごと試験の外に出てしまう。
+            */
+            LspSettingsProvider,
+            null,
             createElement(
-              FilesViewProvider,
+              'div',
               null,
+              createElement(WorkspaceTopBar, {
+                visiblePanelIds,
+                presetId: 'default',
+                modified: false,
+                onTogglePanel: vi.fn(),
+                onApplyPreset: vi.fn(),
+                onResetLayout: vi.fn(),
+                settingsOpen,
+                onOpenSettings: () => setSettingsOpen(true),
+                feedbackOpen: false,
+                onOpenFeedback: vi.fn()
+              }),
+              createElement(FilesToolbarProbe),
+              createElement(TerminalSettingsMenu, {
+                display: terminal.settings,
+                onFontSizeChange: terminal.setFontSize
+              }),
+              createElement('span', { 'data-testid': 'editor-auto-save-mode' }, autoSave.mode),
+              createElement('span', { 'data-testid': 'editor-auto-save-delay' }, autoSave.delayMs),
               createElement(
-                /*
-                  Language Server の設定（Session 5-4）。実物の Provider を使う
-                  ── 確かめたいのが「押すと保存され、その値が画面に出ること」で、
-                  差し替えるとその経路ごと試験の外に出てしまう
-                  （Theme と同じ理由。値は上の `settingsStore` から読む）。
-                */
-                LspSettingsProvider,
-                null,
-                createElement(
-                  'div',
-                  null,
-                  createElement(WorkspaceTopBar, {
-                    visiblePanelIds,
-                    presetId: 'default',
-                    modified: false,
-                    onTogglePanel: vi.fn(),
-                    onApplyPreset: vi.fn(),
-                    onResetLayout: vi.fn(),
-                    settingsOpen,
-                    onOpenSettings: () => setSettingsOpen(true)
-                  }),
-                  createElement(FilesToolbarProbe),
-                  createElement(TerminalSettingsMenu, {
-                    display: terminal,
-                    onFontSizeChange: (fontSize) =>
-                      setTerminal((previous) => ({ ...previous, fontSize }))
-                  }),
-                  createElement('span', { 'data-testid': 'editor-auto-save-mode' }, autoSave.mode),
-                  createElement(
-                    'span',
-                    { 'data-testid': 'editor-auto-save-delay' },
-                    autoSave.delayMs
-                  ),
-                  createElement(
-                    'span',
-                    { 'data-testid': 'terminal-font-size-value' },
-                    terminal.fontSize
-                  ),
-                  createElement(
-                    'span',
-                    { 'data-testid': 'terminal-scrollback-value' },
-                    terminal.scrollback
-                  ),
-                  settingsOpen &&
-                    createElement(SettingsOverlay, { onClose: () => setSettingsOpen(false) })
-                )
-              )
+                'span',
+                { 'data-testid': 'terminal-font-size-value' },
+                terminal.settings.fontSize
+              ),
+              createElement(
+                'span',
+                { 'data-testid': 'terminal-scrollback-value' },
+                terminal.settings.scrollback
+              ),
+              settingsOpen &&
+                createElement(SettingsOverlay, { onClose: () => setSettingsOpen(false) })
             )
           )
         )
@@ -227,9 +274,48 @@ beforeEach(() => {
   ;(
     globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = true
-  settingsStore.sections = emptySettingsSections()
-  settingsStore.load.mockResolvedValue({ ok: true, data: { sections: settingsStore.sections } })
+  respondWith(emptySettingsSections(), null)
   settingsStore.saveSection.mockResolvedValue({ ok: true, data: undefined })
+  settingsStore.workspaceListeners = []
+  settingsStore.onWorkspaceChanged.mockImplementation(
+    (listener: (event: { workspaceId: string | null }) => void) => {
+      settingsStore.workspaceListeners.push(listener)
+      return () => {
+        settingsStore.workspaceListeners = settingsStore.workspaceListeners.filter(
+          (entry) => entry !== listener
+        )
+      }
+    }
+  )
+  settingsStore.updateStatus = {
+    status: 'idle',
+    currentVersion: '1.0.0',
+    updateVersion: null,
+    releaseName: null,
+    releaseDate: null,
+    message: null,
+    lastCheckedAt: null,
+    progress: null,
+    source: {
+      provider: 'github',
+      owner: 'thpiroc',
+      repo: 'FluvixNexus'
+    }
+  }
+  settingsStore.getUpdateStatus.mockResolvedValue({
+    ok: true,
+    data: settingsStore.updateStatus
+  })
+  settingsStore.checkUpdates.mockResolvedValue({
+    ok: true,
+    data: settingsStore.updateStatus
+  })
+  settingsStore.downloadUpdate.mockResolvedValue({
+    ok: true,
+    data: settingsStore.updateStatus
+  })
+  settingsStore.installUpdate.mockResolvedValue({ ok: true, data: undefined })
+  settingsStore.onUpdateStatusChanged.mockReturnValue(() => {})
   container = document.createElement('div')
   document.body.append(container)
   root = createRoot(container)
@@ -366,14 +452,45 @@ describe('SettingsOverlay DOM', () => {
     expect(byTestId('settings-category-general').textContent).toBe('General')
     expect(byTestId('settings-general-language-en').dataset.active).toBe('true')
     expect(settingsStore.saveSection).toHaveBeenCalledWith({
+      scope: 'user',
       section: 'general',
       value: { language: 'en' }
     })
   })
 
+  it('Updates で現在バージョンを表示し、確認・ダウンロード・再起動更新を呼べる', async () => {
+    const availableStatus = {
+      ...settingsStore.updateStatus,
+      status: 'available',
+      updateVersion: '1.0.1'
+    }
+    const downloadedStatus = {
+      ...availableStatus,
+      status: 'downloaded'
+    }
+
+    settingsStore.checkUpdates.mockResolvedValueOnce({ ok: true, data: availableStatus })
+    settingsStore.downloadUpdate.mockResolvedValueOnce({ ok: true, data: downloadedStatus })
+
+    await renderHarness()
+    await click('topbar-settings')
+
+    expect(byTestId('settings-updates').textContent).toContain('1.0.0')
+
+    await click('settings-updates-check')
+    expect(settingsStore.checkUpdates).toHaveBeenCalledTimes(1)
+    expect(byTestId('settings-updates').textContent).toContain('1.0.1')
+
+    await click('settings-updates-download')
+    expect(settingsStore.downloadUpdate).toHaveBeenCalledTimes(1)
+
+    await click('settings-updates-install')
+    expect(settingsStore.installUpdate).toHaveBeenCalledTimes(1)
+  })
+
   it('保存されている Language が知らない値なら、日本語で出る', async () => {
     settingsStore.sections = { ...emptySettingsSections(), general: { language: 'fr' } }
-    settingsStore.load.mockResolvedValue({ ok: true, data: { sections: settingsStore.sections } })
+    respondWith(settingsStore.sections, null)
 
     await renderHarness()
 
@@ -445,6 +562,7 @@ describe('SettingsOverlay DOM', () => {
     expect(readDocumentTheme()).toBe('light')
     expect(byTestId('settings-appearance-theme-light').dataset.active).toBe('true')
     expect(settingsStore.saveSection).toHaveBeenCalledWith({
+      scope: 'user',
       section: 'appearance',
       value: { theme: 'light' }
     })
@@ -465,7 +583,7 @@ describe('SettingsOverlay DOM', () => {
   */
   it('保存されている Theme が知らない値なら、Dark で出る', async () => {
     settingsStore.sections = { ...emptySettingsSections(), appearance: { theme: 'solarized' } }
-    settingsStore.load.mockResolvedValue({ ok: true, data: { sections: settingsStore.sections } })
+    respondWith(settingsStore.sections, null)
 
     await renderHarness()
 
@@ -479,7 +597,7 @@ describe('SettingsOverlay DOM', () => {
   /* 保存されている Theme は、起動時にそのまま出る（再起動での復元にあたる）。 */
   it('保存されている Theme で始まる', async () => {
     settingsStore.sections = { ...emptySettingsSections(), appearance: { theme: 'light' } }
-    settingsStore.load.mockResolvedValue({ ok: true, data: { sections: settingsStore.sections } })
+    respondWith(settingsStore.sections, null)
 
     await renderHarness()
 
@@ -547,14 +665,11 @@ describe('SettingsOverlay DOM', () => {
     await click('settings-lsp-enabled-off')
 
     expect(byTestId('settings-lsp-enabled-off').dataset.active).toBe('true')
+    // 書くのは変わった key だけ（他の key は既定のまま＝書かない。feature/settings-scope）。
     expect(settingsStore.saveSection).toHaveBeenCalledWith({
+      scope: 'user',
       section: 'lsp',
-      value: {
-        enabled: false,
-        typescriptEnabled: true,
-        pythonEnabled: true,
-        csharpEnabled: true
-      }
+      value: { enabled: false }
     })
   })
 
@@ -589,12 +704,231 @@ describe('SettingsOverlay DOM', () => {
       ...emptySettingsSections(),
       lsp: { enabled: 'no' } as unknown as SettingsSections['lsp']
     }
-    settingsStore.load.mockResolvedValue({ ok: true, data: { sections: settingsStore.sections } })
+    respondWith(settingsStore.sections, null)
 
     await renderHarness()
     await click('topbar-settings')
     await click('settings-category-lsp')
 
     expect(byTestId('settings-lsp-enabled-on').dataset.active).toBe('true')
+  })
+})
+
+/*
+  ユーザー設定 / ワークスペース設定（feature/settings-scope）。
+
+  確かめるのは、画面の切り替えと「どちらの値が効くか」が同じ答えになること。
+    - 今どちらを編集しているかが見える
+    - Workspace が無くてもワークスペースを選べ、案内が出る（落ちない）
+    - ワークスペース設定がユーザー設定より優先され、戻せばユーザー設定へ戻る
+    - Workspace を切り替えると、その Workspace の設定へ入れ替わる
+*/
+describe('ユーザー設定 / ワークスペース設定', () => {
+  async function openSettings(category?: string): Promise<void> {
+    await renderHarness()
+    await click('topbar-settings')
+
+    if (category !== undefined) {
+      await click(`settings-category-${category}`)
+    }
+  }
+
+  async function notifyWorkspaceChanged(workspaceId: string | null): Promise<void> {
+    await act(async () => {
+      for (const listener of settingsStore.workspaceListeners) {
+        listener({ workspaceId })
+      }
+    })
+  }
+
+  it('開くとユーザー設定から始まり、どちらを編集しているかが見える', async () => {
+    respondWith(emptySettingsSections(), workspaceSnapshot())
+    await openSettings()
+
+    expect(byTestId('settings-scope').dataset.scope).toBe('user')
+    expect(byTestId('settings-scope-user').getAttribute('aria-selected')).toBe('true')
+    expect(byTestId('settings-scope-workspace').getAttribute('aria-selected')).toBe('false')
+    expect(byTestId('settings-scope-description').textContent).toContain('すべてのプロジェクト')
+
+    await click('settings-scope-workspace')
+
+    expect(byTestId('settings-scope').dataset.scope).toBe('workspace')
+    expect(byTestId('settings-content').dataset.scope).toBe('workspace')
+    expect(byTestId('settings-scope-workspace').getAttribute('aria-selected')).toBe('true')
+    expect(byTestId('settings-scope-description').textContent).toContain('「project-a」')
+  })
+
+  it('Workspace を開いていなければ、ワークスペースを選んでも案内だけが出る', async () => {
+    respondWith(emptySettingsSections(), null)
+    await openSettings('terminal')
+
+    await click('settings-scope-workspace')
+
+    expect(byTestId('settings-workspace-unavailable').textContent).toContain(
+      'ワークスペースを開くと、このプロジェクト専用の設定を変更できます'
+    )
+    expect(container.querySelector('[data-testid="settings-terminal-font-size"]')).toBeNull()
+
+    // 他のカテゴリへ移っても、ユーザー設定へ戻しても壊れない。
+    await click('settings-category-editor')
+    expect(byTestId('settings-workspace-unavailable')).not.toBeNull()
+
+    await click('settings-scope-user')
+    await click('settings-category-terminal')
+    expect(byTestId<HTMLInputElement>('settings-terminal-font-size').value).toBe('13')
+    expect(settingsStore.saveSection).not.toHaveBeenCalled()
+  })
+
+  it('ワークスペース設定で変えると、その値が効き、ユーザー設定は変わらない', async () => {
+    respondWith({ ...emptySettingsSections(), terminal: { fontSize: 14 } }, workspaceSnapshot())
+    await openSettings('terminal')
+
+    expect(byTestId('terminal-font-size-value').textContent).toBe('14')
+
+    await click('settings-scope-workspace')
+    expect(byTestId('settings-scope-status-terminal.fontSize').dataset.state).toBe('inherited')
+    expect(byTestId<HTMLInputElement>('settings-terminal-font-size').value).toBe('14')
+
+    await commitNumber('settings-terminal-font-size', '20')
+
+    // 効く値はワークスペース設定の方。
+    expect(byTestId('terminal-font-size-value').textContent).toBe('20')
+    expect(byTestId('settings-scope-status-terminal.fontSize').dataset.state).toBe('overridden')
+    // 変えたのは文字の大きさだけ。さかのぼれる行数はワークスペースへ固定しない。
+    expect(settingsStore.saveSection).toHaveBeenCalledTimes(1)
+    expect(settingsStore.saveSection).toHaveBeenCalledWith({
+      scope: 'workspace',
+      workspaceId: 'workspace-a',
+      section: 'terminal',
+      value: { fontSize: 20 }
+    })
+    expect(byTestId('settings-scope-status-terminal.scrollback').dataset.state).toBe('inherited')
+
+    // ユーザー設定の側から見ると、値は 14 のまま・上書きされていることが出る。
+    await click('settings-scope-user')
+    expect(byTestId<HTMLInputElement>('settings-terminal-font-size').value).toBe('14')
+    expect(byTestId('settings-scope-status-terminal.fontSize').dataset.state).toBe('shadowed')
+  })
+
+  it('両方にあればワークスペース設定が優先され、ユーザー設定を変えても効く値は動かない', async () => {
+    respondWith(
+      { ...emptySettingsSections(), appearance: { theme: 'dark' } },
+      workspaceSnapshot({ appearance: { theme: 'light' } })
+    )
+    await openSettings('appearance')
+
+    expect(readDocumentTheme()).toBe('light')
+    // ユーザー設定の側はユーザー設定の値（Dark）を出す。
+    expect(byTestId('settings-appearance-theme-dark').dataset.active).toBe('true')
+
+    await click('settings-appearance-theme-light')
+    await click('settings-appearance-theme-dark')
+
+    expect(settingsStore.saveSection).toHaveBeenLastCalledWith({
+      scope: 'user',
+      section: 'appearance',
+      value: { theme: 'dark' }
+    })
+    expect(readDocumentTheme()).toBe('light')
+  })
+
+  it('「ユーザー設定に戻す」でワークスペース設定が消え、ユーザー設定へ戻る', async () => {
+    respondWith(
+      { ...emptySettingsSections(), terminal: { fontSize: 15 } },
+      workspaceSnapshot({ terminal: { fontSize: 22 } })
+    )
+    await openSettings('terminal')
+
+    expect(byTestId('terminal-font-size-value').textContent).toBe('22')
+
+    await click('settings-scope-workspace')
+    await click('settings-scope-reset-terminal.fontSize')
+
+    expect(byTestId('terminal-font-size-value').textContent).toBe('15')
+    expect(byTestId('settings-scope-status-terminal.fontSize').dataset.state).toBe('inherited')
+    expect(settingsStore.saveSection).toHaveBeenCalledWith({
+      scope: 'workspace',
+      workspaceId: 'workspace-a',
+      section: 'terminal',
+      value: {}
+    })
+  })
+
+  it('画面の外から変えると、その値を今決めている scope へ書く', async () => {
+    respondWith(emptySettingsSections(), workspaceSnapshot({ files: { viewMode: 'columns' } }))
+    await renderHarness()
+
+    expect(byTestId('files-toolbar-choice').textContent).toBe('columns')
+
+    // ワークスペース設定で決まっている値は、ワークスペース設定が変わる。
+    await click('files-toolbar-tree')
+    expect(byTestId('files-toolbar-choice').textContent).toBe('tree')
+    expect(settingsStore.saveSection).toHaveBeenLastCalledWith({
+      scope: 'workspace',
+      workspaceId: 'workspace-a',
+      section: 'files',
+      value: { viewMode: 'tree' }
+    })
+
+    // 上書きの無い値は、今までどおりユーザー設定が変わる。
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="ターミナルの設定"]')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await commitNumber('terminal-font-size', '16')
+    expect(settingsStore.saveSection).toHaveBeenLastCalledWith({
+      scope: 'user',
+      section: 'terminal',
+      value: { fontSize: 16 }
+    })
+  })
+
+  it('表示言語はワークスペース設定では変えられない（押せず、理由が出る）', async () => {
+    respondWith(emptySettingsSections(), workspaceSnapshot())
+    await openSettings('general')
+
+    await click('settings-scope-workspace')
+
+    expect(byTestId('settings-scope-status-general.language').dataset.state).toBe('locked')
+    expect(
+      container.querySelector<HTMLFieldSetElement>(
+        '[data-item="general.language"] .fx-settings__row-fieldset'
+      )?.disabled
+    ).toBe(true)
+  })
+
+  it('Workspace を切り替えると、その Workspace のワークスペース設定へ入れ替わる', async () => {
+    const user = { ...emptySettingsSections(), terminal: { fontSize: 13 } }
+
+    respondWith(user, workspaceSnapshot({ terminal: { fontSize: 20 } }, 'workspace-a', 'project-a'))
+    await openSettings('terminal')
+    expect(byTestId('terminal-font-size-value').textContent).toBe('20')
+
+    // Main が別の Workspace を開いた（B には上書きが無い）。
+    respondWith(user, workspaceSnapshot({}, 'workspace-b', 'project-b'))
+    await notifyWorkspaceChanged('workspace-b')
+
+    expect(byTestId('terminal-font-size-value').textContent).toBe('13')
+
+    await click('settings-scope-workspace')
+    expect(byTestId('settings-scope-description').textContent).toContain('「project-b」')
+    expect(byTestId('settings-scope-status-terminal.fontSize').dataset.state).toBe('inherited')
+
+    // B で変えた値は B に向けて保存される（A には混ざらない）。
+    await commitNumber('settings-terminal-font-size', '17')
+    expect(settingsStore.saveSection).toHaveBeenLastCalledWith({
+      scope: 'workspace',
+      workspaceId: 'workspace-b',
+      section: 'terminal',
+      value: { fontSize: 17 }
+    })
+
+    // Workspace を閉じると、ユーザー設定だけに戻る（落ちない）。
+    respondWith(user, null)
+    await notifyWorkspaceChanged(null)
+
+    expect(byTestId('terminal-font-size-value').textContent).toBe('13')
+    expect(byTestId('settings-workspace-unavailable')).not.toBeNull()
   })
 })

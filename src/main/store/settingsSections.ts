@@ -92,7 +92,16 @@ const SECTION_FIELDS: { readonly [Id in SettingsSectionId]: SectionFieldSpec<Id>
     csharpEnabled: 'boolean'
   },
   files: { viewMode: 'string', columnWidth: 'number' },
-  terminal: { fontSize: 'number', scrollback: 'number' }
+  terminal: { fontSize: 'number', scrollback: 'number' },
+  /*
+    §21.9 で足した section。`lsp` と同じく Main も値の意味を読む
+    （MCP サーバーを起動するのは Main の側。main/mcp/mcpService.ts）。
+
+    **ここに token の欄は無い。** 欄を1つ足した時点で、`settings.json` は
+    平文の秘密情報が載るファイルになる ── 置き場所は OS の資格情報で
+    暗号化した別ファイルにあたる（main/mcp/mcpSecretStore.ts）。
+  */
+  mcp: { enabled: 'boolean', notionEnabled: 'boolean' }
 }
 
 /** ファイルから読んだ section 1つの結果。 */

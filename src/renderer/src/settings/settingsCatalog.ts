@@ -1,4 +1,8 @@
-import { isSettingsSectionId, type SettingsSectionId } from '@shared/settings'
+import {
+  isSettingsSectionId,
+  type SettingsSectionId,
+  type SettingsSections
+} from '@shared/settings'
 import type { TranslationKey } from '../i18n/messages'
 
 /**
@@ -80,15 +84,37 @@ export type SettingsCategoryId = SettingsValueCategoryId | 'keyboard'
  * `id` は画面の目印（`data-testid`）にも使う。`section` はその値が保存される
  * section で、**目録と保存形式が食い違っていないことを試せる**ようにするために持つ。
  */
-export interface SettingsItemDescriptor {
+interface SettingsItemDescriptorBase {
   readonly id: string
   /** 設定の名前（画面に出る）。 */
   readonly titleKey: TranslationKey
   /** 1行の説明。**無くても意味が通る名前**にしたうえで、補足だけを書く。 */
   readonly descriptionKey: TranslationKey
-  /** この項目の値が入る section（shared/settings/sections.ts）。 */
-  readonly section: SettingsSectionId
 }
+
+/**
+ * section と、その中でこの項目が読み書きする key（feature/settings-scope）。
+ *
+ * key を持つのは、ワークスペース設定で**この項目が上書きされているか**を画面が
+ * 判断し、「ユーザー設定に戻す」でどの key を外すかを決めるため。
+ * section と key の対応は型で縛ってある（別の section の key は書けない）。
+ *
+ * **key が空の項目**は、設定ファイルに値を持たない行になる（Updates ──
+ * 状態と操作はアップデートの仕組みが持つ）。上書きの表示も「ユーザー設定に戻す」も
+ * 出ない。section はワークスペースで押せるかどうかを決めるためだけに持つ。
+ */
+type SettingsItemLocation = {
+  readonly [Id in SettingsSectionId]: {
+    /** この項目の値が入る section（shared/settings/sections.ts）。 */
+    readonly section: Id
+    /** この項目が読み書きする key（1つ以上。値を持たない行だけ空）。 */
+    readonly keys:
+      | readonly []
+      | readonly [keyof SettingsSections[Id] & string, ...(keyof SettingsSections[Id] & string)[]]
+  }
+}[SettingsSectionId]
+
+export type SettingsItemDescriptor = SettingsItemDescriptorBase & SettingsItemLocation
 
 /** どのカテゴリにも共通するもの（左の一覧と右の見出しが読む）。 */
 interface SettingsCategoryBase {
@@ -98,12 +124,29 @@ interface SettingsCategoryBase {
   readonly descriptionKey: TranslationKey
 }
 
+/**
+ * 値の項目の下に続く、そのカテゴリだけの面（§21.9）。
+ *
+ * MCP は「使うかどうか」の2つの真偽値のほかに、**設定ファイルに無いもの**を
+ * 画面に出す必要がある ── token（保存先は別のファイル）・今の接続状態・
+ * 接続テストの3つにほかならない。どれも `SettingsItemDescriptor`
+ * （section と key を指すもの）では表せない。
+ *
+ * カテゴリごと `kind` を分けなかったのは、**2つの真偽値は普通の設定項目**
+ * だからになる。分けると scope の扱い（application なので
+ * ワークスペースでは押せない）・上書きの表示・保存の経路を、
+ * このカテゴリのためにもう一組書くことになる。
+ */
+export type SettingsCategoryPanelId = 'mcp'
+
 /** 値の項目が並ぶカテゴリ（Session 4-3B からの形）。 */
 export interface SettingsItemsCategoryDescriptor extends SettingsCategoryBase {
   readonly kind: 'items'
   readonly id: SettingsValueCategoryId
   /** 並べる項目。**空にはできない**（中身の無いカテゴリを作らない）。 */
   readonly items: readonly SettingsItemDescriptor[]
+  /** 項目の下に続く面（あれば）。 */
+  readonly panel?: SettingsCategoryPanelId
 }
 
 /**
@@ -144,7 +187,15 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategoryDescriptor[] = [
         id: 'general.language',
         titleKey: 'settings.items.general.language.title',
         descriptionKey: 'settings.items.general.language.description',
-        section: 'general'
+        section: 'general',
+        keys: ['language']
+      },
+      {
+        id: 'general.updates',
+        titleKey: 'settings.items.general.updates.title',
+        descriptionKey: 'settings.items.general.updates.description',
+        section: 'general',
+        keys: []
       }
     ]
   },
@@ -158,7 +209,8 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategoryDescriptor[] = [
         id: 'appearance.theme',
         titleKey: 'settings.items.appearance.theme.title',
         descriptionKey: 'settings.items.appearance.theme.description',
-        section: 'appearance'
+        section: 'appearance',
+        keys: ['theme']
       }
     ]
   },
@@ -172,13 +224,15 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategoryDescriptor[] = [
         id: 'editor.autoSaveMode',
         titleKey: 'settings.items.editor.autoSaveMode.title',
         descriptionKey: 'settings.items.editor.autoSaveMode.description',
-        section: 'editor'
+        section: 'editor',
+        keys: ['autoSaveMode']
       },
       {
         id: 'editor.autoSaveDelayMs',
         titleKey: 'settings.items.editor.autoSaveDelayMs.title',
         descriptionKey: 'settings.items.editor.autoSaveDelayMs.description',
-        section: 'editor'
+        section: 'editor',
+        keys: ['autoSaveDelayMs']
       }
     ]
   },
@@ -192,13 +246,15 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategoryDescriptor[] = [
         id: 'lsp.enabled',
         titleKey: 'settings.items.lsp.enabled.title',
         descriptionKey: 'settings.items.lsp.enabled.description',
-        section: 'lsp'
+        section: 'lsp',
+        keys: ['enabled']
       },
       {
         id: 'lsp.servers',
         titleKey: 'settings.items.lsp.servers.title',
         descriptionKey: 'settings.items.lsp.servers.description',
-        section: 'lsp'
+        section: 'lsp',
+        keys: ['typescriptEnabled', 'pythonEnabled', 'csharpEnabled']
       }
     ]
   },
@@ -212,7 +268,8 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategoryDescriptor[] = [
         id: 'files.viewMode',
         titleKey: 'settings.items.files.viewMode.title',
         descriptionKey: 'settings.items.files.viewMode.description',
-        section: 'files'
+        section: 'files',
+        keys: ['viewMode']
       }
     ]
   },
@@ -226,15 +283,47 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategoryDescriptor[] = [
         id: 'terminal.fontSize',
         titleKey: 'settings.items.terminal.fontSize.title',
         descriptionKey: 'settings.items.terminal.fontSize.description',
-        section: 'terminal'
+        section: 'terminal',
+        keys: ['fontSize']
       },
       {
         id: 'terminal.scrollback',
         titleKey: 'settings.items.terminal.scrollback.title',
         descriptionKey: 'settings.items.terminal.scrollback.description',
-        section: 'terminal'
+        section: 'terminal',
+        keys: ['scrollback']
       }
     ]
+  },
+  /*
+    §21.9 で足したカテゴリ。Terminal の次・Keyboard Shortcuts の手前に置いたのは、
+    値カテゴリの並びを `SETTINGS_SECTION_IDS` と同じまま保つためにほかならない。
+
+    並べる項目は「使うかどうか」の2つだけで、**token の欄はここに無い**
+    ── token は設定の値ではないため（`panel` が出す）。
+  */
+  {
+    kind: 'items',
+    id: 'mcp',
+    titleKey: 'settings.categories.mcp.title',
+    descriptionKey: 'settings.categories.mcp.description',
+    items: [
+      {
+        id: 'mcp.enabled',
+        titleKey: 'settings.items.mcp.enabled.title',
+        descriptionKey: 'settings.items.mcp.enabled.description',
+        section: 'mcp',
+        keys: ['enabled']
+      },
+      {
+        id: 'mcp.servers',
+        titleKey: 'settings.items.mcp.servers.title',
+        descriptionKey: 'settings.items.mcp.servers.description',
+        section: 'mcp',
+        keys: ['notionEnabled']
+      }
+    ],
+    panel: 'mcp'
   },
   {
     kind: 'shortcuts',

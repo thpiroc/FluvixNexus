@@ -1,7 +1,10 @@
 import type { StoredTerminalSettings } from '@shared/settings'
+import type { SettingsSectionBinding, SettingsValueUpdate } from '../settings/settingsBinding'
 import {
   clampTerminalFontSize,
   clampTerminalScrollback,
+  nextTerminalFontSize,
+  type TerminalFontSizeCommand,
   TERMINAL_FONT_SIZE_DEFAULT,
   TERMINAL_SCROLLBACK_DEFAULT
 } from './terminalDisplay'
@@ -90,4 +93,58 @@ export function isSameTerminalDisplaySettings(
   b: TerminalDisplaySettings
 ): boolean {
   return a.fontSize === b.fontSize && a.scrollback === b.scrollback
+}
+
+/* ------------------------------------------ 設定との行き来（feature/settings-scope） */
+
+/** `terminal` section と Terminal の見え方の行き来（Terminal と Settings 画面が同じものを読む）。 */
+export const TERMINAL_DISPLAY_SETTINGS_BINDING: SettingsSectionBinding<
+  'terminal',
+  TerminalDisplaySettings
+> = {
+  section: 'terminal',
+  initial: DEFAULT_TERMINAL_DISPLAY_SETTINGS,
+  fromStored: toTerminalDisplaySettings,
+  toStored: toTerminalSettingsSection
+}
+
+export interface TerminalDisplaySetters {
+  /** 打鍵（Ctrl + `+` / `-` / `0`）による増減。 */
+  readonly changeFontSize: (command: TerminalFontSizeCommand) => void
+  /** 設定 UI から直に指定する（上下限は clamp が掛ける）。 */
+  readonly setFontSize: (fontSize: number) => void
+  /** さかのぼれる行数を変える（上下限は clamp が掛ける）。 */
+  readonly setScrollback: (scrollback: number) => void
+}
+
+/**
+ * Terminal の見え方を変える操作（useTerminalSettings と Settings 画面が使う）。
+ *
+ * どの入口も「直前の値から次を作り、同じなら据え置く」形にする。直前の値から
+ * 作るのは打鍵の増減がそれを要求するため（`+` は今の大きさに対する操作）。
+ * 同じなら据え置くのは、上限に当たっている間 Ctrl + `+` を押し続けたときに
+ * 保存と再描画が走り続けないようにするため。丸めと上下限は terminalDisplay.ts。
+ */
+export function createTerminalDisplaySetters(
+  update: SettingsValueUpdate<TerminalDisplaySettings>
+): TerminalDisplaySetters {
+  const apply = (change: (previous: TerminalDisplaySettings) => TerminalDisplaySettings): void => {
+    update((previous) => {
+      const next = change(previous)
+
+      return isSameTerminalDisplaySettings(previous, next) ? previous : next
+    })
+  }
+
+  return {
+    changeFontSize: (command) =>
+      apply((previous) => ({
+        ...previous,
+        fontSize: nextTerminalFontSize(previous.fontSize, command)
+      })),
+    setFontSize: (fontSize) =>
+      apply((previous) => ({ ...previous, fontSize: clampTerminalFontSize(fontSize) })),
+    setScrollback: (scrollback) =>
+      apply((previous) => ({ ...previous, scrollback: clampTerminalScrollback(scrollback) }))
+  }
 }

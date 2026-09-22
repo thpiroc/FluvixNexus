@@ -1,12 +1,15 @@
 import type { DebugIpcContract } from './contracts/debug'
+import type { FeedbackIpcContract } from './contracts/feedback'
 import type { FilesIpcContract } from './contracts/files'
 import type { GitIpcContract } from './contracts/git'
 import type { GitHubIpcContract } from './contracts/github'
 import type { KeybindingsIpcContract } from './contracts/keybindings'
 import type { LspIpcContract } from './contracts/lsp'
+import type { McpIpcContract } from './contracts/mcp'
 import type { SettingsIpcContract } from './contracts/settings'
 import type { SystemIpcContract } from './contracts/system'
 import type { TerminalIpcContract } from './contracts/terminal'
+import type { UpdatesIpcContract } from './contracts/updates'
 import type { WindowIpcContract } from './contracts/window'
 import type { WorkspaceIpcContract } from './contracts/workspace'
 import type { WorkspaceFolderIpcContract } from './contracts/workspaceFolder'
@@ -43,8 +46,11 @@ export interface IpcContract
     TerminalIpcContract,
     GitIpcContract,
     GitHubIpcContract,
+    UpdatesIpcContract,
     LspIpcContract,
-    DebugIpcContract {}
+    DebugIpcContract,
+    FeedbackIpcContract,
+    McpIpcContract {}
 
 /** 有効な IPC チャンネル名。契約に定義されたものだけが存在しうる。 */
 export type IpcChannel = keyof IpcContract & string

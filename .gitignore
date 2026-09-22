@@ -1,5 +1,6 @@
 # ---- Dependencies ----
 node_modules/
+pnpm-lock.yaml
 .pnp
 .pnp.js
 .yarn/*
@@ -57,6 +58,8 @@ lerna-debug.log*
 *.keystore
 *.jks
 secrets.json
+# フィードバックの保存先の設定（Notion の token など。本来は %APPDATA% に置くもの）
+feedback-destinations.json
 # Windows コード署名関連
 certificate.*
 codesign.*

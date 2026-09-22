@@ -11,6 +11,7 @@ import { useCommand } from '../commands/useCommand'
 import { EditorContext } from '../editor/context'
 import type { EditorController } from '../editor/useEditorSession'
 import { LanguageProvider } from '../i18n/LanguageProvider'
+import { SettingsScopeProvider } from './SettingsScopeProvider'
 import { KeybindingProvider } from '../keybindings/KeybindingProvider'
 import { WorkspaceFolderContext, type WorkspaceFolderController } from '../workspaceFolder/context'
 import { SettingsOverlay } from './SettingsOverlay'
@@ -33,7 +34,28 @@ import { SettingsOverlay } from './SettingsOverlay'
 
 const settingsStore = vi.hoisted(() => ({
   load: vi.fn(),
-  saveSection: vi.fn()
+  saveSection: vi.fn(),
+  onWorkspaceChanged: vi.fn(() => () => {}),
+  updateStatus: {
+    status: 'idle',
+    currentVersion: '1.0.0',
+    updateVersion: null,
+    releaseName: null,
+    releaseDate: null,
+    message: null,
+    lastCheckedAt: null,
+    progress: null,
+    source: {
+      provider: 'github',
+      owner: 'thpiroc',
+      repo: 'FluvixNexus'
+    }
+  },
+  getUpdateStatus: vi.fn(),
+  checkUpdates: vi.fn(),
+  downloadUpdate: vi.fn(),
+  installUpdate: vi.fn(),
+  onUpdateStatusChanged: vi.fn()
 }))
 
 const keybindingsApi = vi.hoisted(() => ({
@@ -45,7 +67,15 @@ vi.mock('../api/fluvix', () => ({
   fluvix: {
     settings: {
       load: settingsStore.load,
-      saveSection: settingsStore.saveSection
+      saveSection: settingsStore.saveSection,
+      onWorkspaceChanged: settingsStore.onWorkspaceChanged
+    },
+    updates: {
+      getStatus: settingsStore.getUpdateStatus,
+      check: settingsStore.checkUpdates,
+      download: settingsStore.downloadUpdate,
+      install: settingsStore.installUpdate,
+      onStatusChanged: settingsStore.onUpdateStatusChanged
     },
     // 既定ではユーザーの割り当てを返さない（既定だけの一覧を見る。Shortcuts S3）。
     keybindings: keybindingsApi
@@ -59,13 +89,30 @@ beforeEach(() => {
   ;(
     globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = true
-  settingsStore.load.mockResolvedValue({ ok: true, data: { sections: emptySettingsSections() } })
+  settingsStore.load.mockResolvedValue({
+    ok: true,
+    data: { user: emptySettingsSections(), workspace: null }
+  })
   settingsStore.saveSection.mockResolvedValue({ ok: true, data: undefined })
   keybindingsApi.load.mockResolvedValue({
     ok: true,
     data: { status: 'missing', entries: [], skippedCount: 0 }
   })
   keybindingsApi.save.mockResolvedValue({ ok: true, data: undefined })
+  settingsStore.getUpdateStatus.mockResolvedValue({
+    ok: true,
+    data: settingsStore.updateStatus
+  })
+  settingsStore.checkUpdates.mockResolvedValue({
+    ok: true,
+    data: settingsStore.updateStatus
+  })
+  settingsStore.downloadUpdate.mockResolvedValue({
+    ok: true,
+    data: settingsStore.updateStatus
+  })
+  settingsStore.installUpdate.mockResolvedValue({ ok: true, data: undefined })
+  settingsStore.onUpdateStatusChanged.mockReturnValue(() => {})
   container = document.createElement('div')
   document.body.append(container)
   root = createRoot(container)
@@ -117,27 +164,31 @@ function Harness({
   const [, force] = useState(0)
 
   return createElement(
-    LanguageProvider,
+    SettingsScopeProvider,
     null,
     createElement(
-      CommandProvider,
+      LanguageProvider,
       null,
       createElement(
-        WorkspaceFolderContext.Provider,
-        { value: mockWorkspace() },
+        CommandProvider,
+        null,
         createElement(
-          EditorContext.Provider,
-          { value: mockEditor() },
+          WorkspaceFolderContext.Provider,
+          { value: mockWorkspace() },
           createElement(
-            KeybindingProvider,
-            null,
-            executed === undefined ? null : createElement(Owner, { handler: executed }),
-            createElement(SettingsOverlay, {
-              onClose: () => {
-                onClose?.()
-                force((n) => n + 1)
-              }
-            })
+            EditorContext.Provider,
+            { value: mockEditor() },
+            createElement(
+              KeybindingProvider,
+              null,
+              executed === undefined ? null : createElement(Owner, { handler: executed }),
+              createElement(SettingsOverlay, {
+                onClose: () => {
+                  onClose?.()
+                  force((n) => n + 1)
+                }
+              })
+            )
           )
         )
       )

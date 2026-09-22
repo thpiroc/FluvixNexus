@@ -72,7 +72,8 @@ export const SETTINGS_SECTION_IDS = [
   'editor',
   'lsp',
   'files',
-  'terminal'
+  'terminal',
+  'mcp'
 ] as const
 
 /** 既知の section の名前。ここに無い名前は section ではない。 */
@@ -163,6 +164,26 @@ export interface StoredAppearanceSettings {
 }
 
 /**
+ * MCP 連携を使うかどうか（§21.9）。
+ *
+ * **ここに入るのは「使う意思」だけで、token は1つも入らない。**
+ * 秘密情報はこのファイル（`settings.json`）へ平文で書かず、OS の資格情報で
+ * 暗号化した別のファイルが持つ（main/mcp/mcpSecretStore.ts）── 設定ファイルは
+ * 利用者が開いて読める場所にあり、バックアップや画面共有にも普通に写る。
+ *
+ * サーバーごとの key を1つずつ増やしていく形にしてあるのは、`lsp` の
+ * `typescriptEnabled` … とまったく同じ分担にほかならない ── 保存の形は
+ * 平らな真偽値だけにして、「どのサーバーがあるか」は shared の側
+ * （shared/mcp の `MCP_CONNECTION_IDS`）が決める。
+ */
+export interface StoredMcpSettings {
+  /** MCP 連携そのものを使うか。無ければ既定（使わない）。 */
+  readonly enabled?: boolean
+  /** Notion MCP を使うか。無ければ既定（使わない）。 */
+  readonly notionEnabled?: boolean
+}
+
+/**
  * 既知の section をすべて持つ器。
  *
  * **どの section も必ず存在する**（中身が空の `{}` にはなりうる）。
@@ -176,6 +197,7 @@ export interface SettingsSections {
   readonly lsp: StoredLspSettings
   readonly files: StoredFilesSettings
   readonly terminal: StoredTerminalSettings
+  readonly mcp: StoredMcpSettings
 }
 
 /** section 名から、その section の値の型へ。 */
@@ -198,7 +220,7 @@ export type SettingsSectionUpdate = {
 
 /** 何も保存されていない状態（section はすべて空）。 */
 export function emptySettingsSections(): SettingsSections {
-  return { general: {}, appearance: {}, editor: {}, lsp: {}, files: {}, terminal: {} }
+  return { general: {}, appearance: {}, editor: {}, lsp: {}, files: {}, terminal: {}, mcp: {} }
 }
 
 /** 素の文字列が既知の section 名か。 */

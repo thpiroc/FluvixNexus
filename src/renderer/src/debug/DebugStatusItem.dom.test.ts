@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { emptySettingsSections } from '@shared/settings'
 import { useI18n } from '../i18n/context'
 import { LanguageProvider } from '../i18n/LanguageProvider'
+import { SettingsScopeProvider } from '../settings/SettingsScopeProvider'
 import { DebugStatusItem } from './DebugStatusItem'
 
 /**
@@ -26,7 +27,8 @@ const debugApi = vi.hoisted(() => ({
 
 const settingsStore = vi.hoisted(() => ({
   load: vi.fn(),
-  saveSection: vi.fn()
+  saveSection: vi.fn(),
+  onWorkspaceChanged: vi.fn(() => () => {})
 }))
 
 vi.mock('../api/fluvix', () => ({
@@ -57,7 +59,10 @@ beforeEach(() => {
   })
 
   debugApi.getStatus.mockResolvedValue({ ok: true, data: { status: 'unavailable' } })
-  settingsStore.load.mockResolvedValue({ ok: true, data: { sections: emptySettingsSections() } })
+  settingsStore.load.mockResolvedValue({
+    ok: true,
+    data: { user: emptySettingsSections(), workspace: null }
+  })
   settingsStore.saveSection.mockResolvedValue({ ok: true, data: undefined })
 
   container = document.createElement('div')
@@ -77,9 +82,13 @@ async function render(children?: ReactElement): Promise<void> {
   await act(async () => {
     root.render(
       createElement(
-        LanguageProvider,
+        SettingsScopeProvider,
         null,
-        createElement('div', null, createElement(DebugStatusItem), children)
+        createElement(
+          LanguageProvider,
+          null,
+          createElement('div', null, createElement(DebugStatusItem), children)
+        )
       )
     )
   })

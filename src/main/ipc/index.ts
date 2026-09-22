@@ -1,12 +1,15 @@
 import { registerDebugHandlers } from './handlers/debug'
+import { registerFeedbackHandlers } from './handlers/feedback'
 import { registerFilesHandlers } from './handlers/files'
 import { registerGitHandlers } from './handlers/git'
 import { registerGitHubHandlers } from './handlers/github'
 import { registerKeybindingsHandlers } from './handlers/keybindings'
 import { registerLspHandlers } from './handlers/lsp'
+import { registerMcpHandlers } from './handlers/mcp'
 import { registerSettingsHandlers } from './handlers/settings'
 import { registerSystemHandlers } from './handlers/system'
 import { registerTerminalHandlers } from './handlers/terminal'
+import { registerUpdatesHandlers } from './handlers/updates'
 import { registerWindowHandlers } from './handlers/window'
 import { registerWorkspaceHandlers } from './handlers/workspace'
 import { registerWorkspaceFolderHandlers } from './handlers/workspaceFolder'
@@ -29,8 +32,11 @@ const handlerRegistrations: readonly (() => void)[] = [
   registerTerminalHandlers,
   registerGitHandlers,
   registerGitHubHandlers,
+  registerUpdatesHandlers,
   registerLspHandlers,
-  registerDebugHandlers
+  registerDebugHandlers,
+  registerFeedbackHandlers,
+  registerMcpHandlers
 ]
 
 export function registerIpcHandlers(): void {

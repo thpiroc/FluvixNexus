@@ -64,6 +64,160 @@
   color: var(--fx-color-text-strong);
 }
 
+/*
+ * ユーザー / ワークスペース の切り替え（feature/settings-scope）。
+ *
+ * バーの直下に全幅で置く。**どのカテゴリを見ていても、今どちらを編集しているかが
+ * 見える**ことが要点で、カテゴリの中に置くと Keyboard Shortcuts のような
+ * 別の形のカテゴリで消えてしまう。
+ *
+ * ワークスペースを選んでいる間は、左の帯と文字を青系にする。色は theme.css の
+ * 変数だけを使う（Dark / Light のどちらでも同じ変数が揃っている）── 色だけに
+ * 頼らないよう、説明文も scope ごとに変わる（SettingsOverlay.tsx）。
+ */
+.fx-settings__scope {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--fx-space-2) var(--fx-space-3);
+  padding: var(--fx-space-2) var(--fx-space-3);
+  border-bottom: 1px solid var(--fx-color-border);
+  border-left: 3px solid var(--fx-accent-neutral);
+  background: var(--fx-color-surface-sunken);
+}
+
+.fx-settings__scope[data-scope='workspace'] {
+  border-left-color: var(--fx-accent-blue);
+}
+
+/* 2つの選択肢を1つの塊に見せる（セグメント）。 */
+.fx-settings__scope-tabs {
+  display: inline-flex;
+  flex: none;
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.fx-settings__scope-tab {
+  padding: 2px var(--fx-space-3);
+  border: none;
+  background: transparent;
+  color: var(--fx-color-text-muted);
+  font: inherit;
+  font-size: var(--fx-font-size-sm);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.fx-settings__scope-tab + .fx-settings__scope-tab {
+  border-left: 1px solid var(--fx-color-border-strong);
+}
+
+.fx-settings__scope-tab:hover {
+  background: var(--fx-color-surface-hover);
+  color: var(--fx-color-text);
+}
+
+.fx-settings__scope-tab[data-active='true'] {
+  background: var(--fx-color-surface-raised);
+  color: var(--fx-color-text-strong);
+  box-shadow: inset 0 -2px 0 var(--fx-accent-neutral);
+}
+
+.fx-settings__scope[data-scope='workspace'] .fx-settings__scope-tab[data-active='true'] {
+  box-shadow: inset 0 -2px 0 var(--fx-accent-blue);
+}
+
+.fx-settings__scope-tab:focus-visible {
+  outline: 1px solid var(--fx-accent-blue);
+  outline-offset: -1px;
+}
+
+.fx-settings__scope-description {
+  flex: 1 1 240px;
+  min-width: 0;
+  margin: 0;
+  color: var(--fx-color-text-muted);
+  font-size: var(--fx-font-size-sm);
+}
+
+/* Workspace を開いていないときの案内（ワークスペースを選んだ場合）。 */
+.fx-settings__scope-empty {
+  max-width: 640px;
+  padding: var(--fx-space-4);
+  border: 1px dashed var(--fx-color-border-strong);
+  border-radius: 3px;
+}
+
+.fx-settings__scope-empty-title {
+  margin: 0;
+  color: var(--fx-color-text-strong);
+}
+
+.fx-settings__scope-empty-note {
+  margin: var(--fx-space-1) 0 0;
+  color: var(--fx-color-text-muted);
+  font-size: var(--fx-font-size-sm);
+  line-height: 1.5;
+}
+
+/*
+ * 行ごとの scope の状態（「ユーザー設定を使用中」「このワークスペースで変更済み」など）。
+ *
+ * 説明文（faint）より一段強い muted にする ── 読み飛ばされると、どちらの値が
+ * 効いているかを取り違える。
+ */
+.fx-settings__scope-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--fx-space-1) var(--fx-space-2);
+  margin: var(--fx-space-1) 0 0;
+  color: var(--fx-color-text-muted);
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-settings__scope-badge {
+  padding: 0 var(--fx-space-1);
+  border: 1px solid var(--fx-accent-blue);
+  border-radius: 2px;
+  color: var(--fx-color-text-strong);
+}
+
+.fx-settings__scope-reset {
+  padding: 0 var(--fx-space-1);
+  border: none;
+  background: transparent;
+  color: var(--fx-color-text-muted);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.fx-settings__scope-reset:hover {
+  color: var(--fx-color-text-strong);
+}
+
+/* 上書きしている行は、名前の左に細い帯を付けて一覧の中でも見つけやすくする。 */
+.fx-settings__content[data-scope='workspace'] .fx-settings__row[data-overridden='true'] {
+  box-shadow: inset 3px 0 0 var(--fx-accent-blue);
+  padding-left: var(--fx-space-2);
+}
+
+/* 操作 UI をまとめて押せなくするための枠（見た目は持たせない）。 */
+.fx-settings__row-fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.fx-settings__row-fieldset:disabled {
+  opacity: 0.55;
+}
+
 .fx-settings__body {
   display: flex;
   flex: 1 1 auto;
@@ -240,6 +394,101 @@
 .fx-settings__missing {
   color: var(--fx-color-danger);
   font-size: var(--fx-font-size-sm);
+}
+
+.fx-updates {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-2);
+  min-width: 260px;
+  max-width: 360px;
+}
+
+.fx-updates__summary {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fx-updates__version,
+.fx-updates__state,
+.fx-updates__target,
+.fx-updates__source,
+.fx-updates__message,
+.fx-updates__progress-label {
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-updates__version,
+.fx-updates__state {
+  color: var(--fx-color-text-strong);
+}
+
+.fx-updates__target,
+.fx-updates__source,
+.fx-updates__progress-label {
+  color: var(--fx-color-text-muted);
+}
+
+.fx-updates__message {
+  margin: 0;
+  color: var(--fx-color-text-muted);
+  line-height: 1.4;
+}
+
+.fx-updates__progress {
+  position: relative;
+  height: 18px;
+  overflow: hidden;
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 2px;
+  background: var(--fx-color-surface-sunken);
+}
+
+.fx-updates__progress-bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--fx-accent-blue);
+}
+
+.fx-updates__progress-label {
+  position: relative;
+  display: block;
+  padding: 1px var(--fx-space-1);
+  color: var(--fx-color-text-strong);
+}
+
+.fx-updates__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fx-space-1);
+}
+
+.fx-updates__button {
+  padding: 2px var(--fx-space-2);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 2px;
+  background: var(--fx-color-surface-sunken);
+  color: var(--fx-color-text);
+  font: inherit;
+  font-size: var(--fx-font-size-sm);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.fx-updates__button:hover:not(:disabled) {
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-updates__button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.fx-updates__button--primary {
+  border-color: var(--fx-accent-blue);
+  background: var(--fx-color-surface-raised);
+  color: var(--fx-color-text-strong);
 }
 
 /*
@@ -633,4 +882,132 @@
 /* 操作ボタンのぶん一覧を広げたので、見出しの線も同じ幅に揃える（他のカテゴリは 640px のまま）。 */
 .fx-settings__content[data-category='keyboard'] .fx-settings__heading {
   max-width: 760px;
+}
+
+/* ------------------------------------------------------------------ MCP */
+
+/*
+ * MCP の接続の面（§21.9。renderer/src/mcp/McpConnectionPanel.tsx）。
+ *
+ * 設定の行（`.fx-settings__row`）と違い、**1つの接続がひとかたまり**に
+ * 見える必要がある ── 名前・状態・token・接続テストは、どれも
+ * 「その接続について」の話で、行として縦に並べると、どこまでが
+ * 1つの接続の話なのかが読めなくなる。接続が増えるほど効いてくる。
+ */
+.fx-mcp {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-3);
+  padding-top: var(--fx-space-3);
+  border-top: 1px solid var(--fx-color-border);
+}
+
+.fx-mcp__card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-2);
+  padding: var(--fx-space-3);
+  border: 1px solid var(--fx-color-border);
+  border-radius: 4px;
+  background: var(--fx-color-surface-raised);
+}
+
+.fx-mcp__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--fx-space-2);
+}
+
+.fx-mcp__name {
+  color: var(--fx-color-text-strong);
+  font-size: var(--fx-font-size-md);
+  font-weight: 600;
+}
+
+/*
+ * 今の状態。**色だけで意味を伝えない** ── 文字がそのまま状態の名前に
+ * なっていて（「接続できました」「token がまだありません」）、色は
+ * それを速く見つけるための手掛かりにとどまる。
+ */
+.fx-mcp__status {
+  color: var(--fx-color-text-muted);
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-mcp__status[data-tone='connected'] {
+  color: var(--fx-accent-green);
+}
+
+.fx-mcp__status[data-tone='attention'] {
+  color: var(--fx-accent-orange);
+}
+
+.fx-mcp__status[data-tone='failed'] {
+  color: var(--fx-color-danger);
+}
+
+.fx-mcp__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-1);
+}
+
+.fx-mcp__label {
+  color: var(--fx-color-text);
+  font-size: var(--fx-font-size-sm);
+  font-weight: 600;
+}
+
+.fx-mcp__note {
+  margin: 0;
+  color: var(--fx-color-text-muted);
+  font-size: var(--fx-font-size-sm);
+  line-height: 1.5;
+}
+
+.fx-mcp__note[data-state='warning'] {
+  color: var(--fx-accent-orange);
+}
+
+.fx-mcp__row {
+  display: flex;
+  align-items: center;
+  gap: var(--fx-space-2);
+  flex-wrap: wrap;
+}
+
+/*
+ * token の欄。伸ばしてよい唯一の要素で、ボタンは幅を持たない
+ * ── 貼り付ける値が長い（Notion の token は 50 文字前後）。
+ */
+.fx-mcp__input {
+  flex: 1 1 16rem;
+  min-width: 0;
+  padding: var(--fx-space-1) var(--fx-space-2);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  background: var(--fx-color-surface-sunken);
+  color: var(--fx-color-text-strong);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-mcp__button {
+  padding: var(--fx-space-1) var(--fx-space-3);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  background: var(--fx-color-surface);
+  color: var(--fx-color-text);
+  font-size: var(--fx-font-size-sm);
+  cursor: pointer;
+}
+
+.fx-mcp__button:hover:not(:disabled) {
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-mcp__button:disabled {
+  color: var(--fx-color-text-faint);
+  cursor: default;
 }

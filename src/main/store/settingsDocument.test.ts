@@ -26,7 +26,8 @@ const valid = {
     editor: { autoSaveMode: 'afterDelay', autoSaveDelayMs: 1000 },
     lsp: { enabled: false, pythonEnabled: false },
     files: { viewMode: 'columns', columnWidth: 240 },
-    terminal: { fontSize: 15, scrollback: 7000 }
+    terminal: { fontSize: 15, scrollback: 7000 },
+    mcp: {}
   }
 }
 
@@ -47,7 +48,8 @@ describe('parseSettingsDocument', () => {
         editor: {},
         lsp: {},
         files: {},
-        terminal: {}
+        terminal: {},
+        mcp: {}
       })
     }
   })
@@ -68,7 +70,8 @@ describe('parseSettingsDocument', () => {
         editor: {},
         lsp: {},
         files: {},
-        terminal: {}
+        terminal: {},
+        mcp: {}
       })
     }
   })
@@ -108,7 +111,8 @@ describe('parseSettingsDocument', () => {
       editor: {},
       lsp: {},
       files: {},
-      terminal: { fontSize: 15 }
+      terminal: { fontSize: 15 },
+      mcp: {}
     })
     expect(issues).toEqual([])
   })
@@ -239,7 +243,15 @@ describe('toStoredSettings / withSettingsSection', () => {
   it('既定の文書は、空の section を持つ形で書かれる', () => {
     expect(toStoredSettings(defaultSettingsDocument())).toEqual({
       schemaVersion: SETTINGS_SCHEMA_VERSION,
-      sections: { general: {}, appearance: {}, editor: {}, lsp: {}, files: {}, terminal: {} }
+      sections: {
+        general: {},
+        appearance: {},
+        editor: {},
+        lsp: {},
+        files: {},
+        terminal: {},
+        mcp: {}
+      }
     })
   })
 
@@ -273,6 +285,7 @@ describe('toStoredSettings / withSettingsSection', () => {
       lsp: valid.sections.lsp,
       files: valid.sections.files,
       terminal: { cursorStyle: 'bar', fontSize: 20 },
+      mcp: {},
       keybindings: { profile: 'vim' }
     })
   })

@@ -28,7 +28,7 @@ import {
  */
 
 describe('SETTINGS_CATEGORIES', () => {
-  it('General / Appearance / Editor / LSP / Files / Terminal / Keyboard がこの順に並ぶ', () => {
+  it('General / Appearance / Editor / LSP / Files / Terminal / MCP / Keyboard がこの順に並ぶ', () => {
     expect(listSettingsCategories().map((category) => category.id)).toEqual([
       'general',
       'appearance',
@@ -36,6 +36,7 @@ describe('SETTINGS_CATEGORIES', () => {
       'lsp',
       'files',
       'terminal',
+      'mcp',
       'keyboard'
     ])
   })
@@ -113,18 +114,50 @@ describe('SETTINGS_CATEGORIES', () => {
 
     expect(new Set(ids).size).toBe(ids.length)
   })
+
+  /*
+    §21.9 で足した `panel`。値の項目の下に続く面で、**設定ファイルに
+    書けないもの**（token・接続状態・接続テスト）だけがそこに出る。
+  */
+  describe('panel', () => {
+    it('面を持つのは MCP だけ', () => {
+      const withPanel = listSettingsValueCategories().filter(
+        (category) => category.panel !== undefined
+      )
+
+      expect(withPanel.map((category) => category.id)).toEqual(['mcp'])
+      expect(withPanel[0]?.panel).toBe('mcp')
+    })
+
+    /*
+      面だけのカテゴリを作らない。`items` が空のカテゴリを禁じているのと
+      同じ線で、面が出せなかったときに**何も無いカテゴリ**が残るのを避ける。
+    */
+    it('面を持つカテゴリも、値の項目を持っている', () => {
+      for (const category of listSettingsValueCategories()) {
+        if (category.panel !== undefined) {
+          expect(category.items.length).toBeGreaterThan(0)
+        }
+      }
+    })
+  })
 })
 
 describe('listSettingsItems', () => {
   /*
-    Session 4-3B の5つ ＋ Theme ＋ Language。保存されている設定は8つあるが、
-    Files のカラムの幅だけは画面に載せない（settingsCatalog.ts の冒頭）。
+    Session 4-3B の5つ ＋ Theme ＋ Language ＋ Updates ＋ MCP の2つ。保存されている
+    設定はもっとあるが、Files のカラムの幅だけは画面に載せない
+    （settingsCatalog.ts の冒頭）。Updates は値を持たない行（key が空）。
 
     Keyboard Shortcuts は項目を1つも足していない ── 一覧表であって設定ではない。
+
+    MCP の token も**ここには無い**（§21.9）。設定の値ではなく、
+    カテゴリの `panel` が出すものにほかならない。
   */
-  it('9つの設定が、カテゴリの順に並ぶ', () => {
+  it('12個の設定が、カテゴリの順に並ぶ', () => {
     expect(listSettingsItems().map((item) => item.id)).toEqual([
       'general.language',
+      'general.updates',
       'appearance.theme',
       'editor.autoSaveMode',
       'editor.autoSaveDelayMs',
@@ -132,7 +165,9 @@ describe('listSettingsItems', () => {
       'lsp.servers',
       'files.viewMode',
       'terminal.fontSize',
-      'terminal.scrollback'
+      'terminal.scrollback',
+      'mcp.enabled',
+      'mcp.servers'
     ])
   })
 

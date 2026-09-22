@@ -981,6 +981,30 @@ export const enMessages = {
     closeLabel: 'Close Settings',
     categoryNavLabel: 'Settings categories',
     missingControl: 'This setting does not have a control yet.',
+    /* User / Workspace settings (feature/settings-scope). */
+    scope: {
+      aria: 'Which settings to edit',
+      user: 'User',
+      workspace: 'Workspace',
+      userDescription:
+        'Editing user settings. They apply to every project you open in Fluvix Nexus.',
+      workspaceDescription:
+        'Editing workspace settings for “{name}”. They apply only to this project and take priority over user settings.',
+      workspaceDescriptionNone:
+        'Workspace settings apply only to the open project and take priority over user settings.',
+      noWorkspace: {
+        title: 'Open a workspace to change settings just for that project.',
+        note: 'Workspace settings are saved per project and override your user settings only there. Until then, user settings apply everywhere.'
+      },
+      status: {
+        inherited: 'Using the user setting.',
+        overridden: 'Changed for this workspace',
+        shadowedByWorkspace:
+          'The open workspace has its own value for this, so the workspace setting is used there.',
+        userOnly: 'This can only be changed in user settings.'
+      },
+      reset: 'Use user setting'
+    },
     categories: {
       general: {
         title: 'General',
@@ -1007,6 +1031,11 @@ export const enMessages = {
         title: 'Terminal',
         description: 'Terminal display settings. These apply to every open tab.'
       },
+      mcp: {
+        title: 'MCP',
+        description:
+          'Connect Fluvix Nexus to outside services through MCP servers. Everything here is off until you turn it on, and these settings apply to the app as a whole rather than to one project.'
+      },
       keyboard: {
         title: 'Keyboard Shortcuts',
         description: 'Keys assigned to app commands. Changes are saved and take effect immediately.'
@@ -1017,6 +1046,10 @@ export const enMessages = {
         language: {
           title: 'Language',
           description: 'Choose the display language for Fluvix Nexus.'
+        },
+        updates: {
+          title: 'Updates',
+          description: 'Check GitHub Releases for new Fluvix Nexus versions.'
         }
       },
       appearance: {
@@ -1063,6 +1096,18 @@ export const enMessages = {
           title: 'Scrollback Lines',
           description: 'Lower values discard older output immediately.'
         }
+      },
+      mcp: {
+        enabled: {
+          title: 'Use MCP',
+          description:
+            'The main switch for every MCP connection. While this is off, no MCP server is started and no request leaves this PC.'
+        },
+        servers: {
+          title: 'Connections',
+          description:
+            'Choose which services to connect to. These have no effect while the setting above is off.'
+        }
       }
     },
     controls: {
@@ -1096,6 +1141,12 @@ export const enMessages = {
       },
       theme: {
         aria: 'Theme'
+      },
+      mcpEnabled: {
+        aria: 'Use MCP'
+      },
+      mcpServers: {
+        aria: 'Services to connect to'
       }
     },
     values: {
@@ -1106,6 +1157,10 @@ export const enMessages = {
         onWindowChange: 'Auto Save: On Window Change'
       },
       lsp: {
+        on: 'On',
+        off: 'Off'
+      },
+      mcp: {
         on: 'On',
         off: 'Off'
       },
@@ -1277,6 +1332,91 @@ export const enMessages = {
         user: 'User',
         workspace: 'Workspace'
       }
+    },
+    /*
+      MCP の接続の面（§21.9）。
+
+      `status.*` は「今どうなっているか」の1行で、利用者の次の一手が
+      それぞれ違うので分けてある（shared/mcp の `McpConfigProblem`）。
+      `failure.*` は設定が揃っていたのに繋がらなかった場合になる。
+
+      **token の値に触れる言い回しは1つも無い。** 出せるのは
+      「どこから来ているか」までで、これは画面がそもそも値を受け取らない
+      ことの裏返しにほかならない。
+    */
+    mcp: {
+      connections: {
+        notion: 'Notion'
+      },
+      status: {
+        loading: 'Checking…',
+        testing: 'Connecting…',
+        disabled: 'Off',
+        ready: 'Ready to connect',
+        connected: 'Connected',
+        notConfigured: 'Not set up yet',
+        tokenMissing: 'No token yet',
+        tokenInvalid: 'The token contains characters that cannot be used',
+        nodeNotFound: 'Node.js was not found',
+        serverNotInstalled: 'The MCP server is not installed'
+      },
+      failure: {
+        spawnFailed: 'The server could not be started',
+        timeout: 'The server did not answer in time',
+        serverExited: 'The server stopped on its own',
+        protocolError: 'The server answered in a way this version cannot read',
+        unsupportedProtocol: 'The server speaks a version of MCP this app does not support',
+        rejected: 'The server refused the connection'
+      },
+      secret: {
+        label: 'Token',
+        placeholder: 'Paste your token',
+        save: 'Save',
+        clear: 'Delete',
+        cannotStore:
+          'This PC cannot store the token securely, so it will not be saved. Set FLUVIX_NOTION_MCP_TOKEN as an environment variable instead.',
+        source: {
+          stored: 'A token is saved on this PC, encrypted.',
+          environment: 'Using the token from the FLUVIX_NOTION_MCP_TOKEN environment variable.',
+          none: 'No token yet. Paste one below, or set FLUVIX_NOTION_MCP_TOKEN.'
+        }
+      },
+      test: 'Test connection',
+      tools: 'Connected to {name}. It offers {count} tool(s).',
+      unknownServer: 'the server',
+      notice: {
+        saved: 'The token was saved.',
+        saveFailed: 'The token could not be saved.',
+        tokenInvalid: 'That token contains characters that cannot be used. Check what you pasted.',
+        encryptionUnavailable: 'This PC cannot store the token securely, so nothing was saved.',
+        cleared: 'The saved token was deleted.',
+        clearedButEnvironment:
+          'The saved token was deleted. The FLUVIX_NOTION_MCP_TOKEN environment variable is still set, so that one is used now.',
+        clearFailed: 'The saved token could not be deleted.',
+        testFailed: 'The connection could not be tested.'
+      }
+    }
+  },
+  updates: {
+    currentVersion: 'Current version: {version}',
+    availableVersion: 'Available version: {version}',
+    source: 'Source: GitHub Releases ({owner}/{repo})',
+    progress: '{percent}% ({transferred} / {total})',
+    status: {
+      loading: 'Loading update status…',
+      idle: 'Updates have not been checked yet.',
+      checking: 'Checking for updates…',
+      'not-available': 'You are using the latest version.',
+      available: 'A new version is available.',
+      downloading: 'Downloading update…',
+      downloaded: 'Update is ready. Restart when you are ready.',
+      error: 'Update check failed.',
+      unsupported: 'Updates are not available in this environment.'
+    },
+    actions: {
+      check: 'Check for Updates',
+      download: 'Download Update',
+      install: 'Restart and Update Now'
     }
   },
   /*
@@ -1545,6 +1685,36 @@ export const enMessages = {
       terminating: 'The debug session is ending.'
     }
   },
+  /*
+    フィードバックの面（feedback/FeedbackOverlay.tsx。フィードバック機能 v1）。
+    種別のうち Bad / Good は日本語側でも英語のまま出す（利用者が指定した表記）。
+  */
+  feedback: {
+    title: 'Feedback',
+    description:
+      'Choose a type and describe what you noticed. In this version, feedback is not sent or saved anywhere.',
+    closeTitle: 'Close feedback (Esc)',
+    closeLabel: 'Close feedback',
+    categoryLabel: 'Type',
+    categories: {
+      bug: 'Bug',
+      bad: 'Bad',
+      good: 'Good',
+      safety: 'Safety check',
+      other: 'Other'
+    },
+    detailLabel: 'Details',
+    detailPlaceholder: 'What happened, what you expected, or what you liked.',
+    submit: 'Send',
+    sending: 'Sending…',
+    accepted: 'Your feedback has been received. Thank you!',
+    failed: 'Your feedback could not be received. Your input has been kept; please try again.',
+    errors: {
+      categoryRequired: 'Choose a feedback type.',
+      detailEmpty: 'Enter the details.',
+      detailBlank: 'The details contain only spaces. Enter some content.'
+    }
+  },
   workspace: {
     noWorkspace: 'No Workspace',
     noWorkspaceOpen: 'No Workspace is open.',
@@ -1557,6 +1727,8 @@ export const enMessages = {
     modified: 'Modified',
     settingsTitle: 'Open app settings.',
     settingsButton: 'Settings',
+    feedbackTitle: 'Send feedback about Fluvix Nexus.',
+    feedbackButton: 'Feedback',
     resetLayout: 'Reset Layout',
     emptyDock: 'No panels. Use the View menu to show one.',
     closePanel: 'Close {title}',

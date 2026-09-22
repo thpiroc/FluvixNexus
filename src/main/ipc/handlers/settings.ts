@@ -1,7 +1,15 @@
-import { IPC_CHANNELS, type LoadSettingsResponse } from '@shared/ipc'
-import { readSettingsSections, saveSettingsSection } from '../../store/settings'
-import { parseSettingsSectionUpdate } from '../../store/settingsSections'
-import { invalidRequest } from '../errors'
+import { IPC_CHANNELS, IPC_EVENT_CHANNELS, type LoadSettingsResponse } from '@shared/ipc'
+import { isSettingsScope } from '@shared/settings'
+import {
+  readUserSettingsSections,
+  readWorkspaceSettingsSnapshot,
+  saveUserSettingsSection,
+  saveWorkspaceSettingsSection
+} from '../../store/settings'
+import { isPlainObject, parseSettingsSectionUpdate } from '../../store/settingsSections'
+import { onWorkspaceFolderChange } from '../../workspaceFolder/currentWorkspaceFolder'
+import { IpcError, invalidRequest } from '../errors'
+import { emitIpcEvent } from '../events'
 import { handleIpc } from '../registry'
 
 /**
@@ -22,6 +30,13 @@ import { handleIpc } from '../registry'
  * それを知っているのは Renderer だけで、二重に解釈すると
  * 「どちらが正しいか」が生まれる（Session 3-5 からの分担）。
  *
+ * ## scope も確かめる（feature/settings-scope）
+ *
+ * `scope` が `user` / `workspace` のどちらかでなければ拒む。ワークスペース設定は
+ * 名乗った `workspaceId` が今開いている Workspace と違えば CONFLICT
+ * （切り替えの直前に出た保存を、別のプロジェクトへ書かない）、
+ * ユーザー設定でしか変えられない section なら INVALID_REQUEST にする。
+ *
  * ## 読めなくても失敗にしない
  *
  * 保存が無い / 壊れている場合でも、その分だけ空の section を返す。設定が読めない
@@ -30,16 +45,52 @@ import { handleIpc } from '../registry'
  */
 export function registerSettingsHandlers(): void {
   handleIpc(IPC_CHANNELS.SETTINGS_LOAD, (): LoadSettingsResponse => {
-    return { sections: readSettingsSections() }
+    return { user: readUserSettingsSections(), workspace: readWorkspaceSettingsSnapshot() }
   })
 
   handleIpc(IPC_CHANNELS.SETTINGS_SAVE_SECTION, (request): void => {
-    const update = parseSettingsSectionUpdate(request)
+    // 型は名乗っているだけなので、素の値として読み直す。
+    const raw: unknown = request
+    const update = parseSettingsSectionUpdate(raw)
+    const scope = isPlainObject(raw) ? raw.scope : undefined
 
-    if (update === null) {
+    if (update === null || !isSettingsScope(scope)) {
       throw invalidRequest('the settings section update is not in a storable shape.')
     }
 
-    saveSettingsSection(update)
+    if (scope === 'user') {
+      saveUserSettingsSection(update)
+      return
+    }
+
+    const workspaceId = isPlainObject(raw) ? raw.workspaceId : undefined
+
+    if (typeof workspaceId !== 'string' || workspaceId.length === 0) {
+      throw invalidRequest('a workspace settings update must name its workspace.')
+    }
+
+    switch (saveWorkspaceSettingsSection(workspaceId, update)) {
+      case 'saved':
+        return
+
+      case 'not-workspace-scoped':
+        throw invalidRequest(
+          `the "${update.section}" section can only be changed in user settings.`
+        )
+
+      case 'workspace-mismatch':
+        throw new IpcError('CONFLICT', 'the workspace changed before the settings were saved.')
+    }
+  })
+
+  /*
+    Workspace が切り替わったら、Renderer の設定の器へ読み直すよう知らせる
+    （shared/ipc/events/settings.ts）。購読をここに置くのは、IPC を知っている層が
+    ここだけだから ── store/settings.ts は Renderer の存在を知らない。
+  */
+  onWorkspaceFolderChange((workspace) => {
+    emitIpcEvent(IPC_EVENT_CHANNELS.SETTINGS_WORKSPACE_CHANGED, {
+      workspaceId: workspace?.id ?? null
+    })
   })
 }

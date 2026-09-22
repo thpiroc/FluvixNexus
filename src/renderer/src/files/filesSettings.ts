@@ -1,4 +1,5 @@
 import type { StoredFilesSettings } from '@shared/settings'
+import type { SettingsSectionBinding, SettingsValueUpdate } from '../settings/settingsBinding'
 import {
   AUTO_LAYOUT_PREFERENCE,
   chooseLayoutMode,
@@ -178,4 +179,44 @@ export function clampColumnWidth(value: number | undefined): number {
   }
 
   return Math.min(Math.max(Math.round(value), FILES_COLUMN_WIDTH_MIN), FILES_COLUMN_WIDTH_MAX)
+}
+
+/* ------------------------------------------ 設定との行き来（feature/settings-scope） */
+
+/** `files` section と Files の見え方の行き来（Files と Settings 画面が同じものを読む）。 */
+export const FILES_VIEW_SETTINGS_BINDING: SettingsSectionBinding<'files', FilesViewSettings> = {
+  section: 'files',
+  initial: DEFAULT_FILES_VIEW_SETTINGS,
+  fromStored: toFilesViewSettings,
+  toStored: toFilesSettingsSection
+}
+
+export interface FilesViewSetters {
+  readonly setPreference: (preference: FilesLayoutPreference) => void
+  /** カラムの幅を変える（上下限は clampColumnWidth が掛ける）。 */
+  readonly setColumnWidth: (width: number) => void
+}
+
+/**
+ * Files の見え方を変える操作（FilesViewProvider と Settings 画面が使う）。
+ *
+ * 幅は**掴んで動かしている間ずっと**届く。同じ値になったら据え置くことで、
+ * 1px 未満の動き（ポインタの座標は小数）で再描画と保存が走り続けないようにする。
+ */
+export function createFilesViewSetters(
+  update: SettingsValueUpdate<FilesViewSettings>
+): FilesViewSetters {
+  const apply = (change: (previous: FilesViewSettings) => FilesViewSettings): void => {
+    update((previous) => {
+      const next = change(previous)
+
+      return isSameFilesViewSettings(previous, next) ? previous : next
+    })
+  }
+
+  return {
+    setPreference: (preference) => apply((previous) => ({ ...previous, preference })),
+    setColumnWidth: (width) =>
+      apply((previous) => ({ ...previous, columnWidth: clampColumnWidth(width) }))
+  }
 }

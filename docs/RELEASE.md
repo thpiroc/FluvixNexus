@@ -1,7 +1,7 @@
 # リリース
 
 > 対象: v1.0.0（Session 7-2A でメタデータと仕様を確定。Session 7-2B で electron-builder を入れ、ローカルで installer を作った。Session 7-2C でその installer をこの PC に入れて検証した。Session 7-2D でこの PC でできる clean Windows 相当の確認をし、Release notes を確定した。その後、正式アイコンを組み込んで installer を作り直した。Session 7-2E で公開前の再確認・`SHA256SUMS.txt`・`v1.0.0` tag までを済ませ、利用者が repository を Public にして Release を公開した（2026-09-16。§9.5））
-> 最終更新: 2026-09-16
+> 最終更新: 2026-09-22
 
 v1.0.0 を配布するための仕様と手順を扱う。製品としての配布方針は [DESIGN.md](../DESIGN.md) §7、利用者向けの説明は [README.md](../README.md)、開発時のコマンドは [DEVELOPMENT.md](DEVELOPMENT.md) にある。
 
@@ -60,6 +60,8 @@ v1.0.0 時点で載っているもの（10件）: `@lydell/node-pty` 1.1.0・`@l
 
 `LICENSE` と `THIRD_PARTY_NOTICES.txt` は installer にも入れる（§5 の `extraResources`）。
 
+**同梱する MCP サーバー（feature/notion-mcp）。** src が import せず `extraResources` で写すパッケージ（`@notionhq/notion-mcp-server` 2.5.1）は、`tools/third-party-notices.mjs` の `BUNDLED_PACKAGES` から数え始める。写すのは依存をまとめた1ファイル（`bin/cli.mjs`）だが、中身は依存のコードそのものなので、`dependencies` を辿って全部載せる（載せ過ぎる側に倒す）。依存は Node と同じく依存元のフォルダから親へ辿って探す（版の食い違う依存は入れ子で置かれるため）。これで載るパッケージは 10件から 144件になった。
+
 ## 5. electron-builder の設定（Session 7-2B で実装）
 
 7-2A で決めた設計を 7-2B でそのまま入れた（設計と食い違った点は無い）。**設定の正はルートの `electron-builder.yml`**。変えるときは本書も一緒に直す。ローカルでの作り方と 7-2B の結果は §5.5。
@@ -114,7 +116,24 @@ nsis:
   deleteAppDataOnUninstall: false # userData（設定・Debug Profile・ログ）は消さない
   artifactName: Fluvix-Nexus-Setup-${version}.${ext} # 空白を含む既定名は GitHub が `.` に置き換えるため
 
-publish: null # 自動更新は入れない。GitHub へのアップロードは手で行う
+publish:
+  provider: github
+  owner: thpiroc
+  repo: FluvixNexus
+```
+
+feature/notion-mcp で `extraResources` に1つ足した（同梱する MCP サーバー。docs/ARCHITECTURE.md §21.4）。`resources/mcp-servers/notion-mcp-server/` へ `bin/cli.mjs`・`scripts/notion-openapi.json`・`package.json`・`LICENSE` の4ファイルだけを写す。asar の外に置くのは、アプリ自身の実行ファイルを Node として（`ELECTRON_RUN_AS_NODE=1`）起動した子プロセスが読むため。
+
+```yaml
+extraResources:
+  # （LICENSE / THIRD_PARTY_NOTICES.txt は上のとおり）
+  - from: node_modules/@notionhq/notion-mcp-server
+    to: mcp-servers/notion-mcp-server
+    filter:
+      - bin/cli.mjs
+      - scripts/notion-openapi.json
+      - package.json
+      - LICENSE
 ```
 
 `nsis` は electron-builder の既定（oneClick・per-user）をそのまま使う。インストール先を選ばせる形（assisted）に変えるなら、先に決定を取ること。
@@ -154,7 +173,8 @@ installer は作り直したので、§5.5 の 7-2B の数値と §8.1 / §8.2 �
 | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Terminal（node-pty）        | `windowsConoutConnection.js` は Worker の script を `__dirname` の `node_modules.asar` だけを `.asar.unpacked` へ置き換えて探す。electron-builder の `app.asar` は置き換わらず、Worker が asar の中を読みに行く。`.node` と、`fork` で起こす `conpty_console_list_agent.js` もあるため `@lydell/**` をまとめて unpack する。**7-2B の smoke で、win-unpacked から Terminal を立てて出力が返ることを確かめた**（§5.5）。7-2C で、インストール版の Main が `app.asar.unpacked` の `conpty.node` を読み、タブを閉じるとシェルの孫プロセスまで消え（`fork` 側）、アプリ終了でシェルが残らないことを確かめた（§8.1） |
 | node-pty の prebuilt        | `optionalDependencies` なので、ビルドする PC に `@lydell/node-pty-win32-x64` が無いと実行時に MODULE_NOT_FOUND。**clean checkout で `npm ci` してからビルドする**                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| Electron Fuses              | v1.0.0 では設定しない。RunAsNode を無効にすると node-pty の `child_process.fork` が動かなくなる                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Electron Fuses              | v1.0.0 では設定しない。RunAsNode を無効にすると node-pty の `child_process.fork` が動かなくなる。feature/notion-mcp からは、同梱した MCP サーバーの起動（アプリ自身の実行ファイルを `ELECTRON_RUN_AS_NODE=1` で起動）もこれに頼る                                                                                                                                                                                                                                                                                                                                                                               |
+| 同梱した MCP サーバー       | 開発時は `node_modules/@notionhq/notion-mcp-server` を、配布物では `process.resourcesPath` の `mcp-servers/notion-mcp-server` を読む（`app.isPackaged` で分ける。`src/main/mcp/mcpService.ts`）。`extraResources` の写し漏れは `not-configured`（`server-not-installed`）として表に出る。feature/notion-mcp で、`npm run dist` の win-unpacked から接続・検索・取得が通ることを確かめた（installer で入れたアプリでは未確認）                                                                                                                                                                                   |
 | `app.isPackaged` の分岐     | ネイティブメニューが無くなる（DevTools も開けない）・ログが info 以上になる                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | Renderer / preload / Worker | asar の中から `file://` で読む。Renderer と preload が asar の中から読めることは 7-2B の smoke で確認。Monaco の Worker（editor / JSON / CSS / HTML / TS）が asar の中から起動することは 7-2C で確認（§8.1）                                                                                                                                                                                                                                                                                                                                                                                                    |
 | PATH                        | スタートメニューから起動したアプリは Explorer の環境変数を受け継ぐ。Node / Git / LSP などを後から入れたらアプリの再起動（場合によってはサインアウト）が要る。LSP / DAP / git は PATH を自分で辿って絶対パスで起動するので、インストール先には依存しない                                                                                                                                                                                                                                                                                                                                                         |
@@ -249,7 +269,7 @@ $hash = (Get-FileHash $name -Algorithm SHA256).Hash.ToLowerInvariant()
 | 概要           | 何のアプリか・v1.0.0 が最初の公開版であること                                                                                                                                                                      |
 | 動作環境       | Windows 11 x64（7-2D で確かめた環境を書く）                                                                                                                                                                        |
 | ダウンロード   | `Fluvix-Nexus-Setup-1.0.0.exe` と `SHA256SUMS.txt`。SHA-256 の確かめ方（`Get-FileHash`）                                                                                                                           |
-| インストール   | per-user・管理者権限不要・**未署名のため SmartScreen の警告が出る**こと・**自動更新が無い**こと                                                                                                                    |
+| インストール   | per-user・管理者権限不要・**未署名のため SmartScreen の警告が出る**こと・更新確認は GitHub Releases を使うこと                                                                                                     |
 | 別途入れるもの | Git / GitHub CLI / Language Server / Debug Adapter と、入れた後にアプリを再起動すること（README へのリンク）                                                                                                       |
 | データとログ   | `%APPDATA%\Fluvix Nexus`・`logs\main.log`。アンインストールしても残ること                                                                                                                                          |
 | 既知の制約     | DESIGN.md §14 の表（Debug の制約・adapter は利用者が置く・Renderer の `file://`）                                                                                                                                  |
@@ -257,7 +277,7 @@ $hash = (Get-FileHash $name -Algorithm SHA256).Hash.ToLowerInvariant()
 | 不具合の報告先 | GitHub Issues（`https://github.com/thpiroc/FluvixNexus/issues`。7-2E で決定）                                                                                                                                      |
 | 7-2D で追加    | 上書きインストールで設定が残り、起動中のアプリは閉じて起動し直されること・Smart App Control でブロックされうること・アンインストール後に残る `fluvix-nexus-updater`・TypeScript は 6 系（7 では LSP が起動しない） |
 
-GitHub Release に上げるのは `Fluvix-Nexus-Setup-1.0.0.exe` と `SHA256SUMS.txt` だけ。自動更新を入れないので `.blockmap` / `latest.yml` は上げない。`win-unpacked/` も上げない。
+GitHub Release に上げるのは `Fluvix-Nexus-Setup-${version}.exe`、`latest.yml`、必要な `.blockmap`、`SHA256SUMS.txt`。`win-unpacked/` は上げない。
 
 ## 8. installer で入れたアプリの確認項目
 
@@ -416,3 +436,21 @@ tag `v1.0.0` は 7-2E の commit に付けて push 済み。GitHub の画面で�
 | ダウンロードでの照合 | 未認証で2つをダウンロードし、Release notes の PowerShell の照合が `True`。どちらも `release/` のファイルとバイト一致。installer は `NotSigned`（方針どおり） |
 
 未確認のまま残るもの: ブラウザでダウンロードしたときの MOTW と SmartScreen の表示（`Invoke-WebRequest` は MOTW を付けない。§8.2 のとおり、この PC では MOTW 付きでも警告が出なかった）。
+
+## 10. 自動アップデート実機テスト（feature/auto-update）
+
+`feature/auto-update` の自動アップデート機能は、Windows 11 / VirtualBox のクリーン検証環境で実機確認した。テスト用更新元は `thpiroc/FluvixNexus-update-test`。
+
+| 項目                     | 結果                                              |
+| ------------------------ | ------------------------------------------------- |
+| 更新元                   | `thpiroc/FluvixNexus-update-test`                 |
+| 更新前                   | `v1.0.1`                                          |
+| 更新後                   | `v1.0.2`                                          |
+| 新バージョン検出         | 成功                                              |
+| 更新データのダウンロード | 成功                                              |
+| 更新準備完了             | 成功                                              |
+| 「今すぐ再起動して更新」 | 成功                                              |
+| 再起動                   | Fluvix Nexus が正常に終了し、更新後に正常再起動   |
+| 更新後の確認             | `v1.0.2` 起動と「最新版を使用中です。」表示を確認 |
+
+この確認により、`v1.0.1 → 更新検出 → ダウンロード → 更新準備完了 → 再起動して更新 → v1.0.2 起動` の流れが Windows 実機環境で完走した。

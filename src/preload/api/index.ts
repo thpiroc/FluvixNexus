@@ -1,14 +1,17 @@
 import type { FluvixApi } from '@shared/api'
 import { debugApi } from './debug'
 import { envApi } from './env'
+import { feedbackApi } from './feedback'
 import { filesApi } from './files'
 import { gitApi } from './git'
 import { githubApi } from './github'
 import { keybindingsApi } from './keybindings'
 import { lspApi } from './lsp'
+import { mcpApi } from './mcp'
 import { settingsApi } from './settings'
 import { systemApi } from './system'
 import { terminalApi } from './terminal'
+import { updatesApi } from './updates'
 import { windowApi } from './window'
 import { workspaceApi } from './workspace'
 import { workspaceFolderApi } from './workspaceFolder'
@@ -37,8 +40,11 @@ export const api: FluvixApi = {
   terminal: terminalApi,
   git: gitApi,
   github: githubApi,
+  updates: updatesApi,
   lsp: lspApi,
   debug: debugApi,
   settings: settingsApi,
-  keybindings: keybindingsApi
+  keybindings: keybindingsApi,
+  feedback: feedbackApi,
+  mcp: mcpApi
 }
