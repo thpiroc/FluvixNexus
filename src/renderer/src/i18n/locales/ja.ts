@@ -1021,6 +1021,10 @@ export const jaMessages = {
         language: {
           title: '言語',
           description: 'Fluvix Nexus の表示言語を選びます。'
+        },
+        updates: {
+          title: 'アップデート',
+          description: 'GitHub Releases から Fluvix Nexus の新しい版を確認します。'
         }
       },
       appearance: {
@@ -1229,6 +1233,28 @@ export const jaMessages = {
         clearFailed: '保存されていた token を削除できませんでした。',
         testFailed: '接続テストを実行できませんでした。'
       }
+    }
+  },
+  updates: {
+    currentVersion: '現在のバージョン: {version}',
+    availableVersion: '利用できるバージョン: {version}',
+    source: '更新元: GitHub Releases（{owner}/{repo}）',
+    progress: '{percent}%（{transferred} / {total}）',
+    status: {
+      loading: '更新状態を読み込んでいます…',
+      idle: 'まだ更新を確認していません。',
+      checking: '更新を確認しています…',
+      'not-available': '最新版を使用中です。',
+      available: '新しいバージョンがあります。',
+      downloading: '更新データをダウンロードしています…',
+      downloaded: '更新の準備ができました。作業が落ち着いたら再起動できます。',
+      error: '更新確認に失敗しました。',
+      unsupported: 'この環境ではアップデートを利用できません。'
+    },
+    actions: {
+      check: '更新を確認',
+      download: '更新をダウンロード',
+      install: '今すぐ再起動して更新'
     }
   },
   /* 英語側（locales/en.ts の `lsp`）に、名前と言い回しを分けてある理由がある。 */

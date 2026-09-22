@@ -33,7 +33,27 @@ import { SettingsOverlay } from './SettingsOverlay'
 const settingsStore = vi.hoisted(() => ({
   load: vi.fn(),
   saveSection: vi.fn(),
-  onWorkspaceChanged: vi.fn(() => () => {})
+  onWorkspaceChanged: vi.fn(() => () => {}),
+  updateStatus: {
+    status: 'idle',
+    currentVersion: '1.0.0',
+    updateVersion: null,
+    releaseName: null,
+    releaseDate: null,
+    message: null,
+    lastCheckedAt: null,
+    progress: null,
+    source: {
+      provider: 'github',
+      owner: 'thpiroc',
+      repo: 'FluvixNexus'
+    }
+  },
+  getUpdateStatus: vi.fn(),
+  checkUpdates: vi.fn(),
+  downloadUpdate: vi.fn(),
+  installUpdate: vi.fn(),
+  onUpdateStatusChanged: vi.fn()
 }))
 
 vi.mock('../api/fluvix', () => ({
@@ -42,6 +62,13 @@ vi.mock('../api/fluvix', () => ({
       load: settingsStore.load,
       saveSection: settingsStore.saveSection,
       onWorkspaceChanged: settingsStore.onWorkspaceChanged
+    },
+    updates: {
+      getStatus: settingsStore.getUpdateStatus,
+      check: settingsStore.checkUpdates,
+      download: settingsStore.downloadUpdate,
+      install: settingsStore.installUpdate,
+      onStatusChanged: settingsStore.onUpdateStatusChanged
     }
   }
 }))
@@ -58,6 +85,20 @@ beforeEach(() => {
     data: { user: emptySettingsSections(), workspace: null }
   })
   settingsStore.saveSection.mockResolvedValue({ ok: true, data: undefined })
+  settingsStore.getUpdateStatus.mockResolvedValue({
+    ok: true,
+    data: settingsStore.updateStatus
+  })
+  settingsStore.checkUpdates.mockResolvedValue({
+    ok: true,
+    data: settingsStore.updateStatus
+  })
+  settingsStore.downloadUpdate.mockResolvedValue({
+    ok: true,
+    data: settingsStore.updateStatus
+  })
+  settingsStore.installUpdate.mockResolvedValue({ ok: true, data: undefined })
+  settingsStore.onUpdateStatusChanged.mockReturnValue(() => {})
   container = document.createElement('div')
   document.body.append(container)
   root = createRoot(container)

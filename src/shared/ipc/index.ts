@@ -166,6 +166,13 @@ export type {
   PublishGitHubRepositoryResponse
 } from './contracts/github'
 export type {
+  CheckForUpdatesResponse,
+  DownloadUpdateResponse,
+  GetUpdateStatusResponse,
+  InstallUpdateResponse,
+  UpdatesIpcContract
+} from './contracts/updates'
+export type {
   CreateTerminalSessionRequest,
   CreateTerminalSessionResponse,
   DisposeTerminalSessionRequest,
@@ -193,6 +200,7 @@ export type {
   DebugStatusChangedEvent
 } from './events/debug'
 export type { GitChangedEvent, GitIpcEventContract } from './events/git'
+export type { UpdateStatusChangedEvent, UpdatesIpcEventContract } from './events/updates'
 export type {
   LspDiagnosticsClearedEvent,
   LspDiagnosticsEvent,

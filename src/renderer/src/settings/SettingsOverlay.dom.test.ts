@@ -41,7 +41,27 @@ const settingsStore = vi.hoisted(() => ({
   saveSection: vi.fn(),
   /** Main から届く「Workspace が切り替わった」の受け手（試験から流す）。 */
   workspaceListeners: [] as Array<(event: { workspaceId: string | null }) => void>,
-  onWorkspaceChanged: vi.fn()
+  onWorkspaceChanged: vi.fn(),
+  updateStatus: {
+    status: 'idle',
+    currentVersion: '1.0.0',
+    updateVersion: null,
+    releaseName: null,
+    releaseDate: null,
+    message: null,
+    lastCheckedAt: null,
+    progress: null,
+    source: {
+      provider: 'github',
+      owner: 'thpiroc',
+      repo: 'FluvixNexus'
+    }
+  },
+  getUpdateStatus: vi.fn(),
+  checkUpdates: vi.fn(),
+  downloadUpdate: vi.fn(),
+  installUpdate: vi.fn(),
+  onUpdateStatusChanged: vi.fn()
 }))
 
 vi.mock('../api/fluvix', () => ({
@@ -50,6 +70,13 @@ vi.mock('../api/fluvix', () => ({
       load: settingsStore.load,
       saveSection: settingsStore.saveSection,
       onWorkspaceChanged: settingsStore.onWorkspaceChanged
+    },
+    updates: {
+      getStatus: settingsStore.getUpdateStatus,
+      check: settingsStore.checkUpdates,
+      download: settingsStore.downloadUpdate,
+      install: settingsStore.installUpdate,
+      onStatusChanged: settingsStore.onUpdateStatusChanged
     }
   }
 }))
@@ -260,6 +287,35 @@ beforeEach(() => {
       }
     }
   )
+  settingsStore.updateStatus = {
+    status: 'idle',
+    currentVersion: '1.0.0',
+    updateVersion: null,
+    releaseName: null,
+    releaseDate: null,
+    message: null,
+    lastCheckedAt: null,
+    progress: null,
+    source: {
+      provider: 'github',
+      owner: 'thpiroc',
+      repo: 'FluvixNexus'
+    }
+  }
+  settingsStore.getUpdateStatus.mockResolvedValue({
+    ok: true,
+    data: settingsStore.updateStatus
+  })
+  settingsStore.checkUpdates.mockResolvedValue({
+    ok: true,
+    data: settingsStore.updateStatus
+  })
+  settingsStore.downloadUpdate.mockResolvedValue({
+    ok: true,
+    data: settingsStore.updateStatus
+  })
+  settingsStore.installUpdate.mockResolvedValue({ ok: true, data: undefined })
+  settingsStore.onUpdateStatusChanged.mockReturnValue(() => {})
   container = document.createElement('div')
   document.body.append(container)
   root = createRoot(container)
@@ -400,6 +456,36 @@ describe('SettingsOverlay DOM', () => {
       section: 'general',
       value: { language: 'en' }
     })
+  })
+
+  it('Updates で現在バージョンを表示し、確認・ダウンロード・再起動更新を呼べる', async () => {
+    const availableStatus = {
+      ...settingsStore.updateStatus,
+      status: 'available',
+      updateVersion: '1.0.1'
+    }
+    const downloadedStatus = {
+      ...availableStatus,
+      status: 'downloaded'
+    }
+
+    settingsStore.checkUpdates.mockResolvedValueOnce({ ok: true, data: availableStatus })
+    settingsStore.downloadUpdate.mockResolvedValueOnce({ ok: true, data: downloadedStatus })
+
+    await renderHarness()
+    await click('topbar-settings')
+
+    expect(byTestId('settings-updates').textContent).toContain('1.0.0')
+
+    await click('settings-updates-check')
+    expect(settingsStore.checkUpdates).toHaveBeenCalledTimes(1)
+    expect(byTestId('settings-updates').textContent).toContain('1.0.1')
+
+    await click('settings-updates-download')
+    expect(settingsStore.downloadUpdate).toHaveBeenCalledTimes(1)
+
+    await click('settings-updates-install')
+    expect(settingsStore.installUpdate).toHaveBeenCalledTimes(1)
   })
 
   it('保存されている Language が知らない値なら、日本語で出る', async () => {

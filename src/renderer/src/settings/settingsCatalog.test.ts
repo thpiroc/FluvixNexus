@@ -145,18 +145,19 @@ describe('SETTINGS_CATEGORIES', () => {
 
 describe('listSettingsItems', () => {
   /*
-    Session 4-3B の5つ ＋ Theme ＋ Language ＋ MCP の2つ。保存されている設定は
-    もっとあるが、Files のカラムの幅だけは画面に載せない
-    （settingsCatalog.ts の冒頭）。
+    Session 4-3B の5つ ＋ Theme ＋ Language ＋ Updates ＋ MCP の2つ。保存されている
+    設定はもっとあるが、Files のカラムの幅だけは画面に載せない
+    （settingsCatalog.ts の冒頭）。Updates は値を持たない行（key が空）。
 
     Keyboard Shortcuts は項目を1つも足していない ── 一覧表であって設定ではない。
 
     MCP の token も**ここには無い**（§21.9）。設定の値ではなく、
     カテゴリの `panel` が出すものにほかならない。
   */
-  it('11個の設定が、カテゴリの順に並ぶ', () => {
+  it('12個の設定が、カテゴリの順に並ぶ', () => {
     expect(listSettingsItems().map((item) => item.id)).toEqual([
       'general.language',
+      'general.updates',
       'appearance.theme',
       'editor.autoSaveMode',
       'editor.autoSaveDelayMs',

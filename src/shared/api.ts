@@ -969,6 +969,23 @@ export interface GitHubApi {
 }
 
 /**
+ * Fluvix Nexus 本体の更新。
+ *
+ * 更新元は Main 側で固定した GitHub Releases だけで、Renderer から URL や
+ * 実行ファイルのパスを渡す口は持たない。利用者が作業中のままにできるよう、
+ * インストール済み更新の適用も明示操作にしてある。
+ */
+export interface UpdatesApi {
+  readonly getStatus: () => IpcInvokeResult<'updates:get-status'>
+  readonly check: () => IpcInvokeResult<'updates:check'>
+  readonly download: () => IpcInvokeResult<'updates:download'>
+  readonly install: () => IpcInvokeResult<'updates:install'>
+  readonly onStatusChanged: (
+    listener: IpcEventListener<'updates:status-changed'>
+  ) => IpcEventUnsubscribe
+}
+
+/**
  * 開いている文書を Language Server と同期する API（Session 5-2）。
  *
  * ## 公開しているのは「開いた」「変わった」「保存した」「閉じた」の4つ
@@ -1296,6 +1313,8 @@ export interface FluvixApi {
   readonly git: GitApi
   /** そのリポジトリを GitHub へ公開する（Session 3-8-10）。 */
   readonly github: GitHubApi
+  /** Fluvix Nexus 本体の更新。 */
+  readonly updates: UpdatesApi
   /** 開いている文書を Language Server と同期する（Session 5-2）。 */
   readonly lsp: LspApi
   /** その Workspace の breakpoint（Session 6-3）と実行制御（Session 6-4）。 */

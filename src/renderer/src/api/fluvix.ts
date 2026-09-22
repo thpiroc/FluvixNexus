@@ -52,6 +52,9 @@ export const fluvix: FluvixApi = {
   get github() {
     return bridge().github
   },
+  get updates() {
+    return bridge().updates
+  },
   get lsp() {
     return bridge().lsp
   },

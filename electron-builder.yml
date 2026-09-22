@@ -48,4 +48,7 @@ nsis:
   deleteAppDataOnUninstall: false # userData（設定・Debug Profile・ログ・debug-adapters）は消さない
   artifactName: Fluvix-Nexus-Setup-${version}.${ext} # 空白を含む既定名は GitHub が `.` に置き換えるため
 
-publish: null # 自動更新は入れない。GitHub へのアップロードは手で行う
+publish:
+  provider: github
+  owner: thpiroc
+  repo: FluvixNexus

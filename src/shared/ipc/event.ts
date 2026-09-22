@@ -4,6 +4,7 @@ import type { GitIpcEventContract } from './events/git'
 import type { LspIpcEventContract } from './events/lsp'
 import type { SettingsIpcEventContract } from './events/settings'
 import type { TerminalIpcEventContract } from './events/terminal'
+import type { UpdatesIpcEventContract } from './events/updates'
 import type { WindowIpcEventContract } from './events/window'
 
 /**
@@ -61,6 +62,7 @@ export interface IpcEventContract
     WindowIpcEventContract,
     TerminalIpcEventContract,
     GitIpcEventContract,
+    UpdatesIpcEventContract,
     LspIpcEventContract,
     DebugIpcEventContract,
     SettingsIpcEventContract {}

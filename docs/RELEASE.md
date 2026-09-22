@@ -1,7 +1,7 @@
 # リリース
 
 > 対象: v1.0.0（Session 7-2A でメタデータと仕様を確定。Session 7-2B で electron-builder を入れ、ローカルで installer を作った。Session 7-2C でその installer をこの PC に入れて検証した。Session 7-2D でこの PC でできる clean Windows 相当の確認をし、Release notes を確定した。その後、正式アイコンを組み込んで installer を作り直した。Session 7-2E で公開前の再確認・`SHA256SUMS.txt`・`v1.0.0` tag までを済ませ、利用者が repository を Public にして Release を公開した（2026-09-16。§9.5））
-> 最終更新: 2026-09-16
+> 最終更新: 2026-09-22
 
 v1.0.0 を配布するための仕様と手順を扱う。製品としての配布方針は [DESIGN.md](../DESIGN.md) §7、利用者向けの説明は [README.md](../README.md)、開発時のコマンドは [DEVELOPMENT.md](DEVELOPMENT.md) にある。
 
@@ -116,7 +116,10 @@ nsis:
   deleteAppDataOnUninstall: false # userData（設定・Debug Profile・ログ）は消さない
   artifactName: Fluvix-Nexus-Setup-${version}.${ext} # 空白を含む既定名は GitHub が `.` に置き換えるため
 
-publish: null # 自動更新は入れない。GitHub へのアップロードは手で行う
+publish:
+  provider: github
+  owner: thpiroc
+  repo: FluvixNexus
 ```
 
 feature/notion-mcp で `extraResources` に1つ足した（同梱する MCP サーバー。docs/ARCHITECTURE.md §21.4）。`resources/mcp-servers/notion-mcp-server/` へ `bin/cli.mjs`・`scripts/notion-openapi.json`・`package.json`・`LICENSE` の4ファイルだけを写す。asar の外に置くのは、アプリ自身の実行ファイルを Node として（`ELECTRON_RUN_AS_NODE=1`）起動した子プロセスが読むため。
@@ -266,7 +269,7 @@ $hash = (Get-FileHash $name -Algorithm SHA256).Hash.ToLowerInvariant()
 | 概要           | 何のアプリか・v1.0.0 が最初の公開版であること                                                                                                                                                                      |
 | 動作環境       | Windows 11 x64（7-2D で確かめた環境を書く）                                                                                                                                                                        |
 | ダウンロード   | `Fluvix-Nexus-Setup-1.0.0.exe` と `SHA256SUMS.txt`。SHA-256 の確かめ方（`Get-FileHash`）                                                                                                                           |
-| インストール   | per-user・管理者権限不要・**未署名のため SmartScreen の警告が出る**こと・**自動更新が無い**こと                                                                                                                    |
+| インストール   | per-user・管理者権限不要・**未署名のため SmartScreen の警告が出る**こと・更新確認は GitHub Releases を使うこと                                                                                                     |
 | 別途入れるもの | Git / GitHub CLI / Language Server / Debug Adapter と、入れた後にアプリを再起動すること（README へのリンク）                                                                                                       |
 | データとログ   | `%APPDATA%\Fluvix Nexus`・`logs\main.log`。アンインストールしても残ること                                                                                                                                          |
 | 既知の制約     | DESIGN.md §14 の表（Debug の制約・adapter は利用者が置く・Renderer の `file://`）                                                                                                                                  |
@@ -274,7 +277,7 @@ $hash = (Get-FileHash $name -Algorithm SHA256).Hash.ToLowerInvariant()
 | 不具合の報告先 | GitHub Issues（`https://github.com/thpiroc/FluvixNexus/issues`。7-2E で決定）                                                                                                                                      |
 | 7-2D で追加    | 上書きインストールで設定が残り、起動中のアプリは閉じて起動し直されること・Smart App Control でブロックされうること・アンインストール後に残る `fluvix-nexus-updater`・TypeScript は 6 系（7 では LSP が起動しない） |
 
-GitHub Release に上げるのは `Fluvix-Nexus-Setup-1.0.0.exe` と `SHA256SUMS.txt` だけ。自動更新を入れないので `.blockmap` / `latest.yml` は上げない。`win-unpacked/` も上げない。
+GitHub Release に上げるのは `Fluvix-Nexus-Setup-${version}.exe`、`latest.yml`、必要な `.blockmap`、`SHA256SUMS.txt`。`win-unpacked/` は上げない。
 
 ## 8. installer で入れたアプリの確認項目
 
@@ -433,3 +436,21 @@ tag `v1.0.0` は 7-2E の commit に付けて push 済み。GitHub の画面で�
 | ダウンロードでの照合 | 未認証で2つをダウンロードし、Release notes の PowerShell の照合が `True`。どちらも `release/` のファイルとバイト一致。installer は `NotSigned`（方針どおり） |
 
 未確認のまま残るもの: ブラウザでダウンロードしたときの MOTW と SmartScreen の表示（`Invoke-WebRequest` は MOTW を付けない。§8.2 のとおり、この PC では MOTW 付きでも警告が出なかった）。
+
+## 10. 自動アップデート実機テスト（feature/auto-update）
+
+`feature/auto-update` の自動アップデート機能は、Windows 11 / VirtualBox のクリーン検証環境で実機確認した。テスト用更新元は `thpiroc/FluvixNexus-update-test`。
+
+| 項目                     | 結果                                              |
+| ------------------------ | ------------------------------------------------- |
+| 更新元                   | `thpiroc/FluvixNexus-update-test`                 |
+| 更新前                   | `v1.0.1`                                          |
+| 更新後                   | `v1.0.2`                                          |
+| 新バージョン検出         | 成功                                              |
+| 更新データのダウンロード | 成功                                              |
+| 更新準備完了             | 成功                                              |
+| 「今すぐ再起動して更新」 | 成功                                              |
+| 再起動                   | Fluvix Nexus が正常に終了し、更新後に正常再起動   |
+| 更新後の確認             | `v1.0.2` 起動と「最新版を使用中です。」表示を確認 |
+
+この確認により、`v1.0.1 → 更新検出 → ダウンロード → 更新準備完了 → 再起動して更新 → v1.0.2 起動` の流れが Windows 実機環境で完走した。

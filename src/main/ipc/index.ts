@@ -8,6 +8,7 @@ import { registerMcpHandlers } from './handlers/mcp'
 import { registerSettingsHandlers } from './handlers/settings'
 import { registerSystemHandlers } from './handlers/system'
 import { registerTerminalHandlers } from './handlers/terminal'
+import { registerUpdatesHandlers } from './handlers/updates'
 import { registerWindowHandlers } from './handlers/window'
 import { registerWorkspaceHandlers } from './handlers/workspace'
 import { registerWorkspaceFolderHandlers } from './handlers/workspaceFolder'
@@ -29,6 +30,7 @@ const handlerRegistrations: readonly (() => void)[] = [
   registerTerminalHandlers,
   registerGitHandlers,
   registerGitHubHandlers,
+  registerUpdatesHandlers,
   registerLspHandlers,
   registerDebugHandlers,
   registerFeedbackHandlers,

@@ -98,16 +98,19 @@ interface SettingsItemDescriptorBase {
  * key を持つのは、ワークスペース設定で**この項目が上書きされているか**を画面が
  * 判断し、「ユーザー設定に戻す」でどの key を外すかを決めるため。
  * section と key の対応は型で縛ってある（別の section の key は書けない）。
+ *
+ * **key が空の項目**は、設定ファイルに値を持たない行になる（Updates ──
+ * 状態と操作はアップデートの仕組みが持つ）。上書きの表示も「ユーザー設定に戻す」も
+ * 出ない。section はワークスペースで押せるかどうかを決めるためだけに持つ。
  */
 type SettingsItemLocation = {
   readonly [Id in SettingsSectionId]: {
     /** この項目の値が入る section（shared/settings/sections.ts）。 */
     readonly section: Id
-    /** この項目が読み書きする key（1つ以上）。 */
-    readonly keys: readonly [
-      keyof SettingsSections[Id] & string,
-      ...(keyof SettingsSections[Id] & string)[]
-    ]
+    /** この項目が読み書きする key（1つ以上。値を持たない行だけ空）。 */
+    readonly keys:
+      | readonly []
+      | readonly [keyof SettingsSections[Id] & string, ...(keyof SettingsSections[Id] & string)[]]
   }
 }[SettingsSectionId]
 
@@ -186,6 +189,13 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategoryDescriptor[] = [
         descriptionKey: 'settings.items.general.language.description',
         section: 'general',
         keys: ['language']
+      },
+      {
+        id: 'general.updates',
+        titleKey: 'settings.items.general.updates.title',
+        descriptionKey: 'settings.items.general.updates.description',
+        section: 'general',
+        keys: []
       }
     ]
   },

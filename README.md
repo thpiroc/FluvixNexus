@@ -22,7 +22,7 @@ Node.js・Python・.NET SDK・Git はアプリに同梱していません。使�
 3. スタートメニューまたはデスクトップのショートカットから起動します。
 
 - **コード署名をしていません。** 初回は Windows SmartScreen の警告が出ることがあります。「詳細情報」→「実行」で続行できます。Smart App Control が有効な PC では実行がブロックされることがあります。
-- **自動更新はありません。** 新しい版は Releases からダウンロードして、同じ手順で上書きインストールしてください。
+- 起動後に GitHub Releases を確認し、新しい版がある場合は Settings → 一般 → アップデートからダウンロードと再起動更新を実行できます。
 
 ## 主な機能
 
@@ -104,11 +104,11 @@ SHA-256 が一致しないファイルは展開しないでください。Fluvix
 
 Windows の「設定」→「アプリ」→「インストールされているアプリ」から Fluvix Nexus をアンインストールします。設定などのデータ（`%APPDATA%\Fluvix Nexus`）は残ります。完全に削除する場合は、このフォルダも削除してください。
 
-インストーラーが置く自分自身の写し（`%LOCALAPPDATA%\fluvix-nexus-updater\installer.exe`、約 98 MB）もアンインストール後に残ります。自動更新が無いため使われません。削除して問題ありません。
+インストーラーや更新処理が置く一時ファイル（`%LOCALAPPDATA%\fluvix-nexus-updater`）がアンインストール後に残る場合があります。削除して問題ありません。
 
 ## 既知の制約（v1.0.0）
 
-- 自動更新・コード署名はありません。Debug Adapter の同梱・自動ダウンロードもありません
+- コード署名はありません。Debug Adapter の同梱・自動ダウンロードもありません
 - アンインストール後も `%LOCALAPPDATA%\fluvix-nexus-updater\installer.exe` が残ります
 - JavaScript / TypeScript の LSP は TypeScript 7 では起動しません（6 系を使ってください）
 - Debug 対象のプログラムは本物の端末を持ちません。標準入力・端末サイズ・色を使うプログラムは Debug Console では同じように動きません
@@ -144,9 +144,9 @@ Fluvix Nexus は [MIT License](LICENSE) で配布しています。
 Fluvix Nexus is a lightweight code editor for Windows with dockable Files, Editor, Terminal, Git and Debug panels.
 
 - **Requirements:** Windows 11 (x64). Node.js, Python, .NET SDK and Git are not bundled; install them only for the features you use and restart the app afterwards.
-- **Install:** download the Setup `.exe` from GitHub Releases. It installs per user (no administrator rights). The installer is not code-signed, so Windows SmartScreen may warn on first run. There is no auto-update.
+- **Install:** download the Setup `.exe` from GitHub Releases. It installs per user (no administrator rights). The installer is not code-signed, so Windows SmartScreen may warn on first run. The app checks GitHub Releases for updates after launch.
 - **Language servers:** `typescript-language-server`, `pyright` and `csharp-ls` are detected from `PATH`. Install TypeScript 6 (`npm i -g typescript-language-server typescript@6`); TypeScript 7 does not ship `tsserver`.
-- **Uninstall:** `%APPDATA%\Fluvix Nexus` and `%LOCALAPPDATA%\fluvix-nexus-updater` (an unused copy of the installer) remain and can be deleted by hand.
+- **Uninstall:** `%APPDATA%\Fluvix Nexus` and `%LOCALAPPDATA%\fluvix-nexus-updater` remain and can be deleted by hand.
 - **Debug adapters:** vscode-js-debug 1.117.0 (placed under `%APPDATA%\Fluvix Nexus\debug-adapters`, see the PowerShell steps above), `debugpy`, and `netcoredbg` (ASCII-only paths).
 - **Data:** settings and logs are stored in `%APPDATA%\Fluvix Nexus`; nothing is written into the opened folder.
 - **UI language:** Japanese and English (Settings → General).

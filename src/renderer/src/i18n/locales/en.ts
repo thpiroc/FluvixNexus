@@ -1038,6 +1038,10 @@ export const enMessages = {
         language: {
           title: 'Language',
           description: 'Choose the display language for Fluvix Nexus.'
+        },
+        updates: {
+          title: 'Updates',
+          description: 'Check GitHub Releases for new Fluvix Nexus versions.'
         }
       },
       appearance: {
@@ -1261,6 +1265,28 @@ export const enMessages = {
         clearFailed: 'The saved token could not be deleted.',
         testFailed: 'The connection could not be tested.'
       }
+    }
+  },
+  updates: {
+    currentVersion: 'Current version: {version}',
+    availableVersion: 'Available version: {version}',
+    source: 'Source: GitHub Releases ({owner}/{repo})',
+    progress: '{percent}% ({transferred} / {total})',
+    status: {
+      loading: 'Loading update status…',
+      idle: 'Updates have not been checked yet.',
+      checking: 'Checking for updates…',
+      'not-available': 'You are using the latest version.',
+      available: 'A new version is available.',
+      downloading: 'Downloading update…',
+      downloaded: 'Update is ready. Restart when you are ready.',
+      error: 'Update check failed.',
+      unsupported: 'Updates are not available in this environment.'
+    },
+    actions: {
+      check: 'Check for Updates',
+      download: 'Download Update',
+      install: 'Restart and Update Now'
     }
   },
   /*

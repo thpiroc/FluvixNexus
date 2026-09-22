@@ -56,6 +56,7 @@ import {
   TERMINAL_SCROLLBACK_MIN
 } from '../terminal/terminalDisplay'
 import { NumberField } from '../ui/NumberField'
+import { UpdateSettingsControl } from '../updates/UpdateSettingsControl'
 import { KeyboardShortcutsView } from './KeyboardShortcutsView'
 import { useSettingsScope } from './scopeContext'
 import type { SettingsSectionBinding, SettingsValueUpdate } from './settingsBinding'
@@ -532,6 +533,9 @@ function SettingsControl({
   switch (item.id) {
     case 'general.language':
       return <LanguageControl scope={scope} />
+
+    case 'general.updates':
+      return <UpdateSettingsControl />
 
     case 'editor.autoSaveMode':
       return <AutoSaveModeControl scope={scope} />
