@@ -6,25 +6,16 @@ import {
   trimTrailingSeparator,
   type FileExistsCheck
 } from '../platform/executablePath'
-import { resolveNpmGlobalServerCommand, type NpmGlobalServerSpec } from './mcpNpmServer'
 
 /**
  * MCP サーバーの「起動のしかた」（MCP 共通。Electron / fs / child_process 非依存・テスト対象）。
  *
- * サーバーの定義は、次のどれか1つを選ぶ。
+ * 起動のしかたは今は1種類 ── 利用者が MCP Server Manager で決めた Command と引数
+ * （`user-command`）だけ。アプリは MCP サーバーを同梱せず、利用者の PC にある
+ * もの（`npx`・`uvx`・`docker`・実行ファイル）を起動する。接続方式を足すとき
+ * （HTTP など）は `McpServerLaunch` の union に種類を足す。
  *
- * | 種類                  | 何を起動するか                                          | 利用者に求めるもの |
- * | --------------------- | ------------------------------------------------------- | ------------------ |
- * | `npm-global`          | 利用者が `npm install -g` したパッケージ（mcpNpmServer） | Node と npm        |
- * | `executable-on-path`  | PATH 上の実行ファイル（Go などで書かれたサーバー）      | その実行ファイル   |
- * | `user-command`        | 利用者が MCP Server Manager で決めた Command と引数     | その Command       |
- *
- * アプリは MCP サーバーを同梱しない。
- *
- * ## 起動に付く環境変数
- *
- * `environment` は起動のしかたそのものに要る変数だけ。
- * サーバーの設定（秘密の値など）は環境の組み立て（mcpServerEnvironment.ts）が別に足す。
+ * サーバーへ渡す環境変数は、環境の組み立て（mcpServerEnvironment.ts）が決める。
  */
 
 /** 起動するもの1つ分。Main の中だけで使う（Renderer へは渡さない）。 */
@@ -34,8 +25,6 @@ export interface McpServerCommand {
   /** 実行ファイルの絶対パス。 */
   readonly file: string
   readonly args: readonly string[]
-  /** 起動のしかたに要る環境変数（サーバーの設定ではない）。 */
-  readonly environment: Readonly<Record<string, string>>
   /**
    * 引数を Node の引用の規則で包まず、並べたまま渡す（Windows だけ）。
    * `.cmd` / `.bat` を `cmd.exe /d /s /c "…"` で包むときにだけ使う
@@ -56,27 +45,8 @@ export type McpServerCommandResolution =
   | { readonly ok: true; readonly command: McpServerCommand }
   | {
       readonly ok: false
-      readonly problem: Extract<
-        McpConfigProblem,
-        'node-not-found' | 'server-not-installed' | 'command-not-found' | 'arguments-unsupported'
-      >
+      readonly problem: Extract<McpConfigProblem, 'command-not-found' | 'arguments-unsupported'>
     }
-
-export interface NpmGlobalLaunch {
-  readonly kind: 'npm-global'
-  readonly spec: NpmGlobalServerSpec
-}
-
-export interface ExecutableOnPathLaunch {
-  readonly kind: 'executable-on-path'
-  readonly name: string
-  /** OS ごとの実行ファイル名の候補（PATH を辿って探す。main/platform/executablePath.ts）。 */
-  readonly executableNames: {
-    readonly win32: readonly string[]
-    readonly other: readonly string[]
-  }
-  readonly args: readonly string[]
-}
 
 /**
  * 利用者が MCP Server Manager で決めた Command と引数。
@@ -91,7 +61,7 @@ export interface UserCommandLaunch {
   readonly args: readonly string[]
 }
 
-export type McpServerLaunch = NpmGlobalLaunch | ExecutableOnPathLaunch | UserCommandLaunch
+export type McpServerLaunch = UserCommandLaunch
 
 /** 起動のしかたを解決するのに要るもの。 */
 export interface McpLaunchContext {
@@ -105,27 +75,6 @@ export function resolveMcpServerLaunch(
   context: McpLaunchContext
 ): McpServerCommandResolution {
   switch (launch.kind) {
-    case 'npm-global':
-      return resolveNpmGlobalServerCommand(
-        launch.spec,
-        context.platform,
-        context.env,
-        context.exists
-      )
-
-    case 'executable-on-path': {
-      const names =
-        context.platform === 'win32' ? launch.executableNames.win32 : launch.executableNames.other
-      const found = findExecutableOnPath(names, context.platform, context.env, context.exists)
-
-      return found === null
-        ? { ok: false, problem: 'server-not-installed' }
-        : {
-            ok: true,
-            command: { name: launch.name, file: found, args: launch.args, environment: {} }
-          }
-    }
-
     case 'user-command':
       return resolveUserCommand(launch, context)
   }
@@ -249,7 +198,7 @@ function resolveUserCommand(
   if (context.platform !== 'win32') {
     return {
       ok: true,
-      command: { name: launch.name, file, args: launch.args, environment: {} }
+      command: { name: launch.name, file, args: launch.args }
     }
   }
 
@@ -259,7 +208,7 @@ function resolveUserCommand(
   if (!isBatchFile(file)) {
     return {
       ok: true,
-      command: { name: launch.name, file, args: launch.args, environment: {}, killTreeWith }
+      command: { name: launch.name, file, args: launch.args, killTreeWith }
     }
   }
 
@@ -281,7 +230,6 @@ function resolveUserCommand(
       file: `${system32}\\cmd.exe`,
       // /d … AutoRun（レジストリの自動実行）を読まない。/s /c … 外側の `"` 1組だけを外して実行する。
       args: ['/d', '/s', '/c', `"${commandLine}"`],
-      environment: {},
       windowsVerbatimArguments: true,
       killTreeWith
     }

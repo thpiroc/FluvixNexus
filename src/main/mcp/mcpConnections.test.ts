@@ -469,7 +469,6 @@ describe('testConnection', () => {
       name: 'Example Server',
       file: SERVER_EXE,
       args: ['--stdio', 'C:\\My Files'],
-      environment: {},
       killTreeWith: 'C:\\Windows\\System32\\taskkill.exe'
     })
     /*

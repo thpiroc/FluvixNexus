@@ -37,8 +37,6 @@ export interface McpStatusSummary {
 
 const PROBLEM_KEYS: Readonly<Record<McpConfigProblem, TranslationKey>> = {
   disabled: 'settings.mcp.status.disabled',
-  'node-not-found': 'settings.mcp.status.nodeNotFound',
-  'server-not-installed': 'settings.mcp.status.serverNotInstalled',
   'command-not-found': 'settings.mcp.status.commandNotFound',
   'arguments-unsupported': 'settings.mcp.status.argumentsUnsupported',
   'secret-missing': 'settings.mcp.status.secretMissing'

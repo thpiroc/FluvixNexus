@@ -60,8 +60,7 @@ export function resolveMcpServerCommand(
  */
 export function createMcpServerEnvironment(
   definition: McpServerDefinition,
-  parentEnv: Readonly<Record<string, string | undefined>>,
-  launchEnvironment: Readonly<Record<string, string>> = {}
+  parentEnv: Readonly<Record<string, string | undefined>>
 ): Record<string, string> {
-  return buildServerEnvironment(parentEnv, definition.environment(), launchEnvironment)
+  return buildServerEnvironment(parentEnv, definition.environment())
 }

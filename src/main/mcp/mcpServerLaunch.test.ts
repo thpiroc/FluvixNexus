@@ -21,68 +21,6 @@ function context(present: readonly string[], overrides: Partial<McpLaunchContext
   } satisfies McpLaunchContext
 }
 
-describe('executable-on-path', () => {
-  const LAUNCH = {
-    kind: 'executable-on-path',
-    name: 'Example Binary MCP',
-    executableNames: { win32: ['example-mcp.exe'], other: ['example-mcp'] },
-    args: ['stdio']
-  } as const
-
-  it('PATH を辿って見つけた実行ファイルを、起動用の変数なしで起動する', () => {
-    expect(resolveMcpServerLaunch(LAUNCH, context(['C:\\tools\\example-mcp.exe']))).toEqual({
-      ok: true,
-      command: {
-        name: 'Example Binary MCP',
-        file: 'C:\\tools\\example-mcp.exe',
-        args: ['stdio'],
-        environment: {}
-      }
-    })
-  })
-
-  it('PATH の相対の項目からは探さない', () => {
-    expect(
-      resolveMcpServerLaunch(
-        LAUNCH,
-        context(['.\\example-mcp.exe'], { env: { PATH: '.;C:\\Windows\\System32' } })
-      )
-    ).toEqual({ ok: false, problem: 'server-not-installed' })
-  })
-
-  it('OS ごとの名前で探す', () => {
-    const resolved = resolveMcpServerLaunch(
-      LAUNCH,
-      context(['/usr/local/bin/example-mcp'], {
-        platform: 'darwin',
-        env: { PATH: '/usr/local/bin:/usr/bin' }
-      })
-    )
-
-    expect(resolved.ok && resolved.command.file).toBe('/usr/local/bin/example-mcp')
-  })
-})
-
-describe('npm-global', () => {
-  it('mcpNpmServer.ts の探し方をそのまま使う', () => {
-    const resolved = resolveMcpServerLaunch(
-      {
-        kind: 'npm-global',
-        spec: {
-          name: 'Example npm MCP',
-          binName: 'example-mcp-server',
-          entryDirectory: 'node_modules\\example-mcp-server\\bin',
-          entryFile: 'cli.js',
-          args: []
-        }
-      },
-      context([], { env: { PATH: 'C:\\tools' } })
-    )
-
-    expect(resolved).toEqual({ ok: false, problem: 'server-not-installed' })
-  })
-})
-
 describe('user-command（MCP Server Manager に登録したサーバー。§21.4）', () => {
   const SYSTEM32 = 'C:\\Windows\\System32'
   const WIN_ENV = { PATH: `C:\\nodejs;.\\bin;${SYSTEM32}`, SystemRoot: 'C:\\Windows' }
@@ -103,7 +41,6 @@ describe('user-command（MCP Server Manager に登録したサーバー。§21.4
         name: 'Example',
         file: 'C:\\nodejs\\uvx.exe',
         args: ['example-mcp', '--stdio'],
-        environment: {},
         killTreeWith: `${SYSTEM32}\\taskkill.exe`
       }
     })
@@ -126,7 +63,6 @@ describe('user-command（MCP Server Manager に登録したサーバー。§21.4
           '/c',
           '""C:\\nodejs\\npx.cmd" "-y" "@example/mcp-server" "C:\\My Files\\\\" "a&b""'
         ],
-        environment: {},
         windowsVerbatimArguments: true,
         killTreeWith: `${SYSTEM32}\\taskkill.exe`
       }
@@ -198,7 +134,7 @@ describe('user-command（MCP Server Manager に登録したサーバー。§21.4
       )
     ).toEqual({
       ok: true,
-      command: { name: 'Example', file: '/usr/local/bin/npx', args: ['-y', 'pkg'], environment: {} }
+      command: { name: 'Example', file: '/usr/local/bin/npx', args: ['-y', 'pkg'] }
     })
   })
 })

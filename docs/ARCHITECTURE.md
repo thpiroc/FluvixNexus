@@ -9413,7 +9413,7 @@ userData/mcp-secrets.json   秘密の環境変数の値（key は custom-<uuid>:
 - `.cmd` / `.bat`（`npx` など）は Node が直接は起動しない（CVE-2024-27980）。System32 の `cmd.exe /d /s /c "…"` で包み、`windowsVerbatimArguments` で渡す。どの引数も `"…"` で囲み、**囲みの中でも効く `"` `%` `!` を含む引数は起動しない**（`arguments-unsupported`）。`.exe` へは同じ引数をそのまま渡せる
 - 起動したもの（`npx`・`uvx`・`cmd.exe`・`docker`）が本体を子として立てるので、Windows では `taskkill /T /F` で子孫ごと終わらせる（`killTreeWith`。通常は stdin を閉じれば自分で終わる）
 - 作業フォルダは userData（Workspace ではない。利用者が開いたフォルダの中身を起動の手がかりにしない）
-- アプリは MCP サーバーを同梱しない。`mcpServerLaunch.ts` には `npm-global` / `executable-on-path` の起動のしかたも残っているが、今はどの定義からも使っていない
+- アプリは MCP サーバーを同梱しない。起動のしかたは `user-command` の1種類だけで、以前あった同梱スクリプト（`bundled-node-script`・アプリ自身の Node で起動）・npm グローバル（`npm-global`）・PATH 上の実行ファイル（`executable-on-path`）は、旧 Notion MCP の撤去と一緒に外した（§21.9）。接続方式を足すときは `McpServerLaunch` の union に種類を足す
 
 **環境変数は許可リスト。** 親の環境をそのまま渡すと、利用者の別の秘密情報（`GITHUB_TOKEN`・AI サービスの API キー・クラウドの認証情報）まで第三者のサーバーが読める。渡すのは次だけ（名前は大文字で比べる）。
 
@@ -9508,7 +9508,7 @@ MCP カテゴリ
 
 以前は Notion MCP を**アプリに組み込みの接続**として持っていた（`@notionhq/notion-mcp-server` 2.5.1 を同梱し、アプリ自身の Node で起動・Settings に Notion 専用のカードと token の欄・4つの Notion 操作と書き込みの確認ダイアログ）。MCP Server Manager ができた後はそれが「Notion だけの特別な経路」になったので撤去し、MCP の経路を一本にした。**この機能はリリースに含まれていない**（v1.0.0 には `src/main/mcp` が無い）。
 
-撤去したもの：組み込みの接続 id（`notion`）・Notion の行と操作表・Renderer 向けの Notion の語彙・token の保存と環境変数 `FLUVIX_NOTION_MCP_TOKEN` の読み取り・IPC 3本（`mcp:call-operation` / `mcp:set-secret` / `mcp:clear-secret`）・Notion のカードと「接続ごと」の行・書き込みの確認ダイアログ・同梱（`electron-builder.yml` の `extraResources` と `THIRD_PARTY_NOTICES.txt` の依存）・起動のしかた `bundled-node-script`。
+撤去したもの：組み込みの接続 id（`notion`）・Notion の行と操作表・Renderer 向けの Notion の語彙・token の保存と環境変数 `FLUVIX_NOTION_MCP_TOKEN` の読み取り・IPC 3本（`mcp:call-operation` / `mcp:set-secret` / `mcp:clear-secret`）・Notion のカードと「接続ごと」の行・書き込みの確認ダイアログ・同梱（`electron-builder.yml` の `extraResources` と `THIRD_PARTY_NOTICES.txt` の依存）・起動のしかた `bundled-node-script`。あわせて、どの定義からも使われなくなった起動のしかた（`npm-global`・`executable-on-path`。`mcpNpmServer.ts`）・起動用の環境変数（`McpServerCommand.environment`）・それだけが出していた状態の理由（`node-not-found`・`server-not-installed`）を外した。
 
 Notion を使うときも、ほかのサーバーと同じく「+ New MCP Server」から登録する。
 

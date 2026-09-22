@@ -219,7 +219,7 @@ export function createMcpConnections(deps: McpConnectionsDependencies): McpConne
 
     const transport = deps.createTransport({
       command,
-      env: createMcpServerEnvironment(definition, deps.env(), command.environment),
+      env: createMcpServerEnvironment(definition, deps.env()),
       cwd: deps.cwd(),
       onStderrLine: (line) => deps.log.debug(`${command.name} stderr: ${redact(line)}`),
       onStderrDropped: (count) =>

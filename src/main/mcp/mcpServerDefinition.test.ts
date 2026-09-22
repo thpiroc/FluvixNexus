@@ -122,7 +122,6 @@ describe('resolveMcpServerCommand', () => {
         name: 'GitHub',
         file: SERVER_EXE,
         args: ['stdio'],
-        environment: {},
         killTreeWith: 'C:\\Windows\\System32\\taskkill.exe'
       }
     })

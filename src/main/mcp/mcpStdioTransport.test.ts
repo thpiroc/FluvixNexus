@@ -56,8 +56,7 @@ function nodeCommand(script: string): McpServerCommand {
   return {
     name: 'fixture',
     file: process.execPath,
-    args: [join(directory, script)],
-    environment: {}
+    args: [join(directory, script)]
   }
 }
 
@@ -135,8 +134,7 @@ describe('createMcpStdioTransport', () => {
       command: {
         name: 'missing',
         file: join(directory, 'no-such-node.exe'),
-        args: [],
-        environment: {}
+        args: []
       },
       env: { ...process.env },
       cwd: directory

@@ -64,8 +64,6 @@ export function isMcpConnectionId(value: unknown): value is McpConnectionId {
  * | 値                      | 次の一手                                                  |
  * | ----------------------- | --------------------------------------------------------- |
  * | `disabled`              | Settings で MCP（またはそのサーバー）を有効にする         |
- * | `node-not-found`        | Node.js を入れる（PATH に通す）                           |
- * | `server-not-installed`  | MCP サーバーを npm でグローバルに入れる                   |
  * | `command-not-found`     | 登録したサーバーの Command が見つからない                 |
  * | `arguments-unsupported` | `.cmd` / `.bat` へは渡せない文字が引数にある              |
  * | `secret-missing`        | 秘密の環境変数の値が読めない。入れ直す                    |
@@ -76,12 +74,7 @@ export function isMcpConnectionId(value: unknown): value is McpConnectionId {
  * 「動かない理由」を2通りずつ持つことになる。
  */
 export type McpConfigProblem =
-  | 'disabled'
-  | 'node-not-found'
-  | 'server-not-installed'
-  | 'command-not-found'
-  | 'arguments-unsupported'
-  | 'secret-missing'
+  'disabled' | 'command-not-found' | 'arguments-unsupported' | 'secret-missing'
 
 /**
  * 設定は揃っていたのに繋がらなかった理由。

@@ -1344,8 +1344,6 @@ export const enMessages = {
         ready: 'Ready to connect',
         connected: 'Connected',
         notConfigured: 'Not set up yet',
-        nodeNotFound: 'Node.js was not found',
-        serverNotInstalled: 'The MCP server is not installed',
         commandNotFound: 'The command was not found',
         argumentsUnsupported: 'Arguments containing " % ! cannot be passed to a .cmd / .bat file',
         secretMissing:

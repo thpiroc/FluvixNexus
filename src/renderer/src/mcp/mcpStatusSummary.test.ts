@@ -55,8 +55,6 @@ describe('summarizeMcpStatus', () => {
   /* 足りないものは、利用者の次の一手ごとに言い回しが違う。 */
   it('足りないものごとに、別の言い回しを出す', () => {
     const cases: readonly [McpConfigProblem, string][] = [
-      ['node-not-found', 'settings.mcp.status.nodeNotFound'],
-      ['server-not-installed', 'settings.mcp.status.serverNotInstalled'],
       ['command-not-found', 'settings.mcp.status.commandNotFound'],
       ['arguments-unsupported', 'settings.mcp.status.argumentsUnsupported'],
       ['secret-missing', 'settings.mcp.status.secretMissing']

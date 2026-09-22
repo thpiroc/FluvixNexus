@@ -1302,8 +1302,6 @@ export const jaMessages = {
         ready: '接続できる状態です',
         connected: '接続できました',
         notConfigured: 'まだ設定されていません',
-        nodeNotFound: 'Node.js が見つかりません',
-        serverNotInstalled: 'MCP サーバーが入っていません',
         commandNotFound: 'Command が見つかりません',
         argumentsUnsupported: '.cmd / .bat へは " % ! を含む引数を渡せません',
         secretMissing: '秘密の環境変数の値がありません。編集して入れ直してください'

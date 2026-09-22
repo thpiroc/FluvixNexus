@@ -17,7 +17,6 @@
  *                                              ネットワークの経路（プロキシ・証明書）
  * サーバーごとの許可（inheritedVariables）  … 定義が明示したものだけ（登録したサーバーは無し）
  * サーバーの設定（providedVariables）       … 利用者が登録した環境変数の値（秘密の値を含む）
- * 起動のしかたの変数                        … 起動の解決が付けるもの（mcpServerLaunch.ts）
  * ```
  *
  * ## それでも通さないもの
@@ -103,8 +102,7 @@ export interface McpServerEnvironmentProfile {
 
 export function createMcpServerEnvironment(
   parentEnv: Readonly<Record<string, string | undefined>>,
-  profile: McpServerEnvironmentProfile,
-  launchEnvironment: Readonly<Record<string, string>> = {}
+  profile: McpServerEnvironmentProfile
 ): Record<string, string> {
   const upper = (names: readonly string[]): Set<string> =>
     new Set(names.map((name) => name.toUpperCase()))
@@ -122,12 +120,6 @@ export function createMcpServerEnvironment(
   for (const name of inherited) {
     if (name.startsWith(APP_VARIABLE_PREFIX) || reserved.has(name)) {
       throw new Error(`MCP server variable "${name}" cannot be inherited from the app.`)
-    }
-  }
-
-  for (const name of Object.keys(launchEnvironment)) {
-    if (reserved.has(name.toUpperCase())) {
-      throw new Error(`MCP launch variable "${name}" collides with a server variable.`)
     }
   }
 
@@ -149,5 +141,5 @@ export function createMcpServerEnvironment(
     env[name] = value
   }
 
-  return { ...env, ...profile.providedVariables, ...launchEnvironment }
+  return { ...env, ...profile.providedVariables }
 }

@@ -117,19 +117,6 @@ describe('createMcpServerEnvironment', () => {
     ).toThrow('cannot be inherited')
   })
 
-  it('起動のしかたの変数（ELECTRON_RUN_AS_NODE）は最後に足す', () => {
-    const env = createMcpServerEnvironment(USER_ENV, PROFILE, { ELECTRON_RUN_AS_NODE: '1' })
-
-    expect(env['ELECTRON_RUN_AS_NODE']).toBe('1')
-    expect(env).not.toHaveProperty('NODE_OPTIONS')
-  })
-
-  it('起動のしかたの変数が設定の変数とぶつかったら断る', () => {
-    expect(() => createMcpServerEnvironment(USER_ENV, PROFILE, { EXAMPLE_TOKEN: 'x' })).toThrow(
-      'collides'
-    )
-  })
-
   it('宣言していない変数に値を渡そうとしたら断り、文に値を含めない', () => {
     let message = ''
 
@@ -155,7 +142,7 @@ describe('createMcpServerEnvironment', () => {
   it('親の環境を書き換えない', () => {
     const copy = { ...USER_ENV }
 
-    createMcpServerEnvironment(USER_ENV, PROFILE, { ELECTRON_RUN_AS_NODE: '1' })
+    createMcpServerEnvironment(USER_ENV, PROFILE)
 
     expect(USER_ENV).toEqual(copy)
   })
