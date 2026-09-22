@@ -1,6 +1,7 @@
 import { join } from 'path'
 import { rmSync } from 'fs'
-import type { McpConnectionId } from '@shared/mcp'
+import type { McpConnectionId, McpCustomServerId } from '@shared/mcp'
+import { readMcpEnvVariableSecretValue } from '@shared/mcp/customServers'
 import { readJsonFile, writeJsonFile } from '../store/jsonFile'
 import { validateMcpTokenValue } from './mcpConfig'
 
@@ -17,6 +18,10 @@ import { validateMcpTokenValue } from './mcpConfig'
  * userData/settings.json       使う意思（真偽値だけ）  … 平文・利用者が読める
  * userData/mcp-secrets.json    token                   … 暗号文・この PC のこの利用者だけ
  * ```
+ *
+ * §21.10 で、利用者が足したサーバーの**秘密の環境変数**も同じファイルに入る
+ * ようになった（key は `custom-<uuid>:env:<NAME>`）。暗号化・暗号化できないときに
+ * 書かないこと・読めない暗号文を無いものとして扱うことは、token とまったく同じ。
  *
  * 暗号化は Electron の `safeStorage` に任せる（Windows では DPAPI ──
  * 鍵はログインしている利用者アカウントに紐づき、ファイルを他の PC や
@@ -81,6 +86,39 @@ export interface McpSecretStore {
   readonly write: (id: McpConnectionId, token: string) => McpSecretWriteResult
   /** 消す。無かった場合も成功として扱う（押した結果は同じ「無い」）。 */
   readonly clear: (id: McpConnectionId) => boolean
+  /**
+   * 利用者が足したサーバーの、秘密の環境変数の値（§21.10）。無い・読めないなら `null`。
+   * 名前は大文字小文字を区別しない（Windows の環境変数と同じ）。
+   */
+  readonly readVariable: (id: McpCustomServerId, name: string) => string | null
+  /** 秘密の環境変数の値が保存されているか（値は返さない）。 */
+  readonly hasVariable: (id: McpCustomServerId, name: string) => boolean
+  /**
+   * そのサーバーの秘密の環境変数を、この並びに**揃える**（1回の書き込み）。
+   *
+   * 値が `null` の名前は、保存されている暗号文をそのまま残す（編集で入れ直さなかった）。
+   * 並びに無い名前の値は消す（秘密をやめた・変数ごと消した）。
+   */
+  readonly replaceVariables: (
+    id: McpCustomServerId,
+    next: ReadonlyMap<string, string | null>
+  ) => McpSecretWriteResult
+  /** そのサーバーの秘密の環境変数をすべて消す（サーバーを消したとき）。 */
+  readonly clearVariables: (id: McpCustomServerId) => boolean
+}
+
+/**
+ * 秘密の環境変数の key（`custom-<uuid>:env:<NAME>`）。
+ *
+ * 組み込みの接続の token は接続 id そのものを key にしている（`notion`）。
+ * `:` は接続 id にも環境変数の名前にも現れないので、どちらとも重ならない。
+ */
+function variableKey(id: McpCustomServerId, name: string): string {
+  return `${variablePrefix(id)}${name.toUpperCase()}`
+}
+
+function variablePrefix(id: McpCustomServerId): string {
+  return `${id}:env:`
 }
 
 export type McpSecretStoreReporter = (message: string, ...details: readonly unknown[]) => void
@@ -181,40 +219,62 @@ export function createMcpSecretStore(
     }
   }
 
+  /**
+   * 暗号文1つを復号して、形を確かめる。読めなければ null。
+   *
+   * `label` はログ用の呼び名（`token for notion` など）で、値は決して含めない。
+   */
+  function decrypt(
+    encoded: string | undefined,
+    label: string,
+    validate: (plain: string) => string | null
+  ): string | null {
+    if (encoded === undefined || !available()) {
+      return null
+    }
+
+    let decrypted: string
+
+    try {
+      decrypted = cipher.decryptString(Buffer.from(encoded, 'base64'))
+    } catch (cause) {
+      /*
+        他の PC・他のアカウントからファイルを持ってきた場合にここへ来る。
+        値そのものは決してログへ出さない（例外の中身にも token は入らないが、
+        出す理由が無い）。
+      */
+      report(`the stored ${label} could not be decrypted.`, cause)
+      return null
+    }
+
+    /* 復号できても、形が通らないものは渡さない（起動してから 401 になるより早く断る）。 */
+    const value = validate(decrypted)
+
+    if (value === null) {
+      report(`the stored ${label} is not in a usable shape.`)
+    }
+
+    return value
+  }
+
+  /** 平文1つを暗号化して base64 にする。暗号化できなければ null。 */
+  function encrypt(plain: string, label: string): string | null {
+    try {
+      return cipher.encryptString(plain).toString('base64')
+    } catch (cause) {
+      report(`the ${label} could not be encrypted.`, cause)
+      return null
+    }
+  }
+
   return {
     canStore: available,
 
-    read: (id): string | null => {
-      const encoded = readAll()[id]
-
-      if (encoded === undefined || !available()) {
-        return null
-      }
-
-      let decrypted: string
-
-      try {
-        decrypted = cipher.decryptString(Buffer.from(encoded, 'base64'))
-      } catch (cause) {
-        /*
-          他の PC・他のアカウントからファイルを持ってきた場合にここへ来る。
-          値そのものは決してログへ出さない（例外の中身にも token は入らないが、
-          出す理由が無い）。
-        */
-        report(`the stored token for ${id} could not be decrypted.`, cause)
-        return null
-      }
-
-      /* 復号できても、形が通らないものは渡さない（起動してから 401 になるより早く断る）。 */
-      const token = validateMcpTokenValue(decrypted)
-
-      if (!token.ok) {
-        report(`the stored token for ${id} is not in a usable shape.`)
-        return null
-      }
-
-      return token.token
-    },
+    read: (id): string | null =>
+      decrypt(readAll()[id], `token for ${id}`, (plain) => {
+        const token = validateMcpTokenValue(plain)
+        return token.ok ? token.token : null
+      }),
 
     has: (id): boolean => readAll()[id] !== undefined,
 
@@ -229,12 +289,9 @@ export function createMcpSecretStore(
         return { ok: false, failure: 'encryption-unavailable' }
       }
 
-      let encoded: string
+      const encoded = encrypt(validated.token, `token for ${id}`)
 
-      try {
-        encoded = cipher.encryptString(validated.token).toString('base64')
-      } catch (cause) {
-        report(`the token for ${id} could not be encrypted.`, cause)
+      if (encoded === null) {
         return { ok: false, failure: 'encryption-unavailable' }
       }
 
@@ -253,6 +310,80 @@ export function createMcpSecretStore(
       delete secrets[id]
 
       return writeAll(secrets)
+    },
+
+    readVariable: (id, name): string | null =>
+      decrypt(readAll()[variableKey(id, name)], `variable ${name} for ${id}`, (plain) => {
+        const value = readMcpEnvVariableSecretValue(plain, 0)
+        return value.ok ? value.value : null
+      }),
+
+    hasVariable: (id, name): boolean => readAll()[variableKey(id, name)] !== undefined,
+
+    replaceVariables: (id, next): McpSecretWriteResult => {
+      const current = readAll()
+      const prefix = variablePrefix(id)
+      const secrets: Record<string, string> = {}
+
+      // ほかのサーバー・組み込みの token はそのまま残す。
+      for (const [key, value] of Object.entries(current)) {
+        if (!key.startsWith(prefix)) {
+          secrets[key] = value
+        }
+      }
+
+      for (const [name, plain] of next) {
+        const key = variableKey(id, name)
+
+        if (plain === null) {
+          const kept = current[key]
+
+          if (kept !== undefined) {
+            secrets[key] = kept
+          }
+
+          continue
+        }
+
+        const validated = readMcpEnvVariableSecretValue(plain, 0)
+
+        if (!validated.ok) {
+          return { ok: false, failure: 'token-invalid' }
+        }
+
+        if (!available()) {
+          return { ok: false, failure: 'encryption-unavailable' }
+        }
+
+        const encoded = encrypt(validated.value, `variable ${name} for ${id}`)
+
+        if (encoded === null) {
+          return { ok: false, failure: 'encryption-unavailable' }
+        }
+
+        secrets[key] = encoded
+      }
+
+      const unchanged =
+        Object.keys(secrets).length === Object.keys(current).length &&
+        Object.entries(secrets).every(([key, value]) => current[key] === value)
+
+      // 何も変わらないなら書かない（秘密の変数の無いサーバーを保存するたびに書き直さない）。
+      if (unchanged) {
+        return { ok: true }
+      }
+
+      return writeAll(secrets) ? { ok: true } : { ok: false, failure: 'write-failed' }
+    },
+
+    clearVariables: (id): boolean => {
+      const current = readAll()
+      const prefix = variablePrefix(id)
+      const kept = Object.fromEntries(
+        Object.entries(current).filter(([key]) => !key.startsWith(prefix))
+      )
+
+      return Object.keys(kept).length === Object.keys(current).length ? true : writeAll(kept)
     }
   }
 }

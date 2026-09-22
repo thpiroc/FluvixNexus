@@ -1315,7 +1315,10 @@ export const jaMessages = {
         tokenMissing: 'token がまだありません',
         tokenInvalid: 'token に使えない文字が含まれています',
         nodeNotFound: 'Node.js が見つかりません',
-        serverNotInstalled: 'MCP サーバーが入っていません'
+        serverNotInstalled: 'MCP サーバーが入っていません',
+        commandNotFound: 'Command が見つかりません',
+        argumentsUnsupported: '.cmd / .bat へは " % ! を含む引数を渡せません',
+        secretMissing: '秘密の環境変数の値がありません。編集して入れ直してください'
       },
       failure: {
         spawnFailed: 'サーバーを起動できませんでした',
@@ -1352,6 +1355,81 @@ export const jaMessages = {
           '保存されていた token を削除しました。環境変数 FLUVIX_NOTION_MCP_TOKEN が残っているため、今はそちらが使われます。',
         clearFailed: '保存されていた token を削除できませんでした。',
         testFailed: '接続テストを実行できませんでした。'
+      },
+      /* 利用者が足す MCP サーバー（§21.10）。ボタンの名前は英語のまま（Cursor などと揃える）。 */
+      custom: {
+        newServer: '+ New MCP Server',
+        heading: '追加した MCP サーバー',
+        titleNew: '新しい MCP サーバー',
+        titleEdit: 'MCP サーバーを編集',
+        commandLine: 'コマンド: {command}',
+        envSummary: '環境変数 {count} 個（うち秘密 {secret} 個）',
+        transportStdio: 'stdio（この PC でコマンドを起動）',
+        enabledLabel: 'このサーバーを使う',
+        fields: {
+          server: '入力',
+          name: '名前',
+          enabled: '使うかどうか',
+          transport: '接続方式',
+          command: 'Command',
+          args: 'Arguments',
+          env: 'Environment Variables'
+        },
+        placeholders: {
+          name: '例: GitHub',
+          command: '例: npx / uvx / C:\\tools\\server.exe',
+          args: '例:\n-y\n@modelcontextprotocol/server-github',
+          envName: 'NAME',
+          envValue: '値',
+          storedSecret: '保存済み（変えるときだけ入力）'
+        },
+        hints: {
+          command:
+            '起動するプログラムを1つだけ入れます（絶対パスか、PATH にある名前）。引数は下の Arguments へ。',
+          args: '1行に1つ。行の中の空白では区切りません。空の行は無視します。',
+          env: '「秘密」にした値は、この PC に暗号化して保存し、画面には戻しません。'
+        },
+        envSecret: '秘密',
+        envAdd: '+ 環境変数を追加',
+        envRemove: '削除',
+        save: '保存',
+        cancel: 'キャンセル',
+        edit: '編集',
+        delete: '削除',
+        deleteConfirm: '「{name}」を削除しますか？ 保存した秘密の値も削除されます。',
+        deleteYes: '削除する',
+        enable: '使う',
+        disable: '使わない',
+        cannotStoreSecrets:
+          'この PC では秘密の値を安全に保存できないため、「秘密」の環境変数があるサーバーは保存できません。',
+        invalidField: '{field}: {reason}',
+        invalidAt: '{field}（{position} 番目）: {reason}',
+        invalid: {
+          required: '入力してください',
+          tooLong: '長すぎます',
+          tooMany: '多すぎます',
+          controlCharacter: '改行などの見えない文字は使えません',
+          invalidShape: '形が正しくありません',
+          commandHasArguments:
+            'プログラム名だけを入れ、引数は Arguments へ1行に1つずつ入れてください',
+          invalidCommand: '絶対パスか、PATH にあるプログラムの名前を入れてください',
+          invalidName: '英字・数字・_ だけで、数字で始まらない名前にしてください',
+          reservedName: 'このアプリが決める変数なので使えません',
+          duplicateName: '同じ名前がもうあります',
+          unsupportedTransport: 'この接続方式にはまだ対応していません',
+          secretRequired: '秘密の値を入れてください'
+        },
+        notice: {
+          saved: '保存しました。「接続テスト」で確かめられます。',
+          saveFailed: '保存できませんでした。',
+          notFound: 'このサーバーは既に削除されています。',
+          limitReached: '追加できる MCP サーバーは {max} 個までです。',
+          encryptionUnavailable:
+            'この PC では秘密の値を安全に保存できないため、保存しませんでした。',
+          deleteFailed: '削除できませんでした。',
+          toggleFailed: '切り替えられませんでした。',
+          loadFailed: '追加した MCP サーバーを読み込めませんでした。'
+        }
       }
     }
   },

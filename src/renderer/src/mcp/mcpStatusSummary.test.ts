@@ -65,7 +65,11 @@ describe('summarizeMcpStatus', () => {
       ['token-missing', 'settings.mcp.status.tokenMissing'],
       ['token-invalid', 'settings.mcp.status.tokenInvalid'],
       ['node-not-found', 'settings.mcp.status.nodeNotFound'],
-      ['server-not-installed', 'settings.mcp.status.serverNotInstalled']
+      ['server-not-installed', 'settings.mcp.status.serverNotInstalled'],
+      // 利用者が足したサーバー（§21.10）
+      ['command-not-found', 'settings.mcp.status.commandNotFound'],
+      ['arguments-unsupported', 'settings.mcp.status.argumentsUnsupported'],
+      ['secret-missing', 'settings.mcp.status.secretMissing']
     ]
 
     for (const [problem, messageKey] of cases) {

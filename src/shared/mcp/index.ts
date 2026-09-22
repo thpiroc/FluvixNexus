@@ -14,6 +14,15 @@
  * 何を起動し、どの秘密情報を渡すかは Main の表だけが持つ（main/mcp/）。
  * 将来ほかの MCP サーバーを足すときは、この集合と Main の表に1行ずつ足す。
  *
+ * ## 利用者が足したサーバー（§21.10）
+ *
+ * 「+ New MCP Server」で足したサーバーだけは、Command・引数・環境変数を
+ * 利用者が決める。それらが Renderer から渡るのは**登録の口
+ * （`mcp:save-custom-server`）の1本だけ**で、Main が形を確かめて登録簿へ
+ * 書く。接続テスト・状態の口は、今までどおり id だけを受け取る ──
+ * 起動するものを決めるのは、そのとき Main が登録簿から読んだ値になる
+ * （shared/mcp/customServers.ts）。
+ *
  * ## 秘密情報はここに現れない
  *
  * token は Main が読み、子プロセスへ渡すだけで、この層のどの型にも
@@ -25,28 +34,65 @@
  * 入れるときだけ Renderer → Main の一方通行で渡る。
  */
 
-/** 接続の種類。増やすときはここと main/mcp/mcpServerCatalog.ts の両方を足す。 */
-export type McpConnectionId = 'notion'
+/**
+ * アプリに組み込んだ接続の種類。増やすときはここと main/mcp/mcpServerCatalog.ts の両方を足す。
+ */
+export type McpBuiltinConnectionId = 'notion'
 
-export const MCP_CONNECTION_IDS = ['notion'] as const satisfies readonly McpConnectionId[]
+export const MCP_BUILTIN_CONNECTION_IDS = [
+  'notion'
+] as const satisfies readonly McpBuiltinConnectionId[]
 
-/** 境界の外から届いた値が、表の行を指しているか（Main の検証と Renderer の列挙で同じ集合を見る）。 */
+/**
+ * 利用者が Settings から足した MCP サーバー（§21.10）の id。
+ *
+ * 値は Main が作る（`custom-` ＋ UUID）。Renderer が指せるのは、Main の
+ * 登録簿（main/mcp/mcpCustomServerStore.ts）に**在る** id だけで、形が
+ * 合っていても登録簿に無ければ Main が断る。
+ */
+export type McpCustomServerId = `custom-${string}`
+
+/** 接続1つを指す id（組み込みか、利用者が足したものか）。 */
+export type McpConnectionId = McpBuiltinConnectionId | McpCustomServerId
+
+/** 境界の外から届いた値が、組み込みの行を指しているか。 */
+export function isMcpBuiltinConnectionId(value: unknown): value is McpBuiltinConnectionId {
+  return (
+    typeof value === 'string' && (MCP_BUILTIN_CONNECTION_IDS as readonly string[]).includes(value)
+  )
+}
+
+const CUSTOM_SERVER_ID_PATTERN =
+  /^custom-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
+/** 利用者が足したサーバーの id の**形**か（在るかどうかは Main の登録簿が決める）。 */
+export function isMcpCustomServerId(value: unknown): value is McpCustomServerId {
+  return typeof value === 'string' && CUSTOM_SERVER_ID_PATTERN.test(value)
+}
+
+/**
+ * 境界の外から届いた値が、接続の id の形をしているか。
+ *
+ * 組み込みの行はこれで決まる。利用者が足したものは、形が合っても
+ * 登録簿に在るかを Main がもう一度確かめる（main/ipc/handlers/mcp.ts）。
+ */
 export function isMcpConnectionId(value: unknown): value is McpConnectionId {
-  return typeof value === 'string' && (MCP_CONNECTION_IDS as readonly string[]).includes(value)
+  return isMcpBuiltinConnectionId(value) || isMcpCustomServerId(value)
 }
 
 /**
  * 設定が足りない理由。利用者の次の一手がそれぞれ違うので分けてある。
  *
- * | 値                     | 次の一手                                         |
- * | ---------------------- | ------------------------------------------------ |
- * | 値                     | 次の一手                                         |
- * | ---------------------- | ------------------------------------------------ |
- * | `disabled`             | Settings で MCP（またはその接続）を有効にする    |
- * | `token-missing`        | Settings で token を入れる（または環境変数）     |
- * | `token-invalid`        | 制御文字などが混ざっている。入れ直す             |
- * | `node-not-found`       | Node.js を入れる（PATH に通す）                  |
- * | `server-not-installed` | MCP サーバーを npm でグローバルに入れる          |
+ * | 値                      | 次の一手                                                  |
+ * | ----------------------- | --------------------------------------------------------- |
+ * | `disabled`              | Settings で MCP（またはその接続）を有効にする             |
+ * | `token-missing`         | Settings で token を入れる（または環境変数）              |
+ * | `token-invalid`         | 制御文字などが混ざっている。入れ直す                      |
+ * | `node-not-found`        | Node.js を入れる（PATH に通す）                           |
+ * | `server-not-installed`  | MCP サーバーを npm でグローバルに入れる                   |
+ * | `command-not-found`     | 利用者が足したサーバーの Command が見つからない（§21.10） |
+ * | `arguments-unsupported` | `.cmd` / `.bat` へは渡せない文字が引数にある（§21.10）    |
+ * | `secret-missing`        | 秘密の環境変数の値が読めない。入れ直す（§21.10）          |
  *
  * `disabled` だけは「設定が足りない」ではなく「使わないと決めてある」に
  * あたるが、**呼ぶ側から見た扱いは同じ**（今は動かせない・理由がこれ）なので
@@ -54,7 +100,14 @@ export function isMcpConnectionId(value: unknown): value is McpConnectionId {
  * 「動かない理由」を2通りずつ持つことになる。
  */
 export type McpConfigProblem =
-  'disabled' | 'token-missing' | 'token-invalid' | 'node-not-found' | 'server-not-installed'
+  | 'disabled'
+  | 'token-missing'
+  | 'token-invalid'
+  | 'node-not-found'
+  | 'server-not-installed'
+  | 'command-not-found'
+  | 'arguments-unsupported'
+  | 'secret-missing'
 
 /**
  * 設定は揃っていたのに繋がらなかった理由。

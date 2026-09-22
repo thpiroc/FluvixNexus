@@ -34,7 +34,7 @@ import type { TranslationKey } from '../i18n/messages'
 import { languageServerNameKey } from '../lsp/languageServerLabels'
 import { createLanguageServerSetters, LSP_SETTINGS_BINDING } from '../lsp/lspSettingsBinding'
 import { LANGUAGE_SERVER_IDS } from '@shared/lsp'
-import { MCP_CONNECTION_IDS } from '@shared/mcp'
+import { MCP_BUILTIN_CONNECTION_IDS } from '@shared/mcp'
 import { McpConnectionPanel } from '../mcp/McpConnectionPanel'
 import { createMcpSetters, MCP_SETTINGS_BINDING } from '../mcp/mcpSettingsBinding'
 import {
@@ -876,7 +876,7 @@ function McpConnectionChoicesControl({ scope }: ScopeProps): JSX.Element {
       data-testid="settings-mcp-servers"
       data-inactive={!preferences.enabled}
     >
-      {MCP_CONNECTION_IDS.map((id) => (
+      {MCP_BUILTIN_CONNECTION_IDS.map((id) => (
         <button
           key={id}
           type="button"

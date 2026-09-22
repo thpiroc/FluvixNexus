@@ -1358,7 +1358,11 @@ export const enMessages = {
         tokenMissing: 'No token yet',
         tokenInvalid: 'The token contains characters that cannot be used',
         nodeNotFound: 'Node.js was not found',
-        serverNotInstalled: 'The MCP server is not installed'
+        serverNotInstalled: 'The MCP server is not installed',
+        commandNotFound: 'The command was not found',
+        argumentsUnsupported: 'Arguments containing " % ! cannot be passed to a .cmd / .bat file',
+        secretMissing:
+          'A secret environment variable has no value. Edit the server to enter it again'
       },
       failure: {
         spawnFailed: 'The server could not be started',
@@ -1394,6 +1398,81 @@ export const enMessages = {
           'The saved token was deleted. The FLUVIX_NOTION_MCP_TOKEN environment variable is still set, so that one is used now.',
         clearFailed: 'The saved token could not be deleted.',
         testFailed: 'The connection could not be tested.'
+      },
+      /* MCP servers the user adds (§21.10). */
+      custom: {
+        newServer: '+ New MCP Server',
+        heading: 'Added MCP servers',
+        titleNew: 'New MCP server',
+        titleEdit: 'Edit MCP server',
+        commandLine: 'Command: {command}',
+        envSummary: '{count} environment variable(s), {secret} secret',
+        transportStdio: 'stdio (runs a command on this PC)',
+        enabledLabel: 'Use this server',
+        fields: {
+          server: 'Input',
+          name: 'Name',
+          enabled: 'On / off',
+          transport: 'Connection type',
+          command: 'Command',
+          args: 'Arguments',
+          env: 'Environment Variables'
+        },
+        placeholders: {
+          name: 'e.g. GitHub',
+          command: 'e.g. npx / uvx / C:\\tools\\server.exe',
+          args: 'e.g.\n-y\n@modelcontextprotocol/server-github',
+          envName: 'NAME',
+          envValue: 'Value',
+          storedSecret: 'Saved (type only to change it)'
+        },
+        hints: {
+          command:
+            'Enter a single program (an absolute path or a name on PATH). Put arguments in Arguments below.',
+          args: 'One per line. Spaces inside a line do not split it. Empty lines are ignored.',
+          env: 'Values marked Secret are stored encrypted on this PC and are never shown again.'
+        },
+        envSecret: 'Secret',
+        envAdd: '+ Add environment variable',
+        envRemove: 'Remove',
+        save: 'Save',
+        cancel: 'Cancel',
+        edit: 'Edit',
+        delete: 'Delete',
+        deleteConfirm: 'Delete "{name}"? Its saved secret values are deleted too.',
+        deleteYes: 'Delete',
+        enable: 'On',
+        disable: 'Off',
+        cannotStoreSecrets:
+          'This PC cannot store secret values securely, so a server with Secret environment variables cannot be saved.',
+        invalidField: '{field}: {reason}',
+        invalidAt: '{field} (#{position}): {reason}',
+        invalid: {
+          required: 'Required',
+          tooLong: 'Too long',
+          tooMany: 'Too many',
+          controlCharacter: 'Line breaks and other invisible characters cannot be used',
+          invalidShape: 'Not in a valid shape',
+          commandHasArguments:
+            'Enter only the program name, and put each argument on its own line in Arguments',
+          invalidCommand: 'Enter an absolute path or the name of a program on PATH',
+          invalidName: 'Use letters, digits and _ only, not starting with a digit',
+          reservedName: 'This variable is set by the app and cannot be used',
+          duplicateName: 'That name is already used',
+          unsupportedTransport: 'This connection type is not supported yet',
+          secretRequired: 'Enter the secret value'
+        },
+        notice: {
+          saved: 'Saved. Use Test connection to check it.',
+          saveFailed: 'The server could not be saved.',
+          notFound: 'This server has already been deleted.',
+          limitReached: 'You can add up to {max} MCP servers.',
+          encryptionUnavailable:
+            'This PC cannot store secret values securely, so nothing was saved.',
+          deleteFailed: 'The server could not be deleted.',
+          toggleFailed: 'The server could not be switched.',
+          loadFailed: 'The added MCP servers could not be loaded.'
+        }
       }
     }
   },

@@ -5,7 +5,9 @@ import {
   type McpConnectionsDependencies,
   type McpWriteConfirmation
 } from './mcpConnections'
+import { createMcpCustomServerDefinition } from './mcpCustomServerDefinition'
 import { McpRequestError } from './mcpOperations'
+import { MCP_SERVER_DEFINITIONS, type McpServerDefinition } from './mcpServerCatalog'
 import type { McpStdioTransportOptions } from './mcpStdioTransport'
 
 /**
@@ -51,6 +53,10 @@ interface HarnessOptions {
   readonly storedToken?: string | null
   /** この PC で token を保存できるか（既定はできる）。 */
   readonly canStoreToken?: boolean
+  /** 組み込み以外の行（利用者が足したサーバー。§21.10）。 */
+  readonly customDefinitions?: Readonly<Record<string, McpServerDefinition>>
+  /** 在ると見なす実行ファイル（同梱したサーバー以外。既定は無し）。 */
+  readonly existingFiles?: readonly string[]
 }
 
 const SEARCH_RESULT = {
@@ -183,7 +189,9 @@ function harness(behavior: Behavior = 'healthy', setup: HarnessOptions = {}): Ha
   const deps: McpConnectionsDependencies = {
     env: () => env,
     platform: 'win32',
-    exists: (path) => (setup.serverInstalled ?? true) && path.toLowerCase() === ENTRY.toLowerCase(),
+    exists: (path) =>
+      ((setup.serverInstalled ?? true) && path.toLowerCase() === ENTRY.toLowerCase()) ||
+      (setup.existingFiles ?? []).some((file) => file.toLowerCase() === path.toLowerCase()),
     bundledPackageDirectory: (launch) => `${RESOURCES}\\${launch.bundleName}`,
     nodeRuntime: { file: APP_EXE, environment: { ELECTRON_RUN_AS_NODE: '1' } },
     cwd: () => 'C:\\Users\\dev\\AppData\\Roaming\\Fluvix Nexus',
@@ -203,6 +211,8 @@ function harness(behavior: Behavior = 'healthy', setup: HarnessOptions = {}): Ha
     isEnabled: () => setup.enabled ?? true,
     readStoredToken: () => setup.storedToken ?? null,
     canStoreToken: () => setup.canStoreToken ?? true,
+    definitionOf: (id) =>
+      id === 'notion' ? MCP_SERVER_DEFINITIONS.notion : (setup.customDefinitions?.[id] ?? null),
     connectTimeoutMs: 30,
     requestTimeoutMs: 30
   }
@@ -824,5 +834,140 @@ describe('callOperation', () => {
         text: WRITE_TEXT
       })
     ).toMatchObject({ failure: 'outcome-unknown' })
+  })
+})
+
+describe('利用者が足したサーバー（§21.10）', () => {
+  const CUSTOM_ID = 'custom-0f1e2d3c-4b5a-4968-8778-695a4b3c2d1e'
+  const SERVER_EXE = 'C:\\tools\\example-server.exe'
+
+  function customHarness(
+    behavior: Behavior = 'healthy',
+    options: {
+      readonly secret?: string | null
+      readonly command?: string
+      readonly existingFiles?: readonly string[]
+      readonly enabled?: boolean
+    } = {}
+  ): Harness {
+    const secret = options.secret === undefined ? TOKEN : options.secret
+
+    return harness(behavior, {
+      enabled: options.enabled,
+      existingFiles: options.existingFiles ?? [SERVER_EXE],
+      customDefinitions: {
+        [CUSTOM_ID]: createMcpCustomServerDefinition(
+          {
+            id: CUSTOM_ID,
+            name: 'Example Custom',
+            enabled: true,
+            transport: {
+              kind: 'stdio',
+              command: options.command ?? SERVER_EXE,
+              args: ['--stdio', 'C:\\My Files']
+            },
+            env: [
+              { name: 'EXAMPLE_REGION', secret: false, value: 'ap-northeast-1' },
+              { name: 'EXAMPLE_API_KEY', secret: true }
+            ]
+          },
+          () => secret
+        )
+      }
+    })
+  }
+
+  it('Command と引数を配列のまま起動し、利用者が決めた変数と共通の許可だけを渡す', async () => {
+    const h = customHarness()
+    h.setEnv({
+      PATH: SYSTEM_PATH,
+      SystemRoot: 'C:\\Windows',
+      FLUVIX_NOTION_MCP_TOKEN: TOKEN,
+      GITHUB_TOKEN: 'ghp_fictitious',
+      EXAMPLE_REGION: 'parent-value'
+    })
+
+    const result = await createMcpConnections(h.deps).testConnection(CUSTOM_ID)
+
+    expect(result.outcome).toBe('connected')
+    expect(h.spawned[0]?.command).toEqual({
+      name: 'Example Custom',
+      file: SERVER_EXE,
+      args: ['--stdio', 'C:\\My Files'],
+      environment: {},
+      killTreeWith: 'C:\\Windows\\System32\\taskkill.exe'
+    })
+    expect(h.spawned[0]?.env).toEqual({
+      PATH: SYSTEM_PATH,
+      SystemRoot: 'C:\\Windows',
+      EXAMPLE_REGION: 'ap-northeast-1',
+      EXAMPLE_API_KEY: TOKEN
+    })
+  })
+
+  it('token を持たない行なので、環境変数に Notion の token があっても在り処は none', () => {
+    const status = createMcpConnections(customHarness().deps).getStatus(CUSTOM_ID)
+
+    expect(status).toMatchObject({
+      connectionId: CUSTOM_ID,
+      configured: true,
+      problems: [],
+      secret: { source: 'none' }
+    })
+  })
+
+  it('秘密の値が読めなければ、起動せずに secret-missing', async () => {
+    const h = customHarness('healthy', { secret: null })
+    const connections = createMcpConnections(h.deps)
+
+    expect(connections.getStatus(CUSTOM_ID).problems).toEqual(['secret-missing'])
+    expect(await connections.testConnection(CUSTOM_ID)).toMatchObject({
+      outcome: 'not-configured',
+      problems: ['secret-missing']
+    })
+    expect(h.spawned).toEqual([])
+  })
+
+  it('Command が見つからなければ、起動せずに command-not-found', async () => {
+    const h = customHarness('healthy', { existingFiles: [] })
+
+    expect(await createMcpConnections(h.deps).testConnection(CUSTOM_ID)).toMatchObject({
+      outcome: 'not-configured',
+      problems: ['command-not-found']
+    })
+    expect(h.spawned).toEqual([])
+  })
+
+  it('無効なら、ほかの理由は数えない', () => {
+    const h = customHarness('healthy', { secret: null, enabled: false })
+
+    expect(createMcpConnections(h.deps).getStatus(CUSTOM_ID).problems).toEqual(['disabled'])
+  })
+
+  it('stderr に出た秘密の値は、ログへ出る前に伏せる', async () => {
+    const h = customHarness('stderr-with-token')
+
+    await createMcpConnections(h.deps).testConnection(CUSTOM_ID)
+
+    expect(h.logs.join('\n')).not.toContain(TOKEN)
+    expect(h.logs).toContain(
+      'debug Example Custom stderr: request failed: Authorization: <redacted>'
+    )
+  })
+
+  it('操作の表が無いので、ツールは呼べない（サーバーも起動しない）', async () => {
+    const h = customHarness()
+
+    await expect(
+      createMcpConnections(h.deps).callOperation(CUSTOM_ID, 'search-pages', { query: 'x' })
+    ).rejects.toThrow(McpRequestError)
+    expect(h.spawned).toEqual([])
+  })
+
+  it('登録簿に無い id は McpRequestError（Renderer の不具合）', async () => {
+    const connections = createMcpConnections(harness().deps)
+
+    expect(() => connections.getStatus(CUSTOM_ID)).toThrow(McpRequestError)
+    await expect(connections.testConnection(CUSTOM_ID)).rejects.toThrow(McpRequestError)
   })
 })

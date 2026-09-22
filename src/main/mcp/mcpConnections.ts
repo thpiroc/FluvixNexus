@@ -17,14 +17,14 @@ import {
   type McpFailure,
   type McpTransport
 } from './mcpClient'
-import { redactToken } from './mcpConfig'
+import { redactSecrets } from './mcpConfig'
 import { findMcpOperation, McpRequestError, type McpOperationDescription } from './mcpOperations'
 import {
   createMcpServerEnvironment,
-  MCP_SERVER_DEFINITIONS,
   resolveMcpServerCommand,
   resolveMcpServerToken,
-  type McpServerCommand
+  type McpServerCommand,
+  type McpServerDefinition
 } from './mcpServerCatalog'
 import type { McpLaunchContext, McpNodeRuntime } from './mcpServerLaunch'
 import type { McpStdioTransportOptions } from './mcpStdioTransport'
@@ -112,6 +112,14 @@ export interface McpConnectionsDependencies {
   readonly readStoredToken: (id: McpConnectionId) => string | null
   /** この PC で token を保存できるか（画面へ出すためだけの値）。 */
   readonly canStoreToken: () => boolean
+  /**
+   * 接続 id から、表の行へ（§21.10）。組み込みの行は mcpServerCatalog.ts の表から、
+   * 利用者が足したサーバーは登録簿の行からそのつど作る（mcpCustomServerDefinition.ts）。
+   * 無ければ null ── 消されたサーバーの id が届いた（Renderer の不具合）。
+   *
+   * 関数で受け取るのは、有効 / 無効と同じく**登録簿はいつでも変わる**ため。
+   */
+  readonly definitionOf: (id: McpConnectionId) => McpServerDefinition | null
   /** 時間切れの上限（テストで縮めるため）。 */
   readonly connectTimeoutMs?: number
   readonly requestTimeoutMs?: number
@@ -148,7 +156,12 @@ export interface McpConnections {
 }
 
 type ResolvedConfig =
-  | { readonly ok: true; readonly token: string | null; readonly command: McpServerCommand }
+  | {
+      readonly ok: true
+      readonly definition: McpServerDefinition
+      readonly token: string | null
+      readonly command: McpServerCommand
+    }
   | { readonly ok: false; readonly problems: readonly McpConfigProblem[] }
 
 /** 立てたサーバーとの1回分のやりとり。 */
@@ -164,6 +177,17 @@ export function createMcpConnections(deps: McpConnectionsDependencies): McpConne
   const operationQueues = new Map<McpConnectionId, Promise<unknown>>()
   const transports = new Set<McpTransport>()
 
+  /** 表の行。無い id は Renderer の不具合として断る（IPC の INVALID_REQUEST）。 */
+  function definitionOf(id: McpConnectionId): McpServerDefinition {
+    const definition = deps.definitionOf(id)
+
+    if (definition === null) {
+      throw new McpRequestError('unknown MCP connection.')
+    }
+
+    return definition
+  }
+
   /**
    * token をどこから取るか（§21.9）。保存したものが先で、無ければ環境変数。
    *
@@ -171,17 +195,25 @@ export function createMcpConnections(deps: McpConnectionsDependencies): McpConne
    * ── `getStatus` と `resolveConfig` が別々に順序を書くと、
    * 「画面は保存した token を指しているのに、繋ぐのは環境変数の方」がありうる。
    */
-  function resolveSecret(id: McpConnectionId): {
+  function resolveSecret(
+    id: McpConnectionId,
+    definition: McpServerDefinition
+  ): {
     readonly source: McpSecretSourceId
     readonly token: ReturnType<typeof resolveMcpServerToken>
   } {
+    // token を持たない行（利用者が足したサーバー）は、保存先も環境変数も見ない。
+    if (definition.secret === null) {
+      return { source: 'none', token: { ok: true, token: null } }
+    }
+
     const stored = deps.readStoredToken(id)
 
     if (stored !== null) {
       return { source: 'stored', token: { ok: true, token: stored } }
     }
 
-    const fromEnvironment = resolveMcpServerToken(id, deps.env())
+    const fromEnvironment = resolveMcpServerToken(definition, deps.env())
 
     /*
       秘密情報を要らないサーバー（`secret: null`）は `ok: true` / `token: null`
@@ -193,11 +225,11 @@ export function createMcpConnections(deps: McpConnectionsDependencies): McpConne
     return { source: missing ? 'none' : 'environment', token: fromEnvironment }
   }
 
-  function secretState(id: McpConnectionId): McpSecretState {
-    return { source: resolveSecret(id).source, canStore: deps.canStoreToken() }
+  function secretState(id: McpConnectionId, definition: McpServerDefinition): McpSecretState {
+    return { source: resolveSecret(id, definition).source, canStore: deps.canStoreToken() }
   }
 
-  function resolveConfig(id: McpConnectionId): ResolvedConfig {
+  function resolveConfig(id: McpConnectionId, definition: McpServerDefinition): ResolvedConfig {
     const env = deps.env()
     const problems: McpConfigProblem[] = []
 
@@ -209,13 +241,15 @@ export function createMcpConnections(deps: McpConnectionsDependencies): McpConne
       return { ok: false, problems: ['disabled'] }
     }
 
-    const token = resolveSecret(id).token
+    problems.push(...(definition.configProblems ?? []))
+
+    const token = resolveSecret(id, definition).token
 
     if (!token.ok) {
       problems.push(token.problem)
     }
 
-    const command = resolveMcpServerCommand(id, {
+    const command = resolveMcpServerCommand(definition, {
       platform: deps.platform,
       env,
       exists: deps.exists,
@@ -227,11 +261,11 @@ export function createMcpConnections(deps: McpConnectionsDependencies): McpConne
       problems.push(command.problem)
     }
 
-    if (!token.ok || !command.ok) {
+    if (!token.ok || !command.ok || problems.length > 0) {
       return { ok: false, problems }
     }
 
-    return { ok: true, token: token.token, command: command.command }
+    return { ok: true, definition, token: token.token, command: command.command }
   }
 
   /**
@@ -239,16 +273,16 @@ export function createMcpConnections(deps: McpConnectionsDependencies): McpConne
    * 接続できなければ `use` は呼ばずに失敗を返す。
    */
   async function withSession<T>(
-    id: McpConnectionId,
     config: Extract<ResolvedConfig, { ok: true }>,
     use: (session: McpSession) => Promise<T>
   ): Promise<{ readonly ok: true; readonly value: T } | McpFailure> {
-    const { token, command } = config
-    const redact = (text: string): string => redactToken(text, token)
+    const { definition, token, command } = config
+    const redact = (text: string): string =>
+      redactSecrets(text, [token, ...(definition.redactions ?? [])])
 
     const transport = deps.createTransport({
       command,
-      env: createMcpServerEnvironment(id, deps.env(), token, command.environment),
+      env: createMcpServerEnvironment(definition, deps.env(), token, command.environment),
       cwd: deps.cwd(),
       onStderrLine: (line) => deps.log.debug(`${command.name} stderr: ${redact(line)}`),
       onStderrDropped: (count) =>
@@ -289,14 +323,14 @@ export function createMcpConnections(deps: McpConnectionsDependencies): McpConne
 
   async function runTest(id: McpConnectionId): Promise<McpConnectionTestResult> {
     const testedAt = (): string => deps.now().toISOString()
-    const config = resolveConfig(id)
+    const config = resolveConfig(id, definitionOf(id))
 
     if (!config.ok) {
       deps.log.info(`${id}: not configured (${config.problems.join(', ')}).`)
       return { outcome: 'not-configured', testedAt: testedAt(), problems: config.problems }
     }
 
-    const session = await withSession(id, config, async ({ client, name, redact }) => {
+    const session = await withSession(config, async ({ client, name, redact }) => {
       const listed = await client.listTools()
 
       if (!listed.ok) {
@@ -327,7 +361,8 @@ export function createMcpConnections(deps: McpConnectionsDependencies): McpConne
     operationName: string,
     rawArguments: unknown
   ): Promise<McpOperationResult> {
-    const operation = findMcpOperation(MCP_SERVER_DEFINITIONS[id].operations, operationName)
+    const definition = definitionOf(id)
+    const operation = findMcpOperation(definition.operations, operationName)
 
     if (operation === null) {
       throw new McpRequestError(`unknown MCP operation for ${id}.`)
@@ -340,7 +375,7 @@ export function createMcpConnections(deps: McpConnectionsDependencies): McpConne
     }
 
     const args = parsed.value
-    const config = resolveConfig(id)
+    const config = resolveConfig(id, definition)
 
     if (!config.ok) {
       deps.log.info(`${id}/${operationName}: not configured (${config.problems.join(', ')}).`)
@@ -362,7 +397,6 @@ export function createMcpConnections(deps: McpConnectionsDependencies): McpConne
     }
 
     const session = await withSession(
-      id,
       config,
       async ({ client, name, redact }): Promise<McpOperationResult> => {
         /*
@@ -430,7 +464,8 @@ export function createMcpConnections(deps: McpConnectionsDependencies): McpConne
 
   return {
     getStatus: (id): McpConnectionStatus => {
-      const config = resolveConfig(id)
+      const definition = definitionOf(id)
+      const config = resolveConfig(id, definition)
       const problems = config.ok ? [] : config.problems
 
       return {
@@ -438,7 +473,7 @@ export function createMcpConnections(deps: McpConnectionsDependencies): McpConne
         configured: problems.length === 0,
         problems,
         enabled: deps.isEnabled(id),
-        secret: secretState(id),
+        secret: secretState(id, definition),
         testing: runningTests.has(id),
         lastTest: lastTests.get(id) ?? null
       }

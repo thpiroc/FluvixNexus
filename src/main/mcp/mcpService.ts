@@ -1,8 +1,9 @@
 import { app, dialog, safeStorage } from 'electron'
+import { randomUUID } from 'crypto'
 import { existsSync } from 'fs'
 import { join } from 'path'
 import { normalizeLanguageId, type LanguageId } from '@shared/language'
-import type { McpConnectionId } from '@shared/mcp'
+import { isMcpBuiltinConnectionId, type McpConnectionId } from '@shared/mcp'
 import { isMcpConnectionEnabled, normalizeMcpPreferences } from '@shared/mcp/settings'
 import { createLogger } from '../logger'
 import { currentPlatform } from '../platform'
@@ -13,7 +14,10 @@ import {
   type McpConnections,
   type McpWriteConfirmation
 } from './mcpConnections'
+import { createMcpCustomServerStore } from './mcpCustomServerStore'
+import { createMcpCustomServers, type McpCustomServers } from './mcpCustomServers'
 import { createMcpSecretStore, type McpSecretStore } from './mcpSecretStore'
+import { MCP_SERVER_DEFINITIONS } from './mcpServerCatalog'
 import type { BundledNodeScriptLaunch } from './mcpServerLaunch'
 import { createMcpStdioTransport } from './mcpStdioTransport'
 
@@ -21,6 +25,7 @@ const log = createLogger('mcp')
 
 let connections: McpConnections | null = null
 let secrets: McpSecretStore | null = null
+let customServers: McpCustomServers | null = null
 
 /**
  * token の保存先（アプリに1つ）。
@@ -36,6 +41,30 @@ export function getMcpSecretStore(): McpSecretStore {
   })
 
   return secrets
+}
+
+/**
+ * 利用者が足したサーバー（§21.10。アプリに1つ）。
+ *
+ * 登録簿（`mcp-servers.json`）も秘密の保存先も userData にある。id は Main が作る
+ * （`custom-` ＋ UUID）── Renderer が id を決める経路は無い。
+ */
+export function getMcpCustomServers(): McpCustomServers {
+  customServers ??= createMcpCustomServers({
+    store: createMcpCustomServerStore(app.getPath('userData'), {
+      onIssue: (message, ...details) => {
+        log.warn(message, ...details)
+      }
+    }),
+    secrets: getMcpSecretStore(),
+    newId: () => `custom-${randomUUID()}`,
+    // Command・引数・環境変数が変わったら、前の接続テストの結末はもう今の設定の話ではない。
+    onChanged: (id) => {
+      connections?.forgetLastTest(id)
+    }
+  })
+
+  return customServers
 }
 
 /**
@@ -83,7 +112,15 @@ export function getMcpConnections(): McpConnections {
       Settings で有効にした直後・token を入れた直後に、まだ古い答えが返る。
       どちらもディスクの読み1回で、接続のたびにしか起きない。
     */
-    isEnabled: (id: McpConnectionId) => isMcpConnectionEnabled(mcpPreferences(), id),
+    isEnabled: (id: McpConnectionId) =>
+      isMcpBuiltinConnectionId(id)
+        ? isMcpConnectionEnabled(mcpPreferences(), id)
+        : // 利用者が足したサーバーにも、全体の元栓（mcp.enabled）は効く。
+          mcpPreferences().enabled && getMcpCustomServers().isEnabled(id),
+    definitionOf: (id: McpConnectionId) =>
+      isMcpBuiltinConnectionId(id)
+        ? MCP_SERVER_DEFINITIONS[id]
+        : getMcpCustomServers().definitionOf(id),
     readStoredToken: (id: McpConnectionId) => getMcpSecretStore().read(id),
     canStoreToken: () => getMcpSecretStore().canStore()
   })

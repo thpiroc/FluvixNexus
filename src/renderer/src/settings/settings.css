@@ -1011,3 +1011,80 @@
   color: var(--fx-color-text-faint);
   cursor: default;
 }
+
+/* 「+ New MCP Server」と保存。押す先の目印は枠の色だけ（ほかのボタンと同じ形）。 */
+.fx-mcp__button[data-variant='primary'] {
+  color: var(--fx-color-text-strong);
+  border-color: var(--fx-accent-blue);
+}
+
+.fx-mcp__button[data-variant='danger'] {
+  color: var(--fx-color-danger);
+}
+
+.fx-mcp__button[data-active='true'] {
+  border-color: var(--fx-accent-blue);
+}
+
+.fx-mcp__button:focus-visible,
+.fx-mcp__input:focus-visible {
+  outline: 1px solid var(--fx-color-border-strong);
+  outline-offset: 1px;
+}
+
+/*
+ * 利用者が足した MCP サーバー（§21.10）。組み込みの接続のカードと同じ形を使い、
+ * 見出しで「ここからが追加したもの」と分ける。
+ */
+.fx-mcp__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-3);
+}
+
+.fx-mcp__group-title {
+  margin: 0;
+  color: var(--fx-color-text);
+  font-size: var(--fx-font-size-sm);
+  font-weight: 600;
+}
+
+.fx-mcp__form {
+  gap: var(--fx-space-3);
+}
+
+.fx-mcp__form .fx-mcp__name {
+  margin: 0;
+}
+
+.fx-mcp__fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.fx-mcp__textarea {
+  resize: vertical;
+  line-height: 1.5;
+}
+
+/* 環境変数の名前は短い。値の欄に幅を譲る。 */
+.fx-mcp__env-name {
+  flex: 0 1 12rem;
+}
+
+.fx-mcp__check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fx-space-1);
+  color: var(--fx-color-text);
+  font-size: var(--fx-font-size-sm);
+  cursor: pointer;
+}
+
+/* コマンドは長くなりうる（パス・パッケージ名）。折り返して全部見せる。 */
+.fx-mcp__command {
+  font-family: ui-monospace, Consolas, monospace;
+  overflow-wrap: anywhere;
+}

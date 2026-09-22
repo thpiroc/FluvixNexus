@@ -1,5 +1,11 @@
 import type {
+  McpCustomServerDraft,
+  McpCustomServerList,
+  McpCustomServerSaveOutcome
+} from '../../mcp/customServers'
+import type {
   McpConnectionId,
+  McpCustomServerId,
   McpConnectionStatus,
   McpConnectionTestResult,
   McpOperationResult,
@@ -13,7 +19,8 @@ import type {
  * ## 要求に載るのは接続の id だけ
  *
  * 実行ファイル・引数・token・ツール名の欄は無い ── 何を起動し、何を渡すかは
- * Main の表が決める（shared/mcp の冒頭）。
+ * Main の表が決める（shared/mcp の冒頭）。例外は利用者が足したサーバーの
+ * 保存の口（`mcp:save-custom-server`。§21.10）で、下のその型に理由を書いてある。
  *
  * ## 繋がらないのは IPC の失敗ではない
  *
@@ -59,6 +66,38 @@ export interface McpSetSecretRequest {
   readonly token: string
 }
 
+/** 利用者が足したサーバー1つを指す要求（§21.10）。 */
+export interface McpCustomServerRequest {
+  readonly id: McpCustomServerId
+}
+
+/**
+ * 利用者が足したサーバーを保存する要求（§21.10）。
+ *
+ * ## Command と引数が Renderer から渡るのは、この1本だけ
+ *
+ * 状態・接続テストの口は今までどおり id しか受け取らず、起動するものは
+ * そのとき Main が登録簿から読む。ここで届いた下書きは Main がもう一度
+ * 形を確かめて（shared/mcp/customServers.ts の `validateMcpCustomServerDraft`）
+ * から登録簿へ書く。**保存しても起動はしない** ── 接続テストは保存の後に、
+ * 利用者が別に押す。
+ *
+ * 秘密の環境変数の値もこの口で Renderer → Main へ渡る。返る
+ * `McpCustomServerSaveOutcome` には「保存されているか」だけが載り、
+ * 値が戻る経路は無い（token と同じ一方通行。§21.9）。
+ */
+export interface McpSaveCustomServerRequest {
+  /** 編集なら、そのサーバーの id。新しく足すなら null（id は Main が作る）。 */
+  readonly id: McpCustomServerId | null
+  readonly draft: McpCustomServerDraft
+}
+
+/** 利用者が足したサーバーの有効 / 無効を切り替える要求。 */
+export interface McpSetCustomServerEnabledRequest {
+  readonly id: McpCustomServerId
+  readonly enabled: boolean
+}
+
 export interface McpIpcContract {
   /** 設定が揃っているかと、直近の接続テストの結末（起動も通信もしない）。 */
   'mcp:get-status': {
@@ -84,5 +123,25 @@ export interface McpIpcContract {
   'mcp:clear-secret': {
     request: McpConnectionRequest
     response: McpSecretState
+  }
+  /** 利用者が足したサーバーの一覧（秘密の値は含まない）。 */
+  'mcp:list-custom-servers': {
+    request: void
+    response: McpCustomServerList
+  }
+  /** 利用者が足したサーバーを新しく足す・書き換える（起動はしない）。 */
+  'mcp:save-custom-server': {
+    request: McpSaveCustomServerRequest
+    response: McpCustomServerSaveOutcome
+  }
+  /** 利用者が足したサーバーを消す（保存された秘密の値も一緒に消す）。応答は消した後の一覧。 */
+  'mcp:delete-custom-server': {
+    request: McpCustomServerRequest
+    response: McpCustomServerList
+  }
+  /** 利用者が足したサーバーの有効 / 無効を切り替える。応答は切り替えた後の一覧。 */
+  'mcp:set-custom-server-enabled': {
+    request: McpSetCustomServerEnabledRequest
+    response: McpCustomServerList
   }
 }

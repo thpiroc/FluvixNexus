@@ -14,5 +14,10 @@ export const mcpApi: McpApi = {
   testConnection: (request) => invokeIpc(IPC_CHANNELS.MCP_TEST_CONNECTION, request),
   callOperation: (request) => invokeIpc(IPC_CHANNELS.MCP_CALL_OPERATION, request),
   setSecret: (request) => invokeIpc(IPC_CHANNELS.MCP_SET_SECRET, request),
-  clearSecret: (request) => invokeIpc(IPC_CHANNELS.MCP_CLEAR_SECRET, request)
+  clearSecret: (request) => invokeIpc(IPC_CHANNELS.MCP_CLEAR_SECRET, request),
+  listCustomServers: () => invokeIpc(IPC_CHANNELS.MCP_LIST_CUSTOM_SERVERS),
+  saveCustomServer: (request) => invokeIpc(IPC_CHANNELS.MCP_SAVE_CUSTOM_SERVER, request),
+  deleteCustomServer: (request) => invokeIpc(IPC_CHANNELS.MCP_DELETE_CUSTOM_SERVER, request),
+  setCustomServerEnabled: (request) =>
+    invokeIpc(IPC_CHANNELS.MCP_SET_CUSTOM_SERVER_ENABLED, request)
 }

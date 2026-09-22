@@ -74,3 +74,17 @@ export function redactToken(text: string, token: string | null): string {
 
   return text.split(token).join('<redacted>')
 }
+
+/**
+ * 複数の秘密の値を伏せる（利用者が足したサーバーの、秘密の環境変数。§21.10）。
+ *
+ * 長いものから伏せる ── 短い値が長い値の一部だった場合に、長い方の残りが
+ * ログに出るのを防ぐ。
+ */
+export function redactSecrets(text: string, secrets: readonly (string | null)[]): string {
+  const values = secrets
+    .filter((value): value is string => value !== null && value.length > 0)
+    .sort((a, b) => b.length - a.length)
+
+  return values.reduce((current, value) => redactToken(current, value), text)
+}

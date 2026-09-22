@@ -1,4 +1,4 @@
-import type { McpConnectionId } from '@shared/mcp'
+import type { McpBuiltinConnectionId, McpConfigProblem } from '@shared/mcp'
 import { readMcpToken, type McpTokenRead } from './mcpConfig'
 import type { AnyMcpOperationDefinition } from './mcpOperations'
 import {
@@ -38,6 +38,14 @@ import { NOTION_MCP_SERVER } from './notionMcpServer'
  *
  * 同梱するサーバーなら、electron-builder.yml の `extraResources` と
  * tools/third-party-notices.mjs の `BUNDLED_PACKAGES` にも1行ずつ足す。
+ *
+ * ## 利用者が足したサーバー（§21.10）
+ *
+ * 「+ New MCP Server」で足したサーバーは、この表には載らない。登録簿
+ * （mcpCustomServerStore.ts）の行から、同じ `McpServerDefinition` の形を
+ * そのつど作る（mcpCustomServerDefinition.ts）。ここの関数が id ではなく
+ * 定義そのものを受け取るのはそのため ── どちらの行も、起動・環境変数・
+ * 秘密情報の読み方は同じ道を通る。
  */
 
 /** 秘密情報（token）の読み方。 */
@@ -62,29 +70,40 @@ export interface McpServerDefinition {
    * ── サーバーが公開しているツールでも、表に載せなければ呼べない。
    */
   readonly operations: Readonly<Record<string, AnyMcpOperationDefinition>>
+  /**
+   * 起動する前から分かっている、設定の足りないところ（利用者が足したサーバーの
+   * 秘密の値が読めない、など。§21.10）。組み込みの行は持たない。
+   */
+  readonly configProblems?: readonly McpConfigProblem[]
+  /**
+   * ログへ出す前に伏せる値（利用者が足したサーバーの、秘密の環境変数の値）。
+   * token は別に伏せるので、ここには入れなくてよい。
+   */
+  readonly redactions?: readonly string[]
 }
 
-export const MCP_SERVER_DEFINITIONS: Readonly<Record<McpConnectionId, McpServerDefinition>> = {
-  notion: NOTION_MCP_SERVER
-}
+export const MCP_SERVER_DEFINITIONS: Readonly<Record<McpBuiltinConnectionId, McpServerDefinition>> =
+  {
+    notion: NOTION_MCP_SERVER
+  }
 
 export type { McpServerCommand, McpServerCommandResolution } from './mcpServerLaunch'
 
 export function resolveMcpServerCommand(
-  id: McpConnectionId,
+  definition: McpServerDefinition,
   context: McpLaunchContext
 ): McpServerCommandResolution {
-  return resolveMcpServerLaunch(MCP_SERVER_DEFINITIONS[id].launch, context)
+  return resolveMcpServerLaunch(definition.launch, context)
 }
 
 /**
  * 秘密情報を読む。秘密情報の要らない行では、常に `{ ok: true, token: null }`。
  */
 export function resolveMcpServerToken(
-  id: McpConnectionId,
+  definition: McpServerDefinition,
   env: Readonly<Record<string, string | undefined>>
 ): McpTokenRead | { readonly ok: true; readonly token: null } {
-  const secret = MCP_SERVER_DEFINITIONS[id].secret
+  const secret = definition.secret
 
   return secret === null ? { ok: true, token: null } : readMcpToken(env, secret.variable)
 }
@@ -94,14 +113,10 @@ export function resolveMcpServerToken(
  * （引数は同じ PC のほかのプロセスから見える。タスクマネージャーのコマンドライン列など）。
  */
 export function createMcpServerEnvironment(
-  id: McpConnectionId,
+  definition: McpServerDefinition,
   parentEnv: Readonly<Record<string, string | undefined>>,
   token: string | null,
   launchEnvironment: Readonly<Record<string, string>> = {}
 ): Record<string, string> {
-  return buildServerEnvironment(
-    parentEnv,
-    MCP_SERVER_DEFINITIONS[id].environment(token),
-    launchEnvironment
-  )
+  return buildServerEnvironment(parentEnv, definition.environment(token), launchEnvironment)
 }
