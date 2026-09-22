@@ -285,6 +285,26 @@ Security Decision へ渡す「Workspace の中か」「hard link か」は、**M
   - **残る TOCTOU：** Node はディレクトリのハンドルを基点に開けない（openat / O_NOFOLLOW が無い）ため、Boundary の確認だけでは、**開く瞬間に途中のフォルダを外へのリンクへ差し替えられると、外に空のファイルができる**ことまでは閉じられない（中身は書かない。confirm が false になる）。
   - **これは v1 の既知のリスクとして受け入れない（2026-09-23 決定）。** STEP7 は recheck → open → confirm → ハンドル越しの書き込みを基本とし、**Workspace の外への空ファイルの作成を含め、安全性を保証できない書き込みの形は拒否する。** 保証の仕方（新規作成の扱いを含む）は STEP7 で決める。STEP2 ではこのために native 実装などを足さない。
 
+#### Secret Detection / Masking（Security Core v1 の STEP3。2026-09-23）
+
+Agent・Context・ログ・Error・外部送信へ Secret を平文で出さないための共通層（`src/main/security/secret/`）。**名前の判定と中身の判定を分ける** ── 名前で許したファイルの中身も、必ず Mask を通す。
+
+- **Secret ファイル（名前の判定）：** `.env` 系（`.env` / `.env.local` / `.env.production` / `*.env`）、鍵（`id_rsa` 系・`.pem` / `.key` / `.p12` / `.pfx` / `.jks` / `.keystore` / `.ppk`）、鍵置き場のフォルダ（`.ssh/` / `.gnupg/`）、そのままの名前（`.netrc` / `_netrc` / `.pgpass` / `.htpasswd` / `.pypirc`）、そして**`credential` / `secret` / `private key` を語として持ち、かつ資格情報のファイルとして妥当な形式のもの**（`credentials.json`・`secrets.yaml`・`aws-credentials`・`.git-credentials`・`private_key.txt`）。**大文字小文字は区別しない。**
+- **普通のソースコードは、名前だけで Secret ファイルにしない（2026-09-23 決定）：** `src/auth/credentials.ts`・`src/security/secret.ts`・`token.ts`・`secrets.test.ts`・`src/crypto/privateKey.ts`・`.npmrc` は読める。ソースコードを名前で拒んでも**中身の Secret は1つも減らない**一方、Agent が読めない普通のファイルだけが増える。中身に本物の値があれば、ファイルごと拒むのではなく Content Detection が値だけを Mask する。Secret ファイルを普通のファイルへ緩める例外は、必要性が確認できたものだけ今後追加する。
+- **雛形は読める：** 印は `.example` / `.sample` / `.template` の3つだけ（`.env.example`・`example.env`・`credentials.example.json`）。`.dist` / `.defaults` / `.tpl` / `.tmpl` は**現時点では追加しない**（2026-09-23 決定）。印の後ろに別の名前が続くもの（`.env.example.local`）は雛形として扱わない。**鍵（`.pem`・`id_rsa`・`.ssh/`）には印が効かない** ── 鍵の雛形はまず無く、中身が本物である方がありそうなため。
+- **指した綴りと実体の綴りの両方を見る：** `requestedRelativePath` と `canonicalRelativePath` の**どちらかが** Secret ファイルなら Secret。片方だけでは、普通の名前のリンクで `.env` を読む／`.env` という名前のリンクで判定を避ける、のどちらかが通る。
+- **申告では突破できない：** `secretFile` は Boundary（STEP2）が発行した対象からだけ作る（`agentFileReadFacts` / `agentFileWriteFacts`）。Agent・Renderer から `{ secretFile: false }` を受け取る口は無く、対象を写したオブジェクトでも拒否になる事実しか生まれない。
+- **中身の判定（普通のファイル）：** ファイルごと拒否はせず、**見つけた箇所だけを `***REDACTED***` に置き換えて処理を続ける。** `userNoticeRequired` で「一部を伏せた」ことを後の STEP の UI へ伝える。拾うのは Private Key block・GitHub token・Provider の API Key（`sk-` / `sk-ant-` / `AKIA` / `AIza` / `xox?-` / `glpat-` / `npm_`）・JWT・`Bearer` / `Basic` の値・URL に埋め込まれた認証情報・鍵の名前 ＋ 代入 ＋ 値。
+- **過検出を避ける：** 「`token` という語がある」だけでは伏せない。鍵の名前の後ろの値は、**8 文字以上・空白を含まない・雛形の値でない（`changeme` / `your-…` / `xxxx`）・参照でない（`${API_KEY}` / `$TOKEN` / `%TOKEN%`）・コードの式でない（`process.env.API_KEY` / `SECRET_KEY` / `getToken()`）・文字の種類が 2 種以上（または 16 文字以上）**のときだけ伏せる。
+- **Private Key は block 全体：** `-----BEGIN … PRIVATE KEY-----` から対応する END まで（印も含めて）1つとして伏せる。**END が無ければ、そこから末尾まで。** 一部だけ残す形にはしない。
+- **元の値は復元できない形にする：** 長さも形も残さず伏せ字1つに置き換える。**先頭数文字・末尾数桁を残す設計にはしない**（デバッグのためでも）。返す metadata は「あったか・いくつか・どの種類か・知らせるべきか」までで、**当たった生の値を持つ欄は型にも無い。**
+- **`.npmrc`：** Secret ファイルにはせず、`_authToken=…` のような**実際の値を中身の判定で伏せる**（2026-09-23 決定）。`registry=` の行はそのまま残る。
+- **binary / 大きすぎるもの：** 既存の Files の上限をそのまま使う（`FILES_FILE_MAX_BYTES` = 2 MiB、`looksBinary` = 先頭 8000 バイトの NUL）。STEP3 で足した上限は**1回の検査で読む 1,000,000 文字**（`SECRET_SCAN_MAX_CHARS`）だけで、超えた分は捨てる（`truncated`）。これは 2 MiB のファイル上限とは別の、CLI の出力・Error・Provider への要求を無制限に正規表現へ渡さないための Security 上の上限にあたる。
+- **`SecretCategory` は Main 側に置く（2026-09-23 決定）：** 通知 UI で Renderer が種別を必要とする段階で、**安全な metadata だけ**を `@shared` へ移すことを再検討する。生の Secret の値を `@shared` へ持ち出すことは、その後も行わない。
+- **fail closed：** 名前が読めない・対象が Boundary のものでない・分類が落ちた → Secret ファイル。文字列でない → 何も渡さない。検出が例外で落ちた → 全体を伏せる。**どの失敗でも、未検査の文字をそのまま返すことはしない。**
+- **既存の Secret の保存は変えない：** MCP の秘密の環境変数（`mcpSecretStore.ts` / `mcpRedaction.ts`）とログ1行の伏せ字（`logRedaction.ts`）は、それぞれの用途の対策としてそのまま残す。STEP3 はそれらを置き換えるものではなく、Agent・Context・外部送信の経路に足す別の層にあたる。
+- **外部 Provider への最終 Gate は後の STEP。** STEP3 が用意するのは、そこで使う検出・Masking の共通の道具まで。
+
 ### 6.5 v1 に含めないもの
 
 | 項目                                               | 扱い                                                                                                   |
