@@ -269,6 +269,22 @@ FN Agent の Permission は **Read / Ask の2つ**で、既定は **Ask**。操�
 - Read → Ask への変更に、追加の Native 確認は求めない（Ask でも副作用のある操作は毎回 Main の Native 確認を通るため）。Audit Log を実装した後は、設定の変更を記録する。
 - 設定の Settings 画面は、Agent が実際にこの設定を使う段階で足す。
 
+#### Workspace Boundary（Security Core v1 の STEP2。2026-09-23）
+
+Security Decision へ渡す「Workspace の中か」「hard link か」は、**Main がディスクを見て確かめた結果からだけ作る**（`src/main/security/boundary/`）。LLM・Renderer・Agent から「検証済み」の真偽値は受け取らない。Boundary が返した対象でなければ（同じ形に写したオブジェクトでも）、拒否になる事実しか生まれない。
+
+- **文字列：** Files と同じ `normalizeWorkspaceRelativePath`（`..`・絶対パス・`C:foo`・`name:stream`・NUL）を必ず通し、Agent にはさらに、先頭の `/` `\`（UNC・`\\?\`・`\\.\`）、`< > " | ? *` と制御文字、末尾がドット / 空白の要素、予約デバイス名（`CON`・`nul.txt` など）を OS を問わず拒む。Agent が指せるのは Workspace root からの相対位置だけ。
+- **実体：** Workspace root は Main の現在の Workspace から取り、realpath してから境界を引く（root 自体がリンクでも実体で比べる）。対象を realpath して root の中か確かめる（区切りまで含めて比べ、`workspace-evil` を `workspace` の中と取り違えない）。中を指す symlink / ジャンクションは解決し、実体の綴り（`canonicalRelativePath`）と、途中にリンク（または 8.3 の短い名前）を挟んだこと（`aliased`）を返す。外を指すものは読み書きとも拒否。
+- **まだ無いファイル：** いちばん近い既存の祖先を realpath して中・ディレクトリであることを確かめ、最初の欠けている要素を lstat して**本当に何も無い**ことまで見る（指し先の無いリンクを新規ファイルと取り違えると、書いた瞬間に外へファイルができる）。欠けている要素はすべて `missingSegments` として返す。
+- **v1 の制限（2026-09-23 決定）：** Boundary は事実（`aliased`・`missingSegments`）を落とさずに返し、File Write Gate（STEP7）がそれで拒否する。
+  - **symlink / ジャンクションを通した書き込みは拒否**（書き込みで `aliased === true`）。読み取りは、実体が Workspace の中なら許可してよい。通した書き込みを許すかは v2 以降で再検討する。
+  - **途中のディレクトリは作らない。** 既存のディレクトリの中に新しいファイルを作ることはできる（`missingSegments` が 1 つ）が、途中に無いディレクトリがあれば拒否する（2 つ以上）。Agent が複数階層のディレクトリを作る機能は v1 では作らない。
+- **hard link：** 書き込みの対象が既存のファイルなら、リンク数が 1 のときだけ `hardLink: false`。読み取りは hard link であることだけでは拒否しない。
+- **fail closed：** root が無い・取れない、realpath / lstat が ENOENT 以外で失敗、種別が分からない、引数の形が違う、はどれも拒否。Secret ファイルの判定（STEP3）が渡されない間は、Secret と読んで拒否する。
+- **TOCTOU：** Boundary が保証するのは「確かめた時点で、実体が中にあり、identity（dev / ino）とリンク数がこうだった」まで。差し替えに対しては `recheckWorkspaceTarget`（操作の直前に解決し直して、root・実体・identity・リンク数を比べる）と `confirmOpenedWorkspaceFile`（開いたハンドルの identity・リンク数と、開いた後のパスの状態を比べる）を用意する。**File Write Gate（STEP7）が負うもの：** 直前の recheck → realPath を開く（新規は `wx`）→ ハンドルを confirm → 通ったときだけハンドル越しに書く、を必ずこの順で行う。既存のファイルは**切り詰めずに**開き（`r+`。`w` は開いた瞬間に中身を消すため、confirm の前に外のファイルを壊しうる）、切り詰めは confirm の後にハンドルで行う。
+  - **残る TOCTOU：** Node はディレクトリのハンドルを基点に開けない（openat / O_NOFOLLOW が無い）ため、Boundary の確認だけでは、**開く瞬間に途中のフォルダを外へのリンクへ差し替えられると、外に空のファイルができる**ことまでは閉じられない（中身は書かない。confirm が false になる）。
+  - **これは v1 の既知のリスクとして受け入れない（2026-09-23 決定）。** STEP7 は recheck → open → confirm → ハンドル越しの書き込みを基本とし、**Workspace の外への空ファイルの作成を含め、安全性を保証できない書き込みの形は拒否する。** 保証の仕方（新規作成の扱いを含む）は STEP7 で決める。STEP2 ではこのために native 実装などを足さない。
+
 ### 6.5 v1 に含めないもの
 
 | 項目                                               | 扱い                                                                                                   |
