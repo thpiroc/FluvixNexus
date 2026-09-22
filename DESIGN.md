@@ -305,6 +305,28 @@ Agent・Context・ログ・Error・外部送信へ Secret を平文で出さな�
 - **既存の Secret の保存は変えない：** MCP の秘密の環境変数（`mcpSecretStore.ts` / `mcpRedaction.ts`）とログ1行の伏せ字（`logRedaction.ts`）は、それぞれの用途の対策としてそのまま残す。STEP3 はそれらを置き換えるものではなく、Agent・Context・外部送信の経路に足す別の層にあたる。
 - **外部 Provider への最終 Gate は後の STEP。** STEP3 が用意するのは、そこで使う検出・Masking の共通の道具まで。
 
+#### Security Audit Log（Security Core v1 の STEP4。2026-09-23）
+
+FN Agent / Security Core で起きた **Security 上重要な判断**（何を通し、何を拒んだか）を、Secret を漏らさず Main 側で記録する共通基盤（`src/main/security/audit/`）。後の STEP（External Send Gate・Approval Manager・File Write Gate・Command Runner・MCP Gateway・Activity）はすべてここへ記録する。
+
+- **保存先：** `app.getPath('userData')/logs/agent-audit.log`。`logs` が無ければ Main が作る。**置き場所を指定できる引数も API も無い**（決めるのは `currentAuditLog.ts` の1か所だけ。テストだけが1つ下の層へ一時フォルダを渡せる）。プロジェクトフォルダの中には書かない。
+- **上限と rotation：** **1 MiB・1世代。** 現在の Log へ1件足すと超える場合に、古い `agent-audit.log.1` を捨て → 現在の Log を `.1` へ移し → 新しい Log から書き始める。世代は `.1` の1つだけで、それ以上は増やさない。
+- **1件の上限（2026-09-23 確定）：** 1件で上限を大きく超えないよう、**1 Record は 4 KiB まで**（`AUDIT_RECORD_MAX_BYTES`）。超えるものは途中で切らず、最小限の記録（時刻・`audit.unrecognized-event`・`record-too-large`）へ**落とす（fail closed）** ── 途中で切ると壊れた行が残るうえ、Audit Log は Prompt / ファイル / Terminal の出力といった**本文の置き場所ではない**ため、入りきらない1件は縮めるのではなく捨てる。欄ごとの上限も同じ考えで、`subject` 120 文字・`workspacePath` 256 文字・`error` 400 文字とする。
+- **形式：JSON Lines（1行 = 1件の JSON object）。** 途中の1行が壊れても他の行は読める・改行や引用符を値に入れても行の区切りを偽装できない（JSON の文字列として逃がされる）・人も機械も読める、の3つを満たすため。欄の順は固定で、分かっていない欄は書かない。
+- **Main 側 Security Core が所有する：** 記録できるのは Main の Security Core だけ。**`audit:write` のような IPC も、Preload の API も作らない。** Renderer / Agent から「この Audit Event を書いて」と頼む経路は無い（`auditSurface.test.ts` が、Audit / Log を名乗る IPC・Preload の公開・Main の IPC handler からの利用が増えていないことを見ている）。
+- **種別は閉じた集合：** イベント名を Renderer / Agent から**自由文字列では渡せない**（`AuditEventType`）。知らない種別・Audit 自身の種別（`audit.unrecognized-event`）を名乗って届いたものは、その種別としては記録せず、**他の欄もいっしょに捨てる。** 理由（`AuditReason`）も STEP1 の `SecurityDecisionReason` と STEP2 の `WorkspaceBoundaryDenial` をそのまま使う閉じた集合で、型の対応表で受けているため、STEP1 / STEP2 が理由を足すと型検査で落ちる。
+- **記録してよいもの：** 時刻・種別・分類・判定（allow / ask / deny）・理由・成否・操作の種類・Permission・短い名前（`subject`）・**Workspace root からの相対位置**（`workspacePath`）・Secret の種別・伏せた数・`userNoticeRequired` だけ。
+- **`subject` は短い識別子だけ（2026-09-23 確定）：** Tool 名・Provider 名・設定の key のような、監査に必要な**短い名前**を記録するための欄（最大 120 文字・Audit Writer で必ず Mask / Redaction を通す）。**Prompt 本文・ファイル本文・Terminal の stdout / stderr・MCP Tool の raw input / output・Provider の request / response を `subject` へ入れることは禁止する。** 入りきらないから縮めて入れる、という使い方もしない ── 本文を載せる欄が1つでもあれば、Audit Log はいずれ本文の置き場所になるため。
+- **`workspacePath` は Workspace 相対のみ（2026-09-23 確定）：** 記録してよいのは Workspace root からの相対位置だけ（最大 256 文字）。絶対パス・UNC・file URI が渡っても、Audit Writer が `<path>` へ伏せる。Secret の Masking も必ず通る。
+- **絶対に記録しないもの：** API Key・Token・Password・Credential・Private Key・`.env` の中身・Secret Store の中身・MCP の秘密・GitHub PAT・**Prompt 全文・ファイル全文・Terminal の stdout / stderr 全文・MCP Tool の raw input / output・Provider への要求と応答**。これらを持つ欄は `AuditEvent` の型にも無い。「デバッグのため」でも足さない。
+- **STEP3 の Masking を最終防御として使う：** 書き込みの直前に **Audit 自身が Sanitize する**（`sanitizeAuditEvent`）。呼び出し側が「安全だ」と主張しても信用せず、文字列の欄は必ず `maskSecretText`（Secret の値）→ `redactLogText`（絶対パス・URL の認証情報）→ 制御文字を潰す → 長さで切る、の順を通す。**切るのは伏せた後**で、読む上限（4096 文字）を超えた入力は末尾の語を落としてから伏せる（切れ目で半分になった token を見逃さないため）。
+- **Error：** `describeErrorWithoutSecrets()` を通した1行だけを記録する。**stack trace 全文は保存しない**（`logRedaction.ts` と同じ理由）。
+- **Concurrent Write：** Main process 内の **1本の Promise の鎖**に並べて書く（rotation の最中に別の append が割り込まない・記録が混線しない・rename が競合しない）。Renderer 側の鍵には依存しない。時刻は列に並べる前に押すため、書いた順と起きた順がずれない。
+- **rotation が失敗したときは、その1件を落とす（2026-09-23 確定）：** `.1` の置き換え・rename が失敗した場合、**上限を超えてまで現在の Log へ追記することは禁止する。** その1件は落とし、失敗として知らせ、次の書き込みで開き直してもう一度試す（1 MiB の上限が効かなくなる方を避ける）。
+- **Audit 失敗で Security を緩めない：** 記録の入口は**書けたかどうかを返さない**（`recordAuditEvent` は `void`）。後の STEP が「Audit に失敗したから許可する」と書ける形を残さないため。失敗は通常のログへ**1度だけ**出し、その1行も Secret と絶対パスを伏せた後の文字列にする。書けなかった1件はそこで落とし、中身をどこかへ退避することはしない（退避先が Secret を含む記録の2つ目の置き場所になるため）。Audit の失敗でアプリは落とさない。
+- **Activity は安全な要約だけ：** Activity（後の STEP）は **Audit Log の行をそのまま表示しない。** `summarizeAuditRecord()` が返す「時刻・分類・種別・判定・閉じた集合の語をつないだ1行」だけを渡せる形にしてある（名前・パス・Error の文言は要約に含めない）。STEP4 では Activity UI も、要約を Renderer へ送る IPC も作らない。
+- **通常のログとは分ける：** `main/logger/`（`main.log`）とは**別のファイル・別の API。** 目的が違い（あちらは不具合を追うための出力）、混ぜると Security の記録が LSP / Terminal の行に埋もれ、上限も取り合いになる。共有するのは置き場所（`logs/`）と伏せ字（`logRedaction.ts`）のような安全な部品だけで、既存のログの作りには手を入れない。
+
 ### 6.5 v1 に含めないもの
 
 | 項目                                               | 扱い                                                                                                   |
