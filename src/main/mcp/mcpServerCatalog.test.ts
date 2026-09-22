@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MCP_CONNECTION_IDS } from '@shared/mcp'
+import { MCP_BUILTIN_CONNECTION_IDS } from '@shared/mcp'
 import {
   createMcpServerEnvironment,
   MCP_SERVER_DEFINITIONS,
@@ -35,7 +35,9 @@ function launchContext(present: readonly string[], env = {}): McpLaunchContext {
 
 describe('resolveMcpServerCommand（Notion）', () => {
   it('同梱したサーバーを、アプリ自身の Node で起動する（利用者の Node / npm に頼らない）', () => {
-    expect(resolveMcpServerCommand('notion', launchContext([NOTION_ENTRY]))).toEqual({
+    expect(
+      resolveMcpServerCommand(MCP_SERVER_DEFINITIONS.notion, launchContext([NOTION_ENTRY]))
+    ).toEqual({
       ok: true,
       command: {
         name: 'Notion MCP',
@@ -47,7 +49,7 @@ describe('resolveMcpServerCommand（Notion）', () => {
   })
 
   it('同梱したファイルが無ければ server-not-installed', () => {
-    expect(resolveMcpServerCommand('notion', launchContext([]))).toEqual({
+    expect(resolveMcpServerCommand(MCP_SERVER_DEFINITIONS.notion, launchContext([]))).toEqual({
       ok: false,
       problem: 'server-not-installed'
     })
@@ -66,21 +68,25 @@ describe('resolveMcpServerCommand（Notion）', () => {
 describe('resolveMcpServerToken（Notion）', () => {
   it('FLUVIX_NOTION_MCP_TOKEN から読む', () => {
     expect(NOTION_MCP_TOKEN_ENV).toBe('FLUVIX_NOTION_MCP_TOKEN')
-    expect(resolveMcpServerToken('notion', { FLUVIX_NOTION_MCP_TOKEN: TOKEN })).toEqual({
+    expect(
+      resolveMcpServerToken(MCP_SERVER_DEFINITIONS.notion, { FLUVIX_NOTION_MCP_TOKEN: TOKEN })
+    ).toEqual({
       ok: true,
       token: TOKEN
     })
   })
 
   it('フィードバック用の FLUVIX_NOTION_TOKEN は使わない', () => {
-    expect(resolveMcpServerToken('notion', { FLUVIX_NOTION_TOKEN: TOKEN })).toEqual({
+    expect(
+      resolveMcpServerToken(MCP_SERVER_DEFINITIONS.notion, { FLUVIX_NOTION_TOKEN: TOKEN })
+    ).toEqual({
       ok: false,
       problem: 'token-missing'
     })
   })
 
   it('サーバーが使う NOTION_TOKEN も読まない（利用者の既存の値を黙って使わない）', () => {
-    expect(resolveMcpServerToken('notion', { NOTION_TOKEN: TOKEN })).toEqual({
+    expect(resolveMcpServerToken(MCP_SERVER_DEFINITIONS.notion, { NOTION_TOKEN: TOKEN })).toEqual({
       ok: false,
       problem: 'token-missing'
     })
@@ -108,7 +114,9 @@ describe('createMcpServerEnvironment（Notion）', () => {
 
   it('許可した OS の変数と、NOTION_TOKEN と、起動用の変数だけを渡す', () => {
     expect(
-      createMcpServerEnvironment('notion', parent, TOKEN, { ELECTRON_RUN_AS_NODE: '1' })
+      createMcpServerEnvironment(MCP_SERVER_DEFINITIONS.notion, parent, TOKEN, {
+        ELECTRON_RUN_AS_NODE: '1'
+      })
     ).toEqual({
       Path: parent.Path,
       SystemRoot: parent.SystemRoot,
@@ -119,9 +127,15 @@ describe('createMcpServerEnvironment（Notion）', () => {
   })
 
   it('BASE_URL を引き継がない（API の接続先として読まれ、token 付きの要求がそこへ行く）', () => {
-    expect(createMcpServerEnvironment('notion', parent, TOKEN)).not.toHaveProperty('BASE_URL')
     expect(
-      createMcpServerEnvironment('notion', { Path: 'C:\\Windows', base_url: '/' }, TOKEN)
+      createMcpServerEnvironment(MCP_SERVER_DEFINITIONS.notion, parent, TOKEN)
+    ).not.toHaveProperty('BASE_URL')
+    expect(
+      createMcpServerEnvironment(
+        MCP_SERVER_DEFINITIONS.notion,
+        { Path: 'C:\\Windows', base_url: '/' },
+        TOKEN
+      )
     ).not.toHaveProperty('base_url')
   })
 
@@ -138,7 +152,9 @@ describe('createMcpServerEnvironment（Notion）', () => {
   it('親の環境を書き換えない', () => {
     const copy = { ...parent }
 
-    createMcpServerEnvironment('notion', parent, TOKEN, { ELECTRON_RUN_AS_NODE: '1' })
+    createMcpServerEnvironment(MCP_SERVER_DEFINITIONS.notion, parent, TOKEN, {
+      ELECTRON_RUN_AS_NODE: '1'
+    })
 
     expect(parent).toEqual(copy)
   })
@@ -146,7 +162,7 @@ describe('createMcpServerEnvironment（Notion）', () => {
 
 describe('MCP_SERVER_DEFINITIONS', () => {
   it('どの行も、token を FLUVIX_ の変数から読み、渡す変数はすべて宣言している', () => {
-    for (const id of MCP_CONNECTION_IDS) {
+    for (const id of MCP_BUILTIN_CONNECTION_IDS) {
       const definition = MCP_SERVER_DEFINITIONS[id]
       const profile = definition.environment(definition.secret === null ? null : TOKEN)
       const reserved = profile.reservedVariables.map((name) => name.toUpperCase())
@@ -162,7 +178,7 @@ describe('MCP_SERVER_DEFINITIONS', () => {
 
       // 作るときに投げない（宣言と値が食い違っていない）。
       expect(() =>
-        createMcpServerEnvironment(id, { Path: 'C:\\Windows' }, TOKEN, {
+        createMcpServerEnvironment(MCP_SERVER_DEFINITIONS[id], { Path: 'C:\\Windows' }, TOKEN, {
           ELECTRON_RUN_AS_NODE: '1'
         })
       ).not.toThrow()
@@ -170,7 +186,7 @@ describe('MCP_SERVER_DEFINITIONS', () => {
   })
 
   it('どの行の操作表にも、書き込みには確認の文がある', () => {
-    for (const id of MCP_CONNECTION_IDS) {
+    for (const id of MCP_BUILTIN_CONNECTION_IDS) {
       for (const operation of Object.values(MCP_SERVER_DEFINITIONS[id].operations)) {
         if (operation.kind === 'write') {
           expect(operation.describe).toBeTypeOf('function')

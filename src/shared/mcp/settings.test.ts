@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MCP_CONNECTION_IDS } from './index'
+import { MCP_BUILTIN_CONNECTION_IDS } from './index'
 import {
   DEFAULT_MCP_PREFERENCES,
   isMcpConnectionEnabled,
@@ -20,7 +20,7 @@ describe('DEFAULT_MCP_PREFERENCES', () => {
   it('既定はどれも無効', () => {
     expect(DEFAULT_MCP_PREFERENCES.enabled).toBe(false)
 
-    for (const id of MCP_CONNECTION_IDS) {
+    for (const id of MCP_BUILTIN_CONNECTION_IDS) {
       expect(DEFAULT_MCP_PREFERENCES.servers[id]).toBe(false)
     }
   })

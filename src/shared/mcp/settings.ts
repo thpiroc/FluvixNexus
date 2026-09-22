@@ -1,5 +1,5 @@
 import type { StoredMcpSettings } from '../settings/sections'
-import { MCP_CONNECTION_IDS, type McpConnectionId } from './index'
+import { MCP_BUILTIN_CONNECTION_IDS, type McpBuiltinConnectionId } from './index'
 
 /**
  * MCP 連携を使うかどうか（§21.9）。
@@ -21,12 +21,18 @@ import { MCP_CONNECTION_IDS, type McpConnectionId } from './index'
  * 両方が真のときだけそのサーバーを使う（`isMcpConnectionEnabled`）──
  * `lsp` とまったく同じ形で、全体を戻したときに
  * 「どれを使っていたか」が消えないようにするためになる。
+ *
+ * ここの `servers` に並ぶのは**組み込みの接続だけ**。利用者が足した
+ * サーバー（§21.10）の栓は、そのサーバーの行と一緒に `mcp-servers.json` が
+ * 持つ（shared/mcp/customServers.ts）── 数が決まっていないものを、平らな
+ * key しか持てない `settings.json` へ入れない。全体の元栓 `enabled` は
+ * どちらにも効く。
  */
 export interface McpPreferences {
   /** MCP 連携そのものを使うか。 */
   readonly enabled: boolean
   /** 接続ごとに使うか。 */
-  readonly servers: Readonly<Record<McpConnectionId, boolean>>
+  readonly servers: Readonly<Record<McpBuiltinConnectionId, boolean>>
 }
 
 /** 何も保存されていないときの値（どれも使わない）。 */
@@ -43,7 +49,7 @@ export const DEFAULT_MCP_PREFERENCES: McpPreferences = {
  */
 const CONNECTION_ENABLED_KEYS = {
   notion: 'notionEnabled'
-} as const satisfies Readonly<Record<McpConnectionId, keyof StoredMcpSettings>>
+} as const satisfies Readonly<Record<McpBuiltinConnectionId, keyof StoredMcpSettings>>
 
 /**
  * 保存されている形から、使う形へ。
@@ -53,9 +59,9 @@ const CONNECTION_ENABLED_KEYS = {
  * 設定ファイルが壊れただけで外部サービスへの接続が有効になってしまう。
  */
 export function normalizeMcpPreferences(stored: StoredMcpSettings | undefined): McpPreferences {
-  const servers: Record<McpConnectionId, boolean> = { ...DEFAULT_MCP_PREFERENCES.servers }
+  const servers: Record<McpBuiltinConnectionId, boolean> = { ...DEFAULT_MCP_PREFERENCES.servers }
 
-  for (const id of MCP_CONNECTION_IDS) {
+  for (const id of MCP_BUILTIN_CONNECTION_IDS) {
     servers[id] = readFlag(
       stored?.[CONNECTION_ENABLED_KEYS[id]],
       DEFAULT_MCP_PREFERENCES.servers[id]
@@ -76,14 +82,18 @@ export function toStoredMcpSettings(preferences: McpPreferences): StoredMcpSetti
  * **元栓と栓の両方**を見る。呼ぶ側がこの and を書くと、片方だけを見る場所が
  * いずれ生まれる（Main の起動前・Renderer の表示・IPC の入口で3回判断する）。
  */
-export function isMcpConnectionEnabled(preferences: McpPreferences, id: McpConnectionId): boolean {
+export function isMcpConnectionEnabled(
+  preferences: McpPreferences,
+  id: McpBuiltinConnectionId
+): boolean {
   return preferences.enabled && preferences.servers[id]
 }
 
 /** 同じ内容か（保存の要求を出すかどうかを決める）。 */
 export function isSameMcpPreferences(a: McpPreferences, b: McpPreferences): boolean {
   return (
-    a.enabled === b.enabled && MCP_CONNECTION_IDS.every((id) => a.servers[id] === b.servers[id])
+    a.enabled === b.enabled &&
+    MCP_BUILTIN_CONNECTION_IDS.every((id) => a.servers[id] === b.servers[id])
   )
 }
 

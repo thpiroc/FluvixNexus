@@ -9349,7 +9349,7 @@ MCP 共通の部品は Notion を知らない。Notion について知ってい�
 
 ### 21.2 Renderer との境界
 
-IPC は `mcp:get-status` / `mcp:test-connection` / `mcp:call-operation` の3本。要求に載るのは**接続 id（閉じた集合）・操作名・引数だけ**で、ツール名・URL・token・コマンドの欄は無い。
+IPC は `mcp:get-status` / `mcp:test-connection` / `mcp:call-operation` の3本。要求に載るのは**接続 id（閉じた集合）・操作名・引数だけ**で、ツール名・URL・token・コマンドの欄は無い。例外は利用者が足すサーバーの保存の口で、§21.10 に線の引き直しを書いてある。
 
 - 操作名は表にあるものだけ（`Object.hasOwn` で引く）。無ければ `INVALID_REQUEST` で、サーバーは起動しない
 - 引数は操作ごとに形を確かめ、ツールの引数へ**組み立て直す**。知らない引数名は断る（黙って捨てない）
@@ -9406,7 +9406,7 @@ Notion MCP サーバーが設定として読む変数（2.5.1 で確かめた）
 1. サーバーの定義（`McpServerDefinition`）── 起動のしかた（3種類から選ぶ）・秘密情報（任意）・サーバーが読む変数の宣言
 2. 操作表 ── 呼べる操作と、その引数・結果・確認の文
 3. `mcpServerCatalog.ts` の `MCP_SERVER_DEFINITIONS` に1行
-4. `src/shared/mcp` の `MCP_CONNECTION_IDS` に1語と、Renderer 向けの操作の語彙
+4. `src/shared/mcp` の `MCP_BUILTIN_CONNECTION_IDS`（§21.10 で `MCP_CONNECTION_IDS` から改名）に1語と、Renderer 向けの操作の語彙
 5. 同梱するなら `electron-builder.yml` の `extraResources` と `tools/third-party-notices.mjs` の `BUNDLED_PACKAGES` に1行ずつ
 
 経路・クライアント・環境変数の規則・確認ダイアログ・IPC は変えなくてよい。
@@ -9417,7 +9417,7 @@ Notion MCP サーバーが設定として読む変数（2.5.1 で確かめた）
 | ----------------------------- | ----------------------------------------------------------------------------- |
 | UI・Settings                  | **§21.9 で入れた**（token の入力と保存・状態の表示・有効 / 無効・接続テスト） |
 | 接続の保持                    | Agent から呼ぶ段階                                                            |
-| リモートの MCP（HTTP・OAuth） | 将来                                                                          |
+| リモートの MCP（HTTP・OAuth） | 将来（§21.10 の利用者が足すサーバーも、今は stdio だけ）                      |
 | macOS / Linux                 | 配布は Windows だけ。Unix 系の分岐は単体テストだけで、実機では確かめていない  |
 | 確認ダイアログのページ名      | 今はページ ID だけ。タイトルを出すには確認の前に読み取りが1回要る             |
 
@@ -9463,7 +9463,7 @@ MCP カテゴリは `kind: 'items'` のままで、値の項目（有効 / 無�
 
 - token の欄は `type="password"` で、**保存済みの値は入らない**。入れ直すときは新しい値を丸ごと送り、送った時点で欄は空に戻る
 - 面はユーザー設定を見ているときだけ出す（application scope なので、ワークスペース側では上の行が押せない状態で理由を添える）
-- 並べるのは `MCP_CONNECTION_IDS` の全部で、Notion という名前は面のコードに1つも無い（名前は i18n が接続 id から引く）
+- 並べるのは `MCP_BUILTIN_CONNECTION_IDS` の全部で、Notion という名前は面のコードに1つも無い（名前は i18n が接続 id から引く）
 - 「どの状態のときに何が出るか」は `mcpStatusSummary.ts` に出してある（React 非依存・テスト対象）。設定を変えた後に古い結果が残らないこと ── token を消した直後に「繋がりました」と出続けないこと ── はここで確かめる
 
 #### 足したときに触ったもの
@@ -9475,3 +9475,102 @@ MCP カテゴリは `kind: 'items'` のままで、値の項目（有効 / 無�
 3. IPC 2本（`mcp:set-secret` / `mcp:clear-secret`）── **token が通る唯一の口**で、向きは Renderer → Main のみ。読み出す口は作らない
 
 接続を足すときは §21.7 の5手順に、`StoredMcpSettings` の key 1つと `CONNECTION_ENABLED_KEYS` の1行が加わる（`satisfies` があるので書き忘れると型が通らない）。
+
+### 21.10 利用者が足す MCP サーバー（「+ New MCP Server」。feature/mcp-server-manager）
+
+Settings の MCP カテゴリから、利用者が任意の MCP サーバー（stdio）を追加・編集・削除・有効 / 無効の切り替え・接続テストできるようにした。Notion・GitHub・Google Drive などを**コードに1行も足さずに**登録できる汎用の口で、§21.7 の「組み込みの行を足す」手順とは別の道になる。§21.1〜§21.9 の共通基盤（経路・クライアント・環境変数の許可リスト・接続テスト・秘密の保存）は作り直さず、そのまま通す。
+
+#### 境界の線の引き直し
+
+§21.2 の「要求に載るのは接続 id だけ」は、利用者が起動するものを決める機能と両立しない。そこで**口を1本だけ**開けた。
+
+| 口                                       | 何が渡るか                                                         |
+| ---------------------------------------- | ------------------------------------------------------------------ |
+| `mcp:save-custom-server`                 | 名前・接続方式・Command・引数（配列）・環境変数・有効 / 無効       |
+| `mcp:list-custom-servers`                | （要求の欄なし）。応答に秘密の値は無く、保存されているかだけ       |
+| `mcp:delete-custom-server`               | id だけ                                                            |
+| `mcp:set-custom-server-enabled`          | id と真偽値だけ                                                    |
+| `mcp:get-status` / `mcp:test-connection` | 今までどおり id だけ。起動するものはそのとき Main が登録簿から読む |
+
+- 保存の口で届いた下書きは、Main が `validateMcpCustomServerDraft`（`shared/mcp/customServers.ts`）でもう一度確かめてから書く。画面の案内も同じ関数を使う（規則が2つにならない）
+- **保存しても起動しない。** 接続テストは保存の後に利用者が押す。未保存の下書きを起動する口は作っていない
+- id は Main が作る（`custom-` ＋ UUID）。形が合っていても登録簿に無い id は、どの口も `INVALID_REQUEST` で断る
+- 追加したサーバーには操作表が無いので `mcp:call-operation` は断る（ツールを呼ぶのは Agent 連携の段階）
+- token の口（`mcp:set-secret` / `mcp:clear-secret`）は組み込みの接続の id しか受け付けない
+
+#### 置き場所
+
+```
+userData/settings.json      全体の元栓 mcp.enabled（今までどおり。追加したサーバーにも効く）
+userData/mcp-servers.json   { version: 1, servers: [ { id, name, enabled, transport, env } ] }
+userData/mcp-secrets.json   秘密の環境変数の値（key は custom-<uuid>:env:<NAME>）… OS の資格情報で暗号化
+```
+
+`settings.json` に入れないのは、section が平らな素の値しか持てず（§15.9）、「設定ファイルが起動するものを決める場所」にしないと決めてあるため（`settingsSections.ts` の `lsp` の注記）。Debug Profile の `debug-profiles.json` と同じ分け方で、Main だけが書く。
+
+- 読むたびに保存するときと同じ規則を1件ずつ通し、通らない行だけを落とす（手で書き換えられる場所にある）
+- JSON として読めない・知らない版のファイルは空として扱い、**上書きもしない**（新しい版が書いたファイルを古い版が塗りつぶさない）
+- `enabled` が真偽値でなければ無効として読む（§21.9 の「読めなければ無効」と同じ向き）
+- 秘密の値は `mcp-servers.json` に入らない（`{ name, secret: true }` だけ）。編集で入れ直さない秘密の値は `value: null`（今のまま）で送る。名前を変えた・秘密に切り替えた変数は、前の値を流用せずに入れ直させる
+- 暗号化できない PC では秘密の値のあるサーバーを保存しない（平文へ落ちない。§21.9 と同じ）
+
+書く順序は「保存 … 秘密の値 → 行」「削除 … 行 → 秘密の値」。途中で失敗しても「行があるのに秘密の値が無い」が残らない向きにしてある。
+
+#### 起動（`user-command`。`mcpServerLaunch.ts`）
+
+| Command の書き方         | 探し方                                                                            |
+| ------------------------ | --------------------------------------------------------------------------------- |
+| 絶対パス                 | そこに在るか（Windows では拡張子を省いた書き方も `.com/.exe/.bat/.cmd` で当たる） |
+| 名前だけ（`npx`・`uvx`） | PATH を**こちらで辿る**（相対の項目は飛ばす。`executablePath.ts`）                |
+| 相対パス・空白入りの名前 | 保存の時点で断る（`invalid-command` / `command-has-arguments`）                   |
+
+- `shell: false` のまま、引数は配列で渡す。利用者の PATHEXT は読まない
+- `.cmd` / `.bat`（`npx` など）は Node が直接は起動しない（CVE-2024-27980）。System32 の `cmd.exe /d /s /c "…"` で包み、`windowsVerbatimArguments` で渡す。どの引数も `"…"` で囲み、**囲みの中でも効く `"` `%` `!` を含む引数は起動しない**（`arguments-unsupported`）。`.exe` へは同じ引数をそのまま渡せる
+- 起動したもの（`npx`・`uvx`・`cmd.exe`）が本体を子として立てるので、Windows では `taskkill /T /F` で子孫ごと終わらせる（`killTreeWith`。通常は stdin を閉じれば自分で終わる）
+- 作業フォルダは今までどおり userData（Workspace ではない）
+
+#### 環境変数
+
+利用者が決めた名前は `reservedVariables` に入り、親の同じ名前は引き継がず利用者の値だけが入る。それ以外は §21.4 の共通の許可リストだけが通る ── `GITHUB_TOKEN` のような親の秘密情報は、利用者がその名前で値を入れない限り渡らない。
+
+`PATH`・`PATHEXT`・`COMSPEC`・`SYSTEMROOT`・`WINDIR`・`ELECTRON_RUN_AS_NODE`・`NODE_OPTIONS`・`FLUVIX_*` は名前として使えない（`reserved-name`）。利用者は Command そのものを決められるので防御の表ではなく、このアプリが決めている前提（どの実行ファイルを、どう包み、どう終わらせるか）を環境変数で黙って変えさせないための表。
+
+秘密の値は子プロセスへ環境変数で渡し、stderr と失敗の詳細は値を伏せてからログへ出す（`redactSecrets`）。引数はタスクマネージャーなどから見えるので、秘密は環境変数に入れるよう画面で案内している。
+
+#### 状態の理由（`McpConfigProblem`）に足したもの
+
+| 値                      | 次の一手                                               |
+| ----------------------- | ------------------------------------------------------ |
+| `command-not-found`     | Command を直す・入れる                                 |
+| `arguments-unsupported` | `.cmd` の代わりに実体（`node.exe` など）を指す         |
+| `secret-missing`        | 編集して秘密の値を入れ直す（別の PC から持ってきた等） |
+
+#### 表の行の作り方
+
+`mcpServerCatalog.ts` の関数は、id ではなく**定義（`McpServerDefinition`）を受け取る**形にした。組み込みの行は `MCP_SERVER_DEFINITIONS` から、追加したサーバーは登録簿の行から `createMcpCustomServerDefinition` がそのつど作る（秘密の値もそのつど読む）。`mcpConnections.ts` は `definitionOf(id)` で行を引くだけで、どちらの行かを知らない。
+
+| 層                 | ファイル                                                                                                                   |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| 語彙と検証         | `shared/mcp/customServers.ts`                                                                                              |
+| 登録簿             | `main/mcp/mcpCustomServerStore.ts`                                                                                         |
+| 行の作り方         | `main/mcp/mcpCustomServerDefinition.ts`                                                                                    |
+| 保存・削除の手続き | `main/mcp/mcpCustomServers.ts`                                                                                             |
+| 画面               | `renderer/src/mcp/McpConnectionPanel.tsx`・`McpCustomServerCard.tsx`・`McpCustomServerForm.tsx`・`mcpCustomServerDraft.ts` |
+
+#### 画面
+
+MCP カテゴリの面の先頭に「+ New MCP Server」を置き、押すとすぐ下に入力欄が開く。組み込みの接続（Notion）の後に「追加した MCP サーバー」を並べる。カードの状態の1行・接続テスト・ツールの数は組み込みと同じ部品（`useMcpConnectionStatus`・`mcpStatusSummary`）を使う。
+
+- 新規の「このサーバーを使う」は**切ってある**（§21.9 の「既定は無効」と同じ理由）
+- 環境変数の行は「秘密」が既定で入っている（API キーをうっかり平文で保存しない側）
+- 引数は1行に1つ。行の中の空白では区切らない
+- 削除は2段で押させる
+
+#### 入れていないもの
+
+| 項目                             | 扱い                                                              |
+| -------------------------------- | ----------------------------------------------------------------- |
+| HTTP / Streamable HTTP           | 次の段階。`McpCustomServerTransport` の union と経路を1つずつ足す |
+| 未保存の下書きの接続テスト       | 作らない（保存してから試す）                                      |
+| 追加したサーバーのツール呼び出し | Agent 連携の段階                                                  |
+| Cursor の `mcp.json` の取り込み  | 未定                                                              |

@@ -75,7 +75,10 @@ import type { SaveSettingsSectionRequest } from './ipc/contracts/settings'
 import type { SubmitFeedbackRequest } from './ipc/contracts/feedback'
 import type {
   McpConnectionRequest,
+  McpCustomServerRequest,
   McpOperationRequest,
+  McpSaveCustomServerRequest,
+  McpSetCustomServerEnabledRequest,
   McpSetSecretRequest
 } from './ipc/contracts/mcp'
 import type { PingRequest } from './ipc/contracts/system'
@@ -1302,6 +1305,23 @@ export interface McpApi {
   readonly setSecret: (request: McpSetSecretRequest) => IpcInvokeResult<'mcp:set-secret'>
   /** 保存された token を消す。環境変数の token には触れない。 */
   readonly clearSecret: (request: McpConnectionRequest) => IpcInvokeResult<'mcp:clear-secret'>
+  /** 利用者が足したサーバー（§21.10）の一覧。秘密の値は含まない。 */
+  readonly listCustomServers: () => IpcInvokeResult<'mcp:list-custom-servers'>
+  /**
+   * 利用者が足したサーバーを保存する（新規は id が null）。**Command・引数・秘密の値が
+   * Renderer から渡る唯一の口**で、保存しても起動はしない（接続テストは別に押す）。
+   */
+  readonly saveCustomServer: (
+    request: McpSaveCustomServerRequest
+  ) => IpcInvokeResult<'mcp:save-custom-server'>
+  /** 利用者が足したサーバーを消す（保存された秘密の値も消える）。 */
+  readonly deleteCustomServer: (
+    request: McpCustomServerRequest
+  ) => IpcInvokeResult<'mcp:delete-custom-server'>
+  /** 利用者が足したサーバーの有効 / 無効を切り替える。 */
+  readonly setCustomServerEnabled: (
+    request: McpSetCustomServerEnabledRequest
+  ) => IpcInvokeResult<'mcp:set-custom-server-enabled'>
 }
 
 /**

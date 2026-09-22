@@ -1,17 +1,22 @@
 import { useCallback, useEffect, useState, type JSX } from 'react'
-import { MCP_CONNECTION_IDS, type McpConnectionId, type McpConnectionStatus } from '@shared/mcp'
+import { MCP_BUILTIN_CONNECTION_IDS, type McpBuiltinConnectionId } from '@shared/mcp'
+import type { McpCustomServerList } from '@shared/mcp/customServers'
 import { fluvix } from '../api/fluvix'
 import { useI18n } from '../i18n/context'
 import type { TranslationKey } from '../i18n/messages'
+import { ConnectedTools } from './McpConnectedTools'
+import { McpCustomServerCard } from './McpCustomServerCard'
+import { McpCustomServerForm } from './McpCustomServerForm'
 import {
   canClearStoredSecret,
   canTestConnection,
   secretSourceKey,
   summarizeMcpStatus
 } from './mcpStatusSummary'
+import { useMcpConnectionStatus } from './useMcpConnectionStatus'
 
 /**
- * MCP の接続ごとの面（§21.9）。Settings の MCP カテゴリの、項目の下に続く。
+ * MCP の接続ごとの面（§21.9 / §21.10）。Settings の MCP カテゴリの、項目の下に続く。
  *
  * ## ここが出すのは「設定ファイルに書けないもの」だけ
  *
@@ -21,84 +26,144 @@ import {
  *   - **token** … 設定ファイルではなく、暗号化した別のファイルへ入る
  *   - **今の状態** … 保存された値ではなく、Main に訊いて分かるもの
  *   - **接続テスト** … 値ではなく操作
+ *   - **利用者が足したサーバー**（§21.10）… `settings.json` ではなく、
+ *     Main だけが書く登録簿（`mcp-servers.json`）に入る
  *
- * の3つになる。
+ * になる。
+ *
+ * ## 並び
+ *
+ * ```
+ * [+ New MCP Server]         … 先頭。押すとすぐ下に入力欄が開く
+ * 組み込みの接続（Notion）
+ * 追加した MCP サーバー      … 登録簿の順
+ * ```
  *
  * ## token は入れる方向にしか流れない
  *
  * 入っている token を欄に出して直させる形にはしていない ── Main から
  * Renderer へ token が戻る経路そのものを作らないため（shared/mcp の冒頭）。
  * 入れ直すときは新しい値を丸ごと送る。欄は送った時点で空に戻す。
+ * 利用者が足したサーバーの秘密の環境変数も同じ扱いにしてある。
  *
  * ## 接続を増やしても、ここは変わらない
  *
- * 並べるのは `MCP_CONNECTION_IDS` の全部で、Notion という名前はこの中に
- * 1つも書いていない（名前は i18n の側が接続 id から引く）。
+ * 組み込みの接続は `MCP_BUILTIN_CONNECTION_IDS` の全部を並べ、Notion という
+ * 名前はこの中に1つも書いていない（名前は i18n の側が接続 id から引く）。
+ * 利用者が足したサーバーは、Main から届いた一覧をそのまま並べる。
  */
 export function McpConnectionPanel(): JSX.Element {
+  const { t } = useI18n()
+  const custom = useMcpCustomServers()
+  const [creating, setCreating] = useState(false)
+  const [noticeKey, setNoticeKey] = useState<TranslationKey | null>(null)
+
   return (
     <div className="fx-mcp" data-testid="settings-mcp-panel">
-      {MCP_CONNECTION_IDS.map((id) => (
+      <div className="fx-mcp__row">
+        <button
+          type="button"
+          className="fx-mcp__button"
+          data-variant="primary"
+          data-testid="settings-mcp-new-server"
+          disabled={creating || custom.list === null}
+          onClick={() => {
+            setNoticeKey(null)
+            setCreating(true)
+          }}
+        >
+          {t('settings.mcp.custom.newServer')}
+        </button>
+        {noticeKey === null ? null : (
+          <span className="fx-mcp__note" data-testid="settings-mcp-custom-notice">
+            {t(noticeKey)}
+          </span>
+        )}
+      </div>
+
+      {creating && custom.list !== null ? (
+        <McpCustomServerForm
+          server={null}
+          canStoreSecrets={custom.list.canStoreSecrets}
+          onSaved={() => {
+            setCreating(false)
+            setNoticeKey('settings.mcp.custom.notice.saved')
+            void custom.refresh()
+          }}
+          onCancel={() => setCreating(false)}
+        />
+      ) : null}
+
+      {MCP_BUILTIN_CONNECTION_IDS.map((id) => (
         <McpConnectionCard key={id} connectionId={id} />
       ))}
+
+      {custom.loadFailed ? (
+        <p
+          className="fx-mcp__note"
+          data-state="warning"
+          data-testid="settings-mcp-custom-load-failed"
+        >
+          {t('settings.mcp.custom.notice.loadFailed')}
+        </p>
+      ) : null}
+
+      {custom.list !== null && custom.list.servers.length > 0 ? (
+        <section className="fx-mcp__group" data-testid="settings-mcp-custom-servers">
+          <h3 className="fx-mcp__group-title">{t('settings.mcp.custom.heading')}</h3>
+          {custom.list.servers.map((server) => (
+            <McpCustomServerCard
+              key={server.id}
+              server={server}
+              canStoreSecrets={custom.list?.canStoreSecrets ?? false}
+              onListChanged={custom.replace}
+              onSaved={() => void custom.refresh()}
+            />
+          ))}
+        </section>
+      ) : null}
     </div>
   )
 }
 
-function McpConnectionCard({
-  connectionId
-}: {
-  readonly connectionId: McpConnectionId
-}): JSX.Element {
-  const { t } = useI18n()
-  const [status, setStatus] = useState<McpConnectionStatus | null>(null)
-  const [token, setToken] = useState('')
-  const [busy, setBusy] = useState(false)
-  /** 直前の操作の知らせ（保存した・消した・繋がった）。次の操作で消える。 */
-  const [noticeKey, setNoticeKey] = useState<TranslationKey | null>(null)
+/** 利用者が足したサーバーの一覧（Main の登録簿の写し）。 */
+function useMcpCustomServers(): {
+  readonly list: McpCustomServerList | null
+  readonly loadFailed: boolean
+  readonly refresh: () => Promise<void>
+  readonly replace: (list: McpCustomServerList) => void
+} {
+  const [list, setList] = useState<McpCustomServerList | null>(null)
+  const [loadFailed, setLoadFailed] = useState(false)
 
   const refresh = useCallback(async (): Promise<void> => {
-    const result = await fluvix.mcp.getStatus({ connectionId })
+    const result = await fluvix.mcp.listCustomServers()
 
-    /*
-      読めなかったときに前の状態を残さない。「有効」と出たまま操作できる面は、
-      押しても何も起きない状態になる。
-    */
-    setStatus(result.ok ? result.data : null)
-  }, [connectionId])
+    if (result.ok) {
+      setList(result.data)
+      setLoadFailed(false)
+    } else {
+      setLoadFailed(true)
+    }
+  }, [])
 
   useEffect(() => {
     void refresh()
   }, [refresh])
 
-  /*
-    設定（有効 / 無効）は上の行が持っていて、この面は知らない。開いている間
-    ときどき訊き直すことで、上を切り替えた結果がこちらにも出る
-    ── 上の行からこの面へ通知を配ると、設定の持ち主が2つになる。
-  */
-  useEffect(() => {
-    const timer = setInterval(() => {
-      void refresh()
-    }, STATUS_POLL_MS)
+  return { list, loadFailed, refresh, replace: setList }
+}
 
-    return () => {
-      clearInterval(timer)
-    }
-  }, [refresh])
+function McpConnectionCard({
+  connectionId
+}: {
+  readonly connectionId: McpBuiltinConnectionId
+}): JSX.Element {
+  const { t } = useI18n()
+  const { status, busy, noticeKey, run, testConnection } = useMcpConnectionStatus(connectionId)
+  const [token, setToken] = useState('')
 
   const summary = summarizeMcpStatus(status)
-
-  const run = async (work: () => Promise<TranslationKey | null>): Promise<void> => {
-    setBusy(true)
-    setNoticeKey(null)
-
-    try {
-      setNoticeKey(await work())
-    } finally {
-      setBusy(false)
-      await refresh()
-    }
-  }
 
   const saveToken = (): void => {
     void run(async () => {
@@ -134,14 +199,6 @@ function McpConnectionCard({
       return result.data.source === 'environment'
         ? 'settings.mcp.notice.clearedButEnvironment'
         : 'settings.mcp.notice.cleared'
-    })
-  }
-
-  const testConnection = (): void => {
-    void run(async () => {
-      const result = await fluvix.mcp.testConnection({ connectionId })
-
-      return result.ok ? null : 'settings.mcp.notice.testFailed'
     })
   }
 
@@ -237,37 +294,6 @@ function McpConnectionCard({
     </section>
   )
 }
-
-/**
- * 繋がったときに、相手が何を出しているか。
- *
- * ツールの名前まで出すのは、**繋がったことの証拠**にあたるため
- * ── 「繋がりました」だけだと、token が合っているのか確かめようがない。
- */
-function ConnectedTools({
-  status
-}: {
-  readonly status: McpConnectionStatus | null
-}): JSX.Element | null {
-  const { t } = useI18n()
-  const test = status?.lastTest
-
-  if (test === undefined || test === null || test.outcome !== 'connected') {
-    return null
-  }
-
-  return (
-    <p className="fx-mcp__note" data-testid="settings-mcp-tools">
-      {t('settings.mcp.tools', {
-        name: test.server.name ?? t('settings.mcp.unknownServer'),
-        count: test.tools.length
-      })}
-    </p>
-  )
-}
-
-/** 開いている間に訊き直す間隔。押したときは待たずに訊く。 */
-const STATUS_POLL_MS = 2000
 
 const SAVE_FAILURE_KEYS = {
   'encryption-unavailable': 'settings.mcp.notice.encryptionUnavailable',

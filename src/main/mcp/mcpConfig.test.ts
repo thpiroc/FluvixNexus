@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { readMcpToken, redactToken } from './mcpConfig'
+import { readMcpToken, redactSecrets, redactToken } from './mcpConfig'
 
 /**
  * MCP サーバーの token の読み方（mcpConfig.ts・MCP 共通）。
@@ -64,5 +64,14 @@ describe('redactToken', () => {
   it('token が無ければそのまま返す', () => {
     expect(redactToken('nothing to hide', null)).toBe('nothing to hide')
     expect(redactToken('nothing to hide', '')).toBe('nothing to hide')
+  })
+})
+
+describe('redactSecrets（利用者が足したサーバーの秘密の値。§21.10）', () => {
+  it('すべての値を伏せる。短い値が長い値の一部でも、長い方の残りを出さない', () => {
+    expect(redactSecrets(`key=${TOKEN} short=abc`, ['abc', TOKEN, null, ''])).toBe(
+      'key=<redacted> short=<redacted>'
+    )
+    expect(redactSecrets('prefix-abcdef', ['abc', 'abcdef'])).toBe('prefix-<redacted>')
   })
 })

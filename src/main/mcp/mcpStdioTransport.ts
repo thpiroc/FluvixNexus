@@ -17,6 +17,10 @@ import type { McpServerCommand } from './mcpServerLaunch'
  * `cmd.exe` を挟まずに node を直接起動している（mcpServerCatalog.ts）ので、
  * kill が届く相手はサーバーそのものになる。
  *
+ * 利用者が足したサーバー（§21.10）は、起動したもの（`npx`・`uvx`・`cmd.exe`）が
+ * 本体を子として立てることがある。そのときは起動の解決が `killTreeWith` を付け、
+ * 3 の kill が子孫ごとになる（`killChild`）。
+ *
  * ## stderr は電文ではない
  *
  * サーバーのログなので、行に切って `onStderrLine` へ渡す。token が混ざりうるので、
@@ -82,6 +86,8 @@ export function createMcpStdioTransport(options: McpStdioTransportOptions): McpT
       stdio: ['pipe', 'pipe', 'pipe'],
       // シェルを通さない（引数が文字列として読み直されない）。
       shell: false,
+      // `.cmd` を cmd.exe で包んだときだけ真（mcpServerLaunch.ts の buildWindowsBatchCommandLine）。
+      windowsVerbatimArguments: options.command.windowsVerbatimArguments === true,
       windowsHide: true
     })
   } catch (cause) {
@@ -177,6 +183,49 @@ export function createMcpStdioTransport(options: McpStdioTransportOptions): McpT
     })
   }
 
+  /**
+   * 子を終わらせる。`killTreeWith` がある（利用者が足したサーバー。§21.10）なら、
+   * 子孫ごと `taskkill /T /F` で終わらせる。
+   *
+   * taskkill は親子の繋がりを辿って子孫を探すので、**先に子だけを kill しない**
+   * （親が先に消えると子孫を辿れなくなる）。taskkill を起動できなかった・
+   * 終わった後は、念のため子そのものも kill する。
+   *
+   * taskkill は切り離して起動する ── アプリの終了（will-quit）の途中でも、
+   * アプリが先に閉じて taskkill ごと消えることが無いように。
+   */
+  function killChild(running: ChildProcessWithoutNullStreams): void {
+    const fallback = (): void => {
+      try {
+        running.kill()
+      } catch {
+        // 既に終わっていた。
+      }
+    }
+
+    const killer = options.command.killTreeWith
+
+    if (killer === undefined || running.pid === undefined) {
+      fallback()
+      return
+    }
+
+    try {
+      const tree = spawn(killer, ['/PID', String(running.pid), '/T', '/F'], {
+        stdio: 'ignore',
+        shell: false,
+        windowsHide: true,
+        detached: true
+      })
+
+      tree.once('error', fallback)
+      tree.once('exit', fallback)
+      tree.unref()
+    } catch {
+      fallback()
+    }
+  }
+
   let closing: Promise<void> | null = null
 
   return {
@@ -213,11 +262,7 @@ export function createMcpStdioTransport(options: McpStdioTransportOptions): McpT
           return
         }
 
-        try {
-          child.kill()
-        } catch {
-          // 既に終わっていた。
-        }
+        killChild(child)
 
         if (await waitForExit(closeGraceMs)) {
           return
@@ -238,11 +283,7 @@ export function createMcpStdioTransport(options: McpStdioTransportOptions): McpT
         return
       }
 
-      try {
-        child.kill()
-      } catch {
-        // 既に終わっていた。
-      }
+      killChild(child)
     }
   }
 }

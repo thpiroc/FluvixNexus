@@ -24,7 +24,7 @@ const TOKEN = 'ntn_fictitiousTestToken0123456789'
 
 describe('bundled Notion MCP server', () => {
   it('表のとおりに起動し、操作表が使うツールをすべて公開している', async () => {
-    const resolved = resolveMcpServerCommand('notion', {
+    const resolved = resolveMcpServerCommand(MCP_SERVER_DEFINITIONS.notion, {
       platform: process.platform === 'win32' ? 'win32' : 'linux',
       env: process.env,
       exists: existsSync,
@@ -41,7 +41,12 @@ describe('bundled Notion MCP server', () => {
 
     const transport = createMcpStdioTransport({
       command: resolved.command,
-      env: createMcpServerEnvironment('notion', process.env, TOKEN, resolved.command.environment),
+      env: createMcpServerEnvironment(
+        MCP_SERVER_DEFINITIONS.notion,
+        process.env,
+        TOKEN,
+        resolved.command.environment
+      ),
       cwd: resolve('.')
     })
     const connected = await connectMcpClient(transport, {

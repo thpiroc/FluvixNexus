@@ -116,7 +116,11 @@ export const IPC_CHANNELS = {
   MCP_TEST_CONNECTION: 'mcp:test-connection',
   MCP_CALL_OPERATION: 'mcp:call-operation',
   MCP_SET_SECRET: 'mcp:set-secret',
-  MCP_CLEAR_SECRET: 'mcp:clear-secret'
+  MCP_CLEAR_SECRET: 'mcp:clear-secret',
+  MCP_LIST_CUSTOM_SERVERS: 'mcp:list-custom-servers',
+  MCP_SAVE_CUSTOM_SERVER: 'mcp:save-custom-server',
+  MCP_DELETE_CUSTOM_SERVER: 'mcp:delete-custom-server',
+  MCP_SET_CUSTOM_SERVER_ENABLED: 'mcp:set-custom-server-enabled'
 } as const satisfies Record<string, IpcChannel>
 
 /**
