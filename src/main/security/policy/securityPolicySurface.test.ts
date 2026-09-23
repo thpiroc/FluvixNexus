@@ -33,11 +33,13 @@ const FORBIDDEN_NAME =
 const POLICY_DIRECTORY = join(__dirname)
 
 describe('公開する名前', () => {
-  it('Policy API の入口は2つの関数と操作の一覧だけ', () => {
+  it('Policy API の入口は3つの関数と操作の一覧だけ', () => {
     expect(Object.keys(policyApi).sort()).toEqual([
       'SECURITY_ACTION_KINDS',
       'decideSecurityAction',
-      'getCurrentSecurityPolicy'
+      'getCurrentSecurityPolicy',
+      // STEP9: Agent 全体の ON / OFF（読むだけ。OFF にする向きの設定しか効かない）。
+      'isFnAgentEnabled'
     ])
   })
 
@@ -53,11 +55,14 @@ describe('公開する名前', () => {
     expect(Object.keys(sharedSecurity).sort()).toEqual([
       'AGENT_PERMISSION_MODES',
       'APPROVAL_ACTION_KINDS',
+      'DEFAULT_AGENT_ENABLED',
       'DEFAULT_AGENT_PERMISSION_MODE',
       'FAIL_CLOSED_AGENT_PERMISSION_MODE',
       'isAgentPermissionMode',
       'isApprovalActionKind',
+      'normalizeAgentEnabled',
       'normalizeAgentPermissionMode',
+      'resolveAgentEnabled',
       'resolveAgentPermissionMode',
       'restrictSecuritySettings',
       'strictestAgentPermissionMode'
@@ -81,6 +86,7 @@ describe('公開する名前', () => {
     )
 
     expect(sources.sort()).toEqual([
+      'currentAgentEnabled.ts',
       'currentSecurityPolicy.ts',
       'index.ts',
       'securityDecision.ts',
@@ -116,13 +122,23 @@ describe('Renderer から届く経路', () => {
     expect(channels.filter((channel) => pattern.test(channel))).toEqual([])
   })
 
-  it('Agent を名乗る要求のチャンネルも無い（知らせだけが増える）', () => {
+  it('Agent を名乗る要求は作業の意思表示の4本だけ（Policy・判断を渡す口は無い）', () => {
     /*
-      STEP7 の `agent-file-write:proposed` / `:settled` は Main → Renderer の
-      片道の知らせにあたる。**Renderer から Main を呼ぶ側には1つも増やさない** ──
-      Agent の操作を Renderer から頼める口を作らない、という線はそのまま。
+      STEP7 / STEP8 の `agent-file-write:*` / `agent-terminal:*` は Main → Renderer の
+      片道の知らせ。STEP9 で足した `agent-task:*` は「始めて・止めて・上限だが続けて /
+      やめて・今の状態」の意思表示だけで、**Action・Policy・承認・判断を渡す欄は契約に無い**
+      （agentTaskSurface.test.ts が契約の欄を固定している）。
     */
-    expect(Object.values(IPC_CHANNELS).filter((channel) => /agent/i.test(channel))).toEqual([])
+    expect(
+      Object.values(IPC_CHANNELS)
+        .filter((channel) => /agent/i.test(channel))
+        .sort()
+    ).toEqual([
+      'agent-task:continue',
+      'agent-task:get-state',
+      'agent-task:start',
+      'agent-task:stop'
+    ])
   })
 
   it('承認を名乗るチャンネルは、Main が出した確認への返事と知らせの2本だけ', () => {

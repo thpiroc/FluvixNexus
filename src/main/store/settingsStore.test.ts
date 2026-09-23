@@ -149,7 +149,7 @@ describe('settings.json の読み書き', () => {
       terminal: {},
       mcp: {},
       // 在るのに読めないファイル。Security は既定（ask）へ緩めず read で始める。
-      security: { permissionMode: 'read' }
+      security: { permissionMode: 'read', agentEnabled: false }
     })
   })
 })

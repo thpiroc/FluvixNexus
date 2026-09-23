@@ -87,6 +87,7 @@ import type {
   WriteTerminalInputRequest
 } from './ipc/contracts/terminal'
 import type { RespondApprovalRequest } from './ipc/contracts/approval'
+import type { ContinueAgentTaskRequest, StartAgentTaskRequest } from './ipc/contracts/agentTask'
 import type { RespondWindowCloseRequest } from './ipc/contracts/window'
 import type { SaveWorkspaceLayoutRequest } from './ipc/contracts/workspace'
 
@@ -1376,6 +1377,30 @@ export interface AgentApi {
 }
 
 /**
+ * FN Agent の作業を扱う API（Security Core v1 の STEP9）。
+ *
+ * **意思表示と状態の受け取りだけ。** 始めて・止めて・Loop の上限だが続けて / やめて、の
+ * 3つを伝えられる。どの Action を実行するかを渡す API・Tool を呼ぶ API・承認する API は
+ * 無い（承認は `approval.respond` と Main の Native Dialog だけが進める）。
+ */
+export interface AgentTaskApi {
+  /** 指示で作業を始める。始められなければ理由が返る（busy / agent-disabled など）。 */
+  readonly start: (request: StartAgentTaskRequest) => IpcInvokeResult<'agent-task:start'>
+  /** 止める。承認待ちは取り消され、次の Action は始まらない。 */
+  readonly stop: () => IpcInvokeResult<'agent-task:stop'>
+  /** Loop の上限に達したとき、続けるか・やめるかを返す。 */
+  readonly continueTask: (
+    request: ContinueAgentTaskRequest
+  ) => IpcInvokeResult<'agent-task:continue'>
+  /** 今の状態（パネルを開いたとき用）。 */
+  readonly getState: () => IpcInvokeResult<'agent-task:get-state'>
+  /** 状態が変わったときに呼ばれる。 */
+  readonly onStateChanged: (
+    listener: IpcEventListener<'agent-task:state-changed'>
+  ) => IpcEventUnsubscribe
+}
+
+/**
  * `window.fluvix` として Renderer に公開される API 全体。
  *
  * Files / Terminal / GitHub など OS に触れるドメイン API は、
@@ -1417,6 +1442,8 @@ export interface FluvixApi {
   readonly approval: ApprovalApi
   /** FN Agent の File Write の提案（Security Core v1 の STEP7）。 */
   readonly agent: AgentApi
+  /** FN Agent の作業の開始・停止・状態（Security Core v1 の STEP9）。 */
+  readonly agentTask: AgentTaskApi
 }
 
 /** `window` に API を公開する際のキー。Preload と Renderer の双方から参照する。 */

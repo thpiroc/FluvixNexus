@@ -1,4 +1,5 @@
 import { app } from 'electron'
+import { startAgentTaskHosting } from '../agent/currentAgentLoop'
 import { startWorkspaceWatching, stopWorkspaceWatching } from '../files/workspaceWatcher'
 import { startGitWatching, stopGitWatching } from '../git/gitWatcher'
 import { registerIpcHandlers } from '../ipc'
@@ -175,6 +176,13 @@ export function bootstrapApp(): void {
       Workspace の切り替えは購読しない（切り替えでセッションが終わり、それが状態の変化として届く）。
     */
     startDebugSessionStatusReporting()
+
+    /*
+      FN Agent の作業（Security Core v1 の STEP9）。作業は始めたときの Workspace のもので、
+      切り替え・閉じる、のどちらでも止める（承認待ちも取り消す）。作業の状態はメモリだけで、
+      起動時に復元するものは無い。
+    */
+    startAgentTaskHosting()
 
     /*
       シェルのセッションは Workspace の切り替えに追従しない（Session 3-7-3）。

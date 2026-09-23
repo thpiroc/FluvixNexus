@@ -16,6 +16,7 @@ import {
 import { decideSecurityAction } from '../policy/securityDecision'
 import { FAIL_CLOSED_SECURITY_POLICY, type SecurityPolicy } from '../policy/securityPolicy'
 import { classifySecretPath } from '../secret/secretPaths'
+import type { SideEffectAcquireResult } from '../sideEffect/sideEffectLock'
 import { isAcceptableCommandName, isSafeBatchArgument } from './terminalCommand'
 import { isInsideWorkspaceRoot, type TerminalExecutableResult } from './terminalExecutable'
 import type { TerminalLaunchSpec } from './terminalLaunch'
@@ -79,6 +80,10 @@ import type { ExecutableIdentity, RunProcessResult } from './terminalRunIo'
  * ## v1 は1件ずつ
  *
  * 提案から終了まで、同時に2件を扱わない（2件目は `run-in-progress`）。
+ *
+ * STEP9 からは **File Write（STEP7）と共有のロック**（sideEffect/）で数える。File Write の
+ * 承認待ちにコマンドを提案しても `side-effect-in-progress` で拒み、コマンドの実行中
+ * （最大 120 秒）は File Write も同じ理由で拒まれる。
  */
 
 /** 実行の結果。 */
@@ -140,6 +145,8 @@ export interface TerminalRunGateDependencies {
   readonly notifySettled: (proposalId: string, result: SafeTerminalRunResult | null) => void
   /** 提案の識別子を作る。 */
   readonly createProposalId: () => string
+  /** 副作用のある操作の共有ロックを取る（STEP9。File Write と共有）。 */
+  readonly acquireSideEffect: (kind: 'terminal.run') => SideEffectAcquireResult
 }
 
 export interface TerminalRunGate {
@@ -169,9 +176,6 @@ type Step<T> =
   { readonly ok: true; readonly value: T } | { readonly ok: false; readonly reason: AuditReason }
 
 export function createTerminalRunGate(deps: TerminalRunGateDependencies): TerminalRunGate {
-  /** 今 提案〜実行の最中か（v1 は1件ずつ）。 */
-  let inProgress = false
-
   function record(event: AuditEvent): void {
     try {
       deps.recordEvent(event)
@@ -196,11 +200,21 @@ export function createTerminalRunGate(deps: TerminalRunGateDependencies): Termin
     const policy = readPolicy(deps)
     const mode = policy.permissionMode
 
-    if (inProgress) {
-      return deny('run-in-progress', null, null, mode)
-    }
+    /*
+      副作用のある操作は、種類をまたいで同時に1件だけ（STEP9）。相手が Terminal なら
+      STEP8 と同じ run-in-progress、File Write なら side-effect-in-progress。
+      **取れたか分からない（例外）も拒む。**
+    */
+    const acquired = acquireLock(deps)
 
-    inProgress = true
+    if (!acquired.ok) {
+      return deny(
+        acquired.heldBy === 'terminal.run' ? 'run-in-progress' : 'side-effect-in-progress',
+        null,
+        null,
+        mode
+      )
+    }
 
     try {
       return await propose(policy, request)
@@ -213,7 +227,7 @@ export function createTerminalRunGate(deps: TerminalRunGateDependencies): Termin
 
       return Object.freeze({ ok: false as const, reason: 'gate-failed' as const, output: null })
     } finally {
-      inProgress = false
+      acquired.lease.release()
     }
   }
 
@@ -611,6 +625,23 @@ function runResult(
 function failed<T>(reason: AuditReason): Step<T> {
   return Object.freeze({ ok: false as const, reason })
 }
+
+/** 共有ロックを取る（STEP9）。**例外・形の違う返り値は「取れなかった」に倒す。** */
+function acquireLock(deps: TerminalRunGateDependencies): SideEffectAcquireResult {
+  try {
+    const result = deps.acquireSideEffect('terminal.run')
+
+    if (result.ok) {
+      return typeof result.lease?.release === 'function' ? result : LOCK_UNAVAILABLE
+    }
+
+    return result
+  } catch {
+    return LOCK_UNAVAILABLE
+  }
+}
+
+const LOCK_UNAVAILABLE: SideEffectAcquireResult = Object.freeze({ ok: false, heldBy: null })
 
 /** Policy が読めなければ、最も厳しい Policy として扱う（STEP1 / STEP5 / STEP6 / STEP7 と同じ倒し方）。 */
 function readPolicy(deps: TerminalRunGateDependencies): SecurityPolicy {

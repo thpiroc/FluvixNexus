@@ -118,7 +118,11 @@ export const IPC_CHANNELS = {
   MCP_SAVE_CUSTOM_SERVER: 'mcp:save-custom-server',
   MCP_DELETE_CUSTOM_SERVER: 'mcp:delete-custom-server',
   MCP_SET_CUSTOM_SERVER_ENABLED: 'mcp:set-custom-server-enabled',
-  APPROVAL_RESPOND: 'approval:respond'
+  APPROVAL_RESPOND: 'approval:respond',
+  AGENT_TASK_START: 'agent-task:start',
+  AGENT_TASK_STOP: 'agent-task:stop',
+  AGENT_TASK_CONTINUE: 'agent-task:continue',
+  AGENT_TASK_GET_STATE: 'agent-task:get-state'
 } as const satisfies Record<string, IpcChannel>
 
 /**

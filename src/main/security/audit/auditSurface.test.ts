@@ -143,12 +143,17 @@ describe('置き場所を指定できない', () => {
 describe('種別は閉じた集合', () => {
   it('記録を頼むときに使える種別は、一覧にあるものだけ', () => {
     expect([...auditApi.AUDIT_EVENT_TYPES]).toEqual([
+      // STEP9: Security 上意味のある Agent の出来事だけ（開始・完了は記録しない）。
+      'agent.action-rejected',
+      'agent.stopped',
       'approval.approved',
       'approval.denied',
       'approval.requested',
       'boundary.denied',
       'external-send.allowed',
       'external-send.denied',
+      // STEP9: Read Tool Gate は拒否だけを記録する。
+      'file-read.denied',
       'file-write.approved',
       'file-write.denied',
       'file-write.failed',

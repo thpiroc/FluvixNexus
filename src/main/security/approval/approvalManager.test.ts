@@ -921,3 +921,60 @@ describe('Audit（STEP4）', () => {
     })
   })
 })
+
+describe('Agent の停止（STEP9 の cancelAll）', () => {
+  it('pending の承認は agent-stopped で失効し、待っている Gate は deny で解ける', async () => {
+    const api = manager()
+    const outcome = api.request(TERMINAL)
+
+    expect(api.cancelAll()).toBe(1)
+    expect(await outcome).toEqual({ decision: 'denied', reason: 'agent-stopped' })
+    expect(events.at(-1)).toMatchObject({ type: 'approval.denied', reason: 'agent-stopped' })
+  })
+
+  it('Native 確認の最中に止めると、後から「許可」が届いても承認にならない', async () => {
+    let answer: (value: ApprovalConfirmation) => void = () => {}
+    confirmation = () =>
+      new Promise<ApprovalConfirmation>((resolve) => {
+        answer = resolve
+      })
+
+    const api = manager()
+    const outcome = api.request(TERMINAL)
+    const responding = api.respond(
+      { approvalId: notices[0].approvalId, actionKind: 'terminal.run', intent: 'continue' },
+      window
+    )
+
+    await Promise.resolve()
+    api.cancelAll()
+    answer('approve')
+    await responding
+
+    expect(await outcome).toEqual({ decision: 'denied', reason: 'agent-stopped' })
+    expect(types()).not.toContain('approval.approved')
+  })
+
+  it('承認済み（consume の前）も失効し、その後の consume は通らない', async () => {
+    const api = manager()
+    const outcome = await runTwoStages(api, TERMINAL)
+
+    if (outcome.decision !== 'approved') {
+      throw new Error('expected approved')
+    }
+
+    api.cancelAll()
+
+    expect(api.consume(outcome.approvalId, TERMINAL)).toEqual({
+      ok: false,
+      reason: 'approval-not-found'
+    })
+  })
+
+  it('何も無ければ何もしない（取り消す向きにしか働かない）', () => {
+    const api = manager()
+
+    expect(api.cancelAll()).toBe(0)
+    expect(events).toEqual([])
+  })
+})

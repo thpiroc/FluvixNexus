@@ -8,6 +8,7 @@
  * requestApproval(request)              承認を求める（二段階が終わるまで解決しない）
  * respondToApproval(response, window)   Renderer の意思表示を受ける（IPC handler だけが呼ぶ）
  * consumeApproval(id, request)          実行の直前に1回だけ使い切る（STEP7 / STEP8 が呼ぶ）
+ * cancelPendingApprovals()              残っている承認をすべて取り消す（STEP9。Agent の停止）
  * APPROVAL_TTL_MS                       有効期限（5 分）
  * ```
  *
@@ -42,7 +43,12 @@
  * **承認の対象ではない**（DESIGN.md §6.4）。
  */
 export { APPROVAL_TTL_MS } from './approvalManager'
-export { consumeApproval, requestApproval, respondToApproval } from './currentApprovalManager'
+export {
+  cancelPendingApprovals,
+  consumeApproval,
+  requestApproval,
+  respondToApproval
+} from './currentApprovalManager'
 
 export type {
   ApprovalConsumeResult,

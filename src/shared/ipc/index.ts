@@ -242,3 +242,9 @@ export type {
   AgentTerminalProposedEvent,
   AgentTerminalSettledEvent
 } from './events/agentTerminal'
+export type {
+  AgentTaskIpcContract,
+  ContinueAgentTaskRequest,
+  StartAgentTaskRequest
+} from './contracts/agentTask'
+export type { AgentTaskIpcEventContract } from './events/agentTask'

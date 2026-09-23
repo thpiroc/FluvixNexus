@@ -15,7 +15,7 @@ import type { JSX } from 'react'
  * 追加するときは、この union と registry.ts の両方に足す（片方だけだと型エラーになる）。
  * 予定しているもの: github / debug / search / problems など（DESIGN.md §3）。
  */
-export type PanelId = 'files' | 'editor' | 'terminal' | 'git' | 'debug'
+export type PanelId = 'files' | 'editor' | 'terminal' | 'git' | 'debug' | 'agent'
 
 /**
  * パネルの識別色（DESIGN.md §3）。

@@ -51,7 +51,7 @@ describe('parseSettingsDocument', () => {
         files: {},
         terminal: {},
         mcp: {},
-        security: { permissionMode: 'read' }
+        security: { permissionMode: 'read', agentEnabled: false }
       })
     }
   })
@@ -74,7 +74,7 @@ describe('parseSettingsDocument', () => {
         files: {},
         terminal: {},
         mcp: {},
-        security: { permissionMode: 'read' }
+        security: { permissionMode: 'read', agentEnabled: false }
       })
     }
   })

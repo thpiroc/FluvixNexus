@@ -1031,6 +1031,51 @@ export const enMessages = {
       close: 'Close'
     }
   },
+  agentTask: {
+    placeholder: 'Tell FN Agent what to do in this Workspace',
+    start: 'Start',
+    stop: 'Stop',
+    disabledNotice: 'FN Agent is turned off in the settings.',
+    noProviderNotice:
+      'No AI provider is connected yet. In development builds, the Scripted Provider (not a real AI) is used.',
+    loops: '{used} / {limit} turns',
+    limitQuestion: 'The maximum number of turns has been reached. Do you want to continue?',
+    limitContinue: 'Continue (+10)',
+    limitStop: 'Stop here',
+    answerTitle: 'Answer',
+    status: {
+      idle: 'Ready',
+      awaitingContinue: 'Reached the maximum number of turns',
+      stopping: 'Stopping… (waiting for the running step to finish)',
+      completed: 'Done'
+    },
+    phase: {
+      thinking: 'Deciding the next step',
+      investigating: 'Investigating the Workspace',
+      reading: 'Reading a file',
+      searching: 'Searching',
+      proposingChange: 'Proposing a change (waiting for your approval)',
+      runningCommand: 'Command (waiting for your approval / running)'
+    },
+    end: {
+      userStopped: 'Stopped',
+      loopLimitDeclined: 'Stopped at the turn limit',
+      agentDisabled: 'Stopped because FN Agent was turned off',
+      workspaceChanged: 'Stopped because the Workspace changed',
+      providerFailed: 'Stopped because the AI provider could not be reached',
+      contextDenied: 'Stopped because the context could not be sent safely',
+      contextBudgetExceeded: 'Stopped because the context did not fit the budget',
+      tooManyInvalidActions: 'Stopped because the AI kept returning actions that cannot be run',
+      internalError: 'Stopped because of an unexpected error'
+    },
+    rejected: {
+      busy: 'FN Agent is already working.',
+      agentDisabled: 'FN Agent is turned off in the settings.',
+      noWorkspace: 'Open a Workspace folder first.',
+      providerUnavailable: 'No AI provider is available in this build.',
+      invalidPrompt: 'Enter an instruction (up to 20,000 characters).'
+    }
+  },
   settings: {
     title: 'Settings',
     closeTitle: 'Close Settings (Esc)',
@@ -1839,7 +1884,8 @@ export const enMessages = {
       editor: 'Editor',
       terminal: 'Terminal',
       git: 'Git',
-      debug: 'Debug'
+      debug: 'Debug',
+      agent: 'Agent'
     },
     layout: {
       default: {

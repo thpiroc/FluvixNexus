@@ -1,7 +1,7 @@
 import { link, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentPermissionMode } from '@shared/security'
 import { isWindows } from '../../platform'
 import type { AuditEvent } from '../audit/auditEvent'
@@ -11,6 +11,11 @@ import {
   resolveWorkspaceTarget,
   type VerifiedWorkspaceTarget
 } from '../boundary/workspaceBoundary'
+import {
+  createSideEffectLock,
+  type SideEffectAcquireResult,
+  type SideEffectLock
+} from '../sideEffect/sideEffectLock'
 import { readCurrentFile, writeConfirmedFile } from './fileWriteIo'
 import {
   createFileWriteGate,
@@ -75,10 +80,14 @@ interface GateOptions {
   readonly consume?: (approvalId: unknown, request: unknown) => ApprovalConsumeResult
   /** 承認を待っている間に起きること（ディスクの変化を差し込む）。 */
   readonly duringApproval?: () => Promise<void>
+  /** 副作用の共有ロック（STEP9。既定はこの Gate だけのもの）。 */
+  readonly lock?: SideEffectLock
 }
 
 function gateOf(options: GateOptions = {}) {
+  const lock = options.lock ?? createSideEffectLock()
   const deps: FileWriteGateDependencies = {
+    acquireSideEffect: (kind) => lock.acquire(kind),
     readPolicy: () => ({ permissionMode: options.mode ?? 'ask' }),
     recordEvent: (event) => {
       events.push(event)
@@ -498,6 +507,91 @@ describe('1件ずつ', () => {
   })
 })
 
+describe('副作用の共有ロック（STEP9）', () => {
+  it('Terminal が承認待ち・実行中なら、File Write は提案もしない', async () => {
+    const lock = createSideEffectLock()
+    const terminal = lock.acquire('terminal.run')
+
+    const outcome = await gateOf({ lock }).write('a.txt', 'next\n')
+
+    expect(outcome).toEqual({ ok: false, reason: 'side-effect-in-progress' })
+    expect(proposals).toEqual([])
+    expect(approvals).toEqual([])
+    expect(events.at(-1)).toMatchObject({
+      type: 'file-write.denied',
+      reason: 'side-effect-in-progress'
+    })
+    expect(await readFile(join(root, 'a.txt'), 'utf8')).toBe('one\ntwo\n')
+
+    // Terminal の側は、自分のロックを持ったまま（File Write が外していない）。
+    expect(lock.heldBy()).toBe('terminal.run')
+
+    if (terminal.ok) {
+      terminal.lease.release()
+    }
+  })
+
+  it('File Write の承認待ちの間は、ロックを持ち続け、終われば外す', async () => {
+    const lock = createSideEffectLock()
+    let release = (): void => {}
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+
+    const first = gateOf({ lock, duringApproval: () => held }).write('a.txt', 'first\n')
+
+    // 承認を待っている間（Diff を出したところ）まで進める。
+    await vi.waitFor(() => expect(approvals.length).toBe(1))
+    expect(lock.acquire('terminal.run')).toEqual({ ok: false, heldBy: 'file.write' })
+
+    release()
+
+    expect((await first).ok).toBe(true)
+    expect(lock.heldBy()).toBeNull()
+  })
+
+  it('拒否・例外のときも、ロックは外れる', async () => {
+    const lock = createSideEffectLock()
+
+    await gateOf({
+      lock,
+      approve: async () => ({ decision: 'denied' as const, reason: 'user-cancelled' as const })
+    }).write('a.txt', 'next\n')
+
+    expect(lock.heldBy()).toBeNull()
+
+    const gate = createFileWriteGate({
+      ...baseDeps(),
+      acquireSideEffect: (kind) => lock.acquire(kind),
+      resolveTarget: () => {
+        throw new Error('boundary exploded')
+      }
+    })
+
+    expect(await gate.write('a.txt', 'next\n')).toEqual({ ok: false, reason: 'gate-failed' })
+    expect(lock.heldBy()).toBeNull()
+  })
+
+  it('ロックが取れたか分からない（例外・形が違う）なら、書かない', async () => {
+    for (const acquireSideEffect of [
+      () => {
+        throw new Error('lock exploded')
+      },
+      () => ({ ok: true, lease: {} }) as unknown as SideEffectAcquireResult
+    ]) {
+      const gate = createFileWriteGate({ ...baseDeps(), acquireSideEffect })
+
+      expect(await gate.write('a.txt', 'next\n')).toEqual({
+        ok: false,
+        reason: 'side-effect-in-progress'
+      })
+    }
+
+    expect(proposals).toEqual([])
+    expect(await readFile(join(root, 'a.txt'), 'utf8')).toBe('one\ntwo\n')
+  })
+})
+
 describe('Audit（STEP4）', () => {
   it('成功したときは requested → approved → succeeded', async () => {
     await gateOf().write('a.txt', 'next\n')
@@ -645,6 +739,7 @@ function baseDeps(): FileWriteGateDependencies {
     notifySettled: (proposalId) => {
       settled.push(proposalId)
     },
-    createProposalId: () => 'proposal-1'
+    createProposalId: () => 'proposal-1',
+    acquireSideEffect: createSideEffectLock().acquire
   }
 }

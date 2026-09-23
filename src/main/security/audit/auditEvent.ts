@@ -56,6 +56,10 @@ export type AuditCategory =
   | 'terminal'
   | 'mcp-tool'
   | 'security-settings'
+  /** Read Tool Gate（STEP9）が読み取りを拒んだ。 */
+  | 'file-read'
+  /** Agent Loop（STEP9）の Security 上意味のある出来事（Action の拒否・停止）。 */
+  | 'agent'
   /** Audit 自身のこと（記録できなかった・知らない種別が来た）。 */
   | 'audit'
 
@@ -100,6 +104,21 @@ export type AuditEventType =
   | 'mcp-tool.failed'
   /** Security 設定が変わった。 */
   | 'security-settings.changed'
+  /**
+   * Read Tool Gate（STEP9）が読み取り（file_read / workspace_list / file_search）を拒んだ。
+   *
+   * **許可した読み取りは記録しない** ── Agent は1つの作業で何十回も読むため、許可まで
+   * 残すと Audit Log が読み取りの履歴で埋まる。Security 上意味があるのは、Secret ファイル・
+   * Workspace の外を読もうとして止めた側にあたる（2026-09-23 確定）。
+   */
+  | 'file-read.denied'
+  /**
+   * Agent Loop（STEP9）が AI の Action を実行せずに拒んだ（形が違う・並列の Action・
+   * 拒否済みの Action の再提案）。**単なる開始・完了は記録しない**（2026-09-23 確定）。
+   */
+  | 'agent.action-rejected'
+  /** 利用者が Agent を停止した（承認待ちを取り消し、次の Action を始めない）。 */
+  | 'agent.stopped'
 
 /** Audit 自身が付ける種別。**呼び出し側からは渡せない**（`AuditEvent['type']` に無い）。 */
 export type AuditInternalEventType = 'audit.unrecognized-event'
@@ -137,7 +156,10 @@ const CATEGORY_OF_EVENT: Readonly<Record<AuditEventType, AuditCategory>> = Objec
   'mcp-tool.allowed': 'mcp-tool',
   'mcp-tool.denied': 'mcp-tool',
   'mcp-tool.failed': 'mcp-tool',
-  'security-settings.changed': 'security-settings'
+  'security-settings.changed': 'security-settings',
+  'file-read.denied': 'file-read',
+  'agent.action-rejected': 'agent',
+  'agent.stopped': 'agent'
 })
 
 /** Audit 自身が付ける種別と、その分類。 */
@@ -243,6 +265,19 @@ export type AuditReason =
   | 'non-zero-exit'
   /** 別のコマンドを処理している最中だった（v1 は1件ずつ）。 */
   | 'run-in-progress'
+  /**
+   * 副作用のある別の操作（File Write / Terminal）が承認待ち・実行中だった（STEP9）。
+   * 副作用のある操作は、種類をまたいで**同時に1件だけ**。
+   */
+  | 'side-effect-in-progress'
+  /** Agent Loop（STEP9）: AI の Action が Schema に合わない・壊れている・知らない種類。 */
+  | 'invalid-action'
+  /** 1ターンに2つ以上の Action を返した（v1 は1ターン1 Action）。 */
+  | 'parallel-action'
+  /** 利用者の拒否・Security Core の deny を受けた Action と同じものを、もう一度提案した。 */
+  | 'repeated-action'
+  /** 利用者が Agent を停止した（承認待ちの取り消しにも使う）。 */
+  | 'agent-stopped'
 
 /**
  * 理由の一覧。
@@ -320,7 +355,13 @@ const KNOWN_REASONS: Readonly<Record<AuditReason, true>> = Object.freeze({
   'spawn-failed': true,
   'timed-out': true,
   'non-zero-exit': true,
-  'run-in-progress': true
+  'run-in-progress': true,
+  // STEP9（sideEffect/・agent/）
+  'side-effect-in-progress': true,
+  'invalid-action': true,
+  'parallel-action': true,
+  'repeated-action': true,
+  'agent-stopped': true
 })
 
 /** 知っている理由（名前順）。 */

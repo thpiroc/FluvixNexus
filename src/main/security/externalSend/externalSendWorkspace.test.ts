@@ -275,3 +275,112 @@ describe('中身の形で載せられないもの', () => {
     })
   })
 })
+
+describe('範囲の指定（STEP9 の file_read）', () => {
+  const KEY_FILE = [
+    'const a = 1',
+    '-----BEGIN RSA PRIVATE KEY-----',
+    'MIIEowIBAAKCAQEAv0Hh8kQfQ2mZabcdefghijklmnopqrstuvwxyzABCD',
+    'QWERTYUIOPASDFGHJKLZXCVBNMqwertyuiopasdfghjklzxcvbnm012345',
+    '-----END RSA PRIVATE KEY-----',
+    'const b = 2',
+    ''
+  ].join('\n')
+
+  it('範囲の行だけを、行番号を添えて切り出す', async () => {
+    await writeFile(join(root, 'src', 'lines.ts'), 'one\ntwo\nthree\nfour\n')
+
+    const context = workspaceFileContext(
+      await readTarget('src/lines.ts'),
+      await bytesOf('src/lines.ts'),
+      { startLine: 2, endLine: 3 }
+    )
+
+    expect(context).toMatchObject({
+      ok: true,
+      item: { kind: 'workspace-file', text: 'two\nthree', label: 'src/lines.ts' },
+      excerpt: { startLine: 2, endLine: 3, totalLines: 4, secretMasked: false }
+    })
+  })
+
+  it('BEGIN が範囲の外でも、範囲に入った鍵の本体は伏せる（全体で探してから切る）', async () => {
+    await writeFile(join(root, 'src', 'embedded.ts'), KEY_FILE)
+
+    const context = workspaceFileContext(
+      await readTarget('src/embedded.ts'),
+      await bytesOf('src/embedded.ts'),
+      { startLine: 3, endLine: 4 }
+    )
+
+    if (!context.ok) {
+      throw new Error(`expected ok, got ${context.reason}`)
+    }
+
+    expect(context.item.text).not.toContain('MIIEowIBAAKCAQEA')
+    expect(context.item.text).not.toContain('QWERTYUIOP')
+    expect(context.item.text.split('\n')).toEqual([SECRET_MASK, SECRET_MASK])
+    expect(context.excerpt).toMatchObject({ secretMasked: true, startLine: 3, endLine: 4 })
+  })
+
+  it('切り出した後も workspace-file のまま Gate を通り、Gate でもう一度判定される', async () => {
+    await writeFile(join(root, 'src', 'embedded.ts'), KEY_FILE)
+
+    const context = workspaceFileContext(
+      await readTarget('src/embedded.ts'),
+      await bytesOf('src/embedded.ts'),
+      { startLine: 1, endLine: 6 }
+    )
+
+    if (!context.ok) {
+      throw new Error(`expected ok, got ${context.reason}`)
+    }
+
+    const decision = decideExternalSend(ASK, { providerId: 'anthropic', items: [context.item] })
+
+    expect(decision.decision).toBe('allow')
+    expect(JSON.stringify(decision)).not.toContain('MIIEowIBAAKCAQEA')
+  })
+
+  it('範囲を指定しても Secret ファイルは deny（Mask して送るのではない）', async () => {
+    expect(
+      workspaceFileContext(await readTarget('.env'), await bytesOf('.env'), {
+        startLine: 1,
+        endLine: 1
+      })
+    ).toEqual({ ok: false, reason: 'secret-file' })
+  })
+
+  it('ファイルの行数を超えた範囲は最後の行で止まり、外なら空', async () => {
+    const target = await readTarget('src/index.ts')
+    const bytes = await bytesOf('src/index.ts')
+
+    expect(workspaceFileContext(target, bytes, { startLine: 1, endLine: 999 })).toMatchObject({
+      item: { text: 'export const value = 1' },
+      excerpt: { startLine: 1, endLine: 1, totalLines: 1 }
+    })
+    expect(workspaceFileContext(target, bytes, { startLine: 5, endLine: 9 })).toMatchObject({
+      item: { text: '' },
+      excerpt: { startLine: 0, endLine: 0, totalLines: 1 }
+    })
+  })
+
+  it('範囲として読めない値は deny', async () => {
+    const target = await readTarget('src/index.ts')
+    const bytes = await bytesOf('src/index.ts')
+
+    for (const range of [
+      null,
+      'all',
+      { startLine: 0, endLine: 1 },
+      { startLine: 2, endLine: 1 },
+      { startLine: 1.5, endLine: 2 },
+      { startLine: '1', endLine: 2 },
+      { startLine: 1 }
+    ]) {
+      expect(workspaceFileContext(target, bytes, range)).toEqual({
+        ok: false,
+        reason: 'invalid-payload'
+      })
+    }
+  })
+})

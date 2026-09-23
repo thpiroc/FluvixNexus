@@ -1013,6 +1013,51 @@ export const jaMessages = {
       close: '閉じる'
     }
   },
+  agentTask: {
+    placeholder: 'この Workspace で FN Agent にしてほしいことを入力',
+    start: '開始',
+    stop: '停止',
+    disabledNotice: 'FN Agent は設定で OFF になっています。',
+    noProviderNotice:
+      'AI の Provider はまだ接続されていません。開発ビルドでは Scripted Provider（実際の AI ではありません）を使います。',
+    loops: '{used} / {limit} 回',
+    limitQuestion: '最大実行回数に到達しました。続行しますか？',
+    limitContinue: '続行する（+10 回）',
+    limitStop: 'ここでやめる',
+    answerTitle: '回答',
+    status: {
+      idle: '待機中',
+      awaitingContinue: '最大実行回数に到達しました',
+      stopping: '停止中…（実行中の処理が終わるのを待っています）',
+      completed: '完了'
+    },
+    phase: {
+      thinking: '次の手順を判断中',
+      investigating: '調査中',
+      reading: 'ファイル確認中',
+      searching: '検索中',
+      proposingChange: '変更提案（承認待ち）',
+      runningCommand: 'コマンド（承認待ち・実行中）'
+    },
+    end: {
+      userStopped: '停止しました',
+      loopLimitDeclined: '最大実行回数で停止しました',
+      agentDisabled: 'FN Agent が OFF になったため停止しました',
+      workspaceChanged: 'Workspace が切り替わったため停止しました',
+      providerFailed: 'AI の Provider に接続できなかったため停止しました',
+      contextDenied: 'Context を安全に送れなかったため停止しました',
+      contextBudgetExceeded: 'Context が上限に収まらなかったため停止しました',
+      tooManyInvalidActions: '実行できない Action が続いたため停止しました',
+      internalError: '予期しないエラーのため停止しました'
+    },
+    rejected: {
+      busy: 'FN Agent はすでに作業中です。',
+      agentDisabled: 'FN Agent は設定で OFF になっています。',
+      noWorkspace: '先に Workspace のフォルダを開いてください。',
+      providerUnavailable: 'このビルドでは AI の Provider を使えません。',
+      invalidPrompt: '指示を入力してください（20,000 文字まで）。'
+    }
+  },
   settings: {
     title: '設定',
     closeTitle: '設定を閉じる（Esc）',
@@ -1770,7 +1815,8 @@ export const jaMessages = {
       editor: 'Editor',
       terminal: 'Terminal',
       git: 'Git',
-      debug: 'Debug'
+      debug: 'Debug',
+      agent: 'Agent'
     },
     layout: {
       default: {

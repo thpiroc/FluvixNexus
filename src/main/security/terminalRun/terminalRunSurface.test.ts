@@ -173,9 +173,17 @@ describe('シェルを通さない', () => {
 })
 
 describe('Renderer / Preload から届かない', () => {
-  it('Agent を名乗る要求（Renderer → Main）のチャンネルは無く、知らせは片道の4本だけ', () => {
+  it('Agent を名乗る要求は作業の意思表示だけで、コマンドを頼むチャンネルは無い', () => {
+    // STEP9 の agent-task:*（始めて・止めて・続けて / やめて・状態）以外に agent-* の要求は無い。
     expect(
-      Object.values(IPC_CHANNELS).filter((channel) => /agent|terminal-run/i.test(channel))
+      Object.values(IPC_CHANNELS).filter(
+        (channel) => /agent|terminal-run/i.test(channel) && !channel.startsWith('agent-task:')
+      )
+    ).toEqual([])
+    expect(
+      Object.values(IPC_CHANNELS).filter(
+        (channel) => /agent/i.test(channel) && /terminal|command|run/i.test(channel)
+      )
     ).toEqual([])
     expect(
       Object.values(IPC_EVENT_CHANNELS)

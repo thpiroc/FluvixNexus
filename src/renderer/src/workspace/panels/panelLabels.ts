@@ -6,7 +6,8 @@ const PANEL_TITLE_KEYS: Readonly<Record<PanelId, TranslationKey>> = {
   editor: 'workspace.panels.editor',
   terminal: 'workspace.panels.terminal',
   git: 'workspace.panels.git',
-  debug: 'workspace.panels.debug'
+  debug: 'workspace.panels.debug',
+  agent: 'workspace.panels.agent'
 }
 
 export function getPanelTitle(panelId: PanelId, t: TFunction): string {

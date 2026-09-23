@@ -14,6 +14,7 @@
  * （Main が検証する `settings:save-section`）だけになる。
  * 公開する名前は securityPolicySurface.test.ts が固定している。
  */
+export { isFnAgentEnabled } from './currentAgentEnabled'
 export { getCurrentSecurityPolicy } from './currentSecurityPolicy'
 export { decideSecurityAction, SECURITY_ACTION_KINDS } from './securityDecision'
 

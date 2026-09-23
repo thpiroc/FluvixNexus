@@ -534,6 +534,56 @@ Agent が実行を提案する（command / args / cwd）
   - 終わらないコマンド（`node -e "setTimeout(() => {}, 180000)"`）… 承認後、**120 秒で自動的に終了させ**、「120 秒を過ぎたため終了させました」と出た
   - 画面での取り消し / Native Dialog の「許可しない」・Workspace の外の作業ディレクトリ・Read での拒否・Audit Log の中身は、今回の実機確認の報告には含まれていない（同じ振る舞いは自動テスト `terminalRunGate.test.ts` / `terminalRunSurface.test.ts` で確かめている）
 
+#### Agent Loop（Security Core v1 の STEP9。2026-09-23）
+
+STEP1〜8 の Security Core を、FN Agent が**安全な順番で使う**ための Loop（`src/main/agent/`）。AI は「何をしたいか」を**構造化された Action として提案するだけ**で、実行してよいかは FN（Agent Loop）と Security Core が決める。**Security Core を通すかどうかを AI に選ばせる欄は無い。**
+
+```
+利用者の指示（Agent パネル → agent-task:start）
+  ↓
+┌─ Context を組み立てる（agentContext.ts）      Budget の中へ決定論的に畳む
+│   ↓ External Send Gate（STEP5）              検査して伏せた Safe Payload だけが Provider へ
+│   ↓ Provider（STEP9 は開発ビルドの Scripted）  1回 = 1 Loop
+│   ↓ Runtime Schema Validation（agentAction.ts） Action 1つ・知らない欄は拒む
+│   ↓ 拒否済みの Action か（agentActionKey.ts）   同じ Action は二度と実行しない
+│   ↓ Security Core                              Read Tool Gate / File Write Gate / Terminal Runner
+│   ↓ 結果を Context へ（伏せた後のもの）
+└─ 次のターン（complete / 停止 / 上限 / 失敗で終わる）
+```
+
+- **v1 の Action（閉じた集合）：** `workspace_list` / `workspace_status` / `file_read` / `file_search` / `file_write`（STEP7）/ `terminal_run`（STEP8）/ `complete`。MCP の書き込み・Git の Commit / Push・binary の書き込みは**無い。** 出力は `{"action": {…}}` の1つだけで、**知らない欄が1つでもあれば拒む**（`approved: true` / `skipSecurity` を付けてきたこと自体を壊れた出力として扱う）。未知の種類・壊れた JSON は実行せず `invalid-action` として AI へ返す。
+- **1ターン1 Action（2026-09-23 確定）：** 2つ以上の Action は、どれも実行せずに `parallel-action` で拒む。
+- **Loop = Provider を1回呼ぶこと。** 初期 20 回。上限に達したら**自動で続けず**、パネルで「最大実行回数に到達しました。続行しますか？」と尋ねる。続けるなら +10。無制限の自動継続は無い。
+- **再試行（原則 最大2回）：** 利用者の拒否（`user-cancelled`）・Security Core の deny（`read-only-mode` / `secret-file` / `outside-workspace` …）・停止（`agent-stopped`）を受けた Action は、**同じものをもう一度提案されても Gate へ渡さない**（`repeated-action`。本文や引数を直した提案は別の Action として通る）。ファイルの競合（`existing-file-changed` / `target-changed`）は読み直しを促し、一時的な失敗は同じ Action を最大2回まで。壊れた出力・拒否済みの再提案が3回続けば止める（`too-many-invalid-actions`）。**知らない理由は再試行しない側へ倒す。**
+- **副作用のある操作は同時に1件だけ（2026-09-23 確定）：** Security Core に**共有ロック**（`src/main/security/sideEffect/`）を置き、File Write Gate と Terminal Command Runner が同じロックを使う。提案を受けた直後に取り、承認・実行・結果の確認が終わるまで（Terminal は実行中も）持つ。相手が同じ種類なら従来の `write-in-progress` / `run-in-progress`、別の種類なら `side-effect-in-progress` で拒む。**Agent Loop の直列化だけに頼らない**（開発用の足場など、Loop 以外の経路にも効く）。`complete` は、承認待ち・実行中が残っていれば受け付けない。
+- **停止（2026-09-23 確定）：** 停止ボタンは Agent が動いている間だけ出る。停止すると**新しい Action を始めず**、承認待ちは Main の Approval Manager が取り消す（STEP6 に足した `cancelPendingApprovals`。**取り消す向きにしか働かない**・IPC にも Preload にも出さない。pending・確認中・承認済み（consume 前）のどれも `agent-stopped` で失効し、その後の consume は通らない）。Provider の応答待ちには中断を伝える。**実行中の Terminal は kill しない** ── 終わる（または 120 秒で打ち切られる）のを待ってから `stopped` にする（STEP8 の決定。古い Scope Decision の「Tool へ中断 Signal を伝播」より、STEP8 / STEP9 の仕様を優先）。Workspace の切り替え・Agent の OFF でも同じように止まる。
+- **Read Tool Gate（`src/main/security/readTools/`）：** 読み取りも Security Core を通る。**「Read だから無制限に読める」にはしない。**
+  - `file_read` … Boundary（読み取り）→ Secret ファイル → Policy（`file.read`）→ 確かめたハンドル越しに読む（`confirmOpenedWorkspaceFile`）→ `workspaceFileContext(target, bytes, range)`。1回 400 行・60,000 文字まで。
+  - **範囲の指定は `workspaceFileContext` 側で扱う（2026-09-23 確定）：** Secret は**ファイル全体で探し、行ごとに伏せてから**範囲を切り出す（STEP7 の `maskSecretLines`）。切り出してから伏せると、Private Key の BEGIN が範囲の外にあるとき鍵の本体の行が素通りする。切り出した後も `workspace-file` と Boundary の `source` を持ったまま External Send Gate へ届き、Gate が Secret ファイルかを**もう一度**判定し、本文も**もう一度**伏せる。
+  - `workspace_list` … 1階層・300 件まで。Secret ファイル・Secret の置き場所（`.ssh` など。STEP8 の作業ディレクトリと同じ読み方）には印を付け、**その中は一覧も返さない。**
+  - `file_search` … Files の全文検索に `excludePath` を足し、**Secret ファイル・置き場所は開きもしない。** 一致した行は `maskSecretText` を通し、Base64 だけでできた長い行（鍵の本体の形）はそれだけで伏せる。100 件まで。Files パネルの検索は変えていない。
+  - `workspace_status` … Workspace の表示名（**絶対パスは出さない**）・Permission・Git Repository か・branch 名・変更ファイルの相対パス（200 件まで）。**Git diff は返さない**（後続の Git Read Tool。STEP11 候補）。
+  - Audit は**拒否だけ**（`file-read.denied`）。許可した読み取りまで残すと Audit Log が読み取りの履歴で埋まるため。
+- **Context / Token Budget（`agentContext.ts`。FN Engine v1 の最小版）：** Tool の結果を無条件に全部 AI へ送らない。
+  - 3段階：Full Result（Security Core が伏せた後の結果）→ Agent Context（次の判断に要る部分）→ Conversation Summary（古い結果を「何をした / 成否 / 対象」の1行へ）。**別の AI を呼んで要約しない**（決定論的）。
+  - **Secret を伏せる前のものは Context Manager へ渡さない。** 受け取るのは Security Core が伏せた後の文字列で、Context Manager でもう一度 `redactSecretText` を通し、送る直前には External Send Gate がさらにもう一度伏せる。
+  - Terminal は最大 1,000,000 文字をそのまま送らず、「エラー・警告らしい行（20 行）＋ 末尾 60 行・1行 300 文字」へ要約する（切るのは必ず伏せた後）。
+  - **入力の Budget は Context Window の約 70%。** 超えたら**古い Terminal の詳細 → 古い読み取り結果 → 解決済みのエラー → 重複**の順に畳む。現在の指示・Security の規則（指示文）・直近の結果・未解決のエラー・承認の結果（File Write / Terminal の成否の1行）は残す。畳んだ結果には「必要なら読み直す」と添える（推測で補わせない）。畳んでも入らなければ**送らない**（`context-budget-exceeded`）。Token 数は Provider の数え方ではなく文字の種類から保守的に見積もる（正確な数は STEP10）。
+  - この Budget は External Send Gate の上限（検査を最後まで走らせるための 1,000,000 文字 / 256 件）とは**別物**。件数は 80 件を超えたら畳んだものを1つの要約へまとめ、Gate の上限より十分手前に保つ。
+- **Provider（STEP9 は Scripted）：** 実際の AI Provider は接続しない（2026-09-23 確定）。**開発ビルドだけ** Scripted Provider（`scriptedProvider.ts`）で Loop を End-to-End で動かす。配布ビルドには Provider が無く、作業は `provider-unavailable` で始まらない。Scripted でも**本物と同じ境界**を通る ── 受け取るのは Gate の発行した `SafeExternalPayload` だけ（違えば投げる）で、返す Action は Schema と Gate を通る。手順は指示の中の印で選ぶ（印なし = E2E・`#secret`・`#invalid`・`#broken`・`#loop`）。実 Provider・Credential Store・Abort / timeout の作り込みは STEP10。
+- **Agent ON / OFF（2026-09-23 確定）：** `security.agentEnabled`。未設定は ON、真偽値でない値・壊れた設定は OFF。User / Workspace は Permission と同じく**厳しい方**（どちらかが OFF なら OFF）。Loop を始める前と、Action を1つ実行する前に Main が読み直す。**Security Core を止める欄ではない**（ON にしても検査・承認は何も緩まない）。Settings 画面の項目は Closing STEP。
+- **Task State はメモリだけ（2026-09-23 確定）：** FN の終了・クラッシュ・再起動の後に途中の作業を復元しない。承認・実行中の Tool の状態もディスクへ書かない。残るのは Security Audit Log だけ。
+- **Agent パネル（2026-09-23 確定）：** 既存の右側 AI パネルは無かったため、最小の Dockable パネル `agent` を足した（既定のレイアウトには置かず、View メニューから開く）。置くのは**指示の入力欄・今の作業の1行（調査中 → ファイル確認中 → 検索中 → 変更提案（承認待ち）→ コマンド（承認待ち・実行中）→ 完了）・停止ボタン（動いている間だけ）・最終回答**だけで、Tool の詳細ログは出さない。File Write / Terminal の確認は STEP7 / STEP8 の承認画面をそのまま使う。最終回答は Main が伏せて切った文字列で、**文字として**描く。
+- **Renderer から届くもの（`agent-task:*`）：** 要求は「始めて（指示）・止めて・上限だが続けて / やめて・今の状態」の4本、知らせは状態の1本。**Action・Tool・承認・Security の判断を渡す欄は契約に無い**（承認は STEP6 の `approval:respond` と Main の Native Dialog だけ）。指示の文字列は未検査の入力として扱い、AI へ渡すときは External Send Gate が必ず伏せる。STEP7 / STEP8 で「agent を名乗る要求チャンネルは0本」と固定していた surface test は、この4本だけを許す形へ見直した。
+- **Audit（STEP4）：** Security 上意味のある出来事だけを足した ── `agent.action-rejected`（`invalid-action` / `parallel-action` / `repeated-action`）・`agent.stopped`・`file-read.denied`。**単なる開始・完了・Loop の回数は記録しない。** AI の出力・指示・Action の中身（パス・本文・コマンド・引数）は載せない。副作用ロックでの拒否は各 Gate が `side-effect-in-progress` として記録する。
+- **自動テスト：** `agentLoop.integration.test.ts` が、本物の Boundary（一時フォルダ）・Read Tool Gate・Approval Manager・File Write Gate（実際に書く）・Terminal Command Runner・共有ロック・External Send Gate と Scripted Provider をつないで、完了条件の End-to-End と主要な Fail Closed（取り消し・Read・Secret・壊れた出力・承認待ちでの停止・共有ロック）を通す。
+- **実機確認（2026-09-23）：** Fluvix Nexus 本体とは別の Workspace（`FN-Security-Test`）を開き、Agent パネルから「このWorkspaceを確認して、テストを実行してください」と指示した（開発ビルド・Scripted Provider）。**完了条件の End-to-End が最後まで通った。**
+  - Read 系の Action の後、`fn-agent-e2e.mjs` の新規作成が提案され、STEP7 の変更提案の画面が出た → 続ける → Main の Native Dialog → 許可する → ファイルが作られた
+  - 続いて `node fn-agent-e2e.mjs` の実行が提案され、STEP8 の確認画面 → 続ける → Native Dialog → 許可する → **終了コード 0・出力 `FN Agent E2E: OK`**
+  - Tool の結果が Agent へ返り、Agent は「End-to-End の確認を終えました」として `complete` で正常に終わった（最終回答がパネルに出た）
+  - 取り消し / 「許可しない」・停止・Loop 上限・`.env`・壊れた出力・Read・共有ロックの Fail Closed は、今回の実機確認の報告には含まれていない（`agentLoop.integration.test.ts` / `agentLoop.test.ts` ほかの自動テストで確かめている）
+- **STEP9 で作らないもの：** 実 Provider・Credential Store（STEP10）・Git Read Tool・MCP Read Gateway（STEP11 候補）・Security Settings UI の仕上げ（Closing STEP）・Session / Queue / Token 料金表示 / Model クラス（Security Core v1 の後）。STEP7 / STEP8 の開発用の足場は、STEP9 の実機 End-to-End の確認が済むまで残す。
+
 ### 6.5 v1 に含めないもの
 
 | 項目                                               | 扱い                                                                                                   |

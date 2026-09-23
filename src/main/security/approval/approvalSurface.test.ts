@@ -58,6 +58,8 @@ describe('公開する名前', () => {
   it('Approval Manager の入口', () => {
     expect(Object.keys(approvalApi).sort()).toEqual([
       'APPROVAL_TTL_MS',
+      // STEP9: Agent の停止で承認待ちを取り消す（取り消す向きにしか働かない）。
+      'cancelPendingApprovals',
       'consumeApproval',
       'requestApproval',
       'respondToApproval'
@@ -91,6 +93,7 @@ describe('公開する名前', () => {
     expect(Object.keys(managerModule).sort()).toEqual(['APPROVAL_TTL_MS', 'createApprovalManager'])
     expect(Object.keys(dialogModule).sort()).toEqual(['confirmApprovalNatively'])
     expect(Object.keys(currentModule).sort()).toEqual([
+      'cancelPendingApprovals',
       'consumeApproval',
       'requestApproval',
       'respondToApproval'
@@ -175,7 +178,9 @@ describe('Renderer から届く経路', () => {
     for (const name of files) {
       const source = readFileSync(join(preload, name), 'utf8')
 
-      expect(source).not.toMatch(/consumeApproval|requestApproval|createApprovalManager/)
+      expect(source).not.toMatch(
+        /consumeApproval|requestApproval|createApprovalManager|cancelPendingApprovals/
+      )
       expect(source).not.toMatch(/approved\s*:\s*true/)
     }
   })
@@ -207,6 +212,16 @@ describe('Renderer から届く経路', () => {
     expect(handler).not.toContain('ipcMain')
     // 承認を作る / 使い切る API は handler から呼ばない。
     expect(handler).not.toMatch(/consumeApproval|requestApproval/)
+  })
+
+  it('承認の一括取り消しは、どの IPC handler からも直接は呼ばない（Agent Loop の停止だけ）', () => {
+    const handlers = join(__dirname, '..', '..', 'ipc')
+
+    for (const name of readdirSync(handlers, { recursive: true, encoding: 'utf8' }).filter((file) =>
+      file.endsWith('.ts')
+    )) {
+      expect(readFileSync(join(handlers, name), 'utf8')).not.toContain('cancelPendingApprovals')
+    }
   })
 
   it('Renderer が送れるのは continue / cancel の意思表示まで', () => {

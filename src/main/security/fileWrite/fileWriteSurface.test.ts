@@ -139,7 +139,18 @@ describe('Renderer / Agent から届かない', () => {
 
     // Agent の File Write に関するチャンネルは、Main → Renderer の知らせ2本だけ
     // （STEP8 の agent-terminal:* は terminalRunSurface.test.ts が見る）。
-    expect(Object.values(IPC_CHANNELS).filter((channel) => /agent/i.test(channel))).toEqual([])
+    // Renderer → Main の agent-* は STEP9 の作業の意思表示（agent-task:*）だけで、
+    // 書き込みを頼む・本文を渡すものは無い。
+    expect(
+      Object.values(IPC_CHANNELS).filter(
+        (channel) => /agent/i.test(channel) && !channel.startsWith('agent-task:')
+      )
+    ).toEqual([])
+    expect(
+      Object.values(IPC_CHANNELS).filter(
+        (channel) => /write|file/i.test(channel) && /agent/i.test(channel)
+      )
+    ).toEqual([])
     expect(channels.filter((channel) => /agent-file-write/i.test(channel)).sort()).toEqual([
       'agent-file-write:proposed',
       'agent-file-write:settled'

@@ -57,4 +57,8 @@ export type {
   SafeExternalContextPart,
   SafeExternalPayload
 } from './safeExternalPayload'
-export type { WorkspaceFileContextResult } from './workspaceFileContext'
+export type {
+  WorkspaceFileContextResult,
+  WorkspaceFileExcerpt,
+  WorkspaceFileRange
+} from './workspaceFileContext'

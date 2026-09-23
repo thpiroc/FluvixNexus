@@ -78,5 +78,8 @@ export const fluvix: FluvixApi = {
   },
   get agent() {
     return bridge().agent
+  },
+  get agentTask() {
+    return bridge().agentTask
   }
 }

@@ -94,6 +94,14 @@ export interface WorkspaceContentSearchOptions {
   readonly cancellation?: WorkspaceSearchCancellation
   /** 時間の見方（テストで固定するために差し替えられる）。 */
   readonly now?: () => number
+  /**
+   * 読まない・潜らない位置（Workspace 相対）。真を返したファイルは開かず、フォルダは中を見ない。
+   *
+   * FN Agent の検索（Security Core v1 の STEP9。main/security/readTools/）が
+   * **Secret ファイルの中身を読みもしない**ために使う。Files パネルの検索は渡さない
+   * （人が自分のフォルダを探す操作で、これまでどおり）。判定が例外を投げたら読まない側に倒す。
+   */
+  readonly excludePath?: (relativePath: string) => boolean
 }
 
 export type SearchWorkspaceFileContentsOutcome =
@@ -166,6 +174,22 @@ function toRootFailureOutcome(cause: unknown): SearchWorkspaceFileContentsOutcom
 
     default:
       return { status: 'failed', detail: String(cause) }
+  }
+}
+
+/** 読まない位置か。判定が例外を投げたら読まない（除外を頼んだ側の意図を外さない）。 */
+function isExcluded(
+  excludePath: ((relativePath: string) => boolean) | undefined,
+  relativePath: string
+): boolean {
+  if (excludePath === undefined) {
+    return false
+  }
+
+  try {
+    return excludePath(relativePath) !== false
+  } catch {
+    return true
   }
 }
 
@@ -302,6 +326,11 @@ export async function searchWorkspaceFileContents(
 
       // 契約上の上限（shared/files/entry.ts）を超える位置は返さない。
       if (relativePath.length > FILES_RELATIVE_PATH_MAX_LENGTH) {
+        continue
+      }
+
+      // 呼び出し側が読まないと決めた位置（Agent の検索での Secret ファイル）。
+      if (isExcluded(options.excludePath, relativePath)) {
         continue
       }
 

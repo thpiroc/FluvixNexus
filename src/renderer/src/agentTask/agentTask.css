@@ -1,0 +1,140 @@
+/*
+ * FN Agent の最小パネル（Security Core v1 の STEP9）。
+ *
+ * 色・余白は styles/theme.css の変数だけを使う（agent/agentTerminal.css と同じ）。
+ * 最終回答は折り返して全部見せ、文字として描く（white-space: pre-wrap）。
+ */
+
+.fx-agent-task {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-3);
+  height: 100%;
+  padding: var(--fx-space-3);
+  overflow: auto;
+  color: var(--fx-color-text);
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-agent-task__input {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-2);
+}
+
+.fx-agent-task__prompt {
+  width: 100%;
+  min-height: 72px;
+  padding: var(--fx-space-2);
+  color: var(--fx-color-text);
+  background: var(--fx-color-surface);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  font: inherit;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.fx-agent-task__prompt:disabled {
+  opacity: 0.7;
+}
+
+.fx-agent-task__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--fx-space-2);
+}
+
+.fx-agent-task__button {
+  padding: var(--fx-space-1) var(--fx-space-3);
+  color: var(--fx-color-text);
+  background: var(--fx-color-surface);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  font: inherit;
+  font-size: var(--fx-font-size-sm);
+  cursor: pointer;
+}
+
+.fx-agent-task__button:hover:not(:disabled) {
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-agent-task__button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.fx-agent-task__button[data-variant='primary'] {
+  color: var(--fx-color-text-strong);
+  border-color: var(--fx-accent-blue);
+}
+
+.fx-agent-task__button[data-variant='danger'] {
+  color: var(--fx-color-danger);
+  border-color: var(--fx-color-danger);
+}
+
+.fx-agent-task__notice {
+  margin: 0;
+  color: var(--fx-color-text-muted);
+  line-height: 1.6;
+}
+
+.fx-agent-task__status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--fx-space-2);
+}
+
+.fx-agent-task__status-line {
+  color: var(--fx-color-text-strong);
+}
+
+.fx-agent-task__status[data-status='failed'] .fx-agent-task__status-line {
+  color: var(--fx-color-danger);
+}
+
+.fx-agent-task__subject {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--fx-color-text-muted);
+  font-family: var(--fx-font-mono, monospace);
+}
+
+.fx-agent-task__loops {
+  margin-left: auto;
+  color: var(--fx-color-text-muted);
+}
+
+.fx-agent-task__limit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-2);
+  padding: var(--fx-space-2);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+}
+
+.fx-agent-task__limit p {
+  margin: 0;
+}
+
+.fx-agent-task__answer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-2);
+}
+
+.fx-agent-task__answer-title {
+  margin: 0;
+  color: var(--fx-color-text-strong);
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-agent-task__answer-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.7;
+}

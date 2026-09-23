@@ -7,6 +7,7 @@ import { recordAuditEvent } from '../audit/currentAuditLog'
 import { resolveAgentWorkspaceTarget } from '../boundary/currentWorkspaceBoundary'
 import { recheckWorkspaceTarget } from '../boundary/workspaceBoundary'
 import { getCurrentSecurityPolicy } from '../policy/currentSecurityPolicy'
+import { acquireSideEffect } from '../sideEffect/currentSideEffectLock'
 import { resolveTerminalExecutable } from './terminalExecutable'
 import { buildTerminalLaunch } from './terminalLaunch'
 import { createTerminalRunGate, type TerminalRunOutcome } from './terminalRunGate'
@@ -71,7 +72,9 @@ const gate = createTerminalRunGate({
   notifyProposed: (notice) => emitIpcEvent(IPC_EVENT_CHANNELS.AGENT_TERMINAL_PROPOSED, notice),
   notifySettled: (proposalId, result) =>
     emitIpcEvent(IPC_EVENT_CHANNELS.AGENT_TERMINAL_SETTLED, { proposalId, result }),
-  createProposalId: () => randomUUID()
+  createProposalId: () => randomUUID(),
+  // File Write（STEP7）と同じロック。副作用のある操作は種類をまたいで同時に1件だけ（STEP9）。
+  acquireSideEffect
 })
 
 /** コマンドを1つ、承認を通してから実行する。 */

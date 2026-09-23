@@ -5,6 +5,7 @@
  * Main だけで（main/security/policy/）、Renderer が持つのは画面に出すための値の読み方まで。
  */
 export { APPROVAL_ACTION_KINDS, isApprovalActionKind } from './approvalAction'
+export { DEFAULT_AGENT_ENABLED, normalizeAgentEnabled, resolveAgentEnabled } from './agentEnabled'
 export {
   AGENT_PERMISSION_MODES,
   DEFAULT_AGENT_PERMISSION_MODE,

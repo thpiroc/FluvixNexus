@@ -109,7 +109,7 @@ const SECTION_FIELDS: { readonly [Id in SettingsSectionId]: SectionFieldSpec<Id>
     **形に加えて値の意味まで Main が見る**（下の2つの表）── Security を緩める側へ
     倒れる読み替えを、Renderer 側の分担に任せない。
   */
-  security: { permissionMode: 'string' }
+  security: { permissionMode: 'string', agentEnabled: 'boolean' }
 }
 
 /**
@@ -149,7 +149,11 @@ const SECTION_FIELD_CHOICES: {
 export const FAIL_CLOSED_SECTION_VALUES: {
   readonly [Id in SettingsSectionId]?: SettingsSections[Id]
 } = {
-  security: { permissionMode: FAIL_CLOSED_AGENT_PERMISSION_MODE }
+  security: {
+    permissionMode: FAIL_CLOSED_AGENT_PERMISSION_MODE,
+    // Agent の ON / OFF（STEP9）。壊れていたら OFF（使わない側）へ倒す。
+    agentEnabled: false
+  }
 }
 
 /**

@@ -1,4 +1,5 @@
 import type { PanelDefinition, PanelId } from './types'
+import { AgentPanel } from './AgentPanel'
 import { DebugPanel } from './DebugPanel'
 import { EditorPanel } from './EditorPanel'
 import { FilesPanel } from './FilesPanel'
@@ -48,6 +49,16 @@ const PANEL_REGISTRY: Readonly<Record<PanelId, PanelDefinition>> = {
     title: 'Debug',
     accent: 'neutral',
     Component: DebugPanel
+  },
+  /*
+    FN Agent（Security Core v1 の STEP9）。既定のレイアウトには置かず（Debug と同じ）、
+    View メニューから開く。
+  */
+  agent: {
+    id: 'agent',
+    title: 'Agent',
+    accent: 'neutral',
+    Component: AgentPanel
   }
 }
 

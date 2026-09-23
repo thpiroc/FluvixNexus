@@ -370,12 +370,40 @@ describe('security（Main の検証）', () => {
     }
   })
 
-  it('section が object でなければ read で始める（無いときは既定のまま）', () => {
+  it('section が object でなければ read・Agent OFF で始める（無いときは既定のまま）', () => {
     for (const raw of ['ask', 42, null, [], true]) {
-      expect(parseStoredSection('security', raw).value).toEqual({ permissionMode: 'read' })
+      expect(parseStoredSection('security', raw).value).toEqual({
+        permissionMode: 'read',
+        agentEnabled: false
+      })
     }
 
     expect(parseStoredSection('security', undefined).value).toEqual({})
+  })
+
+  it('Agent の ON / OFF（STEP9）: 真偽値はそのまま、読めない値は OFF に置き換える', () => {
+    expect(parseStoredSection('security', { agentEnabled: false }).value).toEqual({
+      agentEnabled: false
+    })
+    expect(parseStoredSection('security', { agentEnabled: true }).value).toEqual({
+      agentEnabled: true
+    })
+
+    for (const agentEnabled of ['true', 1, null, {}]) {
+      const parsed = parseStoredSection('security', { agentEnabled })
+
+      expect(parsed.value).toEqual({ agentEnabled: false })
+      expect(parsed.droppedFields).toEqual(['agentEnabled'])
+    }
+  })
+
+  it('Agent の ON / OFF の保存要求は、真偽値でなければ拒む', () => {
+    expect(
+      parseSettingsSectionUpdate({ section: 'security', value: { agentEnabled: false } })
+    ).toEqual({ section: 'security', value: { agentEnabled: false } })
+    expect(
+      parseSettingsSectionUpdate({ section: 'security', value: { agentEnabled: 'off' } })
+    ).toBeNull()
   })
 
   it('読めないときに置き換えるのは security だけ（他の section は従来どおり落とす）', () => {
@@ -383,11 +411,13 @@ describe('security（Main の検証）', () => {
     expect(parseStoredSection('terminal', 'x').value).toEqual({})
   })
 
-  it('文書が読めないときの section も、Security だけは read', () => {
+  it('文書が読めないときの section も、Security だけは read・Agent OFF', () => {
     expect(failClosedSettingsSections()).toEqual({
       ...emptySettingsSections(),
-      security: { permissionMode: 'read' }
+      security: { permissionMode: 'read', agentEnabled: false }
     })
-    expect(FAIL_CLOSED_SECTION_VALUES).toEqual({ security: { permissionMode: 'read' } })
+    expect(FAIL_CLOSED_SECTION_VALUES).toEqual({
+      security: { permissionMode: 'read', agentEnabled: false }
+    })
   })
 })

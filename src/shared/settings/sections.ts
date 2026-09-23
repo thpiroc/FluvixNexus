@@ -203,6 +203,15 @@ export interface StoredMcpSettings {
 export interface StoredSecuritySettings {
   /** `read` / `ask`。無ければ既定（`ask`）、読めない値は `read`。 */
   readonly permissionMode?: string
+  /**
+   * FN Agent 全体の ON / OFF（STEP9）。無ければ既定（ON）、読めない値は OFF。
+   *
+   * OFF にすると Agent Loop が始まらない（実行中なら次の Action へ進まずに止まる）。
+   * **Security Core を止める欄ではない** ── OFF は Agent を使わないことで、ON にしても
+   * 検査・承認は何も緩まない。ワークスペース設定は OFF にする向きにしか効かない（strictest）。
+   * Settings 画面の項目は Closing STEP で足す。
+   */
+  readonly agentEnabled?: boolean
 }
 
 /**

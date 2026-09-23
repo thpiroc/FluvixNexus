@@ -6,6 +6,7 @@ import { resolveAgentWorkspaceTarget } from '../boundary/currentWorkspaceBoundar
 import { recheckWorkspaceTarget } from '../boundary/workspaceBoundary'
 import { recordAuditEvent } from '../audit/currentAuditLog'
 import { getCurrentSecurityPolicy } from '../policy/currentSecurityPolicy'
+import { acquireSideEffect } from '../sideEffect/currentSideEffectLock'
 import { createFileWriteGate, type FileWriteOutcome } from './fileWriteGate'
 import { readCurrentFile, writeConfirmedFile } from './fileWriteIo'
 
@@ -50,7 +51,9 @@ const gate = createFileWriteGate({
   notifyProposed: (notice) => emitIpcEvent(IPC_EVENT_CHANNELS.AGENT_FILE_WRITE_PROPOSED, notice),
   notifySettled: (proposalId) =>
     emitIpcEvent(IPC_EVENT_CHANNELS.AGENT_FILE_WRITE_SETTLED, { proposalId }),
-  createProposalId: () => randomUUID()
+  createProposalId: () => randomUUID(),
+  // Terminal（STEP8）と同じロック。副作用のある操作は種類をまたいで同時に1件だけ（STEP9）。
+  acquireSideEffect
 })
 
 /** Workspace の中のファイル1件を、承認を通してから書き換える。 */

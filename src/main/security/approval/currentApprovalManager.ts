@@ -82,3 +82,13 @@ export function respondToApproval(raw: unknown, window: unknown): Promise<void> 
 export function consumeApproval(approvalId: unknown, raw: unknown): ApprovalConsumeResult {
   return manager.consume(approvalId, raw)
 }
+
+/**
+ * 残っている承認をすべて取り消す（STEP9。Agent Loop の停止だけが呼ぶ）。
+ *
+ * **取り消す向きにしか働かない。** IPC にも Preload にも出さない ── Renderer が
+ * 取り消したいときは、STEP6 の `approval:respond`（`intent: 'cancel'`）がある。
+ */
+export function cancelPendingApprovals(): number {
+  return manager.cancelAll()
+}

@@ -1,3 +1,4 @@
+import { registerAgentTaskHandlers } from './handlers/agentTask'
 import { registerApprovalHandlers } from './handlers/approval'
 import { registerDebugHandlers } from './handlers/debug'
 import { registerFeedbackHandlers } from './handlers/feedback'
@@ -38,7 +39,8 @@ const handlerRegistrations: readonly (() => void)[] = [
   registerDebugHandlers,
   registerFeedbackHandlers,
   registerMcpHandlers,
-  registerApprovalHandlers
+  registerApprovalHandlers,
+  registerAgentTaskHandlers
 ]
 
 export function registerIpcHandlers(): void {

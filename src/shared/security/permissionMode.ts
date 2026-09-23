@@ -1,4 +1,5 @@
 import type { StoredSecuritySettings } from '../settings/sections'
+import { resolveAgentEnabled } from './agentEnabled'
 
 /**
  * FN Agent の Permission（Security Core v1。DESIGN.md §6.4）。
@@ -93,14 +94,28 @@ export function resolveAgentPermissionMode(
  * ワークスペース側に上書きが無ければユーザー設定の section を**そのまま**返す
  * （他の section と同じく、変わっていないものは同じ object のまま）。
  * 上書きがあれば、重ねた結果を**正規化した値**で持つ。
+ *
+ * Agent の ON / OFF（STEP9。shared/security/agentEnabled.ts）も同じ重ね方にする。
+ * どちらの scope にも無い key は、結果にも入れない（既定のまま）。
  */
 export function restrictSecuritySettings(
   user: StoredSecuritySettings,
   workspace: StoredSecuritySettings | undefined
 ): StoredSecuritySettings {
-  if (workspace?.permissionMode === undefined) {
+  if (workspace === undefined) {
     return user
   }
 
-  return { permissionMode: resolveAgentPermissionMode(user, workspace) }
+  if (workspace.permissionMode === undefined && workspace.agentEnabled === undefined) {
+    return user
+  }
+
+  return {
+    ...(user.permissionMode === undefined && workspace.permissionMode === undefined
+      ? {}
+      : { permissionMode: resolveAgentPermissionMode(user, workspace) }),
+    ...(user.agentEnabled === undefined && workspace.agentEnabled === undefined
+      ? {}
+      : { agentEnabled: resolveAgentEnabled(user, workspace) })
+  }
 }

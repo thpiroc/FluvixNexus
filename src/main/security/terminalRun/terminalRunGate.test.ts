@@ -13,6 +13,7 @@ import {
 import { recheckWorkspaceTarget, resolveWorkspaceTarget } from '../boundary/workspaceBoundary'
 import type { SecurityPolicy } from '../policy/securityPolicy'
 import { SECRET_MASK } from '../secret/secretMasking'
+import { createSideEffectLock } from '../sideEffect/sideEffectLock'
 import type { TerminalExecutableResult } from './terminalExecutable'
 import { buildTerminalLaunch, type TerminalLaunchSpec } from './terminalLaunch'
 import {
@@ -150,6 +151,7 @@ function gate(overrides: Partial<TerminalRunGateDependencies> = {}): TerminalRun
     notifyProposed: (notice) => proposals.push(notice),
     notifySettled: (proposalId, result) => settled.push({ proposalId, result }),
     createProposalId: () => `proposal-${proposals.length + 1}`,
+    acquireSideEffect: createSideEffectLock().acquire,
     ...overrides
   })
 }
@@ -262,6 +264,59 @@ describe('承認の前に起動しない / 拒否なら起動しない', () => {
     const second = await api.run({ command: 'node', args: ['--version'], cwd: '' })
 
     expect(second).toMatchObject({ ok: false, reason: 'run-in-progress' })
+    expect(launches).toEqual([])
+  })
+
+  it('File Write が承認待ちなら、コマンドは提案もしない（STEP9 の共有ロック）', async () => {
+    const lock = createSideEffectLock()
+    const write = lock.acquire('file.write')
+
+    const outcome = await gate({ acquireSideEffect: lock.acquire }).run({
+      command: 'node',
+      args: [],
+      cwd: ''
+    })
+
+    expect(outcome).toMatchObject({ ok: false, reason: 'side-effect-in-progress' })
+    expect(proposals).toEqual([])
+    expect(approvalNotices).toEqual([])
+    expect(launches).toEqual([])
+    expect(lock.heldBy()).toBe('file.write')
+
+    if (write.ok) {
+      write.lease.release()
+    }
+  })
+
+  it('実行が終わるまでロックを持ち、終われば外す（拒否でも外す）', async () => {
+    const lock = createSideEffectLock()
+    let heldDuringRun: string | null = null
+
+    await gate({
+      acquireSideEffect: lock.acquire,
+      runProcess: async () => {
+        heldDuringRun = lock.heldBy()
+        return runResult
+      }
+    }).run({ command: 'node', args: [], cwd: '' })
+
+    expect(heldDuringRun).toBe('terminal.run')
+    expect(lock.heldBy()).toBeNull()
+
+    rendererIntent = 'cancel'
+    await gate({ acquireSideEffect: lock.acquire }).run({ command: 'node', args: [], cwd: '' })
+
+    expect(lock.heldBy()).toBeNull()
+  })
+
+  it('ロックが取れたか分からない（例外）なら、起動しない', async () => {
+    const outcome = await gate({
+      acquireSideEffect: () => {
+        throw new Error('lock exploded')
+      }
+    }).run({ command: 'node', args: [], cwd: '' })
+
+    expect(outcome).toMatchObject({ ok: false, reason: 'side-effect-in-progress' })
     expect(launches).toEqual([])
   })
 

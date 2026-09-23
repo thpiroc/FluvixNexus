@@ -10,6 +10,7 @@ import {
 import { decideSecurityAction } from '../policy/securityDecision'
 import { FAIL_CLOSED_SECURITY_POLICY, type SecurityPolicy } from '../policy/securityPolicy'
 import { agentFileWriteFacts } from '../secret/secretFileFacts'
+import type { SideEffectAcquireResult } from '../sideEffect/sideEffectLock'
 import {
   fileWriteApprovedEvent,
   fileWriteDeniedEvent,
@@ -56,6 +57,10 @@ import { createSafeFileWriteDiff } from './safeFileWriteDiff'
  * 同時に2件の File Write を承認にかけない。**画面に出ている Diff と、承認しようと
  * している変更が別物になる**ことを防ぐためで、2件目は `write-in-progress` で拒否する。
  * Agent Loop が並行して書きたくなった場合も、v1 では順番に通す。
+ *
+ * STEP9 からは **Terminal（STEP8）と共有のロック**（sideEffect/）で数える。Terminal の
+ * 承認待ち・実行中に File Write を提案しても `side-effect-in-progress` で拒む
+ * （副作用のある操作は、種類をまたいで同時に1件だけ）。
  *
  * ## Human の保存とは別の経路
  *
@@ -106,6 +111,8 @@ export interface FileWriteGateDependencies {
   readonly notifySettled: (proposalId: string) => void
   /** 提案の識別子を作る。 */
   readonly createProposalId: () => string
+  /** 副作用のある操作の共有ロックを取る（STEP9。Terminal と共有）。 */
+  readonly acquireSideEffect: (kind: 'file.write') => SideEffectAcquireResult
 }
 
 export interface FileWriteGate {
@@ -114,9 +121,6 @@ export interface FileWriteGate {
 }
 
 export function createFileWriteGate(deps: FileWriteGateDependencies): FileWriteGate {
-  /** 今 承認にかけている提案があるか（v1 は1件ずつ）。 */
-  let inProgress = false
-
   function record(event: AuditEvent): void {
     try {
       deps.recordEvent(event)
@@ -151,11 +155,20 @@ export function createFileWriteGate(deps: FileWriteGateDependencies): FileWriteG
     const policy = readPolicy(deps)
     const mode = policy.permissionMode
 
-    if (inProgress) {
-      return deny('write-in-progress', null, mode)
-    }
+    /*
+      副作用のある操作は、種類をまたいで同時に1件だけ（STEP9）。相手が File Write なら
+      STEP7 と同じ write-in-progress、Terminal なら side-effect-in-progress。
+      **取れたか分からない（例外）も拒む。**
+    */
+    const acquired = acquireLock(deps)
 
-    inProgress = true
+    if (!acquired.ok) {
+      return deny(
+        acquired.heldBy === 'file.write' ? 'write-in-progress' : 'side-effect-in-progress',
+        null,
+        mode
+      )
+    }
 
     try {
       return await run(policy, relativePath, content)
@@ -168,7 +181,7 @@ export function createFileWriteGate(deps: FileWriteGateDependencies): FileWriteG
 
       return Object.freeze({ ok: false as const, reason: 'gate-failed' as const })
     } finally {
-      inProgress = false
+      acquired.lease.release()
     }
   }
 
@@ -421,6 +434,23 @@ function checkTargetShape(target: VerifiedWorkspaceTarget): AuditReason | null {
       return 'not-a-file'
   }
 }
+
+/** 共有ロックを取る（STEP9）。**例外・形の違う返り値は「取れなかった」に倒す。** */
+function acquireLock(deps: FileWriteGateDependencies): SideEffectAcquireResult {
+  try {
+    const result = deps.acquireSideEffect('file.write')
+
+    if (result.ok) {
+      return typeof result.lease?.release === 'function' ? result : LOCK_UNAVAILABLE
+    }
+
+    return result
+  } catch {
+    return LOCK_UNAVAILABLE
+  }
+}
+
+const LOCK_UNAVAILABLE: SideEffectAcquireResult = Object.freeze({ ok: false, heldBy: null })
 
 /** Policy が読めなければ、最も厳しい Policy として扱う（STEP1 / STEP5 / STEP6 と同じ倒し方）。 */
 function readPolicy(deps: FileWriteGateDependencies): SecurityPolicy {

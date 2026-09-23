@@ -181,3 +181,34 @@ describe('security（restrictive）', () => {
     expect(effective.security).toEqual({ permissionMode: 'read' })
   })
 })
+
+/*
+  FN Agent の ON / OFF（Security Core v1 の STEP9）も Permission と同じ重ね方にする。
+  どちらか一方でも OFF なら OFF で、ワークスペース設定から ON へ戻すことはできない。
+*/
+describe('security.agentEnabled（restrictive）', () => {
+  it('User OFF + Workspace ON → OFF（ワークスペースから有効へ戻せない）', () => {
+    const user = sections({ security: { agentEnabled: false } })
+    const workspace = sections({ security: { agentEnabled: true } })
+
+    expect(resolveEffectiveSettings(user, workspace).security).toEqual({ agentEnabled: false })
+  })
+
+  it('User ON（既定）+ Workspace OFF → OFF', () => {
+    const workspace = sections({ security: { agentEnabled: false } })
+
+    expect(resolveEffectiveSettings(sections({}), workspace).security).toEqual({
+      agentEnabled: false
+    })
+  })
+
+  it('Permission と一緒に上書きしても、それぞれが厳しい方になる', () => {
+    const user = sections({ security: { permissionMode: 'ask', agentEnabled: false } })
+    const workspace = sections({ security: { permissionMode: 'read' } })
+
+    expect(resolveEffectiveSettings(user, workspace).security).toEqual({
+      permissionMode: 'read',
+      agentEnabled: false
+    })
+  })
+})

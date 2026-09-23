@@ -88,6 +88,8 @@ export type ApprovalDenialReason =
   | 'fingerprint-failed'
   | 'dialog-failed'
   | 'window-unavailable'
+  /** 利用者が Agent を停止した（STEP9。Main が承認待ちを取り消した）。 */
+  | 'agent-stopped'
 
 /** 承認を求めた結果。 */
 export type ApprovalOutcome =
@@ -157,6 +159,15 @@ export interface ApprovalManager {
   readonly respond: (raw: unknown, window: unknown) => Promise<void>
   /** 実行の直前に1回だけ使い切る（STEP7 / STEP8 が呼ぶ）。 */
   readonly consume: (approvalId: unknown, raw: unknown) => ApprovalConsumeResult
+  /**
+   * まだ使い切られていない承認を、すべて取り消す（STEP9。Agent の停止）。
+   *
+   * **取り消すだけで、承認する向きには働かない。** pending・確認中・承認済み（consume 前）の
+   * どれも `agent-stopped` で失効し、待っている Gate は deny で解ける ── 承認済みでも
+   * consume が通らなくなるため、停止の後に書き込み・起動は起きない。
+   * 返り値は取り消した件数。
+   */
+  readonly cancelAll: () => number
 }
 
 /** Main が持つ承認1件。**本文も引数も fingerprint 以外は持たない。** */
@@ -488,7 +499,24 @@ export function createApprovalManager(deps: ApprovalManagerDependencies): Approv
     approvals.delete(approval.id)
   }
 
-  return { request, respond, consume }
+  /**
+   * Agent の停止で、残っている承認をすべて失効させる（STEP9）。
+   *
+   * Native 確認を出している最中（`confirming`）のものも失効させる。確認の結果が後から
+   * 届いても、状態が `confirming` でなくなっているため承認にはならない（respond の
+   * 「確認している間に片付いている」と同じ扱い）。
+   */
+  function cancelAll(): number {
+    const open = [...approvals.values()]
+
+    for (const approval of open) {
+      finish(approval, 'agent-stopped')
+    }
+
+    return open.length
+  }
+
+  return { request, respond, consume, cancelAll }
 }
 
 /** 承認を求める操作を、STEP1 の判定にかけられる形にする。 */

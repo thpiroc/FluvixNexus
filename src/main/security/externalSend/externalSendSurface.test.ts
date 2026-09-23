@@ -162,13 +162,24 @@ describe('Renderer / Preload からは届かない', () => {
     )
   })
 
-  it('Agent を名乗るのは、Main → Renderer の知らせだけ（要求の口は無い）', () => {
+  it('Agent を名乗る要求は作業の意思表示の4本だけで、External Send へ届く口は無い', () => {
     /*
       STEP7 で `agent-file-write:proposed` / `:settled`、STEP8 で `agent-terminal:proposed` /
-      `:settled` が増えた。どれも **Main から Renderer への片道の知らせ**で、Renderer から Main を呼ぶ
-      チャンネル（IPC_CHANNELS）の側には1つも無い。
+      `:settled` が増えた（どれも Main → Renderer の片道の知らせ）。
+      STEP9 で、Renderer から Main へ**意思表示だけ**を送る `agent-task:*` の4本が増えた
+      （始めて・止めて・上限だが続けて / やめて・今の状態）。指示の文字列は未検査の入力で、
+      AI へ渡すときは Agent Loop が必ずこの Gate を通す ── Renderer が Payload を渡す口ではない。
     */
-    expect(Object.values(IPC_CHANNELS).filter((channel) => /agent/i.test(channel))).toEqual([])
+    expect(
+      Object.values(IPC_CHANNELS)
+        .filter((channel) => /agent/i.test(channel))
+        .sort()
+    ).toEqual([
+      'agent-task:continue',
+      'agent-task:get-state',
+      'agent-task:start',
+      'agent-task:stop'
+    ])
     expect(
       Object.values(IPC_EVENT_CHANNELS)
         .filter((channel) => /agent/i.test(channel))
@@ -176,6 +187,7 @@ describe('Renderer / Preload からは届かない', () => {
     ).toEqual([
       'agent-file-write:proposed',
       'agent-file-write:settled',
+      'agent-task:state-changed',
       'agent-terminal:proposed',
       'agent-terminal:settled'
     ])
