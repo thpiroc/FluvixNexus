@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'fs/promises'
+import { mkdir, mkdtemp, readdir, realpath, rm, symlink, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -291,6 +291,112 @@ describe('上限', () => {
 
     expect(outcome).toMatchObject({ status: 'ok', truncated: true, limit: 'time' })
     expect(pathsOf(outcome)).toEqual([])
+  })
+})
+
+/**
+ * 読み取りの差し替え（`reader`。Security Core v1 の STEP9.1）。
+ *
+ * FN Agent の検索は、パスで読まずに確かめた読み取りを差し込む。ここでは走査の側が
+ * **ディスクに触るのを reader だけに任せる**ことと、reader の答え（null・例外）を
+ * 読まない側へ倒すことを確かめる。渡さないとき（Files パネル）の挙動は、上の各テストが
+ * そのまま回帰として確かめている。
+ */
+describe('reader を渡したとき', () => {
+  it('並べる・読むのは reader だけで、位置は Workspace 相対で渡る', async () => {
+    await mkdir(join(root, 'src'))
+    await writeFile(join(root, 'src', 'a.txt'), 'hit on disk\n')
+
+    const listed: string[] = []
+    const read: string[] = []
+    const outcome = await searchWorkspaceFileContents(root, 'hit', {
+      reader: {
+        listDirectory: async (relativePath) => {
+          listed.push(relativePath)
+          return readdir(join(root, relativePath), { withFileTypes: true })
+        },
+        readFile: async (relativePath) => {
+          read.push(relativePath)
+          // ディスクの中身ではなく reader の返したものを照合する。
+          return new TextEncoder().encode('hit from reader\n')
+        }
+      }
+    })
+
+    expect(listed).toEqual(['', 'src'])
+    expect(read).toEqual(['src/a.txt'])
+    expect(outcome.status === 'ok' && outcome.files[0]?.matches[0]?.preview).toBe('hit from reader')
+  })
+
+  it('reader が null を返したフォルダには潜らず、ファイルは読まない', async () => {
+    await mkdir(join(root, 'hidden'))
+    await writeFile(join(root, 'hidden', 'a.txt'), 'hit\n')
+    await writeFile(join(root, 'b.txt'), 'hit\n')
+
+    const outcome = await searchWorkspaceFileContents(root, 'hit', {
+      reader: {
+        listDirectory: async (relativePath) => {
+          if (relativePath === 'hidden') {
+            return null
+          }
+
+          return readdir(join(root, relativePath), { withFileTypes: true })
+        },
+        readFile: async () => null
+      }
+    })
+
+    expect(pathsOf(outcome)).toEqual([])
+    expect(outcome).toMatchObject({ status: 'ok', searchedFileCount: 0 })
+  })
+
+  it('reader が投げても検索全体は止めず、その位置は読まない', async () => {
+    await writeFile(join(root, 'a.txt'), 'hit\n')
+    await writeFile(join(root, 'b.txt'), 'hit\n')
+
+    const outcome = await searchWorkspaceFileContents(root, 'hit', {
+      reader: {
+        listDirectory: async () => {
+          return readdir(root, { withFileTypes: true })
+        },
+        readFile: async (relativePath) => {
+          if (relativePath === 'a.txt') {
+            throw new Error('disk exploded')
+          }
+
+          return new TextEncoder().encode('hit\n')
+        }
+      }
+    })
+
+    expect(pathsOf(outcome)).toEqual(['b.txt'])
+  })
+
+  it('reader を渡しても、リンクは並べた時点でとばす（前段のふるい）', async () => {
+    const linked = await tryLink(outside, join(root, 'outside-link'), 'dir')
+
+    if (!linked) {
+      return
+    }
+
+    const read: string[] = []
+    const listedPaths: string[] = []
+
+    await searchWorkspaceFileContents(root, 'needle', {
+      reader: {
+        listDirectory: async (relativePath) => {
+          listedPaths.push(relativePath)
+          return readdir(join(root, relativePath), { withFileTypes: true })
+        },
+        readFile: async (relativePath) => {
+          read.push(relativePath)
+          return null
+        }
+      }
+    })
+
+    expect(listedPaths).toEqual([''])
+    expect(read).toEqual([])
   })
 })
 

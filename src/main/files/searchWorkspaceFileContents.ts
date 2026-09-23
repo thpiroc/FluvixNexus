@@ -1,3 +1,4 @@
+import type { Dirent } from 'fs'
 import { readFile, readdir, realpath, stat } from 'fs/promises'
 import { join } from 'path'
 import {
@@ -56,6 +57,12 @@ import { normalizeSearchQuery } from './searchQuery'
  * のと同じ線で、こちらは**そもそも読まない**方に倒す
  * （リンクの中へ潜らないのは名前の検索と同じ）。
  *
+ * ただしこの判定は readdir した**時点**のもので、その後にパスで読む間に途中の
+ * フォルダ・root・ファイルを外へのリンクへ差し替えられると、外の中身を読みうる。
+ * FN Agent の検索はこれを許さないため、`reader` で確かめたハンドル越しの読み取りへ
+ * 差し替える（Security Core v1 の STEP9.1。DESIGN.md §6.4）。Files パネルの検索は
+ * 人が自分のフォルダを探す操作で、STEP9.1 では変えていない（既知の残存リスク）。
+ *
  * ## 読まないもの
  *
  * | 対象                       | 理由                                                     |
@@ -102,6 +109,37 @@ export interface WorkspaceContentSearchOptions {
    * （人が自分のフォルダを探す操作で、これまでどおり）。判定が例外を投げたら読まない側に倒す。
    */
   readonly excludePath?: (relativePath: string) => boolean
+  /**
+   * フォルダを並べる・ファイルを読むのを、呼び出し側の確かめた読み取りへ差し替える。
+   *
+   * FN Agent の検索（Security Core v1 の STEP9.1。main/security/readTools/）が、
+   * **確かめてから読むまでの間の差し替え**（TOCTOU）で Workspace の外の中身を読まないために
+   * 使う。渡したときは、この層はパスで readdir / stat / readFile をしない ── 走査の順・除外・
+   * 上限・照合だけを受け持ち、ディスクに触るのはすべて `reader` になる（大きさの上限も
+   * `reader` 側が見る。`maxFileBytes` は効かない）。
+   *
+   * Files パネルの検索は渡さない（これまでどおりパスで読む）。
+   */
+  readonly reader?: WorkspaceContentSearchReader
+}
+
+/** 並べた1件（readdir の Dirent が満たす形）。 */
+export type WorkspaceContentSearchEntry = Pick<
+  Dirent,
+  'name' | 'isDirectory' | 'isFile' | 'isSymbolicLink'
+>
+
+/** 走査の読み取りの差し替え（`WorkspaceContentSearchOptions.reader`）。 */
+export interface WorkspaceContentSearchReader {
+  /**
+   * Workspace 相対のフォルダ（root は空文字）の中を並べる。
+   * `null` なら、そのフォルダの中は見ない（潜らない・読まない）。
+   */
+  readonly listDirectory: (
+    relativePath: string
+  ) => Promise<readonly WorkspaceContentSearchEntry[] | null>
+  /** Workspace 相対のファイルの中身。`null` なら読まない（とばす）。 */
+  readonly readFile: (relativePath: string) => Promise<Uint8Array | null>
 }
 
 export type SearchWorkspaceFileContentsOutcome =
@@ -193,6 +231,45 @@ function isExcluded(
   }
 }
 
+/**
+ * パスで読む（Files パネルの検索）。読めない・大きすぎる・ファイルでないなら `null`。
+ *
+ * 大きさを先に見る。読んでから捨てるのでは、読む時点で費用が発生する
+ * （readWorkspaceFile.ts と同じ順序）。
+ */
+async function readByPath(absolutePath: string, maxFileBytes: number): Promise<Buffer | null> {
+  try {
+    const stats = await stat(absolutePath)
+
+    if (!stats.isFile() || stats.size > maxFileBytes) {
+      return null
+    }
+  } catch {
+    // 見ている間に消えた・権限が無い。1件のために検索を止めない。
+    return null
+  }
+
+  try {
+    return await readFile(absolutePath)
+  } catch {
+    return null
+  }
+}
+
+/** 差し替えた読み取りで読む（`reader`）。投げたら読まない側に倒す。 */
+async function readThrough(
+  reader: WorkspaceContentSearchReader,
+  relativePath: string
+): Promise<Buffer | null> {
+  try {
+    const bytes = await reader.readFile(relativePath)
+
+    return bytes === null ? null : Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  } catch {
+    return null
+  }
+}
+
 /** 名前順（同じフォルダの中で、読みに行く順を決める）。 */
 const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
 
@@ -280,9 +357,18 @@ export async function searchWorkspaceFileContents(
     // 幅優先。浅い場所ほど先に読むため、打ち切っても身近な場所から結果が出る。
     const directory = queue.shift() as PendingDirectory
 
-    let dirents
+    let dirents: readonly WorkspaceContentSearchEntry[]
     try {
-      dirents = await readdir(directory.absolutePath, { withFileTypes: true })
+      const listed =
+        options.reader === undefined
+          ? await readdir(directory.absolutePath, { withFileTypes: true })
+          : await options.reader.listDirectory(directory.relativePath)
+
+      if (listed === null) {
+        continue
+      }
+
+      dirents = listed
     } catch {
       // 1つのフォルダが読めないこと（消えた・権限が無い）で検索全体を止めない。
       continue
@@ -384,34 +470,12 @@ export async function searchWorkspaceFileContents(
         break
       }
 
-      /*
-        大きさを先に見る。読んでから捨てるのでは、読む時点で費用が発生する
-        （readWorkspaceFile.ts と同じ順序）。
-      */
-      let byteLength: number
+      const bytes =
+        options.reader === undefined
+          ? await readByPath(file.absolutePath, maxFileBytes)
+          : await readThrough(options.reader, file.relativePath)
 
-      try {
-        const stats = await stat(file.absolutePath)
-
-        if (!stats.isFile()) {
-          continue
-        }
-
-        byteLength = stats.size
-      } catch {
-        // 見ている間に消えた・権限が無い。1件のために検索を止めない。
-        continue
-      }
-
-      if (byteLength > maxFileBytes) {
-        continue
-      }
-
-      let bytes: Buffer
-
-      try {
-        bytes = await readFile(file.absolutePath)
-      } catch {
+      if (bytes === null) {
         continue
       }
 

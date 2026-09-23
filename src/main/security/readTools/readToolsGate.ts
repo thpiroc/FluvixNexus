@@ -2,7 +2,8 @@ import type { GitRepositoryState } from '@shared/git'
 import { isAgentPermissionMode, type AgentPermissionMode } from '@shared/security'
 import type {
   SearchWorkspaceFileContentsOutcome,
-  WorkspaceContentSearchOptions
+  WorkspaceContentSearchOptions,
+  WorkspaceContentSearchReader
 } from '../../files/searchWorkspaceFileContents'
 import type { ReadWorkspaceDirectoryOutcome } from '../../files/readWorkspaceDirectory'
 import type { AuditEvent, AuditReason } from '../audit/auditEvent'
@@ -24,7 +25,7 @@ import { agentFileReadFacts, isSecretWorkspaceTarget } from '../secret/secretFil
 import { maskSecretText, redactSecretText, SECRET_MASK } from '../secret/secretMasking'
 import { classifySecretPath } from '../secret/secretPaths'
 import { readToolDeniedEvent, type ReadToolName } from './readToolsAudit'
-import type { ReadFileBytesResult } from './readToolsIo'
+import type { PinnedDirectoryListing, PinnedTargetResult, ReadFileBytesResult } from './readToolsIo'
 
 /**
  * FN Agent の読み取り系 Tool の Gate（Security Core v1 の STEP9。Electron にも fs にも
@@ -39,7 +40,9 @@ import type { ReadFileBytesResult } from './readToolsIo'
  *                     （workspaceFileContext。External Send Gate がもう一度判定する）
  * workspace_list    Boundary → Secret の置き場所でない → Policy → 1階層だけ
  *                   → Secret ファイルは「ある」とだけ示す（中身は読まない）
- * file_search       Secret ファイルは開きもしない → 一致した行は Mask して返す
+ * file_search       root を固定 → 各フォルダ・ファイルを Boundary で確かめ直す
+ *                   → Secret ファイルは開きもしない → 確かめたハンドル越しに読む
+ *                   → 一致した行は Mask して返す（STEP9.1。下の「file_search の TOCTOU」）
  * workspace_status  Workspace 名（絶対パスは出さない）・Permission・Git の状態・
  *                   変更ファイルの相対パス（Git diff は後続の Read Tool。STEP11 候補）
  * ```
@@ -53,6 +56,26 @@ import type { ReadFileBytesResult } from './readToolsIo'
  * ## Audit は拒否だけ
  *
  * 許可した読み取りは記録しない（readToolsAudit.ts）。
+ *
+ * ## file_search の TOCTOU（STEP9.1）
+ *
+ * STEP9 の file_search は、走査で見つけた位置を**パスで**読んでいた。readdir で
+ * リンクでないと見た後、読むまでの間に途中のフォルダ・root・ファイルを外へのリンクへ
+ * 差し替えられると、Workspace の外の中身が preview に載った。STEP9.1 からは、
+ * file_read と同じ確かめた読み取り（readToolsIo.ts）だけで読む。
+ *
+ * ```
+ * 始め        Boundary で root を確かめ、その実体・identity を固定する
+ * フォルダ    潜る前に固定した root の下で確かめ直す → realPath を並べる → recheck
+ * ファイル    確かめ直す → Policy（file.read。Secret ファイル）→ open → confirm → 読む
+ * 終わり      root がまだ固定値か
+ * ```
+ *
+ * - **位置1件を確かめられない**（消えた・権限が無い・差し替えられた・リンクを通る・
+ *   外を指す・ループ・種別が違う・identity が違う）→ **読まずにとばし**、数だけ返す
+ *   （`unverifiedExcludedCount`）。中身は1バイトも読まない。
+ * - **root 自体が変わった / 確かめられない** → それまでの結果も捨てて、検索全体を
+ *   `target-changed` で deny する。
  */
 
 /** 1回の file_read で返す行の上限。 */
@@ -117,6 +140,11 @@ export type WorkspaceSearchOutcome =
       readonly truncated: boolean
       /** Secret ファイルを検索の対象から外したか（外した位置は数えない）。 */
       readonly secretFilesSkipped: true
+      /**
+       * 変わった・安全を確かめられなかったため、読まずに検索の対象から外したフォルダ・
+       * ファイルの数（位置も理由も返さない）。
+       */
+      readonly unverifiedExcludedCount: number
     }
   | { readonly ok: false; readonly reason: AuditReason }
 
@@ -156,6 +184,19 @@ export interface ReadToolsDependencies {
     rootPath: string,
     relativePath: string
   ) => Promise<ReadWorkspaceDirectoryOutcome>
+  /** 固定した root の下の位置を確かめ直す（readToolsIo.ts。file_search）。 */
+  readonly resolvePinnedTarget: (
+    root: VerifiedWorkspaceTarget,
+    relativePath: string,
+    kind: 'file' | 'directory'
+  ) => Promise<PinnedTargetResult>
+  /** 固定した root の下のフォルダを、確かめてから並べる（readToolsIo.ts。file_search）。 */
+  readonly listPinnedDirectory: (
+    root: VerifiedWorkspaceTarget,
+    relativePath: string
+  ) => Promise<PinnedDirectoryListing>
+  /** 固定した root が今も同じか（readToolsIo.ts。file_search）。 */
+  readonly confirmPinnedRoot: (root: VerifiedWorkspaceTarget) => Promise<boolean>
   /** 中身で探す（main/files/searchWorkspaceFileContents.ts）。 */
   readonly searchContents: (
     rootPath: string,
@@ -358,7 +399,8 @@ export function createReadToolsGate(deps: ReadToolsDependencies): ReadToolsGate 
   }
 
   async function searchChecked(query: unknown): Promise<WorkspaceSearchOutcome> {
-    const mode = readPolicy(deps).permissionMode
+    const policy = readPolicy(deps)
+    const mode = policy.permissionMode
 
     if (
       typeof query !== 'string' ||
@@ -375,18 +417,118 @@ export function createReadToolsGate(deps: ReadToolsDependencies): ReadToolsGate 
       return deny('file_search', resolved.denial, null, mode)
     }
 
+    // この root（実体・identity）を検索の間ずっと固定する。
     const root = resolved.target
 
-    if (!isVerifiedWorkspaceTarget(root) || root.state.kind !== 'directory') {
+    if (
+      !isVerifiedWorkspaceTarget(root) ||
+      root.access !== 'read' ||
+      root.state.kind !== 'directory' ||
+      root.canonicalRelativePath !== ''
+    ) {
       return deny('file_search', 'invalid-request', null, mode)
     }
 
-    const searched = await deps.searchContents(root.rootPath, query, {
+    /** root が変わったと分かったら立てる。走査も止める（cancellation）。 */
+    let rootChanged = false
+    let unverifiedExcludedCount = 0
+    const cancellation = { cancelled: false }
+
+    const noteFailure = (failure: { readonly rootChanged: boolean }): null => {
+      if (failure.rootChanged) {
+        rootChanged = true
+        cancellation.cancelled = true
+      } else {
+        unverifiedExcludedCount += 1
+      }
+
+      return null
+    }
+
+    /** 例外は「その位置を確かめられなかった」。root も確かめられなければ root の変化。 */
+    const noteThrown = async (): Promise<null> => {
+      let rootSame = false
+
+      try {
+        rootSame = await deps.confirmPinnedRoot(root)
+      } catch {
+        rootSame = false
+      }
+
+      return noteFailure({ rootChanged: !rootSame })
+    }
+
+    const readFileChecked = async (relativePath: string): Promise<Uint8Array | null> => {
+      const pinned = await deps.resolvePinnedTarget(root, relativePath, 'file')
+
+      if (!pinned.ok) {
+        return noteFailure(pinned)
+      }
+
+      // 開く前に file_read と同じ判定を通す（Secret ファイル・Workspace の外）。
+      const decision = decideSecurityAction(policy, {
+        kind: 'file.read',
+        target: agentFileReadFacts(pinned.target)
+      })
+
+      if (decision.verdict !== 'allow') {
+        return noteFailure({ rootChanged: false })
+      }
+
+      const read = await deps.readBytes(pinned.target)
+
+      if (read.ok) {
+        return read.bytes
+      }
+
+      // 大きすぎるものは、Files の検索と同じく黙ってとばす（安全の問題ではない）。
+      if (read.denial === 'content-too-large') {
+        return null
+      }
+
+      return noteFailure({ rootChanged: !(await deps.confirmPinnedRoot(root)) })
+    }
+
+    const reader: WorkspaceContentSearchReader = {
+      listDirectory: async (relativePath) => {
+        if (rootChanged) {
+          return null
+        }
+
+        try {
+          const listed = await deps.listPinnedDirectory(root, relativePath)
+
+          return listed.ok ? listed.entries : noteFailure(listed)
+        } catch {
+          return noteThrown()
+        }
+      },
+      readFile: async (relativePath) => {
+        if (rootChanged) {
+          return null
+        }
+
+        try {
+          return await readFileChecked(relativePath)
+        } catch {
+          return noteThrown()
+        }
+      }
+    }
+
+    const searched = await deps.searchContents(root.realRootPath, query, {
       maxMatches: READ_TOOL_MAX_SEARCH_MATCHES,
       maxMatchesPerFile: READ_TOOL_MAX_SEARCH_MATCHES_PER_FILE,
       // Secret ファイル・Secret の置き場所は、開きもしない。
-      excludePath: isSecretPath
+      excludePath: isSecretPath,
+      reader,
+      cancellation
     })
+
+    // root が途中で変わっていたら、それまでに集めた結果も返さない。
+    if (rootChanged || !(await deps.confirmPinnedRoot(root))) {
+      return deny('file_search', 'target-changed', null, mode)
+    }
 
     if (searched.status !== 'ok') {
       return deny(
@@ -420,7 +562,8 @@ export function createReadToolsGate(deps: ReadToolsDependencies): ReadToolsGate 
       ok: true as const,
       matches: Object.freeze(matches.slice(0, READ_TOOL_MAX_SEARCH_MATCHES)),
       truncated: searched.truncated || matches.length > READ_TOOL_MAX_SEARCH_MATCHES,
-      secretFilesSkipped: true as const
+      secretFilesSkipped: true as const,
+      unverifiedExcludedCount
     })
   }
 

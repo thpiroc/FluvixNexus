@@ -284,6 +284,7 @@ Security Decision へ渡す「Workspace の中か」「hard link か」は、**M
 - **TOCTOU：** Boundary が保証するのは「確かめた時点で、実体が中にあり、identity（dev / ino）とリンク数がこうだった」まで。差し替えに対しては `recheckWorkspaceTarget`（操作の直前に解決し直して、root・実体・identity・リンク数を比べる）と `confirmOpenedWorkspaceFile`（開いたハンドルの identity・リンク数と、開いた後のパスの状態を比べる）を用意する。**File Write Gate（STEP7）が負うもの：** 直前の recheck → realPath を開く（新規は `wx`）→ ハンドルを confirm → 通ったときだけハンドル越しに書く、を必ずこの順で行う。既存のファイルは**切り詰めずに**開き（`r+`。`w` は開いた瞬間に中身を消すため、confirm の前に外のファイルを壊しうる）、切り詰めは confirm の後にハンドルで行う。
   - **残る TOCTOU：** Node はディレクトリのハンドルを基点に開けない（openat / O_NOFOLLOW が無い）ため、Boundary の確認だけでは、**開く瞬間に途中のフォルダを外へのリンクへ差し替えられると、外に空のファイルができる**ことまでは閉じられない（中身は書かない。confirm が false になる）。
   - **これは v1 の既知のリスクとして受け入れない（2026-09-23 決定）。** STEP7 は recheck → open → confirm → ハンドル越しの書き込みを基本とし、**Workspace の外への空ファイルの作成を含め、安全性を保証できない書き込みの形は拒否する。** 保証の仕方（新規作成の扱いを含む）は STEP7 で決める。STEP2 ではこのために native 実装などを足さない。
+  - **読み取りも同じ形で読む（STEP9 / STEP9.1）：** `file_read`（STEP9）と `file_search`（STEP9.1）は、Boundary が確かめた対象を open → `confirmOpenedWorkspaceFile` → ハンドル越しに読む。confirm は**読む前**なので、開いた瞬間に外の実体を掴んでも中身は1バイトも読まない。Boundary は事実を返すだけで、root の固定・とばす / 全体 deny の判断は Read Tool 側（`readTools/readToolsIo.ts` と Gate）が持つ。詳細は下の「Read Tool の TOCTOU 対策」。
 
 #### Secret Detection / Masking（Security Core v1 の STEP3。2026-09-23）
 
@@ -561,7 +562,7 @@ STEP1〜8 の Security Core を、FN Agent が**安全な順番で使う**ため
   - `file_read` … Boundary（読み取り）→ Secret ファイル → Policy（`file.read`）→ 確かめたハンドル越しに読む（`confirmOpenedWorkspaceFile`）→ `workspaceFileContext(target, bytes, range)`。1回 400 行・60,000 文字まで。
   - **範囲の指定は `workspaceFileContext` 側で扱う（2026-09-23 確定）：** Secret は**ファイル全体で探し、行ごとに伏せてから**範囲を切り出す（STEP7 の `maskSecretLines`）。切り出してから伏せると、Private Key の BEGIN が範囲の外にあるとき鍵の本体の行が素通りする。切り出した後も `workspace-file` と Boundary の `source` を持ったまま External Send Gate へ届き、Gate が Secret ファイルかを**もう一度**判定し、本文も**もう一度**伏せる。
   - `workspace_list` … 1階層・300 件まで。Secret ファイル・Secret の置き場所（`.ssh` など。STEP8 の作業ディレクトリと同じ読み方）には印を付け、**その中は一覧も返さない。**
-  - `file_search` … Files の全文検索に `excludePath` を足し、**Secret ファイル・置き場所は開きもしない。** 一致した行は `maskSecretText` を通し、Base64 だけでできた長い行（鍵の本体の形）はそれだけで伏せる。100 件まで。Files パネルの検索は変えていない。
+  - `file_search` … Files の全文検索に `excludePath` を足し、**Secret ファイル・置き場所は開きもしない。** 一致した行は `maskSecretText` を通し、Base64 だけでできた長い行（鍵の本体の形）はそれだけで伏せる。100 件まで。Files パネルの検索は変えていない。**STEP9.1 から、各ファイルは `file_read` と同じ確かめた読み取り（Boundary → open → confirm → ハンドル越しに読む）でだけ読む**（下の「Read Tool の TOCTOU 対策」。STEP9 時点ではパスで読んでいた）。
   - `workspace_status` … Workspace の表示名（**絶対パスは出さない**）・Permission・Git Repository か・branch 名・変更ファイルの相対パス（200 件まで）。**Git diff は返さない**（後続の Git Read Tool。STEP11 候補）。
   - Audit は**拒否だけ**（`file-read.denied`）。許可した読み取りまで残すと Audit Log が読み取りの履歴で埋まるため。
 - **Context / Token Budget（`agentContext.ts`。FN Engine v1 の最小版）：** Tool の結果を無条件に全部 AI へ送らない。
@@ -582,7 +583,53 @@ STEP1〜8 の Security Core を、FN Agent が**安全な順番で使う**ため
   - 続いて `node fn-agent-e2e.mjs` の実行が提案され、STEP8 の確認画面 → 続ける → Native Dialog → 許可する → **終了コード 0・出力 `FN Agent E2E: OK`**
   - Tool の結果が Agent へ返り、Agent は「End-to-End の確認を終えました」として `complete` で正常に終わった（最終回答がパネルに出た）
   - 取り消し / 「許可しない」・停止・Loop 上限・`.env`・壊れた出力・Read・共有ロックの Fail Closed は、今回の実機確認の報告には含まれていない（`agentLoop.integration.test.ts` / `agentLoop.test.ts` ほかの自動テストで確かめている）
+- **STEP9 / STEP9.1 実機 E2E 確認（2026-09-23）：** STEP9.1（下の「Read Tool の TOCTOU 対策」）を含む作業ツリーの開発ビルドで、もう一度 End-to-End を通した。**STEP9（Agent Loop）と STEP9.1（`file_search` の TOCTOU 対策）はこれをもって完了**（利用者が判定）。
+  - 環境：開発ビルド・Scripted Provider・Workspace `FN-Security-Test`
+  - 流れ：Read 系（`workspace_status` → `workspace_list` → `file_search`）→ `fn-agent-e2e.mjs` の作成・変更を提案 → FN の承認画面 → 許可する → 作成・変更されたことを確認 → `node fn-agent-e2e.mjs` を提案 → コマンドの承認画面 → 許可する → **終了コード 0・出力 `FN Agent E2E: OK`** → Agent 画面に「End-to-End の確認を終えました」→ 正常に完了
+  - Loop：**7 / 20 回**で完了（Provider の呼び出し 7 回 = Scripted Provider の E2E の手順どおり。上限に達することなく `complete`）
+  - STEP9.1 の `file_search`（確かめた読み取り）が、E2E の中で通常どおり動くことを確かめた
+  - 実機では確かめていないもの（自動テスト・実測で完了扱いとした。利用者が判定）：拒否・停止・Loop 上限・Secret・壊れた出力・共有ロックの Fail Closed、**Workspace の外を指すジャンクションを置いた状態での検索**（`readToolsGate.test.ts` が case1 / case2 を確定的に確かめている）、**検索の体感速度**（実測は約 1 秒 / 1,085 ファイル）
+  - 既知事項：`agentLoop.integration.test.ts` の承認待ちのテストが、フルの test の負荷の下でだけ、ときどき 30 秒でタイムアウトする（flaky）。STEP9.1 の前の `27dde83` でも再現し、単独では通る ── 製品の不具合ではなくテストの問題。**STEP10 の前に別の作業として直す**
 - **STEP9 で作らないもの：** 実 Provider・Credential Store（STEP10）・Git Read Tool・MCP Read Gateway（STEP11 候補）・Security Settings UI の仕上げ（Closing STEP）・Session / Queue / Token 料金表示 / Model クラス（Security Core v1 の後）。STEP7 / STEP8 の開発用の足場は、STEP9 の実機 End-to-End の確認が済むまで残す。
+
+#### Read Tool の TOCTOU 対策（Security Core v1 の STEP9.1。2026-09-23）
+
+- **STEP9 時点で存在したリスク：** `file_search` は Files の全文検索（`searchWorkspaceFileContents`）をそのまま使い、Boundary で確かめていたのは**Workspace root だけ**だった。各ファイルは、readdir の Dirent で「リンクでない」と見た後に**パスで** `stat` → `readFile` しており（どちらもリンクを辿る）、その間の差し替えに無防備だった。STEP9.1 の調査で、Windows のジャンクション（管理者権限なし）で次の2つを実際に再現した。
+  - **case1（dirent 判定後の差し替え）：** root を並べて `sub` はフォルダだと見た後、`sub` を外のフォルダへのジャンクションに差し替えると、`sub/z.txt` として**外のファイルの行が preview に載った。**
+  - **case2（Workspace root の差し替え）：** 走査の途中で root 自体を外へのジャンクションに差し替えると、root 直下のファイルとして**外の中身が読まれた。**
+  - preview は Secret Mask を通っていたが、**「Mask されるから許容する」ではなく、Workspace の外はそもそも読まない**ことを目的に直した（Secret の形をしていない外の中身は Mask では伏せられず、Provider へ届きうる）。
+- **STEP9.1 の対策：** `file_search` の読み取りを **`file_read` と同じ確かめた読み取り**へ統一した。走査の順・除外・上限・照合は Files の全文検索と共有したまま、ディスクに触る部分だけを差し替える（`searchWorkspaceFileContents` の任意の `reader`。**Files パネルは渡さないので挙動は変わらない**）。
+  ```
+  始め        Boundary で Workspace root を確かめ、実体（realRootPath）と identity（dev / ino）を固定する
+  フォルダ    潜る前に、固定した root の下で Boundary で確かめ直す（中・リンクを通らない・ディレクトリ）
+              → 確かめた実体の場所（realPath）を readdir → もう一度 recheck（変わっていれば一覧を捨てる）
+  ファイル    固定した root の下で Boundary で確かめ直す（中・リンクを通らない・ファイル）
+              → Policy（file.read。Secret ファイル）→ open → confirmOpenedWorkspaceFile → ハンドル越しに読む
+  終わり      root がまだ固定値か
+  ```
+  - readdir の Dirent によるリンクの判定は**前段のふるい**として残した（走査の前からあるリンクは、確かめ直す前に落ちる）。**外のフォルダの木を並べてから弾く構造にはしない** ── 潜る前に確かめ、並べた後にも確かめる。
+  - 共通化の置き場所は `readTools/readToolsIo.ts`（`resolvePinnedWorkspaceTarget` / `listPinnedWorkspaceDirectory` / `confirmPinnedWorkspaceRoot` と既存の `readVerifiedFileBytes`）。**Main が Workspace のファイルを fs で読む Read Tool の共通の I/O 入口**で、Boundary には Policy を混ぜない（Boundary は事実を返す側のまま）。Git Read Tool（git のプロセスが読む）・MCP Read Gateway（MCP サーバーが読む）は Trust Boundary が異なるため、この仕組みには入れない。
+- **Fail Closed（位置1件はとばす / root の変化は全体 deny）：**
+
+  | 状況                                                                            | 動作                                                                                                                      |
+  | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+  | 位置1件が消えた・権限が無い・realpath / lstat が失敗・symlink のループ（ELOOP） | **読まずにとばす**。数える                                                                                                |
+  | 位置1件が外を指す・途中にリンクを通る（`aliased`）・種別が違う                  | 読まずにとばす。数える                                                                                                    |
+  | 確かめてから開くまでに差し替えられた（identity 不一致・親が外）                 | confirm で落ちる。**中身は読む前に閉じる**。数える                                                                        |
+  | 並べた後の recheck でフォルダが変わっていた                                     | 並べた一覧を捨てる（中へ潜らない）。数える                                                                                |
+  | ジャンクション / reparse point の判定ができない                                 | lstat / realpath が失敗 → 読まない                                                                                        |
+  | 大きすぎる（2 MiB 超）・バイナリ                                                | 黙ってとばす（安全の問題ではないので数えない。Files と同じ）                                                              |
+  | **Workspace root 自体が変わった・確かめられない**（途中・終わり）               | **それまでの結果も捨てて、検索全体を `target-changed` で deny**（Audit `file-read.denied`。AuditReason は追加していない） |
+  - とばした数は結果の `unverifiedExcludedCount` に持つ。Agent へは**位置も理由も含まない短い note だけ**を足す（`some files were excluded from the search because they changed or could not be verified as safe`）。検索全体の deny は既存の `target-changed`（読み直しを促す扱い）で返る。
+
+- **保証する範囲：** `file_search` が Agent へ返す行は、(1) 固定した Workspace root の下で、(2) Boundary がリンクを通らない Workspace の中の実体として確かめ、(3) **開いたハンドルが確かめた実体そのもの**（identity・パスの状態・親の実体）であると確認できたファイルから、ハンドル越しに読んだものだけ。走査の前から置かれたリンク、dirent 判定後の差し替え（case1）、root の差し替え（case2）、確かめてから開くまでの差し替えは、どれも外の中身を読まない（自動テストで確定的に確かめている）。
+- **保証しない範囲（v1 の残存リスクとして受け入れる。2026-09-23 決定）：** Node / Electron だけでは、ディレクトリのハンドルを基点に開く手段（openat / `O_NOFOLLOW`・Windows の `NtCreateFile` の RootDirectory・`GetFinalPathNameByHandle`）が無い。そのため、**確かめの各システムコールの間ごとに状態を交互に差し替える**極端な競合（realpath の瞬間は中・lstat と open の瞬間は外・確認の lstat は外・親の realpath の瞬間は中、のように合わせる）は、原理的に 0 にできない。成立させるには、同じ利用者の権限で動く別のプロセスが、1回の検索の中で複数のシステムコールの隙間を狙って差し替え続ける必要がある。**これは Mask を理由に許容しているのではない**（Mask は別の層の防御で、外の中身を読まない保証の代わりにはしない）。native による根本対策は **v2 の候補**。
+- **性能：** 1ファイルあたり Boundary の解決・open・confirm が増える。調査時の実測では、1,086 ファイルで約 0.22 秒 → 約 0.82 秒（約 3.7 倍）。上限の 2,000 ファイルでも時間の上限 6 秒に収まる見込み。Files パネルの検索は変わらない。
+- **自動テスト：** `readToolsGate.test.ts`（本物の Boundary・一時フォルダ。依存を包んで**決まった瞬間に**差し替え、case1 / case2 / resolve と open の間の差し替え・消えたファイル・例外を確かめる。外の文字列が preview にも Agent の Context（`runAgentTool` の結果）にも出ないこと）、`readToolsIo.test.ts`（root の固定・`aliased`・identity 不一致・フォルダを並べる前の確認）、`searchWorkspaceFileContents.test.ts`（`reader` を渡したときの走査。渡さないときは既存テストが回帰）。フォルダのリンクは Windows ではジャンクション（権限不要）、それ以外では symlink を使う。**ファイルの symlink は、作れない環境（開発者モードでない Windows）では作らずに確かめる / skip する**（macOS では動く）。時間に頼る stress test は入れていない。
+- **STEP9.1 で変えていないもの（既知のリスクとして持ち越し）：**
+  - **Files パネルの全文検索・名前検索**にも同じ種類の競合の余地がある（STEP 3 の「プロジェクト全体検索」の節に注記した）。人の UI で Agent の経路ではないため、STEP9.1 では変えていない。
+  - **`workspace_list`** は `readWorkspaceDirectory` が realpath で確かめてからパスで readdir するため、その間にフォルダを外へのリンクへ差し替えられると、**Workspace の外のファイル名・フォルダ名**が Agent へ渡りうる（中身は渡らない。名前は `redactSecretText` を通る）。後続で `file_search` と同じ「並べた後の recheck」を当てるか判断する。
+  - FIFO などへの差し替えで open が戻らない可能性（`O_NONBLOCK` による対策）、OneDrive などの reparse point（libuv の readdir がリンクとして扱い、検索から外れている可能性）の挙動、native による根本対策、Git Read Tool / MCP Read Gateway の読み取りの境界。
 
 ### 6.5 v1 に含めないもの
 
@@ -890,6 +937,8 @@ Session 3-6-4 では **プロジェクト全体検索の基盤とファイル名
 **走査は Main が持つ。** Renderer から列挙（`files:read-directory`）を繰り返して自前で再帰する形にしなかったのは、そうすると Lazy Load のために1階層ずつにした経路が、検索という別の目的で全階層を舐める経路に化けるため。Renderer が言えるのは検索語までで、返るのも相対位置を持つ `FileEntry` だけになる（絶対パスは相変わらず持たない）。
 
 **Workspace の外へは出ない。** 起点は realpath まで解決した root ひとつで、そこから先は readdir が返した名前を継ぎ足して降りるだけ ── 外から相対位置を受け取らないため、検証すべき入力そのものが無い形にしてある。リンク（symlink / ジャンクション）の中へは潜らない（コピーが辿らないのと同じ線）。リンクそのものは、そこに在るものとして1件出す。
+
+> **既知の残存リスク（Security Core v1 の STEP9.1 で確認・未対応）：** 上の「外へは出ない」は、**走査の間にディスクが差し替えられない**ことを前提にしている。readdir で「リンクでない」と見た後に、途中のフォルダや Workspace root そのものを外へのリンク（Windows では権限なしで作れるジャンクション）へ差し替えられると、名前の検索・全文検索のどちらも、パスで辿った先の**外の名前・中身**を Files パネルへ出しうる。FN Agent の `file_search` はこれを STEP9.1 で塞いだが（§6.4「Read Tool の TOCTOU 対策」）、**Files パネルの検索は人が自分のフォルダを探す操作で、STEP9.1 では変えていない**。対策の要否は後続で判断する。
 
 **無制限に列挙しない。** 件数（500）・深さ（12 段）・走査数（50,000 件）・時間（4 秒）の4つで打ち切る。件数だけでは足りない ── 一致が0件でも数十万件を舐めうるため、走査数と時間は「見つからないときのため」の上限にあたる。打ち切りは失敗ではなく「ここまでしか見ていない」という事実として、理由ごとに違う文言で伝える。`.git` / `node_modules` を外す規則は**外部変更の監視と共有した**（2箇所に書くと、`.git` の中の変更は届かないのに検索結果には出る、という食い違いが生まれる）。
 

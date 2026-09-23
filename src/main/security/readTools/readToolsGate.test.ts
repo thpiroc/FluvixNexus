@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'fs/promises'
+import { mkdir, mkdtemp, realpath, rename, rm, symlink, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -6,6 +6,7 @@ import type { GitRepositoryState } from '@shared/git'
 import type { AgentPermissionMode } from '@shared/security'
 import { readWorkspaceDirectory } from '../../files/readWorkspaceDirectory'
 import { searchWorkspaceFileContents } from '../../files/searchWorkspaceFileContents'
+import { runAgentTool, type AgentToolbox } from '../../agent/agentTools'
 import { isWindows } from '../../platform'
 import type { AuditEvent } from '../audit/auditEvent'
 import { resolveWorkspaceTarget } from '../boundary/workspaceBoundary'
@@ -17,7 +18,12 @@ import {
   type ReadToolsDependencies,
   type ReadToolsGate
 } from './readToolsGate'
-import { readVerifiedFileBytes } from './readToolsIo'
+import {
+  confirmPinnedWorkspaceRoot,
+  listPinnedWorkspaceDirectory,
+  readVerifiedFileBytes,
+  resolvePinnedWorkspaceTarget
+} from './readToolsIo'
 
 /**
  * Read Tool Gate（Security Core v1 の STEP9）。
@@ -90,6 +96,9 @@ function gateOf(overrides: Partial<ReadToolsDependencies> = {}): ReadToolsGate {
     resolveTarget: (relativePath) => resolveWorkspaceTarget(root, relativePath, 'read'),
     readBytes: readVerifiedFileBytes,
     readDirectory: readWorkspaceDirectory,
+    resolvePinnedTarget: resolvePinnedWorkspaceTarget,
+    listPinnedDirectory: listPinnedWorkspaceDirectory,
+    confirmPinnedRoot: confirmPinnedWorkspaceRoot,
     searchContents: searchWorkspaceFileContents,
     readWorkspaceName: () => 'workspace',
     readGitRepository: async () => git,
@@ -293,6 +302,276 @@ describe('file_search', () => {
     for (const query of ['', '   ', 42, 'a'.repeat(201), null]) {
       expect(await gateOf().search(query)).toEqual({ ok: false, reason: 'invalid-request' })
     }
+  })
+
+  it('Secret ファイル・置き場所は、確かめ直し・open のどちらにも渡らない', async () => {
+    const touched: string[] = []
+    const outcome = await gateOf({
+      resolvePinnedTarget: (pinned, relativePath, kind) => {
+        touched.push(relativePath)
+        return resolvePinnedWorkspaceTarget(pinned, relativePath, kind)
+      },
+      readBytes: (target) => {
+        touched.push(target.canonicalRelativePath)
+        return readVerifiedFileBytes(target)
+      }
+    }).search('TODO')
+
+    expect(outcome).toMatchObject({ ok: true, unverifiedExcludedCount: 0 })
+    expect(touched).toContain('src/app.ts')
+    expect(touched.filter((path) => path === '.env' || path.startsWith('.ssh'))).toEqual([])
+  })
+})
+
+/**
+ * file_search の TOCTOU（Security Core v1 の STEP9.1）。
+ *
+ * STEP9 の file_search は、readdir で「リンクでない」と見た後に**パスで**読んでいたため、
+ * その間に途中のフォルダ・root を外へのリンクへ差し替えると外の中身が preview に載った
+ * （STEP9.1 の調査で、Windows のジャンクションで実際に再現した case1 / case2）。
+ *
+ * 差し替えは Gate の依存（listPinnedDirectory / readBytes）を包んで、**決まった瞬間に**
+ * 起こす（時間に頼る stress test にはしない）。確かめるのは、外の文字列が preview にも
+ * Agent の Context にも現れないこと。
+ *
+ * フォルダのリンクは Windows ではジャンクション（権限なしで作れる）、それ以外では symlink。
+ */
+describe('file_search の TOCTOU（STEP9.1）', () => {
+  const MARKER = 'OUTSIDE-WORKSPACE-MARKER'
+  let outsideDirectory: string
+
+  beforeEach(async () => {
+    outsideDirectory = join(base, 'outside-dir')
+
+    await mkdir(outsideDirectory)
+    await writeFile(join(outsideDirectory, 'z.txt'), `NEEDLE ${MARKER} z\n`)
+    await writeFile(join(outsideDirectory, 'a.txt'), `NEEDLE ${MARKER} a\n`)
+    await mkdir(join(root, 'sub'))
+    await writeFile(join(root, 'sub', 'z.txt'), 'NEEDLE inside z\n')
+    await writeFile(join(root, 'a.txt'), 'NEEDLE inside a\n')
+  })
+
+  /** フォルダのリンク（Windows はジャンクション）。 */
+  async function linkDirectory(target: string, path: string): Promise<void> {
+    await symlink(target, path, isWindows ? 'junction' : 'dir')
+  }
+
+  /** ファイルの symlink。作れない環境（開発者モードでない Windows）では false。 */
+  async function tryLinkFile(target: string, path: string): Promise<boolean> {
+    try {
+      await symlink(target, path, 'file')
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /** Workspace の中のフォルダを、外のフォルダへのリンクに差し替える。 */
+  async function swapToOutside(relativePath: string): Promise<void> {
+    await rename(join(root, relativePath), join(base, `moved-${relativePath}`))
+    await linkDirectory(outsideDirectory, join(root, relativePath))
+  }
+
+  /** Agent の Context へ入る形（agentTools.ts が Context Manager へ渡すもの）。 */
+  async function contextOf(gate: ReadToolsGate, query: string): Promise<string> {
+    const result = await runAgentTool({ search: gate.search } as unknown as AgentToolbox, {
+      type: 'file_search',
+      query
+    })
+
+    return JSON.stringify(result.context)
+  }
+
+  function previewsOf(outcome: Awaited<ReturnType<ReadToolsGate['search']>>): string {
+    return outcome.ok ? outcome.matches.map((match) => match.preview).join('\n') : ''
+  }
+
+  it('差し替えが無ければ、中の一致を返し、外したものは 0 件', async () => {
+    const outcome = await gateOf().search('NEEDLE')
+
+    expect(outcome).toMatchObject({ ok: true, unverifiedExcludedCount: 0 })
+    expect(outcome.ok && outcome.matches.map((match) => match.relativePath)).toEqual([
+      'a.txt',
+      'sub/z.txt'
+    ])
+    expect(await contextOf(gateOf(), 'NEEDLE')).not.toContain('could not be verified')
+  })
+
+  it('Workspace の中を指すリンクの先は検索しない（重複して読まない）', async () => {
+    await linkDirectory(join(root, 'sub'), join(root, 'sub-link'))
+    // ファイルの symlink は、作れない環境では作らずに確かめる（Windows の既定）。
+    await tryLinkFile(join(root, 'a.txt'), join(root, 'a-link.txt'))
+
+    const outcome = await gateOf().search('NEEDLE')
+    const paths = outcome.ok ? outcome.matches.map((match) => match.relativePath) : []
+
+    expect(paths).toEqual(['a.txt', 'sub/z.txt'])
+    expect(paths.some((path) => path.startsWith('sub-link'))).toBe(false)
+    expect(paths.includes('a-link.txt')).toBe(false)
+    // 走査の前からあるリンクは readdir の判定で入らないので、数にも入らない。
+    expect(outcome).toMatchObject({ ok: true, unverifiedExcludedCount: 0 })
+  })
+
+  it('Workspace の外を指すリンク（フォルダ・ファイル）の中身は出ない', async () => {
+    await linkDirectory(outsideDirectory, join(root, 'ext'))
+    await tryLinkFile(join(outsideDirectory, 'z.txt'), join(root, 'ext.txt'))
+
+    const outcome = await gateOf().search('NEEDLE')
+
+    expect(outcome.ok).toBe(true)
+    expect(JSON.stringify(outcome)).not.toContain(MARKER)
+    expect(await contextOf(gateOf(), 'NEEDLE')).not.toContain(MARKER)
+  })
+
+  it('並べた後に消えたファイルは、読まずにとばして数える（検索全体は止めない）', async () => {
+    const outcome = await gateOf({
+      resolvePinnedTarget: async (pinned, relativePath, kind) => {
+        if (relativePath === 'sub/z.txt') {
+          await rm(join(root, 'sub', 'z.txt'))
+        }
+
+        return resolvePinnedWorkspaceTarget(pinned, relativePath, kind)
+      }
+    }).search('NEEDLE')
+
+    expect(outcome).toMatchObject({ ok: true, unverifiedExcludedCount: 1 })
+    expect(outcome.ok && outcome.matches.map((match) => match.relativePath)).toEqual(['a.txt'])
+  })
+
+  it('case1: dirent の判定の後で途中のフォルダを外へのリンクに差し替えても、外は読まない', async () => {
+    let swapped = false
+    const gate = gateOf({
+      listPinnedDirectory: async (pinned, relativePath) => {
+        const listed = await listPinnedWorkspaceDirectory(pinned, relativePath)
+
+        // root を並べ終えた（sub はフォルダでリンクではない、と見た）直後に差し替える。
+        if (relativePath === '' && !swapped) {
+          swapped = true
+          await swapToOutside('sub')
+        }
+
+        return listed
+      }
+    })
+    const outcome = await gate.search('NEEDLE')
+
+    expect(swapped).toBe(true)
+    expect(outcome).toMatchObject({ ok: true, unverifiedExcludedCount: 1 })
+    expect(outcome.ok && outcome.matches.map((match) => match.relativePath)).toEqual(['a.txt'])
+    expect(JSON.stringify(outcome)).not.toContain(MARKER)
+    expect(previewsOf(outcome)).not.toContain(MARKER)
+
+    swapped = false
+    expect(await contextOf(gate, 'NEEDLE')).not.toContain(MARKER)
+  })
+
+  it('case2: 検索中に Workspace root 自体を差し替えたら、結果を捨てて全体を deny', async () => {
+    let swapped = false
+    const gate = gateOf({
+      listPinnedDirectory: async (pinned, relativePath) => {
+        const listed = await listPinnedWorkspaceDirectory(pinned, relativePath)
+
+        if (relativePath === '' && !swapped) {
+          swapped = true
+          await rename(root, join(base, 'workspace-moved'))
+          await linkDirectory(outsideDirectory, root)
+        }
+
+        return listed
+      }
+    })
+    const outcome = await gate.search('NEEDLE')
+
+    expect(swapped).toBe(true)
+    expect(outcome).toEqual({ ok: false, reason: 'target-changed' })
+    expect(events.at(-1)).toMatchObject({
+      type: 'file-read.denied',
+      subject: 'file_search',
+      reason: 'target-changed'
+    })
+    expect(JSON.stringify(events)).not.toContain(MARKER)
+  })
+
+  it('case2: 差し替えた root の下では Agent の Context にも外の文字列が出ない', async () => {
+    let swapped = false
+    const gate = gateOf({
+      listPinnedDirectory: async (pinned, relativePath) => {
+        const listed = await listPinnedWorkspaceDirectory(pinned, relativePath)
+
+        if (relativePath === '' && !swapped) {
+          swapped = true
+          await rename(root, join(base, 'workspace-moved'))
+          await linkDirectory(outsideDirectory, root)
+        }
+
+        return listed
+      }
+    })
+    const context = await contextOf(gate, 'NEEDLE')
+
+    expect(swapped).toBe(true)
+    expect(context).not.toContain(MARKER)
+    expect(context).toContain('target-changed')
+  })
+
+  it('resolve と open の間で差し替えても、開いたハンドルの確認で落ち、中身は読まない', async () => {
+    const results: string[] = []
+    const gate = gateOf({
+      readBytes: async (target) => {
+        if (target.canonicalRelativePath === 'sub/z.txt') {
+          // Boundary が sub/z.txt を中の実体として確かめた後・開く前に差し替える。
+          await swapToOutside('sub')
+        }
+
+        const read = await readVerifiedFileBytes(target)
+
+        results.push(read.ok ? 'ok' : read.denial)
+        return read
+      }
+    })
+    const outcome = await gate.search('NEEDLE')
+
+    expect(results).toContain('handle-unconfirmed')
+    expect(outcome).toMatchObject({ ok: true, unverifiedExcludedCount: 1 })
+    expect(JSON.stringify(outcome)).not.toContain(MARKER)
+  })
+
+  it('確かめ直しで例外が出ても、その位置は読まない', async () => {
+    const outcome = await gateOf({
+      resolvePinnedTarget: (pinned, relativePath, kind) => {
+        if (relativePath === 'sub/z.txt') {
+          throw new Error('disk exploded')
+        }
+
+        return resolvePinnedWorkspaceTarget(pinned, relativePath, kind)
+      }
+    }).search('NEEDLE')
+
+    expect(outcome).toMatchObject({ ok: true, unverifiedExcludedCount: 1 })
+    expect(outcome.ok && outcome.matches.map((match) => match.relativePath)).toEqual(['a.txt'])
+  })
+
+  it('root を確かめられなければ、検索全体を deny', async () => {
+    expect(await gateOf({ confirmPinnedRoot: async () => false }).search('NEEDLE')).toEqual({
+      ok: false,
+      reason: 'target-changed'
+    })
+  })
+
+  it('外したものがあれば、Agent へは位置も理由も含まない短い note だけ', async () => {
+    const context = await contextOf(
+      gateOf({
+        resolvePinnedTarget: async (pinned, relativePath, kind) =>
+          relativePath === 'sub/z.txt'
+            ? { ok: false, rootChanged: false }
+            : resolvePinnedWorkspaceTarget(pinned, relativePath, kind)
+      }),
+      'NEEDLE'
+    )
+
+    expect(context).toContain('could not be verified as safe')
+    expect(context).not.toContain('sub/z.txt')
+    expect(context).not.toContain(base)
   })
 })
 

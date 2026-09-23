@@ -74,7 +74,13 @@ function fakeToolbox(overrides: Partial<AgentToolbox> = {}): AgentToolbox & { ca
     },
     search: async () => {
       calls.push('file_search')
-      return { ok: true, matches: [], truncated: false, secretFilesSkipped: true }
+      return {
+        ok: true,
+        matches: [],
+        truncated: false,
+        secretFilesSkipped: true,
+        unverifiedExcludedCount: 0
+      }
     },
     writeFile: async (path) => {
       calls.push('file_write')

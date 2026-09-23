@@ -210,7 +210,13 @@ function searchResult(query: string, outcome: WorkspaceSearchOutcome): AgentTool
         `query: ${query}`,
         'status: ok',
         `matches: ${outcome.matches.length}${outcome.truncated ? '+ (truncated)' : ''}`,
-        'note: secret files are not searched'
+        'note: secret files are not searched',
+        // 位置も理由も出さない（STEP9.1。確かめられなかったものは読んでいない）。
+        ...(outcome.unverifiedExcludedCount > 0
+          ? [
+              'note: some files were excluded from the search because they changed or could not be verified as safe'
+            ]
+          : [])
       ].join('\n'),
       detail: lines.length === 0 ? '(no matches)' : lines.join('\n'),
       key: `file_search:${query}`

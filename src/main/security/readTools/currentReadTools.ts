@@ -12,7 +12,12 @@ import {
   type WorkspaceSearchOutcome,
   type WorkspaceStatusOutcome
 } from './readToolsGate'
-import { readVerifiedFileBytes } from './readToolsIo'
+import {
+  confirmPinnedWorkspaceRoot,
+  listPinnedWorkspaceDirectory,
+  readVerifiedFileBytes,
+  resolvePinnedWorkspaceTarget
+} from './readToolsIo'
 
 /**
  * 今の Read Tool Gate（Security Core v1 の STEP9）。
@@ -31,6 +36,9 @@ const gate = createReadToolsGate({
   resolveTarget: (relativePath) => resolveAgentWorkspaceTarget(relativePath, 'read'),
   readBytes: readVerifiedFileBytes,
   readDirectory: readWorkspaceDirectory,
+  resolvePinnedTarget: resolvePinnedWorkspaceTarget,
+  listPinnedDirectory: listPinnedWorkspaceDirectory,
+  confirmPinnedRoot: confirmPinnedWorkspaceRoot,
   searchContents: searchWorkspaceFileContents,
   readWorkspaceName: () => getCurrentWorkspaceFolder()?.displayName ?? null,
   readGitRepository: async () => (await describeGitRepository()).repository

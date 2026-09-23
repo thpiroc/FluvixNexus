@@ -15,7 +15,12 @@ import { createExternalSendGate } from '../security/externalSend/externalSendGat
 import { createFileWriteGate } from '../security/fileWrite/fileWriteGate'
 import { readCurrentFile, writeConfirmedFile } from '../security/fileWrite/fileWriteIo'
 import { createReadToolsGate } from '../security/readTools/readToolsGate'
-import { readVerifiedFileBytes } from '../security/readTools/readToolsIo'
+import {
+  confirmPinnedWorkspaceRoot,
+  listPinnedWorkspaceDirectory,
+  readVerifiedFileBytes,
+  resolvePinnedWorkspaceTarget
+} from '../security/readTools/readToolsIo'
 import { createSideEffectLock } from '../security/sideEffect/sideEffectLock'
 import {
   buildTerminalLaunch,
@@ -162,6 +167,9 @@ function system() {
     resolveTarget: (path) => resolveWorkspaceTarget(root, path, 'read'),
     readBytes: readVerifiedFileBytes,
     readDirectory: readWorkspaceDirectory,
+    resolvePinnedTarget: resolvePinnedWorkspaceTarget,
+    listPinnedDirectory: listPinnedWorkspaceDirectory,
+    confirmPinnedRoot: confirmPinnedWorkspaceRoot,
     searchContents: searchWorkspaceFileContents,
     readWorkspaceName: () => 'fx-agent-e2e',
     readGitRepository: async () => ({ status: 'not-a-repository' })
