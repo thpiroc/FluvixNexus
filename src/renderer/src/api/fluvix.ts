@@ -72,5 +72,8 @@ export const fluvix: FluvixApi = {
   },
   get mcp() {
     return bridge().mcp
+  },
+  get approval() {
+    return bridge().approval
   }
 }

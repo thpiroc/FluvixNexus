@@ -1,3 +1,4 @@
+import type { ApprovalIpcContract } from './contracts/approval'
 import type { DebugIpcContract } from './contracts/debug'
 import type { FeedbackIpcContract } from './contracts/feedback'
 import type { FilesIpcContract } from './contracts/files'
@@ -50,7 +51,8 @@ export interface IpcContract
     LspIpcContract,
     DebugIpcContract,
     FeedbackIpcContract,
-    McpIpcContract {}
+    McpIpcContract,
+    ApprovalIpcContract {}
 
 /** 有効な IPC チャンネル名。契約に定義されたものだけが存在しうる。 */
 export type IpcChannel = keyof IpcContract & string

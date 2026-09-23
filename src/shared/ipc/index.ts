@@ -226,3 +226,9 @@ export type {
 } from './events/terminal'
 export type { SettingsIpcEventContract, SettingsWorkspaceChangedEvent } from './events/settings'
 export type { WindowCloseRequestedEvent, WindowIpcEventContract } from './events/window'
+export type {
+  ApprovalIntent,
+  ApprovalIpcContract,
+  RespondApprovalRequest
+} from './contracts/approval'
+export type { ApprovalIpcEventContract, ApprovalRequestedEvent } from './events/approval'

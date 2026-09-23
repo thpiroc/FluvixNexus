@@ -86,6 +86,7 @@ import type {
   ResizeTerminalRequest,
   WriteTerminalInputRequest
 } from './ipc/contracts/terminal'
+import type { RespondApprovalRequest } from './ipc/contracts/approval'
 import type { RespondWindowCloseRequest } from './ipc/contracts/window'
 import type { SaveWorkspaceLayoutRequest } from './ipc/contracts/workspace'
 
@@ -1310,6 +1311,35 @@ export interface McpApi {
 }
 
 /**
+ * FN Agent の操作の承認を扱う API（Security Core v1 の STEP6）。
+ *
+ * **Renderer は承認できない。** 公開しているのは「Main が出した確認を受け取る」
+ * ことと「利用者が続行 / 取り消しを選んだと伝える」ことの2つだけで、
+ * 承認そのものを成立させる関数も、承認を使い切る関数も無い
+ * （最終的な確認は Main が Native ダイアログで行う）。
+ *
+ * 承認を**作る**口も無い。確認は Main が Agent の要求に対して出すもので、
+ * Renderer から任意の操作について承認を求める経路は作らない。
+ */
+export interface ApprovalApi {
+  /**
+   * 承認を求められたときに呼ばれる。
+   *
+   * payload に載るのは Main が Mask して切った後の安全な要約だけで、
+   * 書き込む本文もコマンドの出力も含まれない。
+   */
+  readonly onRequested: (listener: IpcEventListener<'approval:requested'>) => IpcEventUnsubscribe
+  /**
+   * 利用者の意思表示を返す。
+   *
+   * `intent: 'continue'` は「承認した」ではなく「先へ進めたい」で、Main は
+   * これを受けてから Native の確認を出す。返さなければ、その確認は期限
+   * （5 分）で失効する。
+   */
+  readonly respond: (request: RespondApprovalRequest) => IpcInvokeResult<'approval:respond'>
+}
+
+/**
  * `window.fluvix` として Renderer に公開される API 全体。
  *
  * Files / Terminal / GitHub など OS に触れるドメイン API は、
@@ -1347,6 +1377,8 @@ export interface FluvixApi {
   readonly feedback: FeedbackApi
   /** MCP Server Manager（登録した MCP サーバー）との接続。 */
   readonly mcp: McpApi
+  /** FN Agent の操作の承認（Security Core v1 の STEP6）。 */
+  readonly approval: ApprovalApi
 }
 
 /** `window` に API を公開する際のキー。Preload と Renderer の双方から参照する。 */

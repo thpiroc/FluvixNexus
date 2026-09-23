@@ -1,3 +1,4 @@
+import type { ApprovalIpcEventContract } from './events/approval'
 import type { DebugIpcEventContract } from './events/debug'
 import type { FilesIpcEventContract } from './events/files'
 import type { GitIpcEventContract } from './events/git'
@@ -65,7 +66,8 @@ export interface IpcEventContract
     UpdatesIpcEventContract,
     LspIpcEventContract,
     DebugIpcEventContract,
-    SettingsIpcEventContract {}
+    SettingsIpcEventContract,
+    ApprovalIpcEventContract {}
 
 /** 有効な IPC イベントチャンネル名。契約に定義されたものだけが存在しうる。 */
 export type IpcEventChannel = keyof IpcEventContract & string

@@ -175,6 +175,26 @@ export type AuditReason =
   | 'unsupported-context'
   /** Gate の処理の途中で例外が出た。 */
   | 'gate-failed'
+  /** Approval Manager（STEP6）: 利用者が Main の Native 確認で承認した。 */
+  | 'user-approved'
+  /** 利用者が取り消した（Renderer の取り消し・Native の取り消し・× で閉じた）。 */
+  | 'user-cancelled'
+  /** 有効期限を過ぎていた。 */
+  | 'approval-expired'
+  /** その承認が無い（知らない id・すでに片付いた）。 */
+  | 'approval-not-found'
+  /** すでに1回使われている。 */
+  | 'approval-already-used'
+  /** その承認の今の状態では行えない（未承認のまま consume・確認中に再度続行）。 */
+  | 'approval-state-invalid'
+  /** 承認したときと、実行しようとしているものが違う。 */
+  | 'binding-mismatch'
+  /** fingerprint を作れなかった。 */
+  | 'fingerprint-failed'
+  /** Native の確認を出せなかった。 */
+  | 'dialog-failed'
+  /** 確認を出すウィンドウが無い / 失われた。 */
+  | 'window-unavailable'
 
 /**
  * 理由の一覧。
@@ -218,7 +238,18 @@ const KNOWN_REASONS: Readonly<Record<AuditReason, true>> = Object.freeze({
   'unknown-context-kind': true,
   'context-too-large': true,
   'unsupported-context': true,
-  'gate-failed': true
+  'gate-failed': true,
+  // STEP6（approval/approvalManager.ts）
+  'user-approved': true,
+  'user-cancelled': true,
+  'approval-expired': true,
+  'approval-not-found': true,
+  'approval-already-used': true,
+  'approval-state-invalid': true,
+  'binding-mismatch': true,
+  'fingerprint-failed': true,
+  'dialog-failed': true,
+  'window-unavailable': true
 })
 
 /** 知っている理由（名前順）。 */

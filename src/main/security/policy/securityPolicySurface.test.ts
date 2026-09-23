@@ -52,9 +52,11 @@ describe('公開する名前', () => {
     ])
     expect(Object.keys(sharedSecurity).sort()).toEqual([
       'AGENT_PERMISSION_MODES',
+      'APPROVAL_ACTION_KINDS',
       'DEFAULT_AGENT_PERMISSION_MODE',
       'FAIL_CLOSED_AGENT_PERMISSION_MODE',
       'isAgentPermissionMode',
+      'isApprovalActionKind',
       'normalizeAgentPermissionMode',
       'resolveAgentPermissionMode',
       'restrictSecuritySettings',
@@ -102,14 +104,24 @@ describe('公開する名前', () => {
 
 describe('Renderer から届く経路', () => {
   /*
-    STEP1 では Renderer から Security Core へ直接届く IPC は無い。Permission を変えられるのは
+    Renderer から Security Core へ直接届く IPC は、STEP6 で足した承認の2本だけ
+    （approvalSurface.test.ts が中身を固定している）。Permission を変えられるのは
     `settings:save-section`（Main が read / ask 以外を拒む）だけで、判定や Policy そのものを
-    渡す口は作らない。承認用の IPC を足す STEP（Approval Manager）でこのテストを見直す。
+    渡す口は今も無い。
   */
-  it('Security / Policy / Permission / 承認を名乗る IPC チャンネルは無い', () => {
+  it('Security / Policy / Permission を名乗る IPC チャンネルは無い', () => {
     const channels = [...Object.values(IPC_CHANNELS), ...Object.values(IPC_EVENT_CHANNELS)]
-    const pattern = /security|policy|permission|approv|agent/i
+    const pattern = /security|policy|permission|agent/i
 
     expect(channels.filter((channel) => pattern.test(channel))).toEqual([])
+  })
+
+  it('承認を名乗るチャンネルは、Main が出した確認への返事と知らせの2本だけ', () => {
+    const channels = [...Object.values(IPC_CHANNELS), ...Object.values(IPC_EVENT_CHANNELS)]
+
+    expect(channels.filter((channel) => /approv/i.test(channel)).sort()).toEqual([
+      'approval:requested',
+      'approval:respond'
+    ])
   })
 })

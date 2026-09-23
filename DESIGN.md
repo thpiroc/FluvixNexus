@@ -353,6 +353,53 @@ FN Agent / FN Engine が組み立てた Context を、**外部 AI Provider へ�
 - **迂回する API を作らない：** `externalSendUnsafe()`・`skipSecurity`・`bypassGate`・`alreadySanitized`・`trustRenderer` にあたる引数も関数も無い。Renderer から未検査の Payload を渡して「Safe Payload に変えて返す」IPC も作らない（返した時点で Renderer が検査済みの入れ物を持ち回せるため）。
 - **STEP5 で作らないもの：** 実際の Provider 統合（Adapter・Model の選択・Streaming・Credential Store）・Approval UI・通知 UI。**FN Agent 専用の Provider 送信経路は、STEP5 の時点ではまだ存在しない**（既存の外部通信は Feedback の Notion 保存と更新確認だけで、どちらも AI Provider ではなく、STEP5 では手を入れない）。将来 Provider Adapter を足すときは、この Gate から渡される Safe Payload だけを受け取る形にする。
 
+#### Main-side Approval Manager（Security Core v1 の STEP6。2026-09-23）
+
+FN Agent が**副作用のある操作**を求めたときの承認を、**Main 側が所有して決める**層（`src/main/security/approval/`）。Renderer の画面だけでは承認が成立しない形にしてある。
+
+```
+副作用のある操作の要求
+  → Security Policy（STEP1。ask のときだけ先へ）
+  → Approval Manager（pending を作る。id・fingerprint・期限）
+  → Renderer が安全な要約を見せる（第1段階）
+  → 利用者が続行を選ぶ
+  → Main の Native Dialog（第2段階）
+  → Main が承認を確定する
+  → 後続の Gate が**1回だけ**使い切る（consume）
+```
+
+- **v1 の対象は File Write と Terminal の2つだけ：** `APPROVAL_ACTION_KINDS`（`@shared/security`）が閉じた集合で持つ。**MCP の書き込み・Git の Commit / Push は対象にしない** ── どちらも Policy（STEP1）が deny にするため、承認を求めるところまで進まない。**External Send（STEP5）も承認の対象ではない**（STEP5 で確定したとおり、AI への送信ごとに承認を求める形は採らない）。承認の種類を足すことは「承認さえ通れば実行できる操作」を増やすことにあたるため、Policy 側の規則と対で見直す。
+- **Read / Ask との関係は STEP1 のまま：** Permission が `read` なら副作用のある操作は `read-only-mode` で deny になり、**承認を求めることすらできない**（pending を作らず、Renderer へ知らせも送らない）。`ask` は「自動で許可する」ではなく「**承認を求めてよい**」で、二段階を通って初めて実行できる。Workspace の外・Secret ファイル・hard link は `ask` でも承認の対象にならない（Policy が deny を返す）。
+- **Main が Source of Truth：** 承認の状態（`pending` / `confirming` / `approved` / `denied` / `consumed`）は Main の process のメモリ（`Map`）だけにある。**Renderer の Store を Security の真実にしない。ディスクへも書かない**（再起動後に復元する必要は無く、終了時にすべて消える方が安全）。Policy は Main が保存から読み直したもの、記録先は Main の Audit Log、時計は Main の `Date.now()`、確認は Main の `dialog` で、**どれも引数では差し替えられない**（差し替えられる形 `createApprovalManager` は folder の中だけにあり、入口からは公開しない）。
+- **Renderer が送れるのは意思表示まで：** `approval:respond` で送れるのは `approvalId` / `actionKind` / `intent`（`'continue'` / `'cancel'`）の3つだけ。**`approved: true` にあたる欄は契約の型にも無い。** `'continue'` が届いても状態は `confirming` にしか進まず、`approved` へ移るのは Main の Native Dialog が承認を返したときだけ。送信元の検証は既存の基盤（`main/ipc/registry.ts`）をそのまま使い、**どのウィンドウからの返事かは Renderer に言わせない**（`context.window` に対して確認を出す）。
+- **Renderer は承認を作れない・使い切れない：** 承認を作るのは Main が Agent の要求を受けたときだけで、Renderer から任意の操作について承認を求める IPC は無い。**`consumeApproval` は Preload にも IPC にも出さない**（`approvalSurface.test.ts` が Preload・Renderer・IPC handler に名前が現れていないことを見ている）。Renderer が承認を使い切れると、承認した操作を誰が実行するかを Main が決められなくなる。
+- **id は宛先であって Token ではない：** `crypto.randomUUID()`（CSPRNG・version 4）。**連番を Security Token として使わない** ── 次の id を言い当てられると、まだ利用者が見ていない承認へ先回りして続行を送れる。ただし id は Renderer へ渡る以上そこでは既知の値にあたるため、**id を知っているだけでは何もできない**形を重ねる（続行は pending にしか効かない／最終承認は Native 確認だけ／実行の直前に fingerprint の一致を確かめる）。
+- **承認はその操作1回に結び付く（binding）：** 「file.write が承認済み」という**汎用の印は作らない。** 承認したときと実行する直前の両方で、**同じ関数**から fingerprint（SHA-256 の hex）を作って突き合わせる。
+  - File Write … `file.write` ＋ **Boundary（STEP2）が発行した対象の `canonicalRelativePath`** ＋ 本文の SHA-256
+  - Terminal … `terminal.run` ＋ `command` ＋ 引数の数 ＋ 各引数 ＋ `cwd`（Workspace 相対）
+  - 材料は素につながず、1つずつ「**バイト数 ＋ 値**」にしてからつなぐ（`['a b']` と `['a', 'b']` が同じ値を名乗れないようにする）。
+  - 書き込み先は文字列で受け取らない。**Boundary が書き込みとして発行した `VerifiedWorkspaceTarget`** だけを受け取り、`{ insideWorkspace: true }` のような自己申告も、同じ形に写したものも通らない（承認の対象を決めるのが申告になれば、承認そのものが申告になる）。
+- **1回きり（single-use）：** `consume` に成功した承認はその場で失効する。**別のファイル・別のコマンド・別の action・後の操作へ使い回せない。** 取り消し・Native の取り消し・× で閉じた・ウィンドウの消失・期限切れ・状態の不一致・binding の不一致も失効にあたり、**失敗した `consume` も失効させる**（もう一度試す余地を残さない）。
+- **有効期限は 5 分（2026-09-23 正式採用）：** 期限を過ぎた承認は deny で、やり直すには承認からになる（timeout は「保留」ではなく**拒否**にあたる）。**時刻は Main の時計だけで判断する（Main が Source of Truth）** ── Renderer へ送る `expiresAt` は残り時間の表示のためだけの値で、「まだ期限内だ」と Renderer が名乗る経路は無い。Native Dialog を出している間に期限が来た場合も、**承認を確定させる直前にもう一度確かめて** deny にする。
+- **Terminal の `cwd` は Workspace 相対（2026-09-23 正式採用）：** `''` が Workspace root。**絶対パスは Renderer へも Audit へも Approval の binding へも出さない** ── 利用者の名前を含む実体の場所が、画面・Log・fingerprint のどれにも残らないようにするため。実体のパスへの解決は **Command Runner（STEP8）が Workspace Boundary（STEP2）を使って**行い、承認の時点では「Workspace のどこか」までしか確定させない。
+- **`consume` は同期（race 対策）：** 実行の直前に呼ぶ `consumeApproval` は `await` を挟まずに状態を進めるため、**同時に2回呼ばれても成功するのは1回だけ**になる（2回目は `approval-already-used` / `approval-not-found`）。同じ承認へ続行が2度届いても Native Dialog は1度しか出ない（`pending` のときだけ受け付ける）。**Approval A の確認で Approval B は承認できない** ── 続行は id で引いた承認にしか効かず、`actionKind` の名乗りが控えと違えばその承認は失効する。
+- **表示用と binding 用を分ける：** 画面・Native Dialog・Audit に出るのは、**STEP3 の Mask を通して長さで切った後の要約だけ**（File Write は Workspace 相対 Path、Terminal はコマンド名と引数を並べた1行）。**コマンドに混ざる Secret（`--token ghp_…`）を伏せた上で**、binding は Mask を通さない exact な `command` / `args` / `cwd` から作る ── 伏せ字は元の値を1つに定めないため、突き合わせには使えない。
+- **Native Dialog（第2段階）：** アプリの中のモーダルではなく `dialog.showMessageBox` を使う。**Renderer が描けない場所に最後の1歩を置く**ため。出すのは安全な要約だけで、書き込む本文も Diff 本文も引数の全文も出さない。既定（`defaultId`）も `cancelId` も**取り消し側**に置き、× で閉じた場合もそのまま拒否になる。
+- **Audit（STEP4）：** `approval.requested` / `approval.approved` / `approval.denied` を記録する。載せるのは**操作の種類・判定・理由・効いていた Permission・安全な対象名・Workspace 相対 Path** だけ。**書き込む本文・Diff 本文・コマンドの引数・コマンドの出力・fingerprint・Approval の id は載せない** ── fingerprint は「同じものか」を確かめるための値で、本文の代わりに残すものではない（**Secret を hash 化すれば保存してよい、という扱いにはしない**）。**Audit の失敗で承認の結論は変わらない**（記録は捕まえて捨てる）。
+- **理由の語彙（STEP4 へ追加）：** `user-approved` / `user-cancelled` / `approval-expired` / `approval-not-found` / `approval-already-used` / `approval-state-invalid` / `binding-mismatch` / `fingerprint-failed` / `dialog-failed` / `window-unavailable`。STEP1 / STEP2 の理由（`read-only-mode` / `secret-file` / `outside-workspace` / `hard-link-write` / `unknown-action` / `invalid-request` …）はそのまま使う。
+- **Fail closed：** Policy を読めない・要求の形が違う・知らない操作・時計を読めない・fingerprint を作れない・Renderer へ知らせられない・Native Dialog を出せない・確認が「承認」以外を返した・ウィンドウが失われた・期限切れ・状態が合わない・binding が一致しない・`consume` の競合は、**すべて deny。** 「判断できないから通す」は無く、**承認を飛ばして raw で実行する経路（fallback）も無い。**
+- **迂回する API を作らない：** `forceApprove` / `autoApprove` / `bypassApproval` / `markApproved` / `approveAll` / `preApprove` にあたる引数も関数も無い（`approvalSurface.test.ts` が公開する名前を一覧で固定している）。
+- **STEP6 で作らないもの：** File Write の実装（STEP7）・Terminal の実行本体（STEP8）・Agent Loop。STEP6 で完成させるのは**Approval Manager・pending の状態・Native 確認・consume・binding と、Renderer / STEP7 / STEP8 から安全に接続できる API** までにあたる。
+- **Renderer の承認画面は STEP7 で File Write Gate と同時に作る（2026-09-23 正式決定）：** STEP6 では**到達できない画面を先に作らない** ── 承認を発生させる側（File Write Gate / Command Runner / Agent Loop）がまだ無いため。STEP6 で完成させた **Approval IPC / Preload Surface（`approval:requested` / `approval:respond`）はそのまま維持**し、STEP7 で次の実経路をつなぐ。
+  ```
+  File Write Gate が承認を求める
+    → Renderer が Diff を見せる（第1段階）
+    → 利用者が続行を選ぶ（approval:respond / intent: 'continue'）
+    → Main の Native Dialog（第2段階）
+    → Main が approved を確定する
+    → File Write Gate が consume して1回だけ書き込む
+  ```
+
 ### 6.5 v1 に含めないもの
 
 | 項目                                               | 扱い                                                                                                   |

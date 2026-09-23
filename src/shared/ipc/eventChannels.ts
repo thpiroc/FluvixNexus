@@ -26,7 +26,8 @@ export const IPC_EVENT_CHANNELS = {
   DEBUG_CALL_STACK_CHANGED: 'debug:call-stack-changed',
   DEBUG_CONSOLE_ENTRY: 'debug:console-entry',
   DEBUG_STATUS_CHANGED: 'debug:status-changed',
-  SETTINGS_WORKSPACE_CHANGED: 'settings:workspace-changed'
+  SETTINGS_WORKSPACE_CHANGED: 'settings:workspace-changed',
+  APPROVAL_REQUESTED: 'approval:requested'
 } as const satisfies Record<string, IpcEventChannel>
 
 /**
