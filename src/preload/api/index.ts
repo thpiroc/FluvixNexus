@@ -1,4 +1,5 @@
 import type { FluvixApi } from '@shared/api'
+import { agentApi } from './agent'
 import { approvalApi } from './approval'
 import { debugApi } from './debug'
 import { envApi } from './env'
@@ -48,5 +49,6 @@ export const api: FluvixApi = {
   keybindings: keybindingsApi,
   feedback: feedbackApi,
   mcp: mcpApi,
-  approval: approvalApi
+  approval: approvalApi,
+  agent: agentApi
 }

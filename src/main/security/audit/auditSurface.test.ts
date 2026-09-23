@@ -153,6 +153,7 @@ describe('種別は閉じた集合', () => {
       'file-write.denied',
       'file-write.failed',
       'file-write.requested',
+      'file-write.succeeded',
       'mcp-tool.allowed',
       'mcp-tool.denied',
       'mcp-tool.failed',
@@ -180,6 +181,11 @@ describe('種別は閉じた集合', () => {
     expect(auditApi.AUDIT_REASONS).toContain('context-sanitized')
     expect(auditApi.AUDIT_REASONS).toContain('unknown-context-kind')
     expect(auditApi.AUDIT_REASONS).toContain('gate-failed')
+    // STEP7（File Write Gate）が足した語。
+    expect(auditApi.AUDIT_REASONS).toContain('aliased-target')
+    expect(auditApi.AUDIT_REASONS).toContain('existing-file-changed')
+    expect(auditApi.AUDIT_REASONS).toContain('handle-unconfirmed')
+    expect(auditApi.AUDIT_REASONS).toContain('verify-failed')
     expect(eventModule.isAuditReason('because-i-said-so')).toBe(false)
     expect(eventModule.isAuditReason('toString')).toBe(false)
   })

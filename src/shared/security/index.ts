@@ -17,4 +17,5 @@ export {
 } from './permissionMode'
 
 export type { AgentPermissionMode } from './permissionMode'
+export type { SafeDiffLine, SafeDiffLineKind, SafeFileWriteDiff } from './fileWriteDiff'
 export type { ApprovalActionKind } from './approvalAction'

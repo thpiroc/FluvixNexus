@@ -75,5 +75,8 @@ export const fluvix: FluvixApi = {
   },
   get approval() {
     return bridge().approval
+  },
+  get agent() {
+    return bridge().agent
   }
 }

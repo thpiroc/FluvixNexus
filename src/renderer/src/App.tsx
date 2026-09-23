@@ -1,4 +1,5 @@
 import type { JSX } from 'react'
+import { AgentFileWriteProvider } from './agent/AgentFileWriteProvider'
 import { CommandProvider } from './commands/CommandProvider'
 import { BreakpointProvider } from './debug/BreakpointProvider'
 import { CallStackProvider } from './debug/CallStackProvider'
@@ -128,6 +129,14 @@ function App(): JSX.Element {
                                   <ExecutionLocationFollower />
                                   <KeybindingProvider>
                                     <WorkspaceShell />
+                                    {/*
+                                    FN Agent の変更の確認（Security Core v1 の STEP7）。
+                                    パネルの配置に関わらず1つだけ出るため、Shell の
+                                    外側ではなく**隣**に置く。**承認を持たない**
+                                    ── 状態は Main にあり、ここは届いた知らせを
+                                    見せて意思表示を返すだけ（agent/）。
+                                  */}
+                                    <AgentFileWriteProvider />
                                   </KeybindingProvider>
                                 </CallStackProvider>
                               </BreakpointProvider>

@@ -1340,6 +1340,29 @@ export interface ApprovalApi {
 }
 
 /**
+ * FN Agent の File Write の提案を受け取る API（Security Core v1 の STEP7）。
+ *
+ * **受け取るだけ。** Agent へ書き込みを頼む API も、書き込む中身を返す API も無い。
+ * 承認の意思表示は `approval.respond`（STEP6）で、こちらは「何を書こうとしているか」を
+ * 画面に出すための経路にあたる。
+ */
+export interface AgentApi {
+  /**
+   * File Write が提案されたときに呼ばれる。
+   *
+   * payload の Diff は Main が Mask して切った後の表示用の値で、**exact な本文では
+   * ない。** これを書き戻す経路は無い。
+   */
+  readonly onFileWriteProposed: (
+    listener: IpcEventListener<'agent-file-write:proposed'>
+  ) => IpcEventUnsubscribe
+  /** その提案が終わった（承認されて書かれた・拒否された・期限切れ）ときに呼ばれる。 */
+  readonly onFileWriteSettled: (
+    listener: IpcEventListener<'agent-file-write:settled'>
+  ) => IpcEventUnsubscribe
+}
+
+/**
  * `window.fluvix` として Renderer に公開される API 全体。
  *
  * Files / Terminal / GitHub など OS に触れるドメイン API は、
@@ -1379,6 +1402,8 @@ export interface FluvixApi {
   readonly mcp: McpApi
   /** FN Agent の操作の承認（Security Core v1 の STEP6）。 */
   readonly approval: ApprovalApi
+  /** FN Agent の File Write の提案（Security Core v1 の STEP7）。 */
+  readonly agent: AgentApi
 }
 
 /** `window` に API を公開する際のキー。Preload と Renderer の双方から参照する。 */

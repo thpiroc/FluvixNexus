@@ -1,4 +1,8 @@
-import { Menu, type MenuItemConstructorOptions } from 'electron'
+import { BrowserWindow, Menu, type MenuItemConstructorOptions } from 'electron'
+import {
+  proposeHarnessWriteToExistingFile,
+  proposeHarnessWriteToNewFile
+} from '../security/fileWrite/fileWriteHarness'
 import { isDevelopment } from './runtime'
 
 /**
@@ -43,10 +47,48 @@ export function applyApplicationMenu(): void {
           アプリ自身に画面全体を拡大する機能は無く、この3項目は
           開発中の便宜でしか無かったため、食い違いの側を消した。
         */
+        { type: 'separator' },
+        /*
+          FN Agent の File Write Gate を手で動かすための足場（Security Core v1 の STEP7）。
+
+          Agent Loop がまだ無いため、Gate を呼ぶ側がこれしか無い。**開発時のメニューに
+          しか出ない** ── 配布ビルドはこの関数の最初で `Menu.setApplicationMenu(null)` に
+          なるため、項目そのものが存在しない。加えて足場の側でも `isDevelopment` を
+          確かめる（security/fileWrite/fileWriteHarness.ts）。
+
+          Renderer から呼べる debug IPC は作らない。開発用に開けた口は、条件を1つ
+          間違えるだけで本番の経路になるため。
+        */
+        {
+          label: 'FN Agent: 既存ファイルへの変更を提案（開発用）',
+          click: () => void withFocusedWindow(proposeHarnessWriteToExistingFile)
+        },
+        {
+          label: 'FN Agent: 新しいファイルの作成を提案（開発用）',
+          click: () => void withFocusedWindow(proposeHarnessWriteToNewFile)
+        },
+        { type: 'separator' },
         { role: 'quit' }
       ]
     }
   ]
 
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
+
+/**
+ * 今前面にあるウィンドウに対して実行する。
+ *
+ * ウィンドウが無ければ何もしない。承認の Native 確認を出す相手が要るため、
+ * **どのウィンドウかを足場の側に決めさせない**（STEP6 の IPC handler が
+ * `context.window` を渡しているのと同じ線）。
+ */
+async function withFocusedWindow(run: (window: BrowserWindow) => Promise<void>): Promise<void> {
+  const window = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+
+  if (window === undefined || window.isDestroyed()) {
+    return
+  }
+
+  await run(window)
 }

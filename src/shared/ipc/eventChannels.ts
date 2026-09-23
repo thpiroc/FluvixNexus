@@ -27,7 +27,9 @@ export const IPC_EVENT_CHANNELS = {
   DEBUG_CONSOLE_ENTRY: 'debug:console-entry',
   DEBUG_STATUS_CHANGED: 'debug:status-changed',
   SETTINGS_WORKSPACE_CHANGED: 'settings:workspace-changed',
-  APPROVAL_REQUESTED: 'approval:requested'
+  APPROVAL_REQUESTED: 'approval:requested',
+  AGENT_FILE_WRITE_PROPOSED: 'agent-file-write:proposed',
+  AGENT_FILE_WRITE_SETTLED: 'agent-file-write:settled'
 } as const satisfies Record<string, IpcEventChannel>
 
 /**

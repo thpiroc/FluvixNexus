@@ -975,6 +975,26 @@ export const enMessages = {
       deletedFile: 'Deleted from disk. Use "Save As" in Editor to rescue the content.'
     }
   },
+  agent: {
+    fileWrite: {
+      title: 'FN Agent proposes a change',
+      bodyExisting: 'FN Agent wants to change this file in your Workspace.',
+      bodyNew: 'FN Agent wants to create this file in your Workspace.',
+      pathLabel: 'File',
+      newBadge: 'New file',
+      diffLabel: 'Proposed change',
+      noChange: 'The proposed content matches the current content.',
+      counts: '+{added} / -{removed}',
+      truncated: 'Only the first part of the change is shown.',
+      secretMasked: 'Values that look like secrets are hidden in this view.',
+      readOnlyNote:
+        'This view is read-only. To change the content, cancel and let FN Agent propose it again.',
+      continue: 'Continue',
+      continueTitle: 'Go on to the confirmation dialog (nothing is written yet)',
+      cancel: 'Cancel',
+      cancelTitle: 'Do not write anything'
+    }
+  },
   settings: {
     title: 'Settings',
     closeTitle: 'Close Settings (Esc)',

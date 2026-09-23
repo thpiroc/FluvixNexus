@@ -1,0 +1,184 @@
+/*
+ * FN Agent の File Write の確認（Security Core v1 の STEP7。第1段階）。
+ *
+ * unsaved/unsaved.css と同じ作り（アプリ内モーダル・色は styles/theme.css の変数）。
+ * 分けてあるのは、これが「失われるものの確認」ではなく**変更の内容の確認**だから。
+ *
+ * Diff の行は等幅で出す。桁が揃わないと、空白やインデントの違いが読み取れない。
+ */
+
+.fx-agent-write__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--fx-space-4);
+  background: var(--fx-color-scrim);
+}
+
+.fx-agent-write {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-3);
+  width: min(760px, 100%);
+  max-height: 100%;
+  padding: var(--fx-space-4);
+  color: var(--fx-color-text);
+  background: var(--fx-color-surface-raised);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 6px;
+  box-shadow: var(--fx-shadow-dialog);
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-agent-write__title {
+  margin: 0;
+  color: var(--fx-color-text-strong);
+  font-size: var(--fx-font-size-md);
+}
+
+.fx-agent-write__body {
+  margin: 0;
+  color: var(--fx-color-text-muted);
+  line-height: 1.7;
+}
+
+.fx-agent-write__path {
+  display: flex;
+  align-items: baseline;
+  gap: var(--fx-space-2);
+  margin: 0;
+  min-width: 0;
+}
+
+.fx-agent-write__path-label {
+  flex: 0 0 auto;
+  color: var(--fx-color-text-faint);
+}
+
+/* Path は長くなりうるので、はみ出さずに省略する。 */
+.fx-agent-write__path-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--fx-color-text-strong);
+  font-family: ui-monospace, Consolas, monospace;
+}
+
+.fx-agent-write__badge {
+  flex: 0 0 auto;
+  padding: 0 var(--fx-space-1);
+  color: var(--fx-color-text-strong);
+  border: 1px solid var(--fx-accent-blue);
+  border-radius: 3px;
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-agent-write__diff-head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--fx-space-2);
+  color: var(--fx-color-text-faint);
+}
+
+.fx-agent-write__counts {
+  font-family: ui-monospace, Consolas, monospace;
+}
+
+/*
+ * 差分の並び。
+ *
+ * 数が多いときはここだけがスクロールする（モーダル全体が伸びると、
+ * ボタンが画面の外へ出て選べなくなる。unsaved.css と同じ）。
+ */
+.fx-agent-write__diff {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: var(--fx-space-2);
+  overflow: auto;
+  max-height: 46vh;
+  list-style: none;
+  background: var(--fx-color-surface-sunken);
+  border: 1px solid var(--fx-color-border);
+  border-radius: 4px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: var(--fx-font-size-sm);
+  line-height: 1.6;
+}
+
+.fx-agent-write__line {
+  display: flex;
+  gap: var(--fx-space-2);
+  min-width: 0;
+  white-space: pre;
+}
+
+.fx-agent-write__line[data-kind='added'] {
+  color: var(--fx-git-added);
+}
+
+.fx-agent-write__line[data-kind='removed'] {
+  color: var(--fx-color-danger);
+}
+
+.fx-agent-write__line-number {
+  flex: 0 0 auto;
+  width: 4ch;
+  text-align: right;
+  color: var(--fx-color-text-faint);
+  user-select: none;
+}
+
+.fx-agent-write__line-mark {
+  flex: 0 0 auto;
+  width: 1ch;
+  user-select: none;
+}
+
+.fx-agent-write__line-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.fx-agent-write__empty,
+.fx-agent-write__note {
+  margin: 0;
+  color: var(--fx-color-text-faint);
+  line-height: 1.7;
+}
+
+.fx-agent-write__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--fx-space-2);
+}
+
+.fx-agent-write__button {
+  padding: var(--fx-space-1) var(--fx-space-3);
+  color: var(--fx-color-text);
+  background: var(--fx-color-surface);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  font: inherit;
+  font-size: var(--fx-font-size-sm);
+  cursor: pointer;
+}
+
+.fx-agent-write__button:hover:not(:disabled) {
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-agent-write__button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.fx-agent-write__button[data-variant='primary'] {
+  color: var(--fx-color-text-strong);
+  border-color: var(--fx-accent-blue);
+}

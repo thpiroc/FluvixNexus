@@ -400,6 +400,63 @@ FN Agent が**副作用のある操作**を求めたときの承認を、**Main 
     → File Write Gate が consume して1回だけ書き込む
   ```
 
+#### File Write Gate（Security Core v1 の STEP7。2026-09-23）
+
+FN Agent が Workspace の中のファイルを書き換えるときに**必ず通る、唯一の経路**（`src/main/security/fileWrite/`）。入口は `writeAgentWorkspaceFile(relativePath, content)` の1つだけで、受け取るのは**Workspace 相対の綴りと本文の2つ**にあたる。
+
+```
+Agent が書き込みを提案する
+  → Workspace Boundary（STEP2）        Main がディスクを見て確かめる
+  → v1 で書ける形か                     aliased / missingSegments / 種別
+  → Secret ファイル（STEP3）＋ Policy（STEP1）   read なら deny。ask のときだけ先へ
+  → 本文の検査                          大きさ・binary・UTF-8 の往復
+  → 今の中身を読む（既存のみ）          confirm したハンドル越しに読み、指紋を控える
+  → Diff を作る（Main 側）              Mask して切ってから Renderer へ
+  → Renderer が Diff を見せる（第1段階）
+  → 続行（approval:respond / intent: 'continue'）
+  → Main の Native Dialog（第2段階）
+  → approved
+  → Boundary をもう一度（recheck）      identity・リンク数・alias・欠け・Secret
+  → consume（STEP6）                    これから書くもので binding を照合し、1回だけ使い切る
+  → open → confirm → ハンドル越しに書く
+  → 書いた結果を確かめる
+  → Audit（STEP4）
+```
+
+- **Main 側だけが書ける：** Renderer からも Agent からも filesystem へは届かない。`writeAgentWorkspaceFile` は **IPC にも Preload にも出さない**（`fileWriteSurface.test.ts` が Preload / Renderer に名前が現れないことを見ている）。Renderer へ出るのは Main → Renderer の片道の知らせ2本（`agent-file-write:proposed` / `agent-file-write:settled`）と、STEP6 の承認の意思表示だけで、**Renderer から Main を呼ぶチャンネルは1本も増やさない。**
+- **信用しないもの：** Renderer の `insideWorkspace` / `approved`、Agent の `safe` / canonical path / fingerprint、LLM の「安全です」。Path も内容も承認も指紋も、**すべて Main が作り直す。** 承認の binding は Renderer から戻ってきた値ではなく、**Main が持ち続けている提案本文**から作る。
+- **人の保存とは別の経路（2026-09-23 決定）：** 利用者が Editor で保存する経路（`files:write-file` → `main/files/writeWorkspaceFile.ts`）は**そのまま残す。** あちらは「今開いて編集したファイルを書き戻す」人の操作で、承認も Diff も要らない。2つを1つの関数にまとめない ── まとめると、片方の都合で緩めた条件がもう片方にも効く。Gate は既存の Files の書き込み（`writeWorkspaceFile` / `mutateWorkspaceEntry` / `saveFileAs`）を**呼ばない。**
+- **v1 で書ける形（STEP2 が返した事実で決める）：** `aliased === true`（symlink / ジャンクション・8.3 の短い名前を通した書き込み）は **Workspace の中を指していても拒否**（`aliased-target`）。`missingSegments` が 2 つ以上なら拒否（`missing-directory`。途中のディレクトリは作らない）。既存のディレクトリの中に新しいファイルを作ることはできる。hard link（リンク数 2 以上）・Workspace の外・Secret ファイルは Policy（STEP1）が deny にする。
+- **Secret ファイルは Diff も作らない：** `.env` 系・鍵・資格情報ファイルへの Agent の書き込みは deny で、**Renderer へ知らせも送らない**（Mask して書けばよい、という扱いにはしない）。普通のソースの中身に混ざった Secret は、**表示用の Diff でだけ**伏せる。
+- **Diff は Main が作る：** 既存ファイルは「今ディスクにある中身 vs 提案された中身」、新しいファイルは「空 vs 提案された中身」。Agent / Renderer が作った Diff は受け取らない ── 「画面に出た変更」と「実際に書かれる変更」が別々の計算から生まれると、一致を確かめる術が無くなる。**Diff を作れなければ書かない**（`diff-failed`。内容を見せずに承認させない）。
+- **表示用 Diff と exact な提案本文を分ける：** Renderer へ送るのは、1行ずつ Secret を伏せ、制御文字を印へ置き換え、1行 300 文字・400 行で切った後の `SafeFileWriteDiff`。**実際に書くのは伏せる前の本文**で、Mask 済みの内容へ置き換えることはしない（置き換えると、Agent が Secret の行を `***REDACTED***` で上書きしてしまう）。
+- **Secret は本文全体で探し、行の数は変えない：** 1行ずつ検査すると**複数行にまたがる Secret（Private Key block）が素通りする** ── 鍵の本体だけの行は、単独で見れば Base64 らしき文字列でしかない。かといって本文をまとめて伏せると block が伏せ字1つに畳まれて行数が変わり、Diff の行番号と対応が取れなくなる。そこで**探すのは本文全体・伏せるのは行ごと**にする（`secretLineMask.ts`）。
+- **Diff Injection を通さない：** 行の中身は制御文字（C0・DEL・U+2028 / U+2029・双方向の上書き）を印へ置き換えてから送る（タブだけは残す）。Renderer は受け取った文字列を**文字として**描き、`dangerouslySetInnerHTML` は使わない。行の印（`+` / `-`）と行番号は Diff の中身とは別の要素に置く。
+- **Renderer の承認画面は確認専用（v1）：** 出すのは「FN Agent が提案していること」「Workspace 相対 Path」「safe Diff」「続ける / 取り消す」まで。**内容を編集できる要素を1つも置かない**（input / textarea / contentEditable のどれも無い）。直したい場合は一度取り消し、新しい提案として出し直す ── 画面で直せる形にすると、承認した内容を Renderer が作れることになる。
+- **Renderer が返すのは意思表示だけ：** `approvalId` / `actionKind` / `intent` の3つ（STEP6 の契約のまま）。`approved` / 本文 / fingerprint / canonical path は返さない。**続行しても画面は閉じない** ── Native Dialog の結果が出るまで押せないまま残し、閉じるのは Main が `agent-file-write:settled` を送ってきたとき（承認されて書かれた・拒否された・期限切れ、のいずれでも届く）。
+- **知らせを2本に分けてある：** 承認そのものは `approval:requested`（STEP6。File Write と Terminal の両方が通る細い知らせ）で、**中身（Diff）だけを別のチャンネル**にした。画面を出してよいのは2つが揃い、かつ同じ Path を指しているときだけで、指しているものが違えば**待たずに取り消す**（見せられない承認を 5 分の期限まで放置しない）。
+- **承認から書き込みまでの間を、もう一度確かめる：** `recheckWorkspaceTarget` を **consume の前**に通す（通らないと分かっている書き込みのために承認を使い切らせない）。見るのは canonical target・`insideWorkspace`・`aliased`・hard link・欠けている要素・Secret ファイル・綴りの一致で、**1つでも変わっていれば deny。** 新しいファイルの位置にファイルができていた場合も、種別が変わるため `target-changed` になる。
+- **既存ファイルの変更検知：** 承認の前に**中身の指紋（生のバイト列の SHA-256）**を控え、書き込みの直前に**確かめたハンドル越しに読み直して**照合する。違えば `existing-file-changed` で書かない ── **利用者の変更を Agent の書き込みで上書きしないことを優先する。** 指紋は Main の中だけで使い、Audit にも Renderer にも出さない。
+- **書き方（TOCTOU 対策の本体）：** `recheck → open → confirm → ハンドル越しに書く` を必ずこの順で行う。既存は **`'r+'`（切り詰めずに開く）**、新規は **`'wx+'`（排他作成）** で、どちらも読める形で開く（書いた後に同じハンドルから読み直して確かめるため）。パスを渡す fs の API（`writeFile` / `truncate` / `rename`）は使わない。切り詰めは confirm の**後**で、しかも**全部書いてから長さを合わせる**（先に空にすると、途中で失敗したときファイルが空のまま残る）。`write` は partial write を前提に、書けた分だけ進めて残りを書き続ける。最後に `fsync` する。
+- **atomic な temp + rename は採らない（2026-09-23 決定）：** 差し替えると元のファイルの属性（ACL・hard link・監視ハンドル）を失い、**rename はパスに対する操作でハンドルで確かめた実体には結び付かない**（confirm を通した意味が消える）。Windows では対象が開かれていると rename が失敗し、Editor で開いたままのファイルへ Agent が書けなくなる。**「一般に atomic だから」は採用の理由にしない** ── この経路で守りたいのは「途中で落ちても壊れない」ではなく「**確かめた実体にだけ書く**」にあたる。
+- **Workspace の外へ空ファイルを残さない：** 新規は `'wx+'` で開くため、**confirm が通らなかった時点でもうファイルができている**（開く瞬間に親が外へのリンクへ差し替えられた場合、それは外にある）。中身は1バイトも書かないうえ、**開いたときの identity（dev / ino）と一致することを確かめてから unlink する**（一致を見ずに消すと、差し替えた先の別のファイルを消す）。
+  - **残存リスク（2026-09-23 記録）：** Node はディレクトリのハンドルを基点に開けない（openat / O_NOFOLLOW が無い）ため、**新規作成そのものを差し替えの前に固定することはできない。** 上の片付けで実害（外に残る空ファイル）は消えるが、`unlink` が失敗する場合（他プロセスが掴んでいる・権限）と、その間にプロセスが落ちた場合には空ファイルが残りうる。**中身が外へ書かれることは無い**（confirm を通らなければ1バイトも書かない）。native 実装を足すかは v2 以降で判断する。
+- **書いた結果を確かめる：** 同じハンドルから読み直してバイト列が一致するか、そして**書いた後も confirm が通るか**（書いている間に hard link を張られた・親が差し替えられた）を見る。通らなければ `verify-failed` で、**`file-write.failed`（書き込みに手を付けた後の失敗）として記録する** ── `denied`（書かなかった）と分けてあるのは、既存のファイルが途中まで変わっている可能性を後から辿れるようにするため。自動で元へ戻す処理は v1 では行わない。
+- **1件ずつ（v1）：** 同時に2件の File Write を承認にかけない（2件目は `write-in-progress`）。画面に出ている Diff と、承認しようとしている変更が別物になることを防ぐ。
+- **上限は既存のものを使い回す：** 本文の文字数は `APPROVAL_CONTENT_MAX_CHARS`（1,000,000 文字 ＝ STEP3 の `SECRET_SCAN_MAX_CHARS`）、バイト数は `FILES_FILE_MAX_BYTES`（2 MiB ＝ Editor が開ける上限）。**両方を見る** ── 文字数だけでは日本語の本文が 3 MiB になり、バイト数だけでは Secret の検査が最後まで走らない大きさが通る。STEP7 のためだけの新しい上限は作らない。
+- **v1 は UTF-8 のテキストだけ：** NUL を含む本文（既存の `looksBinary` と同じ判断）と、**UTF-8 として往復できない本文**（対になっていないサロゲート）は拒む ── 黙って U+FFFD へ置き換えられると、承認した本文と書かれた本文が食い違う。**改行は変換しない**（提案されたまま書く）。BOM は**今ディスクにある形**に合わせ、新しいファイルは BOM 無し。既存の Editor の保存と同じ判断で、Main 側で形を揃えると「開いて保存しただけで差分が出る」。**binary の書き込みは同じ API に含めず、v2 候補とする。**
+- **Audit（STEP4）：** `file-write.requested` / `approved` / `denied` / `succeeded` / `failed`（`succeeded` を STEP7 で追加）。載せるのは**判定・理由・効いていた Permission・操作の種類・Workspace 相対 Path**だけで、**ファイル本文・Diff 本文・提案された中身・Secret・fingerprint・中身の指紋・Approval の id・提案の id・絶対パス・書いたバイト数は載せない。** Audit の失敗で結論は変わらない（記録は捕まえて捨てる）。
+- **理由の語彙（STEP4 へ追加）：** `aliased-target` / `content-too-large` / `unsupported-content` / `missing-directory` / `diff-failed` / `existing-file-changed` / `target-exists` / `open-failed` / `handle-unconfirmed` / `write-failed` / `verify-failed` / `write-in-progress`。STEP1 / STEP2 / STEP6 の語（`read-only-mode` / `secret-file` / `outside-workspace` / `hard-link-write` / `target-changed` / `user-cancelled` / `binding-mismatch` …）はそのまま使う。
+- **Fail closed：** Boundary 失敗・Policy deny・Secret ファイル・alias・hard link・途中のディレクトリが無い・本文が大きすぎる / binary・Diff を作れない・Renderer へ知らせられない・承認の取り消し / 期限切れ / consume 失敗 / binding 不一致・recheck 失敗・target identity の変化・既存ファイルの変化・新規の競合・open 失敗・confirm 失敗・write 失敗・書いた後の確認の失敗は、**すべて書かない。** **raw な `fs.writeFile` へ落ちる経路（fallback）は無い。**
+- **迂回する API を作らない：** `forceWrite` / `writeUnsafe` / `skipApproval` / `bypassGate` / `trustRenderer` にあたる引数も関数も無い（`fileWriteSurface.test.ts` が公開する名前を一覧で固定し、`fs/promises` を読むのが `fileWriteIo.ts` の1か所だけであることも見ている）。
+- **開発用の足場（2026-09-23）：** Agent Loop がまだ無いため、Gate を呼ぶ側が存在しない。実機で通して確かめられるよう、**開発時だけ作られるネイティブメニュー**（`app/menu.ts` の「開発」。配布ビルドは `Menu.setApplicationMenu(null)` で項目そのものが無い）から `writeAgentWorkspaceFile` を呼ぶ足場を置く。足場の側でも `isDevelopment` を確かめ、**Renderer から呼べる debug IPC は作らない** ── 開発用に開けた口は、条件を1つ間違えるだけで本番の経路になる。足場は Gate を迂回せず、Workspace の外を選べば Boundary が、`.env` を選べば Secret が、同じように拒否する。
+- **STEP7 で作らないもの：** Terminal の実行本体（STEP8）・MCP の書き込み・Git の Commit / Push・binary の書き込み・Agent Loop 本体・Provider Adapter。
+- **実機確認（2026-09-23）：** Fluvix Nexus 本体とは別の Workspace（`FN-Security-Test`）を開き、開発用の足場から次を確かめた。**新規作成と既存ファイルの変更の両方で、承認の二段階が期待どおりに働く。**
+  - 新規作成の提案 → Diff の画面が出る → **取り消すと、ファイルは作られない**
+  - もう一度提案 → 続ける → Main の Native Dialog（許可しない / 許可する）が出る → **許可すると作られる**
+  - 作られた中身が Diff の表示と一致し、**日本語も化けない**（UTF-8 のまま書いている）
+  - 既存ファイルの変更でも同じ経路を通り、**Diff で「消える」と出ていた行だけが消えた**（残ると出ていた行はそのまま）
+
 ### 6.5 v1 に含めないもの
 
 | 項目                                               | 扱い                                                                                                   |

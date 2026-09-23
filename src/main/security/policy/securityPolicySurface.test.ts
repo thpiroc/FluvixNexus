@@ -111,9 +111,18 @@ describe('Renderer から届く経路', () => {
   */
   it('Security / Policy / Permission を名乗る IPC チャンネルは無い', () => {
     const channels = [...Object.values(IPC_CHANNELS), ...Object.values(IPC_EVENT_CHANNELS)]
-    const pattern = /security|policy|permission|agent/i
+    const pattern = /security|policy|permission/i
 
     expect(channels.filter((channel) => pattern.test(channel))).toEqual([])
+  })
+
+  it('Agent を名乗る要求のチャンネルも無い（知らせだけが増える）', () => {
+    /*
+      STEP7 の `agent-file-write:proposed` / `:settled` は Main → Renderer の
+      片道の知らせにあたる。**Renderer から Main を呼ぶ側には1つも増やさない** ──
+      Agent の操作を Renderer から頼める口を作らない、という線はそのまま。
+    */
+    expect(Object.values(IPC_CHANNELS).filter((channel) => /agent/i.test(channel))).toEqual([])
   })
 
   it('承認を名乗るチャンネルは、Main が出した確認への返事と知らせの2本だけ', () => {

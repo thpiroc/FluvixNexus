@@ -959,6 +959,26 @@ export const jaMessages = {
       deletedFile: 'ディスク上から削除されています（Editor の「別名で保存」で救い出せます）'
     }
   },
+  agent: {
+    fileWrite: {
+      title: 'FN Agent が変更を提案しています',
+      bodyExisting: 'FN Agent が Workspace 内のこのファイルを変更しようとしています。',
+      bodyNew: 'FN Agent が Workspace 内にこのファイルを作成しようとしています。',
+      pathLabel: '対象',
+      newBadge: '新規ファイル',
+      diffLabel: '提案された変更',
+      noChange: '提案された内容は、今のファイルの内容と同じです。',
+      counts: '+{added} / -{removed}',
+      truncated: '変更の先頭部分だけを表示しています。',
+      secretMasked: 'Secret らしき値は、この表示では伏せてあります。',
+      readOnlyNote:
+        'この画面では内容を編集できません。変えたい場合は取り消して、もう一度提案させてください。',
+      continue: '続ける',
+      continueTitle: '確認ダイアログへ進みます（まだ書き込まれません）',
+      cancel: '取り消す',
+      cancelTitle: '何も書き込まずにやめます'
+    }
+  },
   settings: {
     title: '設定',
     closeTitle: '設定を閉じる（Esc）',

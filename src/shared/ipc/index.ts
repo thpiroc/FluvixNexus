@@ -232,3 +232,8 @@ export type {
   RespondApprovalRequest
 } from './contracts/approval'
 export type { ApprovalIpcEventContract, ApprovalRequestedEvent } from './events/approval'
+export type {
+  AgentFileWriteIpcEventContract,
+  AgentFileWriteProposedEvent,
+  AgentFileWriteSettledEvent
+} from './events/agentFileWrite'

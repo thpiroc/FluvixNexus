@@ -83,6 +83,7 @@ export type AuditEventType =
   | 'file-write.requested'
   | 'file-write.approved'
   | 'file-write.denied'
+  | 'file-write.succeeded'
   | 'file-write.failed'
   /** Terminal / Command Runner。 */
   | 'terminal.requested'
@@ -122,6 +123,7 @@ const CATEGORY_OF_EVENT: Readonly<Record<AuditEventType, AuditCategory>> = Objec
   'file-write.requested': 'file-write',
   'file-write.approved': 'file-write',
   'file-write.denied': 'file-write',
+  'file-write.succeeded': 'file-write',
   'file-write.failed': 'file-write',
   'terminal.requested': 'terminal',
   'terminal.approved': 'terminal',
@@ -195,6 +197,30 @@ export type AuditReason =
   | 'dialog-failed'
   /** 確認を出すウィンドウが無い / 失われた。 */
   | 'window-unavailable'
+  /** File Write Gate（STEP7）: symlink / ジャンクションを通した書き込み。 */
+  | 'aliased-target'
+  /** 提案された本文が上限を超えている。 */
+  | 'content-too-large'
+  /** 書けない形の本文（バイナリ・UTF-8 として往復できない）。 */
+  | 'unsupported-content'
+  /** 途中に無いディレクトリがある（v1 は作らない）。 */
+  | 'missing-directory'
+  /** 表示用の Diff を作れなかった。 */
+  | 'diff-failed'
+  /** 承認を求めている間に、既存のファイルが変わっていた。 */
+  | 'existing-file-changed'
+  /** 新しく作るはずの位置に、もうファイルがある。 */
+  | 'target-exists'
+  /** 対象を開けなかった。 */
+  | 'open-failed'
+  /** 開いたハンドルが、確かめた対象だと確認できなかった。 */
+  | 'handle-unconfirmed'
+  /** 書き込みそのものが失敗した。 */
+  | 'write-failed'
+  /** 書いた後の確認が通らなかった。 */
+  | 'verify-failed'
+  /** 別の File Write を処理している最中だった（v1 は1件ずつ）。 */
+  | 'write-in-progress'
 
 /**
  * 理由の一覧。
@@ -249,7 +275,20 @@ const KNOWN_REASONS: Readonly<Record<AuditReason, true>> = Object.freeze({
   'binding-mismatch': true,
   'fingerprint-failed': true,
   'dialog-failed': true,
-  'window-unavailable': true
+  'window-unavailable': true,
+  // STEP7（fileWrite/fileWriteGate.ts）
+  'aliased-target': true,
+  'content-too-large': true,
+  'unsupported-content': true,
+  'missing-directory': true,
+  'diff-failed': true,
+  'existing-file-changed': true,
+  'target-exists': true,
+  'open-failed': true,
+  'handle-unconfirmed': true,
+  'write-failed': true,
+  'verify-failed': true,
+  'write-in-progress': true
 })
 
 /** 知っている理由（名前順）。 */
