@@ -176,6 +176,10 @@ describe('種別は閉じた集合', () => {
     expect(auditApi.AUDIT_REASONS).toContain('secret-file')
     expect(auditApi.AUDIT_REASONS).toContain('outside-workspace')
     expect(auditApi.AUDIT_REASONS).toContain('dangling-link')
+    // STEP5（External Send Gate）が足した語。
+    expect(auditApi.AUDIT_REASONS).toContain('context-sanitized')
+    expect(auditApi.AUDIT_REASONS).toContain('unknown-context-kind')
+    expect(auditApi.AUDIT_REASONS).toContain('gate-failed')
     expect(eventModule.isAuditReason('because-i-said-so')).toBe(false)
     expect(eventModule.isAuditReason('toString')).toBe(false)
   })

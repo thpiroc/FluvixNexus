@@ -327,6 +327,32 @@ FN Agent / Security Core で起きた **Security 上重要な判断**（何を�
 - **Activity は安全な要約だけ：** Activity（後の STEP）は **Audit Log の行をそのまま表示しない。** `summarizeAuditRecord()` が返す「時刻・分類・種別・判定・閉じた集合の語をつないだ1行」だけを渡せる形にしてある（名前・パス・Error の文言は要約に含めない）。STEP4 では Activity UI も、要約を Renderer へ送る IPC も作らない。
 - **通常のログとは分ける：** `main/logger/`（`main.log`）とは**別のファイル・別の API。** 目的が違い（あちらは不具合を追うための出力）、混ぜると Security の記録が LSP / Terminal の行に埋もれ、上限も取り合いになる。共有するのは置き場所（`logs/`）と伏せ字（`logRedaction.ts`）のような安全な部品だけで、既存のログの作りには手を入れない。
 
+#### External Send Gate（Security Core v1 の STEP5。2026-09-23）
+
+FN Agent / FN Engine が組み立てた Context を、**外部 AI Provider へ渡す直前に Main 側でもう一度検査して伏せる**最後の境界（`src/main/security/externalSend/`）。Renderer・Agent が作った未検査の Context が、Gate を通らずに Provider へ届く経路は作らない。
+
+- **Main 側 Security Core が所有する：** 入口は `sendThroughExternalGate(request, deliver)` の1つだけ。Policy は Main が保存から読み直したもの（STEP1）、記録先は Main の Audit Log（STEP4）で、**どちらも引数では差し替えられない**（差し替えられる形 `createExternalSendGate` は folder の中だけにあり、入口からは公開しない）。**`externalSend:*` のような IPC も Preload の API も作らない**（`externalSendSurface.test.ts` が、Preload・Main の IPC handler・Renderer に名前が現れていないことを見ている）。
+- **Raw と Safe を型で分ける：** Agent が渡すのは未検査の `RawExternalSendRequest`、Provider Adapter が受け取れるのは Gate だけが作れる `SafeExternalPayload`。後者は**外へ出していない `unique symbol` を欄に持つ**ため、他の module では同じ形のオブジェクトリテラルを作れない。**型だけを境界にはしない** ── `as` ひとつで名乗れるうえ IPC・JSON を通れば型は残らないため、送る直前に `isSafeExternalPayload()`（この module が発行したものを覚えている WeakSet）で**実行時にも確かめる。**
+- **作ると送るを分けない：** Safe Payload を作って返すだけの API は公開しない。`sendThroughExternalGate` は allow のときだけ渡された手続きを呼び、**呼んだ後に Payload を取り消す**（1回きり）。返して持ち回せる形にすると、1度 Gate を通した Payload が「検査済みの入れ物」として後から中身を運ぶ形が生まれる。
+- **`sanitized: true` を信じない：** Renderer が名乗る「sanitized 済み」・Agent が名乗る「Secret なし」・LLM の判断・MCP Server の自己申告・Renderer 側で伏せたという主張は**どれも読まない。** Gate が読むのは `providerId` / `kind` / `text` / `label` / `source` の5つだけで、他の欄は付いていても捨てられる。
+- **Context の種類は閉じた集合：** `user-prompt` / `agent-instruction` / `workspace-file` / `tool-result` / `mcp-read-result` / `error-summary`。**raw Terminal stdout / stderr・raw MCP input / output・File 全文を無制限に載せる種類は作らない** ── Terminal / MCP の生の出力は要約にしてから渡す（要約する責務は FN Engine 側。§6.3）。知らない種類は `unknown-context-kind` で拒む。
+- **Secret ファイルは Context へ入れない（Mask して送るのではなく deny）：** `.env` / `.env.local` / 秘密鍵などは、STEP3 の判定で `secret-file` として拒む。`.env.example` のような雛形は読めるが、**中身は必ず再 Scan し、本物の値があれば伏せてから送る。**
+- **普通の Context の中の Secret は伏せて続行：** STEP3 の `maskSecretText()` をそのまま使い、見つけた箇所だけを `***REDACTED***` にして残りは送る。`categories` / `maskedCount` / `userNoticeRequired` は Safe Payload の `notice` に残し、「Secret を検出したため一部をマスクして AI へ送信しました」と後で知らせられるようにする（通知 UI は後の STEP）。**元の Secret の値を持つ欄は、Payload にも `notice` にも型として無い。**
+- **Workspace のファイルは Boundary を通ったものだけ：** `workspaceFileContext(target, bytes)` が File Read Gate（後の STEP）とのつなぎ目で、渡すのは **Boundary（STEP2）が読み取りとして発行した対象**と、そこから読んだバイト列の2つだけ。文字列は Gate 側で組み立てる（Agent が手で組んだ中身をファイルとして載せられないため）。binary・上限超え・読めないものは文字列にせずに拒む。Gate は受け取った `source` から `agentFileReadFacts`（STEP3）を作り直し、`decideSecurityAction`（STEP1）で**もう一度**判定する。`{ insideWorkspace: true }` / `{ secretFile: false }` のような自己申告も、対象を写したオブジェクトも `outside-workspace` に行き着く。
+- **Provider Credential は Context に混ぜない：** Provider を呼ぶための API Key は**送信 Payload とは別物**にあたる。Safe Payload の型に Credential を運ぶ欄は無く、認証は Provider Adapter が Header で行う。Credential は Prompt・Context・Audit・Error のどれにも入らない（既存の Secret Store は STEP5 では作り直さない）。
+- **結論は allow / deny の2つだけ（2026-09-23 確定）：** **v1 では External Send そのものに承認（`ask`）を適用しない。** FN Agent は AI へ Context を送ることが基本動作にあたり、送信1回ごとに Approval を求める形では対話が成り立たないため。承認が要るのは**副作用のある操作**（Files への書き込み・Terminal でのコマンド実行）の側で、**STEP6（Approval Manager）で External Send へ Approval を足すことはしない。**
+  - **Permission（Read / Ask）は External Send の可否に使わない。** `read`（読み取り専用）でも AI との対話は要る。Permission が効くのは File Write / Terminal などの副作用のある操作だけ、という整理をそのまま採る。
+  - **Security Gate は必須のまま。** 「毎回 Ask しない」ことと「検査しない」ことは別で、Secret ファイル → deny・Workspace の検証ができない → deny・Sanitize の失敗 → deny・Payload の形が不正 → deny・通常の Context の中の Secret → Mask して allow、は v1 でも変えない。
+  - **「外部 AI への送信そのものを禁じる」設定が要るようになった場合は、Approval ではなく Privacy / Network Policy として別に検討する**（送信のたびに利用者へ尋ねる形の代わりに、送信経路そのものを閉じる設定にあたるため）。
+- **Fail closed：** Sanitize が最後まで通らない（`unscanned` / `truncated` / 返り値の形が壊れている）・Secret ファイルが含まれる・Workspace の検証情報を安全に取れない・Payload の形が不正・知らない Context の種類・処理中の例外・Safe Payload を作れない・上限を満たせない、はすべて deny。**エラー時に未検査の Payload を送り直す経路（raw fallback）は無い。**
+- **大きさの上限（2026-09-23 確定）：** Context 1件 **1,000,000 文字**（STEP3 の `SECRET_SCAN_MAX_CHARS` と同じ値）・1回の合計 **1,000,000 文字**・1回の件数 **256 件**・`label` **256 文字**・Provider の識別子 **40 文字**。上限を超えたものは **truncate せずに拒む**（縮めると、落とした部分にあった Secret が「検査した」ことになる）。
+  - **これは Provider の Token Budget ではなく、Security Scan を最後まで実行できる範囲を保証するための上限にあたる。** Provider へ何文字送るのが妥当かの判断（Token Budget）は FN Engine が持つ（§6.3）。Gate の上限を Token Budget として使い回さない ── 用途が違うものを1つの値にすると、Budget を広げたいという理由で検査の上限まで動くことになる。
+- **Provider の識別子は短い名前だけ（2026-09-23 確定）：** 小文字・数字・ハイフンの `anthropic` / `openai-compatible` のような形に限り、URL も API Key も通さない。形が通っても**STEP3 の検出が Secret と見なすものは受け付けない**（`sk-ant-…` は小文字とハイフンだけでできているため）。Audit の `subject` に載る唯一の文字列にあたる。
+  - **STEP5 では閉じた集合にしない。** 対応する Provider がまだ1つも決まっていない段階で名前の一覧を作っても、実際の Adapter が決まった時点で作り直すことになるため、**書式の検証 ＋ 40 文字**で始める。**実際の Provider Adapter / 対応 Provider が確定した段階で、`SupportedProviderId` のような閉じた集合へ変えることを再検討する**（`AuditEventType` と同じ形にできる）。
+- **Audit（STEP4）を実際に使い始める：** `external-send.allowed` / `external-send.denied` を記録する。渡すのは**安全な metadata だけ** ── Provider の識別子・allow / deny・理由・効いていた Permission・伏せた数 / 種別 / `userNoticeRequired`。**Prompt 本文・System / Agent の指示文・ファイルの中身・Tool の結果・MCP の読み取り結果・Error の本文・Provider Credential は渡さない**（`AuditEvent` の型にも無い）。**Audit の失敗で allow / deny は変わらない**（記録は捕まえて捨てる）。
+- **迂回する API を作らない：** `externalSendUnsafe()`・`skipSecurity`・`bypassGate`・`alreadySanitized`・`trustRenderer` にあたる引数も関数も無い。Renderer から未検査の Payload を渡して「Safe Payload に変えて返す」IPC も作らない（返した時点で Renderer が検査済みの入れ物を持ち回せるため）。
+- **STEP5 で作らないもの：** 実際の Provider 統合（Adapter・Model の選択・Streaming・Credential Store）・Approval UI・通知 UI。**FN Agent 専用の Provider 送信経路は、STEP5 の時点ではまだ存在しない**（既存の外部通信は Feedback の Notion 保存と更新確認だけで、どちらも AI Provider ではなく、STEP5 では手を入れない）。将来 Provider Adapter を足すときは、この Gate から渡される Safe Payload だけを受け取る形にする。
+
 ### 6.5 v1 に含めないもの
 
 | 項目                                               | 扱い                                                                                                   |

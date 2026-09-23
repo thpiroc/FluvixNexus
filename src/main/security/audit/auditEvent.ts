@@ -159,6 +159,22 @@ export type AuditReason =
   | 'sanitize-failed'
   /** 1 件が大きすぎて、最小限の記録へ落とした。 */
   | 'record-too-large'
+  /** External Send Gate（STEP5）が検査を通して送った。 */
+  | 'context-sanitized'
+  /** Payload の形が違う。 */
+  | 'invalid-payload'
+  /** Provider の識別子として受け付けない。 */
+  | 'invalid-provider'
+  /** 送るものが無い。 */
+  | 'empty-context'
+  /** 知らない Context の種類。 */
+  | 'unknown-context-kind'
+  /** Context が上限を超えている。 */
+  | 'context-too-large'
+  /** 送れない形の中身（binary など）。 */
+  | 'unsupported-context'
+  /** Gate の処理の途中で例外が出た。 */
+  | 'gate-failed'
 
 /**
  * 理由の一覧。
@@ -193,7 +209,16 @@ const KNOWN_REASONS: Readonly<Record<AuditReason, true>> = Object.freeze({
   // STEP4（この module）
   'unrecognized-event': true,
   'sanitize-failed': true,
-  'record-too-large': true
+  'record-too-large': true,
+  // STEP5（externalSend/externalSendDecision.ts）
+  'context-sanitized': true,
+  'invalid-payload': true,
+  'invalid-provider': true,
+  'empty-context': true,
+  'unknown-context-kind': true,
+  'context-too-large': true,
+  'unsupported-context': true,
+  'gate-failed': true
 })
 
 /** 知っている理由（名前順）。 */
