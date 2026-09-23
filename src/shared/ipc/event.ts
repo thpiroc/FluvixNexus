@@ -1,4 +1,5 @@
 import type { AgentFileWriteIpcEventContract } from './events/agentFileWrite'
+import type { AgentTerminalIpcEventContract } from './events/agentTerminal'
 import type { ApprovalIpcEventContract } from './events/approval'
 import type { DebugIpcEventContract } from './events/debug'
 import type { FilesIpcEventContract } from './events/files'
@@ -69,7 +70,8 @@ export interface IpcEventContract
     DebugIpcEventContract,
     SettingsIpcEventContract,
     ApprovalIpcEventContract,
-    AgentFileWriteIpcEventContract {}
+    AgentFileWriteIpcEventContract,
+    AgentTerminalIpcEventContract {}
 
 /** 有効な IPC イベントチャンネル名。契約に定義されたものだけが存在しうる。 */
 export type IpcEventChannel = keyof IpcEventContract & string

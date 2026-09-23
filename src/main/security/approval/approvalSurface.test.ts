@@ -67,6 +67,7 @@ describe('公開する名前', () => {
   it('内部の module も、決めた名前しか公開しない', () => {
     expect(Object.keys(actionModule).sort()).toEqual([
       'APPROVAL_ARG_MAX_LENGTH',
+      'APPROVAL_COMMAND_LINE_MAX_LENGTH',
       'APPROVAL_COMMAND_MAX_LENGTH',
       'APPROVAL_CONTENT_MAX_CHARS',
       'APPROVAL_CWD_MAX_LENGTH',
@@ -77,10 +78,10 @@ describe('公開する名前', () => {
     expect(Object.keys(fingerprintModule).sort()).toEqual(['approvalFingerprint'])
     expect(Object.keys(idModule).sort()).toEqual(['createApprovalId', 'isApprovalId'])
     expect(Object.keys(summaryModule).sort()).toEqual([
-      'APPROVAL_COMMAND_SUMMARY_MAX_LENGTH',
       'APPROVAL_SUBJECT_MAX_LENGTH',
       'APPROVAL_TRUNCATION_MARK',
-      'approvalSafeSummary'
+      'approvalSafeSummary',
+      'describeTerminalCommand'
     ])
     expect(Object.keys(auditModule).sort()).toEqual([
       'approvalApprovedEvent',

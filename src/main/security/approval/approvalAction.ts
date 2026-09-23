@@ -55,6 +55,16 @@ export const APPROVAL_MAX_ARGS = 64
 export const APPROVAL_CWD_MAX_LENGTH = 256
 
 /**
+ * コマンド全体（command ＋ 各引数。区切りの空白1つずつを含む）の上限（STEP8。2026-09-23 確定）。
+ *
+ * Terminal の承認は**内容を省略せずに見せる**（DESIGN.md §6.4）。1つずつの上限
+ * （512 文字 × 64 個）だけでは 3 万文字を超える提案が通り、画面でも Native Dialog でも
+ * 読み切れない ── 読み切れないものを承認させないため、全体をここで抑える。
+ * 超えたものは縮めずに拒む。
+ */
+export const APPROVAL_COMMAND_LINE_MAX_LENGTH = 2_000
+
+/**
  * 書き込む本文の上限（文字数）。
  *
  * STEP3 の `SECRET_SCAN_MAX_CHARS` と同じ値。承認を求める段階で、後の Gate が
@@ -177,7 +187,8 @@ function normalizeTerminalRun(raw: Readonly<Record<string, unknown>>): ApprovalA
     command.length === 0 ||
     command.length > APPROVAL_COMMAND_MAX_LENGTH ||
     command.trim() !== command ||
-    hasControlCharacter(command)
+    hasControlCharacter(command) ||
+    hasInvisibleCharacter(command)
   ) {
     return DENIED.invalidRequest
   }
@@ -194,12 +205,18 @@ function normalizeTerminalRun(raw: Readonly<Record<string, unknown>>): ApprovalA
     if (
       typeof arg !== 'string' ||
       arg.length > APPROVAL_ARG_MAX_LENGTH ||
-      hasControlCharacter(arg)
+      hasControlCharacter(arg) ||
+      hasInvisibleCharacter(arg)
     ) {
       return DENIED.invalidRequest
     }
 
     args.push(arg)
+  }
+
+  // 省略せずに見せられる長さか（STEP8）。区切りの空白も数える。
+  if (commandLineLength(command, args) > APPROVAL_COMMAND_LINE_MAX_LENGTH) {
+    return DENIED.invalidRequest
   }
 
   const cwd: unknown = raw.cwd
@@ -257,6 +274,25 @@ function hasControlCharacter(value: string): boolean {
   }
 
   return false
+}
+
+/**
+ * 見た目に現れない・見た目を組み替える文字を含むか（Terminal だけ。STEP8）。
+ *
+ * C1 制御文字・書式文字（双方向の上書き・ゼロ幅・BOM）・行 / 段落の区切り・
+ * 対になっていないサロゲート。**画面に出た文字列と実行される文字列が同じに
+ * 読めない**ものは、伏せ字や印に置き換えて見せるのではなく拒む ── 置き換えて
+ * 見せると、利用者が見たものと実行されるものが別物になる。
+ */
+function hasInvisibleCharacter(value: string): boolean {
+  return INVISIBLE_CHARACTER.test(value)
+}
+
+const INVISIBLE_CHARACTER = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}]/u
+
+/** 表示する1行の長さ（command と各引数を空白1つで区切った長さ）。 */
+function commandLineLength(command: string, args: readonly string[]): number {
+  return args.reduce((total, arg) => total + 1 + arg.length, command.length)
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {

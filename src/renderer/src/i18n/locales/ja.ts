@@ -977,6 +977,40 @@ export const jaMessages = {
       continueTitle: '確認ダイアログへ進みます（まだ書き込まれません）',
       cancel: '取り消す',
       cancelTitle: '何も書き込まずにやめます'
+    },
+    terminal: {
+      title: 'FN Agent がコマンドの実行を提案しています',
+      body: 'FN Agent がこのコマンドを実行しようとしています。シェルを通さずに、表示された形のまま1回だけ実行します。',
+      commandLabel: 'コマンド',
+      argsLabel: '引数（{count} 個）',
+      noArgs: '引数なし',
+      emptyArg: '（空の引数）',
+      cwdLabel: '場所',
+      workspaceRoot: 'Workspace のルート',
+      viaBatch:
+        'このコマンドはバッチファイル（.cmd / .bat）のため、cmd.exe を通して実行します。安全な文字だけでできた引数しか渡せません。',
+      secretMasked: 'Secret らしき値は、この表示では伏せてあります（実行には元の値が使われます）。',
+      privilegeNote:
+        '承認したコマンドは、あなたと同じ権限で動きます。Workspace の外の読み書きや通信もできます。内容を信頼できる場合だけ続けてください。',
+      readOnlyNote:
+        'この画面ではコマンドを編集できません。変えたい場合は取り消して、もう一度提案させてください。',
+      continue: '続ける',
+      continueTitle: '確認ダイアログへ進みます（まだ実行されません）',
+      cancel: '取り消す',
+      cancelTitle: '何も実行せずにやめます',
+      resultTitle: 'コマンドの実行が終わりました',
+      status: {
+        completed: '終了コード {code} で終了しました',
+        completedUnknown: '終了しました（終了コードなし）',
+        timedOut: '120 秒を過ぎたため終了させました',
+        failed: 'コマンドを起動できませんでした'
+      },
+      outputLabel: '出力（Secret は伏せてあります）',
+      noOutput: '出力はありません。',
+      outputTruncated: '出力の一部だけを表示しています（末尾の行・1行 300 文字まで）。',
+      outputSecretMasked: '出力の中の Secret らしき値を伏せました。',
+      outputWithheld: '出力の Secret を検査できなかったため、表示しません。',
+      close: '閉じる'
     }
   },
   settings: {

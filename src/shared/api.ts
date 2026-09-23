@@ -1360,6 +1360,19 @@ export interface AgentApi {
   readonly onFileWriteSettled: (
     listener: IpcEventListener<'agent-file-write:settled'>
   ) => IpcEventUnsubscribe
+  /**
+   * Terminal のコマンドの実行が提案されたときに呼ばれる（STEP8）。
+   *
+   * payload のコマンドは Main が Mask した表示用の値で、**実行する exact な argv では
+   * ない。** これを実行へ戻す経路は無い。
+   */
+  readonly onTerminalProposed: (
+    listener: IpcEventListener<'agent-terminal:proposed'>
+  ) => IpcEventUnsubscribe
+  /** その提案が終わったときに呼ばれる。実行した場合は、伏せた後の結果が載る。 */
+  readonly onTerminalSettled: (
+    listener: IpcEventListener<'agent-terminal:settled'>
+  ) => IpcEventUnsubscribe
 }
 
 /**

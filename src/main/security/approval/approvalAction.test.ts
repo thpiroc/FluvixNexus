@@ -7,6 +7,7 @@ import {
   approvalActionKindOf,
   normalizeApprovalRequest,
   APPROVAL_ARG_MAX_LENGTH,
+  APPROVAL_COMMAND_LINE_MAX_LENGTH,
   APPROVAL_COMMAND_MAX_LENGTH,
   APPROVAL_CONTENT_MAX_CHARS,
   APPROVAL_MAX_ARGS
@@ -170,6 +171,38 @@ describe('Terminal', () => {
     ]) {
       expect(normalizeApprovalRequest({ ...base, ...patch }).ok).toBe(false)
     }
+  })
+
+  it('コマンド全体は 2,000 文字まで（区切りの空白を含めて数え、超えたら縮めずに拒む）', () => {
+    // npm（3）＋ 空白と引数（1 + 498）× 3 ＋（1 + 499）＝ 2,000 文字。
+    const head = Array.from({ length: 3 }, () => 'a'.repeat(498))
+    const base = { kind: 'terminal.run', command: 'npm', cwd: '' }
+
+    expect(APPROVAL_COMMAND_LINE_MAX_LENGTH).toBe(2_000)
+    expect(normalizeApprovalRequest({ ...base, args: [...head, 'a'.repeat(499)] }).ok).toBe(true)
+    expect(normalizeApprovalRequest({ ...base, args: [...head, 'a'.repeat(500)] })).toEqual({
+      ok: false,
+      denial: 'invalid-request'
+    })
+  })
+
+  it('見た目に現れない・見た目を組み替える文字は拒む（STEP8）', () => {
+    const base = { kind: 'terminal.run', command: 'npm', args: [] as unknown[], cwd: '' }
+
+    for (const patch of [
+      { args: ['safe‮txt.exe'] }, // 右から左への上書き
+      { args: ['a​b'] }, // ゼロ幅空白
+      { args: ['﻿run'] }, // BOM
+      { args: ['a b'] }, // 行の区切り
+      { args: ['a\u0085b'] }, // C1 制御文字
+      { args: ['a\uD800b'] }, // 対になっていないサロゲート
+      { command: 'np‍m' }
+    ]) {
+      expect(normalizeApprovalRequest({ ...base, ...patch }).ok).toBe(false)
+    }
+
+    // 日本語や全角の文字そのものは拒まない。
+    expect(normalizeApprovalRequest({ ...base, args: ['-m', '日本語のメッセージ'] }).ok).toBe(true)
   })
 })
 

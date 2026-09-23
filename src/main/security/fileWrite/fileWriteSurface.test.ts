@@ -137,8 +137,10 @@ describe('Renderer / Agent から届かない', () => {
   it('Agent の File Write を頼める IPC チャンネルは無い', () => {
     const channels = [...Object.values(IPC_CHANNELS), ...Object.values(IPC_EVENT_CHANNELS)]
 
-    // Agent の File Write に関するチャンネルは、Main → Renderer の知らせ2本だけ。
-    expect(channels.filter((channel) => /agent/i.test(channel)).sort()).toEqual([
+    // Agent の File Write に関するチャンネルは、Main → Renderer の知らせ2本だけ
+    // （STEP8 の agent-terminal:* は terminalRunSurface.test.ts が見る）。
+    expect(Object.values(IPC_CHANNELS).filter((channel) => /agent/i.test(channel))).toEqual([])
+    expect(channels.filter((channel) => /agent-file-write/i.test(channel)).sort()).toEqual([
       'agent-file-write:proposed',
       'agent-file-write:settled'
     ])

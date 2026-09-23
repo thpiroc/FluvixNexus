@@ -993,6 +993,42 @@ export const enMessages = {
       continueTitle: 'Go on to the confirmation dialog (nothing is written yet)',
       cancel: 'Cancel',
       cancelTitle: 'Do not write anything'
+    },
+    terminal: {
+      title: 'FN Agent wants to run a command',
+      body: 'FN Agent wants to run this command. It runs exactly as shown, once, without a shell.',
+      commandLabel: 'Command',
+      argsLabel: 'Arguments ({count})',
+      noArgs: 'No arguments',
+      emptyArg: '(empty argument)',
+      cwdLabel: 'Folder',
+      workspaceRoot: 'Workspace root',
+      viaBatch:
+        'This command is a batch file (.cmd / .bat), so it runs through cmd.exe. Only arguments made of safe characters are allowed.',
+      secretMasked:
+        'Values that look like secrets are hidden in this view (the command uses the real values).',
+      privilegeNote:
+        'An approved command runs with your permissions. It can read and write outside the Workspace and use the network. Continue only if you trust what it does.',
+      readOnlyNote:
+        'This view is read-only. To change the command, cancel and let FN Agent propose it again.',
+      continue: 'Continue',
+      continueTitle: 'Go on to the confirmation dialog (nothing runs yet)',
+      cancel: 'Cancel',
+      cancelTitle: 'Do not run anything',
+      resultTitle: 'Command finished',
+      status: {
+        completed: 'Exited with code {code}',
+        completedUnknown: 'Exited (no exit code)',
+        timedOut: 'Stopped after 120 seconds',
+        failed: 'Could not start the command'
+      },
+      outputLabel: 'Output (secrets hidden)',
+      noOutput: 'No output.',
+      outputTruncated:
+        'Only part of the output is shown (the last lines, up to 300 characters each).',
+      outputSecretMasked: 'Values that look like secrets were hidden in the output.',
+      outputWithheld: 'The output could not be checked for secrets, so it is not shown.',
+      close: 'Close'
     }
   },
   settings: {

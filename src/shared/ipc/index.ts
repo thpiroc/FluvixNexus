@@ -237,3 +237,8 @@ export type {
   AgentFileWriteProposedEvent,
   AgentFileWriteSettledEvent
 } from './events/agentFileWrite'
+export type {
+  AgentTerminalIpcEventContract,
+  AgentTerminalProposedEvent,
+  AgentTerminalSettledEvent
+} from './events/agentTerminal'

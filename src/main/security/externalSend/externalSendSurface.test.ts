@@ -164,8 +164,8 @@ describe('Renderer / Preload からは届かない', () => {
 
   it('Agent を名乗るのは、Main → Renderer の知らせだけ（要求の口は無い）', () => {
     /*
-      STEP7 で `agent-file-write:proposed` / `:settled` が増えた。どちらも
-      **Main から Renderer への片道の知らせ**で、Renderer から Main を呼ぶ
+      STEP7 で `agent-file-write:proposed` / `:settled`、STEP8 で `agent-terminal:proposed` /
+      `:settled` が増えた。どれも **Main から Renderer への片道の知らせ**で、Renderer から Main を呼ぶ
       チャンネル（IPC_CHANNELS）の側には1つも無い。
     */
     expect(Object.values(IPC_CHANNELS).filter((channel) => /agent/i.test(channel))).toEqual([])
@@ -173,7 +173,12 @@ describe('Renderer / Preload からは届かない', () => {
       Object.values(IPC_EVENT_CHANNELS)
         .filter((channel) => /agent/i.test(channel))
         .sort()
-    ).toEqual(['agent-file-write:proposed', 'agent-file-write:settled'])
+    ).toEqual([
+      'agent-file-write:proposed',
+      'agent-file-write:settled',
+      'agent-terminal:proposed',
+      'agent-terminal:settled'
+    ])
   })
 
   it('Preload は External Send を公開していない', () => {

@@ -162,6 +162,7 @@ describe('種別は閉じた集合', () => {
       'secret.masked',
       'security-settings.changed',
       'terminal.approved',
+      'terminal.completed',
       'terminal.denied',
       'terminal.failed',
       'terminal.requested'

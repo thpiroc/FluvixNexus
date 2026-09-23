@@ -1,5 +1,6 @@
 import type { JSX } from 'react'
 import { AgentFileWriteProvider } from './agent/AgentFileWriteProvider'
+import { AgentTerminalProvider } from './agent/AgentTerminalProvider'
 import { CommandProvider } from './commands/CommandProvider'
 import { BreakpointProvider } from './debug/BreakpointProvider'
 import { CallStackProvider } from './debug/CallStackProvider'
@@ -137,6 +138,8 @@ function App(): JSX.Element {
                                     見せて意思表示を返すだけ（agent/）。
                                   */}
                                     <AgentFileWriteProvider />
+                                    {/* FN Agent のコマンドの確認と結果（STEP8）。考え方は上と同じ。 */}
+                                    <AgentTerminalProvider />
                                   </KeybindingProvider>
                                 </CallStackProvider>
                               </BreakpointProvider>

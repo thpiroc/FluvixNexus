@@ -1,7 +1,7 @@
 import { dialog, type BrowserWindow } from 'electron'
 import { createLogger } from '../../logger'
 import type { ApprovalConfirmation, ApprovalWindow } from './approvalManager'
-import type { ApprovalSafeSummary } from './approvalSummary'
+import { describeTerminalCommand, type ApprovalSafeSummary } from './approvalSummary'
 
 /**
  * 承認の第2段階（Security Core v1 の STEP6）。Main の Native 確認。
@@ -13,15 +13,14 @@ import type { ApprovalSafeSummary } from './approvalSummary'
  *
  * ## 出すのは安全な要約だけ
  *
- * 書き込む本文も Diff 本文もコマンドの全文の引数も出さない。出すのは
- * approvalSummary.ts が Mask して切った後の文字列（対象の相対 Path・
- * コマンドの1行）だけで、**Secret はここへ届く前に伏せてある。**
+ * 書き込む本文も Diff 本文も出さない。出すのは approvalSummary.ts が Mask した後の
+ * 文字列（対象の相対 Path・コマンドと引数）だけで、**Secret はここへ届く前に伏せてある。**
  *
  * ```
  * File Write   FN Agent が Workspace 内のファイルを変更しようとしています。
  *              対象: src/example.ts
  * Terminal     FN Agent がコマンドを実行しようとしています。
- *              Command: npm test
+ *              コマンド: npm / 引数を1つずつ / 場所（省略しない。STEP8）
  * ```
  *
  * ## 既定は「許可しない」
@@ -83,10 +82,8 @@ function describeApproval(summary: ApprovalSafeSummary): {
     }
   }
 
-  const where = summary.workspacePath === null ? '' : `\n場所: ${summary.workspacePath}`
-
   return {
     message: 'FN Agent がコマンドを実行しようとしています。',
-    detail: `Command: ${summary.commandSummary ?? summary.subject}${where}`
+    detail: describeTerminalCommand(summary)
   }
 }

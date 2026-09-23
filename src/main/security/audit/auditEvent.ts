@@ -85,10 +85,13 @@ export type AuditEventType =
   | 'file-write.denied'
   | 'file-write.succeeded'
   | 'file-write.failed'
-  /** Terminal / Command Runner。 */
+  /** Terminal / Command Runner（STEP8）。 */
   | 'terminal.requested'
   | 'terminal.approved'
   | 'terminal.denied'
+  /** 起動して終了した（終了コードが 0 なら success、それ以外は failure）。 */
+  | 'terminal.completed'
+  /** 承認の後、起動できなかった・時間切れで終了させた。 */
   | 'terminal.failed'
   /** MCP Gateway。 */
   | 'mcp-tool.requested'
@@ -128,6 +131,7 @@ const CATEGORY_OF_EVENT: Readonly<Record<AuditEventType, AuditCategory>> = Objec
   'terminal.requested': 'terminal',
   'terminal.approved': 'terminal',
   'terminal.denied': 'terminal',
+  'terminal.completed': 'terminal',
   'terminal.failed': 'terminal',
   'mcp-tool.requested': 'mcp-tool',
   'mcp-tool.allowed': 'mcp-tool',
@@ -221,6 +225,24 @@ export type AuditReason =
   | 'verify-failed'
   /** 別の File Write を処理している最中だった（v1 は1件ずつ）。 */
   | 'write-in-progress'
+  /** Terminal Command Runner（STEP8）: PATH 上の名前として受け付けないコマンド（絶対パス・区切りを含む など）。 */
+  | 'unsupported-command'
+  /** コマンドの実体が PATH（Workspace の外の絶対パスの項目）に見つからない。 */
+  | 'command-not-found'
+  /** .cmd / .bat へ、安全な文字だけでできていない引数を渡そうとした。 */
+  | 'unsafe-batch-argument'
+  /** 作業ディレクトリがディレクトリではない。 */
+  | 'cwd-not-directory'
+  /** 承認してから実行するまでの間に、コマンドの実体が変わった。 */
+  | 'executable-changed'
+  /** プロセスを起動できなかった。 */
+  | 'spawn-failed'
+  /** 時間の上限（120 秒）を過ぎたため終了させた。 */
+  | 'timed-out'
+  /** 実行は終わったが、終了コードが 0 ではなかった。 */
+  | 'non-zero-exit'
+  /** 別のコマンドを処理している最中だった（v1 は1件ずつ）。 */
+  | 'run-in-progress'
 
 /**
  * 理由の一覧。
@@ -288,7 +310,17 @@ const KNOWN_REASONS: Readonly<Record<AuditReason, true>> = Object.freeze({
   'handle-unconfirmed': true,
   'write-failed': true,
   'verify-failed': true,
-  'write-in-progress': true
+  'write-in-progress': true,
+  // STEP8（terminalRun/terminalRunGate.ts）
+  'unsupported-command': true,
+  'command-not-found': true,
+  'unsafe-batch-argument': true,
+  'cwd-not-directory': true,
+  'executable-changed': true,
+  'spawn-failed': true,
+  'timed-out': true,
+  'non-zero-exit': true,
+  'run-in-progress': true
 })
 
 /** 知っている理由（名前順）。 */

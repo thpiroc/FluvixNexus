@@ -1,0 +1,177 @@
+/*
+ * FN Agent の Terminal の確認と結果（Security Core v1 の STEP8）。
+ *
+ * agentFileWrite.css と同じ作り（アプリ内モーダル・色は styles/theme.css の変数）。
+ * 別のファイルにしてあるのは、File Write の見た目を変えずに済ませるため。
+ *
+ * コマンド・引数・出力は等幅で、**折り返して全部見せる**（省略しない。STEP8）。
+ */
+
+.fx-agent-terminal__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--fx-space-4);
+  background: var(--fx-color-scrim);
+}
+
+.fx-agent-terminal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-3);
+  width: min(760px, 100%);
+  max-height: 100%;
+  padding: var(--fx-space-4);
+  overflow: auto;
+  color: var(--fx-color-text);
+  background: var(--fx-color-surface-raised);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 6px;
+  box-shadow: var(--fx-shadow-dialog);
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-agent-terminal__title {
+  margin: 0;
+  color: var(--fx-color-text-strong);
+  font-size: var(--fx-font-size-md);
+}
+
+.fx-agent-terminal__body,
+.fx-agent-terminal__status {
+  margin: 0;
+  color: var(--fx-color-text-muted);
+  line-height: 1.7;
+}
+
+.fx-agent-terminal__status[data-status='completed'] {
+  color: var(--fx-color-text-strong);
+}
+
+.fx-agent-terminal__status[data-status='timed-out'],
+.fx-agent-terminal__status[data-status='failed'] {
+  color: var(--fx-color-danger);
+}
+
+.fx-agent-terminal__details {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--fx-space-1) var(--fx-space-3);
+  margin: 0;
+  padding: var(--fx-space-2);
+  max-height: 40vh;
+  overflow: auto;
+  background: var(--fx-color-surface-sunken);
+  border: 1px solid var(--fx-color-border);
+  border-radius: 4px;
+}
+
+.fx-agent-terminal__details dt {
+  color: var(--fx-color-text-faint);
+}
+
+.fx-agent-terminal__details dd {
+  margin: 0;
+  min-width: 0;
+}
+
+/* 省略しない：長い値は折り返す（`…` で切らない）。 */
+.fx-agent-terminal__code {
+  color: var(--fx-color-text-strong);
+  font-family: ui-monospace, Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.fx-agent-terminal__args {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fx-agent-terminal__arg {
+  display: flex;
+  gap: var(--fx-space-2);
+  min-width: 0;
+}
+
+.fx-agent-terminal__arg-index {
+  flex: 0 0 auto;
+  width: 3ch;
+  text-align: right;
+  color: var(--fx-color-text-faint);
+  font-family: ui-monospace, Consolas, monospace;
+  user-select: none;
+}
+
+.fx-agent-terminal__muted {
+  color: var(--fx-color-text-faint);
+}
+
+.fx-agent-terminal__label {
+  color: var(--fx-color-text-faint);
+}
+
+.fx-agent-terminal__output {
+  margin: 0;
+  padding: var(--fx-space-2);
+  max-height: 40vh;
+  overflow: auto;
+  background: var(--fx-color-surface-sunken);
+  border: 1px solid var(--fx-color-border);
+  border-radius: 4px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: var(--fx-font-size-sm);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.fx-agent-terminal__note {
+  margin: 0;
+  color: var(--fx-color-text-faint);
+  line-height: 1.7;
+}
+
+.fx-agent-terminal__warning {
+  margin: 0;
+  color: var(--fx-color-text);
+  line-height: 1.7;
+}
+
+.fx-agent-terminal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--fx-space-2);
+}
+
+.fx-agent-terminal__button {
+  padding: var(--fx-space-1) var(--fx-space-3);
+  color: var(--fx-color-text);
+  background: var(--fx-color-surface);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  font: inherit;
+  font-size: var(--fx-font-size-sm);
+  cursor: pointer;
+}
+
+.fx-agent-terminal__button:hover:not(:disabled) {
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-agent-terminal__button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.fx-agent-terminal__button[data-variant='primary'] {
+  color: var(--fx-color-text-strong);
+  border-color: var(--fx-accent-blue);
+}

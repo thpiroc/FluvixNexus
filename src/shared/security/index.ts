@@ -19,3 +19,9 @@ export {
 export type { AgentPermissionMode } from './permissionMode'
 export type { SafeDiffLine, SafeDiffLineKind, SafeFileWriteDiff } from './fileWriteDiff'
 export type { ApprovalActionKind } from './approvalAction'
+export type {
+  SafeTerminalCommandDisplay,
+  SafeTerminalOutputDisplay,
+  SafeTerminalRunResult,
+  TerminalRunStatus
+} from './terminalRun'

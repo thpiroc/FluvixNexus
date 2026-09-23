@@ -3,6 +3,11 @@ import {
   proposeHarnessWriteToExistingFile,
   proposeHarnessWriteToNewFile
 } from '../security/fileWrite/fileWriteHarness'
+import {
+  proposeHarnessCommand,
+  proposeHarnessCommandInFolder,
+  type TerminalHarnessScenario
+} from '../security/terminalRun/terminalRunHarness'
 import { isDevelopment } from './runtime'
 
 /**
@@ -68,12 +73,46 @@ export function applyApplicationMenu(): void {
           click: () => void withFocusedWindow(proposeHarnessWriteToNewFile)
         },
         { type: 'separator' },
+        /*
+          FN Agent の Terminal Command Runner を手で動かすための足場（Security Core v1 の STEP8）。
+          上の File Write と同じ条件（開発時のメニューにしか出ない・足場の側でも isDevelopment）。
+          **コマンドは固定の一覧から選ぶだけ**で、任意のコマンドを打ち込める欄は作らない
+          （security/terminalRun/terminalRunHarness.ts）。
+        */
+        {
+          label: 'FN Agent: コマンドの実行を提案（開発用）',
+          submenu: [
+            harnessCommandItem('node --version', 'node-version'),
+            harnessCommandItem('npm --version（.cmd を cmd.exe で包む）', 'npm-version'),
+            harnessCommandItem('git status --short --branch', 'git-status'),
+            harnessCommandItem('Secret らしき値を出力する（Mask の確認）', 'secret-output'),
+            harnessCommandItem('npm へ危険な文字を渡す（拒否の確認）', 'unsafe-batch-argument'),
+            harnessCommandItem('終わらないコマンド（120 秒の打ち切りの確認）', 'timeout'),
+            { type: 'separator' },
+            {
+              label: '場所を選んで node --version',
+              click: () => void withFocusedWindow(proposeHarnessCommandInFolder)
+            }
+          ]
+        },
+        { type: 'separator' },
         { role: 'quit' }
       ]
     }
   ]
 
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
+
+/** Terminal の足場の1項目。 */
+function harnessCommandItem(
+  label: string,
+  scenario: TerminalHarnessScenario
+): MenuItemConstructorOptions {
+  return {
+    label,
+    click: () => void withFocusedWindow((window) => proposeHarnessCommand(window, scenario))
+  }
 }
 
 /**

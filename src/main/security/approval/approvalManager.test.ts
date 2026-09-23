@@ -606,7 +606,10 @@ describe('consume（STEP7 / STEP8 が使う）', () => {
         actionKind: 'terminal.run',
         subject: 'npm',
         workspacePath: null,
-        commandSummary: 'npm test'
+        commandSummary: 'npm test',
+        commandName: 'npm',
+        commandArgs: ['test'],
+        secretMasked: false
       }
     })
     expect(api.consume(id, TERMINAL)).toEqual({ ok: false, reason: 'approval-not-found' })

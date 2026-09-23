@@ -383,7 +383,7 @@ FN Agent が**副作用のある操作**を求めたときの承認を、**Main 
 - **有効期限は 5 分（2026-09-23 正式採用）：** 期限を過ぎた承認は deny で、やり直すには承認からになる（timeout は「保留」ではなく**拒否**にあたる）。**時刻は Main の時計だけで判断する（Main が Source of Truth）** ── Renderer へ送る `expiresAt` は残り時間の表示のためだけの値で、「まだ期限内だ」と Renderer が名乗る経路は無い。Native Dialog を出している間に期限が来た場合も、**承認を確定させる直前にもう一度確かめて** deny にする。
 - **Terminal の `cwd` は Workspace 相対（2026-09-23 正式採用）：** `''` が Workspace root。**絶対パスは Renderer へも Audit へも Approval の binding へも出さない** ── 利用者の名前を含む実体の場所が、画面・Log・fingerprint のどれにも残らないようにするため。実体のパスへの解決は **Command Runner（STEP8）が Workspace Boundary（STEP2）を使って**行い、承認の時点では「Workspace のどこか」までしか確定させない。
 - **`consume` は同期（race 対策）：** 実行の直前に呼ぶ `consumeApproval` は `await` を挟まずに状態を進めるため、**同時に2回呼ばれても成功するのは1回だけ**になる（2回目は `approval-already-used` / `approval-not-found`）。同じ承認へ続行が2度届いても Native Dialog は1度しか出ない（`pending` のときだけ受け付ける）。**Approval A の確認で Approval B は承認できない** ── 続行は id で引いた承認にしか効かず、`actionKind` の名乗りが控えと違えばその承認は失効する。
-- **表示用と binding 用を分ける：** 画面・Native Dialog・Audit に出るのは、**STEP3 の Mask を通して長さで切った後の要約だけ**（File Write は Workspace 相対 Path、Terminal はコマンド名と引数を並べた1行）。**コマンドに混ざる Secret（`--token ghp_…`）を伏せた上で**、binding は Mask を通さない exact な `command` / `args` / `cwd` から作る ── 伏せ字は元の値を1つに定めないため、突き合わせには使えない。
+- **表示用と binding 用を分ける：** 画面・Native Dialog・Audit に出るのは、**STEP3 の Mask を通して長さで切った後の要約だけ**（File Write は Workspace 相対 Path、Terminal はコマンド名と引数を並べた1行。**Terminal は STEP8 で「切らない」へ見直した** ── 下の「Terminal Command Runner」を参照）。**コマンドに混ざる Secret（`--token ghp_…`）を伏せた上で**、binding は Mask を通さない exact な `command` / `args` / `cwd` から作る ── 伏せ字は元の値を1つに定めないため、突き合わせには使えない。
 - **Native Dialog（第2段階）：** アプリの中のモーダルではなく `dialog.showMessageBox` を使う。**Renderer が描けない場所に最後の1歩を置く**ため。出すのは安全な要約だけで、書き込む本文も Diff 本文も引数の全文も出さない。既定（`defaultId`）も `cancelId` も**取り消し側**に置き、× で閉じた場合もそのまま拒否になる。
 - **Audit（STEP4）：** `approval.requested` / `approval.approved` / `approval.denied` を記録する。載せるのは**操作の種類・判定・理由・効いていた Permission・安全な対象名・Workspace 相対 Path** だけ。**書き込む本文・Diff 本文・コマンドの引数・コマンドの出力・fingerprint・Approval の id は載せない** ── fingerprint は「同じものか」を確かめるための値で、本文の代わりに残すものではない（**Secret を hash 化すれば保存してよい、という扱いにはしない**）。**Audit の失敗で承認の結論は変わらない**（記録は捕まえて捨てる）。
 - **理由の語彙（STEP4 へ追加）：** `user-approved` / `user-cancelled` / `approval-expired` / `approval-not-found` / `approval-already-used` / `approval-state-invalid` / `binding-mismatch` / `fingerprint-failed` / `dialog-failed` / `window-unavailable`。STEP1 / STEP2 の理由（`read-only-mode` / `secret-file` / `outside-workspace` / `hard-link-write` / `unknown-action` / `invalid-request` …）はそのまま使う。
@@ -456,6 +456,83 @@ Agent が書き込みを提案する
   - もう一度提案 → 続ける → Main の Native Dialog（許可しない / 許可する）が出る → **許可すると作られる**
   - 作られた中身が Diff の表示と一致し、**日本語も化けない**（UTF-8 のまま書いている）
   - 既存ファイルの変更でも同じ経路を通り、**Diff で「消える」と出ていた行だけが消えた**（残ると出ていた行はそのまま）
+
+#### Terminal Command Runner（Security Core v1 の STEP8。2026-09-23）
+
+FN Agent が**コマンドを実行するときに必ず通る、唯一の経路**（`src/main/security/terminalRun/`）。入口は `runAgentTerminalCommand({ command, args, cwd })` の1つだけで、受け取るのは **PATH 上のコマンド名・引数の配列・Workspace 相対の作業ディレクトリの3つ**にあたる。
+
+```
+Agent が実行を提案する（command / args / cwd）
+  → 形の検査                              STEP6 の正規化（長さ・見えない文字・全体 2,000 文字）＋ PATH 上の名前だけ
+  → Security Policy（STEP1）              read なら deny（承認を求めることすらしない）。ask のときだけ先へ
+  → 作業ディレクトリ（STEP2）            Boundary で確かめる。ディレクトリ・別名でない・Secret の置き場所でない
+  → 実行ファイル                          PATH を Main が辿って絶対パスに（Workspace の中・相対の項目は使わない）
+  → .cmd / .bat なら引数を検査            安全な文字だけ。1文字でも外れたら deny
+  → Renderer が確認を見せる（第1段階）    コマンド・引数（1つずつ）・場所を省略せずに
+  → 続行（approval:respond / intent: 'continue'）
+  → Main の Native Dialog（第2段階）      同じ内容を省略せずに
+  → approved
+  → もう一度確かめる                      作業ディレクトリ（recheck）・実行ファイル（同じ実体・同じ identity か）
+  → consume（STEP6）                      これから起動する argv / cwd で binding を照合し、1回だけ使い切る
+  → 起動                                  shell を通さず・stdin を閉じて・120 秒まで
+  → 出力を伏せる（STEP3）                 先頭から集めて Mask してから、Agent へ / 画面へは伏せた後の末尾を
+  → Audit（STEP4）
+```
+
+- **Security Core が保証する境界と、承認したコマンドが持つ権限の境界（2026-09-23 確定）：**
+
+  | Security Core が保証すること                                                                                                                                                                                                                                                                                                                                                              | 保証しないこと（承認したコマンド自身の権限）                                                                                                                                                                                           |
+  | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | 承認の前に起動しない・拒否なら起動しない・許可したときだけ **1回だけ** 起動する／**利用者が見た argv と起動する argv が同じ**（shell を通さない・Mask 前の exact な値で binding）／承認した作業ディレクトリ（Workspace の中・別名でない）で起動する／Workspace の中の実行ファイルを拾わない／承認の後の差し替えで起動しない／出力の Secret を伏せてから渡す／Audit に引数と出力を残さない | 起動したプロセスが**中で何をするか。** 利用者と同じ権限で動き、Workspace の外を読み書きすることも、通信することも、別のプロセスを起動することもできる（`npm install` が依存を取りに行く・`git push` が送る・スクリプトが `..` を消す） |
+
+  **承認は「このコマンドに利用者の権限を与える」ことにあたる。** Workspace Boundary が縛れるのは作業ディレクトリと実行ファイルの解決までで、プロセスの中を縛る仕組み（sandbox）は v1 には無い。その判断は利用者が承認の画面で行い、確認の画面にもそのことを常に書いておく（「承認したコマンドは、あなたと同じ権限で動きます」）。
+
+- **argv のまま、shell を通さない（2026-09-23 確定）：** `spawn(実体の絶対パス, args, { shell: false })`。**パイプ・`&&`・リダイレクトは v1 では扱わない** ── シェルの文字列にした時点で、承認した argv と実行される命令の対応がシェルの解釈に委ねられる。シェルの機能が要るときは、Agent が `powershell -Command "…"` のように**シェルそのものを明示して**提案し、その文字列がそのまま承認の画面に出る。`exec` / `execSync` / `shell: true` は使わない（`terminalRunSurface.test.ts` が見ている）。
+- **command は PATH 上の名前だけ：** `npm` / `node` / `git` / `npm.cmd` のような名前だけを受け付け、**絶対パス・相対パス（`./gradlew`）・区切りを含む名前・予約デバイス名は拒む**（`unsupported-command`）。絶対パスを受け付けると利用者の名前を含む実体の場所が画面・Audit・binding に出る（STEP6 の「cwd は Workspace 相対」と同じ理由）。Workspace の中のスクリプトは `node scripts/build.js` のように PATH 上の実行ファイルへ引数として渡す形になり、承認の画面にもその形のまま出る。
+- **PATH は Main が辿る：** 名前だけを OS へ渡すと、Windows の CreateProcess は**作業ディレクトリ（＝ Workspace の中）を先に見る。** 人間用 Terminal のシェル解決（`terminal/shellCommand.ts`）と同じく、PATH は Main が辿って絶対パスにしてから渡す。**相対の項目（`.` / `bin`）と、Workspace の中を指す項目（`node_modules/.bin` を PATH に足している環境）は使わない。** 見つかった実体はリンクを解いてからもう一度 Workspace の外かを確かめる。見つからない名前を「名前のまま起動する」fallback は無い（`command-not-found`）。Windows で拡張子を書かなければ `.com` / `.exe` / `.bat` / `.cmd` の順に探し、`.ps1` / `.js` のような関連付けで何が動くか決まるものは起動しない。
+- **`.cmd` / `.bat` は安全な引数だけ（2026-09-23 確定）：** npm / npx は Windows では `.cmd` で、CreateProcess は直接起動できないため `cmd.exe` で包む。包むと**引数が cmd.exe に解釈し直される**（`&` `|` `<` `>` `^` `%` `!` `"` `(` `)` が命令の区切り・展開・引用になる。いわゆる BatBadBut）。そこで：
+  - 引数は **英数字と `_ - . / : = @ , + \` だけ**でできているものに限る。空の引数・空白・日本語も拒む（どれも引用が要る）。**1文字でも外れたら承認を求めずに deny**（`unsafe-batch-argument`）
+  - 包む `cmd.exe` は PATH ではなく `%SystemRoot%\System32\cmd.exe` から組み立て、`/d`（AutoRun を動かさない）`/v:off`（遅延展開を切る）`/s /c` で起動する。`.cmd` の場所に `%` が入っていれば起動しない
+  - npm / npx の普段の使い方（`run test` / `--version` / `--save-dev=typescript@5.4.0`）はこの範囲に入る。`=` と `,` は cmd.exe の区切りに使われうるが、それは**batch 側がどう読むか**の話で、別の命令が起動されることは無い
+- **見せたものと起動するものを同じにする：** 承認の画面（Renderer）と Native Dialog には、**コマンド名と引数を1つずつ、番号付きで、省略せずに**出す。1行にまとめると、空白や `"` を含む引数の区切りが読み分けられない。
+  - **コマンド全体の上限は 2,000 文字**（command と各引数、区切りの空白を含む。`APPROVAL_COMMAND_LINE_MAX_LENGTH`）。超えるものは縮めずに拒む ── 読み切れないものを承認させないため
+  - **見た目に現れない・見た目を組み替える文字**（C1 制御文字・双方向の上書き・ゼロ幅・BOM・行 / 段落の区切り・対になっていないサロゲート）を含むコマンドは拒む。印に置き換えて見せると、利用者が見たものと起動するものが別物になる
+  - 引数の Secret は**画面でだけ**伏せ、起動には元の値を使う。Secret は command と引数を**まとめて探し、引数ごとに伏せる**（STEP7 の `maskSecretLines`。`Bearer` と値が別の引数に分かれても素通りしない）。伏せたときは画面にそう書く
+  - 画面・Native Dialog・承認の知らせの3つは**同じ要約（`approvalSafeSummary`）から作る。** Renderer は提案（`agent-terminal:proposed`）と承認の知らせ（`approval:requested`）の1行と場所が**完全に一致**するときだけ画面を出し、違えば待たずに取り消す
+- **STEP6 の見直し（2026-09-23 利用者了承）：** Terminal の承認要約は 200 文字で切っていた（`APPROVAL_COMMAND_SUMMARY_MAX_LENGTH`）が、**切った1行を見せて承認させると、見えていない後ろの引数まで承認したことになる**ため廃止した。代わりに受け付ける長さそのものを 2,000 文字で抑え、要約に `commandName` / `commandArgs` / `secretMasked` を足した。Native Dialog の Terminal の文面もこれに合わせて「コマンド・引数（1つずつ）・場所・シェルを通さずに1回だけ」へ変えた。**File Write の要約・文面・Diff の画面は変えていない。**
+- **作業ディレクトリ：** STEP6 で決めたとおり Workspace 相対（`''` が root）で受け取り、Boundary（STEP2）で**読み取りとして**解決する。ディレクトリでなければ `cwd-not-directory`、symlink / ジャンクション（8.3 の短い名前）を通っていれば **Workspace の中を指していても** `aliased-target`（STEP7 と同じ線。承認の画面の場所と起動する場所が別の綴りになるのを防ぐ）、`.ssh` / `.gnupg` のような Secret の置き場所なら `secret-file`。起動には**確かめ直した後の実体のパス**を渡し、絶対パスは画面・Audit・binding のどこにも出さない。
+- **承認から起動までの間を、もう一度確かめる：** consume の**前に**、作業ディレクトリを `recheckWorkspaceTarget` で確かめ直し（identity・種別・別名・綴り）、実行ファイルを**解決し直して同じ絶対パス・同じ種類か、実体の identity（dev / ino / 大きさ / 更新時刻）が同じか**を見る。PATH が変わって別の実体が選ばれるようになった場合も `executable-changed` で起動しない。
+- **残るリスク（2026-09-23 確定。v1 では受け入れる）：**
+  - **作業ディレクトリの TOCTOU：** Node はディレクトリのハンドルを基点にプロセスを起動できない（`spawn` の `cwd` はパスで渡す）ため、recheck から起動までのごく短い間に作業ディレクトリを別の場所へのリンクへ差し替えられると、そちらで起動しうる。起動するコマンドは承認したものから変わらず、しかもそのコマンド自身が Workspace の外へ触れられる権限を元から持つ（上の表）ため、**Security Core の保証の外側にある、コマンド自身の権限の範囲のリスク**として受け入れる。実行ファイルについても、identity を確かめてから起動するまでの間に差し替えられる可能性は同じく残る（PATH の上の、Workspace の外の場所に書ける者に限られる）
+  - **コマンドが起動した別のプロセス：** 打ち切り（120 秒）では `taskkill /T /F` で**子プロセスごと**終わらせるが、コマンドが自分で親から切り離したプロセス（常駐するサーバなど）は残りうる。これも承認したコマンド自身の振る舞いにあたる
+  - **意味の分からない引数：** `powershell -EncodedCommand <base64>` のように、読んでも中身の分からない引数を v1 は解析しない。承認の画面はそのまま見せる（省略しない）ので、利用者は「読めないもの」として判断できる
+- **実行の仕方：** `stdin` は閉じる（入力を待つコマンドは待たずに終わる）。環境変数は人間用 Terminal と同じ（Electron 由来の `ELECTRON_RUN_AS_NODE` / `NODE_OPTIONS` だけ落とす。`terminal/terminalEnvironment.ts`）で、**アプリの値は足さない**。Provider の API Key のような Security Core の Secret を `process.env` に置かない、を前提にする。
+- **時間の上限は 120 秒固定・中断ボタンは作らない（2026-09-23 確定）：** 過ぎたら `%SystemRoot%\System32\taskkill.exe /T /F` で子プロセスごと終わらせ、`terminal.failed`（`timed-out`）として記録し、それまでの出力を伏せて返す。実行中に取り消す操作は v1 では作らない（Renderer から Main を呼ぶチャンネルを増やさないため）。本体が終わった後も子が出力の管を握っている場合は、2 秒待って閉じる。
+- **出力は Secret Masking を最優先する（2026-09-23 確定）：**
+  - **集めるのは先頭から 1,000,000 文字まで**（STEP3 の `SECRET_SCAN_MAX_CHARS` と同じ値。検査できる範囲を超えて集めない）。**末尾から残す形は採らない** ── 切れ目が Private Key block の途中に来ると `-----BEGIN … PRIVATE KEY-----` の行が落ち、**鍵の本体だけが残って検出をすり抜ける。** 先頭から集めれば、BEGIN を見た block は END が切れていても「そこから末尾まで」伏せられる（STEP3 の規則）
+  - 上限で切った場合は、**切れ目にかかった語を落としてから**伏せる（STEP4 と同じ。半分だけの token は形が合わず検出されない）
+  - 端末の制御（色・カーソル移動・タイトル）と見えない文字は**取り除いてから**検査する（token の途中に挟まると検出の形が崩れる）。stdout と stderr は届いた順に1本にしてから、まとめて `maskSecretText` に通す（別々に伏せると、2つにまたがった block が素通りする）。文字コードはそれぞれ UTF-8 として読む
+  - **Agent へ返すのは伏せた後の全文**、**画面へは伏せた後の末尾 200 行・1行 300 文字まで。切るのは必ず伏せた後。**
+  - 検査が落ちた（`unscanned`）・想定外の例外は、**出力を丸ごと渡さない**（`withheld`。画面には「検査できなかったため表示しません」とだけ出す）
+  - **Audit へは出力を1文字も渡さない**（伏せた数・種別・`userNoticeRequired` だけ）
+- **人間用 Terminal とは別の経路：** Agent の実行は node-pty（`terminal/terminalSessions.ts`）も `terminal:write` も通らない。あちらは利用者が打ち込むための対話的な端末で、Renderer から入力を送れる ── Agent の実行をそこへ流すと、承認していない入力が同じシェルへ混ざりうるうえ、出力も伏せずに画面へ出る。**人間用 Terminal の IPC は STEP8 で1本も増やしていない**（利用者が Terminal パネルで打つ操作は、これまでどおり利用者自身の操作として承認を要さない）。
+- **Main 側だけが実行できる：** `runAgentTerminalCommand` は **IPC にも Preload にも出さない。** Renderer へ出るのは Main → Renderer の片道の知らせ2本（`agent-terminal:proposed` / `agent-terminal:settled`）と、STEP6 の承認の意思表示だけで、**Renderer から Main を呼ぶチャンネルは1本も増やさない。** 知らせに載るのは表示用の値（Mask 済みのコマンド・引数・Workspace 相対の場所・伏せた後の出力の末尾）だけで、実行する exact な argv・実行ファイルの絶対パス・raw な出力は載らない。`child_process` を読むのは Security Core の中で `terminalRunIo.ts` の1か所だけ。
+- **Renderer の画面は確認と結果の表示だけ：** 確認の画面は「コマンド」「引数（1つずつ）」「場所」「権限の注意」「続ける / 取り消す」まで、**編集できる要素を1つも置かない。** 続行しても閉じず、Main が `agent-terminal:settled` を送ってきたら、実行しなかったならそのまま閉じ、実行したなら**結果の画面**（終了コード・伏せた後の出力・「伏せた」「一部だけ」の注意・閉じる）へ替える。結果の画面にも「もう一度実行する」にあたる操作は置かない。
+- **Audit（STEP4）：** `terminal.requested` / `approved` / `denied` / `completed` / `failed`（`completed` を STEP8 で追加。終了コードが 0 なら success、それ以外は failure で `non-zero-exit`）。載せるのは**判定・理由・効いていた Permission・操作の種類・コマンドの名前（`subject`）・作業ディレクトリの Workspace 相対 Path・出力で伏せた数 / 種別**だけで、**引数・stdout / stderr・実行ファイルと作業ディレクトリの絶対パス・環境変数・fingerprint・Approval の id・提案の id は載せない。** Audit の失敗で結論は変わらない。
+- **理由の語彙（STEP4 へ追加）：** `unsupported-command` / `command-not-found` / `unsafe-batch-argument` / `cwd-not-directory` / `executable-changed` / `spawn-failed` / `timed-out` / `non-zero-exit` / `run-in-progress`。STEP1 / STEP2 / STEP6 / STEP7 の語（`read-only-mode` / `outside-workspace` / `secret-file` / `aliased-target` / `target-changed` / `user-cancelled` / `binding-mismatch` …）はそのまま使う。
+- **1件ずつ（v1）：** 提案から終了まで、同時に2件を扱わない（2件目は `run-in-progress`）。
+- **Fail closed：** 形が違う・Policy が読めない / read・作業ディレクトリが外 / 無い / ディレクトリでない / 別名 / Secret・実行ファイルが見つからない / Workspace の中 / `%` を含む場所の `.cmd`・`.cmd` への危険な引数・`%SystemRoot%` が読めない・Renderer へ知らせられない・承認の取り消し / 期限切れ / consume 失敗 / binding 不一致・recheck 失敗・実行ファイルの変化は、**すべて起動しない。** 名前のまま OS に任せて起動する・shell を通して起動する経路（fallback）は無い。
+- **迂回する API を作らない：** `runUnsafe` / `skipApproval` / `bypassGate` / `shell` / `trustRenderer` にあたる引数も関数も無い。要求に `shell: true` / `approved: true` / `executable` / `env` を付けても**読まれない**（`terminalRunSurface.test.ts` が公開する名前を一覧で固定している）。
+- **開発用の足場：** STEP7 と同じく、開発時だけ作られるネイティブメニュー（`app/menu.ts` の「開発」→「FN Agent: コマンドの実行を提案（開発用）」）から Runner を呼ぶ。**コマンドは固定の一覧から選ぶだけ**（`node --version` / `npm --version` / `git status` / Secret らしき値を出力する / `.cmd` へ危険な文字を渡す / 終わらないコマンド / 場所を選んで `node --version`）で、任意のコマンドを打ち込める欄は作らない。足場の側でも `isDevelopment` を確かめ、debug IPC は作らない。
+- **STEP8 で作らないもの：** パイプ・リダイレクト・対話的な入力・実行中の中断・Agent 専用の常駐プロセスの管理・sandbox・Agent Loop 本体・Provider Adapter。
+- **実機確認（2026-09-23）：** Fluvix Nexus 本体とは別の Workspace（`FN-Security-Test`。Git Repository ではない）を開き、開発用の足場から次を確かめた。
+  - `node --version` … 承認して正常に実行され、終了コード 0・`v24.14.0` が結果の画面に出た
+  - `npm --version` … 承認して正常に実行され、終了コード 0・`11.9.0` が出た。**Windows の `.cmd` を cmd.exe で包む経路が実機でも動く**
+  - `git status --short --branch` … 実行は正常。Workspace が Git Repository ではないため `fatal: not a git repository` が返った（Command Runner としては想定どおり ── コマンドの失敗をそのまま伝える）
+  - Secret らしき値を出力するコマンド … 終了コード 0。**`GITHUB_TOKEN` などの値は `***REDACTED***` に置き換わり、実値は結果の画面に出なかった**
+  - `.cmd` へ危険な文字を渡す（`npm run x&whoami`）… **実行する前に `unsafe-batch-argument` で拒否**され、危険な引数は実行されなかった
+  - 終わらないコマンド（`node -e "setTimeout(() => {}, 180000)"`）… 承認後、**120 秒で自動的に終了させ**、「120 秒を過ぎたため終了させました」と出た
+  - 画面での取り消し / Native Dialog の「許可しない」・Workspace の外の作業ディレクトリ・Read での拒否・Audit Log の中身は、今回の実機確認の報告には含まれていない（同じ振る舞いは自動テスト `terminalRunGate.test.ts` / `terminalRunSurface.test.ts` で確かめている）
 
 ### 6.5 v1 に含めないもの
 
