@@ -20,6 +20,7 @@ import {
   onWorkspaceFolderChange
 } from '../workspaceFolder/currentWorkspaceFolder'
 import { createAgentLoop } from './agentLoop'
+import { AGENT_PROVIDER_CALL_POLICY, AGENT_PROVIDER_RETRY_POLICY } from './agentProvider'
 import { createScriptedProvider } from './scriptedProvider'
 
 /**
@@ -30,7 +31,9 @@ import { createScriptedProvider } from './scriptedProvider'
  * agentLoop.ts にあり、Renderer からは届かない）。
  *
  * ```
- * Provider へ送る      sendThroughExternalGate（STEP5）
+ * Provider へ送る      sendThroughExternalGate（STEP5）→ callAgentProvider（STEP10-2）
+ * 呼び出しの Policy    AGENT_PROVIDER_CALL_POLICY（timeout 120 秒・応答の上限。STEP10-2 / 10-3）
+ * 呼び直しの Policy    AGENT_PROVIDER_RETRY_POLICY（最大3回・固定の待ち。STEP10-3）
  * 読み取り             Read Tool Gate（STEP9。readTools/）
  * 書き込み             writeAgentWorkspaceFile（STEP7）
  * コマンド             runAgentTerminalCommand（STEP8）
@@ -42,8 +45,8 @@ import { createScriptedProvider } from './scriptedProvider'
  * ## Provider（STEP9）
  *
  * **開発ビルドだけ**、Scripted Provider（scriptedProvider.ts）を使う。配布ビルドには
- * Provider が無く、作業は `provider-unavailable` で始まらない。実 Provider と
- * Credential Store は STEP10。
+ * Provider が無く、作業は `provider-unavailable` で始まらない。Scripted Provider も実 Provider と
+ * 同じ境界（callAgentProvider）を通る。実 Provider と Credential Store は STEP10 後半。
  *
  * ## Workspace が変わったら止める
  *
@@ -58,6 +61,8 @@ const loop = createAgentLoop({
   hasWorkspace: () => getCurrentWorkspaceFolder() !== null,
   readPermissionMode: () => getCurrentSecurityPolicy().permissionMode,
   sendToProvider: (request, deliver) => sendThroughExternalGate(request, deliver),
+  providerCallPolicy: AGENT_PROVIDER_CALL_POLICY,
+  providerRetryPolicy: AGENT_PROVIDER_RETRY_POLICY,
   toolbox: {
     describeStatus: describeAgentWorkspaceStatus,
     listDirectory: listAgentWorkspaceDirectory,

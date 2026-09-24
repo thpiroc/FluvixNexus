@@ -24,7 +24,8 @@ import type { SecretCategory } from '../secret/secretPatterns'
  *
  * ## 生の Secret を持てない形にする
  *
- * 欄はほとんどが**閉じた集合の値・数・真偽値**で、文字列を取るのは3つだけ。
+ * 欄はほとんどが**閉じた集合の値・数・真偽値**で、文字列を取るのは3つだけ。数は伏せた数
+ * （maskedCount）と何回目の試みか（attempt）の2つ。
  *
  * ```
  * subject        Tool 名・設定の key のような短い名前（引数・本文は入れない）
@@ -119,6 +120,12 @@ export type AuditEventType =
   | 'agent.action-rejected'
   /** 利用者が Agent を停止した（承認待ちを取り消し、次の Action を始めない）。 */
   | 'agent.stopped'
+  /**
+   * AI Provider の呼び出し1回が失敗した（STEP10-3）。載せるのは Provider の識別子（subject）・
+   * 閉じた分類（reason）・何回目の呼び出しか（attempt）だけ。**Provider への要求・応答・Error の
+   * 本文・HTTP の本文・Credential は載せない**（欄が無い）。停止・halt による中断は含めない。
+   */
+  | 'agent.provider-failed'
 
 /** Audit 自身が付ける種別。**呼び出し側からは渡せない**（`AuditEvent['type']` に無い）。 */
 export type AuditInternalEventType = 'audit.unrecognized-event'
@@ -159,7 +166,8 @@ const CATEGORY_OF_EVENT: Readonly<Record<AuditEventType, AuditCategory>> = Objec
   'security-settings.changed': 'security-settings',
   'file-read.denied': 'file-read',
   'agent.action-rejected': 'agent',
-  'agent.stopped': 'agent'
+  'agent.stopped': 'agent',
+  'agent.provider-failed': 'agent'
 })
 
 /** Audit 自身が付ける種別と、その分類。 */
@@ -278,6 +286,21 @@ export type AuditReason =
   | 'repeated-action'
   /** 利用者が Agent を停止した（承認待ちの取り消しにも使う）。 */
   | 'agent-stopped'
+  /**
+   * Provider の呼び出しの失敗（STEP10-3。main/agent/agentProvider.ts の AgentProviderFailure）。
+   * timeout は既存の `timed-out`、Payload の不正は既存の `invalid-payload` を使う。
+   */
+  | 'provider-mismatch'
+  | 'provider-unavailable'
+  | 'provider-failed'
+  | 'response-too-large'
+  | 'invalid-response'
+  | 'authentication-failed'
+  | 'authorization-failed'
+  | 'request-rejected'
+  | 'rate-limited'
+  | 'temporary-failure'
+  | 'network-failed'
 
 /**
  * 理由の一覧。
@@ -361,7 +384,19 @@ const KNOWN_REASONS: Readonly<Record<AuditReason, true>> = Object.freeze({
   'invalid-action': true,
   'parallel-action': true,
   'repeated-action': true,
-  'agent-stopped': true
+  'agent-stopped': true,
+  // STEP10-3（agent/agentAudit.ts の Provider の失敗）
+  'provider-mismatch': true,
+  'provider-unavailable': true,
+  'provider-failed': true,
+  'response-too-large': true,
+  'invalid-response': true,
+  'authentication-failed': true,
+  'authorization-failed': true,
+  'request-rejected': true,
+  'rate-limited': true,
+  'temporary-failure': true,
+  'network-failed': true
 })
 
 /** 知っている理由（名前順）。 */
@@ -407,6 +442,8 @@ export interface AuditEvent {
   readonly maskedCount?: number
   /** 利用者へ知らせるべきか（STEP3 の `SecretMaskResult.userNoticeRequired`）。 */
   readonly userNoticeRequired?: boolean
+  /** 何回目の試みか（1 から。STEP10-3 の Provider の呼び出し）。 */
+  readonly attempt?: number
   /** 失敗した原因。**Audit 側が Secret を除いた1行にする**（呼び出し側で整形しない）。 */
   readonly error?: unknown
 }

@@ -554,7 +554,7 @@ STEP1〜8 の Security Core を、FN Agent が**安全な順番で使う**ため
 
 - **v1 の Action（閉じた集合）：** `workspace_list` / `workspace_status` / `file_read` / `file_search` / `file_write`（STEP7）/ `terminal_run`（STEP8）/ `complete`。MCP の書き込み・Git の Commit / Push・binary の書き込みは**無い。** 出力は `{"action": {…}}` の1つだけで、**知らない欄が1つでもあれば拒む**（`approved: true` / `skipSecurity` を付けてきたこと自体を壊れた出力として扱う）。未知の種類・壊れた JSON は実行せず `invalid-action` として AI へ返す。
 - **1ターン1 Action（2026-09-23 確定）：** 2つ以上の Action は、どれも実行せずに `parallel-action` で拒む。
-- **Loop = Provider を1回呼ぶこと。** 初期 20 回。上限に達したら**自動で続けず**、パネルで「最大実行回数に到達しました。続行しますか？」と尋ねる。続けるなら +10。無制限の自動継続は無い。
+- **Loop = Provider を1回呼ぶこと。**（**STEP10-4 から「Provider から通った応答を1つ受け取ること」**。呼び直しは数えない。下の「Provider Boundary」）初期 20 回。上限に達したら**自動で続けず**、パネルで「最大実行回数に到達しました。続行しますか？」と尋ねる。続けるなら +10。無制限の自動継続は無い。
 - **再試行（原則 最大2回）：** 利用者の拒否（`user-cancelled`）・Security Core の deny（`read-only-mode` / `secret-file` / `outside-workspace` …）・停止（`agent-stopped`）を受けた Action は、**同じものをもう一度提案されても Gate へ渡さない**（`repeated-action`。本文や引数を直した提案は別の Action として通る）。ファイルの競合（`existing-file-changed` / `target-changed`）は読み直しを促し、一時的な失敗は同じ Action を最大2回まで。壊れた出力・拒否済みの再提案が3回続けば止める（`too-many-invalid-actions`）。**知らない理由は再試行しない側へ倒す。**
 - **副作用のある操作は同時に1件だけ（2026-09-23 確定）：** Security Core に**共有ロック**（`src/main/security/sideEffect/`）を置き、File Write Gate と Terminal Command Runner が同じロックを使う。提案を受けた直後に取り、承認・実行・結果の確認が終わるまで（Terminal は実行中も）持つ。相手が同じ種類なら従来の `write-in-progress` / `run-in-progress`、別の種類なら `side-effect-in-progress` で拒む。**Agent Loop の直列化だけに頼らない**（開発用の足場など、Loop 以外の経路にも効く）。`complete` は、承認待ち・実行中が残っていれば受け付けない。
 - **停止（2026-09-23 確定）：** 停止ボタンは Agent が動いている間だけ出る。停止すると**新しい Action を始めず**、承認待ちは Main の Approval Manager が取り消す（STEP6 に足した `cancelPendingApprovals`。**取り消す向きにしか働かない**・IPC にも Preload にも出さない。pending・確認中・承認済み（consume 前）のどれも `agent-stopped` で失効し、その後の consume は通らない）。Provider の応答待ちには中断を伝える。**実行中の Terminal は kill しない** ── 終わる（または 120 秒で打ち切られる）のを待ってから `stopped` にする（STEP8 の決定。古い Scope Decision の「Tool へ中断 Signal を伝播」より、STEP8 / STEP9 の仕様を優先）。Workspace の切り替え・Agent の OFF でも同じように止まる。**2026-09-24 から、作業の signal を File Write / Terminal の Gate と Approval Manager まで渡し、止めた時点でまだ承認が無かった（Gate がロックの後の I/O の途中だった）場合も、止めた後に新しい承認・新しい副作用を始めない**（下の「停止・Workspace の切り替えと承認の race」。起動済みのプロセスは signal を見ない）。
@@ -571,7 +571,7 @@ STEP1〜8 の Security Core を、FN Agent が**安全な順番で使う**ため
   - Terminal は最大 1,000,000 文字をそのまま送らず、「エラー・警告らしい行（20 行）＋ 末尾 60 行・1行 300 文字」へ要約する（切るのは必ず伏せた後）。
   - **入力の Budget は Context Window の約 70%。** 超えたら**古い Terminal の詳細 → 古い読み取り結果 → 解決済みのエラー → 重複**の順に畳む。現在の指示・Security の規則（指示文）・直近の結果・未解決のエラー・承認の結果（File Write / Terminal の成否の1行）は残す。畳んだ結果には「必要なら読み直す」と添える（推測で補わせない）。畳んでも入らなければ**送らない**（`context-budget-exceeded`）。Token 数は Provider の数え方ではなく文字の種類から保守的に見積もる（正確な数は STEP10）。
   - この Budget は External Send Gate の上限（検査を最後まで走らせるための 1,000,000 文字 / 256 件）とは**別物**。件数は 80 件を超えたら畳んだものを1つの要約へまとめ、Gate の上限より十分手前に保つ。
-- **Provider（STEP9 は Scripted）：** 実際の AI Provider は接続しない（2026-09-23 確定）。**開発ビルドだけ** Scripted Provider（`scriptedProvider.ts`）で Loop を End-to-End で動かす。配布ビルドには Provider が無く、作業は `provider-unavailable` で始まらない。Scripted でも**本物と同じ境界**を通る ── 受け取るのは Gate の発行した `SafeExternalPayload` だけ（違えば投げる）で、返す Action は Schema と Gate を通る。手順は指示の中の印で選ぶ（印なし = E2E・`#secret`・`#invalid`・`#broken`・`#loop`）。実 Provider・Credential Store・Abort / timeout の作り込みは STEP10。
+- **Provider（STEP9 は Scripted）：** 実際の AI Provider は接続しない（2026-09-23 確定）。**開発ビルドだけ** Scripted Provider（`scriptedProvider.ts`）で Loop を End-to-End で動かす。配布ビルドには Provider が無く、作業は `provider-unavailable` で始まらない。Scripted でも**本物と同じ境界**を通る ── 受け取るのは Gate の発行した `SafeExternalPayload` だけ（違えば投げる）で、返す Action は Schema と Gate を通る。手順は指示の中の印で選ぶ（印なし = E2E・`#secret`・`#invalid`・`#broken`・`#loop`）。実 Provider・Credential Store・Abort / timeout の作り込みは STEP10（**abort / timeout・providerId の照合・応答の上限は STEP10-2 の `callAgentProvider`、失敗と再試行の方針は STEP10-3 で入れた。** 下の「Provider Boundary」。実 Provider と Credential Store は STEP10 後半）。
 - **Agent ON / OFF（2026-09-23 確定）：** `security.agentEnabled`。未設定は ON、真偽値でない値・壊れた設定は OFF。User / Workspace は Permission と同じく**厳しい方**（どちらかが OFF なら OFF）。Loop を始める前と、Action を1つ実行する前に Main が読み直す。**Security Core を止める欄ではない**（ON にしても検査・承認は何も緩まない）。Settings 画面の項目は Closing STEP。
 - **Task State はメモリだけ（2026-09-23 確定）：** FN の終了・クラッシュ・再起動の後に途中の作業を復元しない。承認・実行中の Tool の状態もディスクへ書かない。残るのは Security Audit Log だけ。
 - **Agent パネル（2026-09-23 確定）：** 既存の右側 AI パネルは無かったため、最小の Dockable パネル `agent` を足した（既定のレイアウトには置かず、View メニューから開く）。置くのは**指示の入力欄・今の作業の1行（調査中 → ファイル確認中 → 検索中 → 変更提案（承認待ち）→ コマンド（承認待ち・実行中）→ 完了）・停止ボタン（動いている間だけ）・最終回答**だけで、Tool の詳細ログは出さない。File Write / Terminal の確認は STEP7 / STEP8 の承認画面をそのまま使う。最終回答は Main が伏せて切った文字列で、**文字として**描く。
@@ -670,6 +670,93 @@ STEP1〜8 の Security Core を、FN Agent が**安全な順番で使う**ため
   - **race の保証：** 停止・halt と承認の race（承認の前 / 承認待ちの両方）は、上の決定論的な自動回帰テストで確かめている。修正前のコードで落ちることも確かめた。
   - **UI の操作制約（実機で分かった事実）：** 承認のモーダル（「FN Agent が変更を提案しています」「FN Agent がコマンドの実行を提案しています」）が出ている間は、背面の Agent パネルの**停止ボタンを操作できない。** そのため「承認待ちの間に UI から停止を押す」実機確認は、**操作の経路が無く実施できなかった**（テストの失敗ではない）。今の UI で承認待ちを止める手段は、モーダルの「取り消す」と Native Dialog の「許可しない」になる。Workspace の切り替え（halt）は UI 以外の経路からも起きうるため、承認待ちの間の abort の扱いは UI の制約とは関係なく必要。
   - **UI は今回変えていない。** 承認モーダルの表示中にも停止できるようにするか（モーダルに停止を置く等）は、将来の候補として残す。
+
+#### Provider Boundary（Security Core v1 の STEP10。前半の 10-1〜10-4。2026-09-24）
+
+FN Agent が AI Provider を呼ぶときの境界（`src/main/agent/agentProvider.ts` の契約・`agentProviderCall.ts` の `callAgentProvider`）。STEP10 は**前半**（10-1 Provider の契約と失敗の分類・10-2 呼び出しの境界・10-3 失敗と再試行の方針・10-4 Security の回帰テスト）と**後半**（10-5 Credential Store / Settings・10-6 実 Provider Adapter・10-7 実機 smoke）に分けた（2026-09-24 利用者決定）。この節は前半（10-1〜10-4）の分で（10-3・10-4 は節の最後の小節）、**実 Provider・外部 API の通信・SDK・Credential はまだ無い。**
+
+```
+Agent Loop（agentLoop.ts）     Context を作る → Gate を通す → 境界へ渡す → 分類済みの結果 → Schema
+  ↓ sendThroughExternalGate（STEP5）        検査して伏せた SafeExternalPayload（1回きり）
+  ↓ callAgentProvider（STEP10-2）            ← Loop から Provider.next を呼ぶのはここだけ
+      1. Provider・Policy の形               壊れていれば呼ばない（provider-unavailable）
+      2. 作業の signal                       止まっていれば呼ばない（aborted）
+      3. SafeExternalPayload か              写し・偽造・取り消し済みは送らない（invalid-payload）
+      4. payload.providerId === provider.id  別の Provider 宛ては送らない（provider-mismatch）
+      5. next(payload, 呼び出しの signal)     3〜5 の間に await を挟まない
+      6. 応答・作業の signal の abort・timeout のうち、最初に成立したものだけを採る
+      7. 応答を JSON の文字列にして上限を確かめる（response-too-large / invalid-response）
+  ↓ AgentProvider.next（Scripted / 将来の実 Provider Adapter）
+```
+
+- **Provider は信頼しない：** Provider の出力は未検査の入力で、Schema（`parseAgentTurn`。1ターン1 Action・知らない欄は拒否）と Security Core の Gate（Read Tool Gate・File Write Gate・Terminal Command Runner・共有ロック・二段階承認・Workspace Boundary）を必ず通る。**Provider の出力だけで副作用が起きる経路は無い。** 境界は応答を運ぶだけで、Action の判定も Gate の判定もしない。
+- **Provider は Main だけ：** Provider を作る・呼ぶのは Main の Agent Loop だけ。**Renderer から Provider・Payload・signal・応答・Credential・Security の判断へ届く IPC も Preload の API も無い**（`agentProviderCallSurface.test.ts` が、Provider / Credential / Payload を名乗るチャンネルが無いこと・Preload・IPC handler・Renderer・shared が境界と契約を読まないことを見ている）。
+- **送るのは SafeExternalPayload だけ：** 境界は Provider を呼ぶ直前に、Gate が発行して**まだ取り消されていない** Payload かを実行時にもう一度確かめる（型だけに頼らない）。STEP5 の1回きり・取り消しはそのまま ── Gate は `deliver`（＝境界）が返った後に Payload を取り消し、境界は abort / timeout の時点で返るため、Provider が返らなくても Payload は取り消される。
+- **providerId を照合する：** `payload.providerId` と Provider の `id` が同じでなければ `next` を呼ばない（`provider-mismatch`）。Provider の `id` と `next` は1度だけ読む（getter で呼ぶたびに変わる値を使わない）。Scripted Provider も自分でもう一度照合する。**`SupportedProviderId`（閉じた集合）への変更はまだしない** ── 実 Provider が決まる STEP10 後半で判断する（STEP5 の決定のまま）。
+- **Credential は Payload とは別：** 契約（`AgentProvider`）にも Payload にも結果の型にも Credential の欄は無い。認証は将来の Adapter が Header で行い、Prompt・Context・Audit・Error・`process.env`・Renderer のどれにも入れない（STEP5 / STEP8 の決定のまま）。
+- **abort / timeout は Loop 側で強制する：** Provider の Promise そのものは止められないため、止めるのは**待つこと**のほう。作業の signal（停止・halt）が abort されるか timeout が来た時点で、境界は Provider を待たずに `aborted` / `timeout` を返す。**Adapter が signal を完全に無視しても、Agent Loop は停止・halt の後に `stopping` のまま残らず、`whenIdle()` が解け、新しい Action を始めない。** Provider へは、作業の signal とも timeout とも連動する別の signal を渡す（将来の Adapter はこれで HTTP の要求を中断する）。結果が決まった後にもこの signal を止める。
+  - **修正の前の危険：** STEP9 の Loop は `await provider.next(...)` を直に待っていた。signal を守らず返らない Provider では、停止・halt の後も `stopping` のまま `whenIdle()` が解けず、次の作業は `busy` で始められなかった（2026-09-24、修正の前のコードで stop / halt の両方を一時的なテストで再現した。Scripted Provider はすぐ返すため、利用者の環境では起きていない）。
+- **遅れた応答・失敗は捨てる：** 境界の結果は最初に成立した1つで決まり、後から Provider が resolve しても reject しても変わらない。Provider の Promise には呼んだ時点で受け手を付けるため、**遅れた reject が unhandled rejection にもならない。** 遅れて届いた `file_write` / `terminal_run` は Action にならず、承認も副作用も起きない（本物の Security Core をつないだテストで、停止・halt・timeout × File Write / Terminal を確かめている）。
+- **timeout の値は Policy の1か所：** `AGENT_PROVIDER_CALL_POLICY`（`timeoutMs`・`maxResponseChars`）に置き、Agent Loop へは依存として渡す（テストは短い値に差し替え、偽の時計で進める）。**`timeoutMs` は 120 秒**（10-2 で暫定値として Terminal の打ち切りと同じ値で始め、**10-3 で正式な値として採用した**。2026-09-24 利用者決定）。停止・halt・Workspace の切り替えでは 120 秒を待たずに戻る（上の abort の保証のまま）。壊れた Policy（0・負・非整数・`setTimeout` の上限超え）では Provider を呼ばない。
+- **応答の大きさの上限：** 境界は応答を **JSON の文字列**にしてから `maxResponseChars`（Schema の `AGENT_OUTPUT_MAX_CHARS` と同じ 1,200,000 文字）と比べ、超えたものは **Schema へ渡さない**（`response-too-large`。有効な Action でも実行しない）。文字列の応答はそのまま、それ以外は1度だけ JSON へ直した写しを Loop へ渡す（getter・`toJSON` は境界の中で1度だけ動き、Provider のオブジェクトそのものは Loop へ持ち込まない）。JSON で正確に表せない値（`undefined`・関数・symbol・bigint・有限でない数・循環）は、直すと欄が黙って消えて Schema の「知らない欄を拒む」が効かなくなるため、直さずに `invalid-response` にする（10-3 から、Schema へ渡さずに呼び直さずに終える）。
+  - **実 HTTP の応答をバイト数で読みながら打ち切る上限は、実 Provider Adapter（STEP10-6）で足す。** 10-2 の上限は Provider が返した後の値に効くもので、巨大な応答を読み込む前に止める仕組みではない。
+- **失敗は閉じた分類だけ：** `aborted` / `timeout` / `invalid-payload` / `provider-mismatch` / `provider-unavailable` / `provider-failed` / `response-too-large` / `invalid-response`、10-3 で足した Adapter が伝える6つ（下）。一覧は `AGENT_PROVIDER_FAILURES`。**Error の本文・HTTP の本文・Credential・Provider が返した任意の文字列は、分類にも結果の型にも持たない。** 投げられたものからは `AgentProviderError` の分類だけを読み、それ以外は中身を読まずに `provider-failed` へ畳む。境界は投げない。
+- **Loop での扱い：** 10-3 の再試行の方針（節の最後）で決まる。10-2 の時点では、`provider-failed` を STEP9 からの扱い（分類を見ずに続けて2回まで呼び直す）のままにしていたが、**10-3 でこれを廃止した。**
+- **Scripted Provider：** 開発ビルドだけ・配布ビルドは `provider-unavailable`、は変えていない。実 Provider と同じ境界（providerId の照合・abort / timeout・応答の上限）を通して呼ばれ、既存の End-to-End と Fail Closed のテストはそのまま通る。
+- **Security Core の Gate は迂回できない：** 境界を通った応答（実 Provider と同じ文字列）でも、Workspace の外・Secret ファイル・絶対パスの作業ディレクトリは Gate が拒み、`approved: true` / `skipSecurity` を名乗る欄は Schema が拒む（`agentLoop.integration.test.ts`）。境界は Security Core の入口を1つも持たない。
+- **自動テスト：** `agentProviderCall.test.ts`（契約・正常・providerId・Payload の確かめ直し・abort・timeout（偽の時計）・遅れた resolve / reject と unhandled rejection・応答の大きさ・JSON で表せない応答・失敗の本文が残らないこと・壊れた Provider / Policy）、`agentLoop.test.ts`（signal を無視する Provider での stop / halt・timeout で呼び直さない・遅れた応答で状態が動かない・上限超えは Schema へ渡らない・宛先の違い）、`agentLoop.integration.test.ts`（本物の Security Core で、停止・halt・timeout の後の遅れた File Write / Terminal・Gate と Schema の迂回）、`agentProviderCallSurface.test.ts`（`next` を呼ぶ場所・Renderer から届かない・境界が HTTP / SDK / Credential に触れない）、`scriptedProvider.test.ts`（別の Provider 宛ては答えない）。どれも待ち時間・実ネットワークを使わない。
+- **STEP10 前半（10-1〜10-4）で作らないもの：** Credential Store と Settings（10-5）・実 Provider Adapter と外部 API の通信・SDK・Model の選択・Provider の選択 UI・Provider ごとの Retry-After / Backoff（10-6）・実機 smoke（10-7）。`SupportedProviderId`（閉じた集合）への変更も後半まで保留する。
+
+##### 失敗と再試行の方針（STEP10-3。2026-09-24）
+
+- **Adapter が伝えられる失敗の分類（閉じた集合）：** 実 Adapter（STEP10-6）は HTTP の状態・通信の失敗を `AgentProviderError(category)` で伝える。`category` は次の6つだけで、**例外の message は固定の文言・原因（`cause`）も受け取らない**（HTTP の本文・Error の本文・Header・Credential を運ぶ欄が無い）。境界は `instanceof AgentProviderError` の `category` だけを読み、閉じた集合に無い値（`aborted` / `timeout` のような Loop が決める分類を名乗ったものを含む）・読めない値・ほかの例外はすべて `provider-failed`（分類できない失敗）にする。
+
+  | 分類                    | 想定する原因                           | 呼び直す |
+  | ----------------------- | -------------------------------------- | -------- |
+  | `authentication-failed` | HTTP 401・API Key の誤り               | しない   |
+  | `authorization-failed`  | HTTP 403・Model を使えない             | しない   |
+  | `request-rejected`      | その他の 4xx（要求が受け付けられない） | しない   |
+  | `rate-limited`          | HTTP 429                               | **する** |
+  | `temporary-failure`     | HTTP 5xx・過負荷                       | **する** |
+  | `network-failed`        | 接続・DNS・TLS・切断                   | **する** |
+
+- **呼び直すのは3つだけ（`isRetryableProviderFailure`）：** `rate-limited` / `temporary-failure` / `network-failed`。**`aborted`・`timeout`・`invalid-payload`・`provider-mismatch`・`provider-unavailable`・`response-too-large`・`invalid-response`・認証・権限・`request-rejected`・分類できない失敗（`provider-failed`）は、その場で終える。** Security・契約・設定の失敗を呼び直しで隠さない（同じ誤りを黙って繰り返すことになる）。判断は全分類を `Record` で書いた1か所にあり、分類を足すと型検査で判断を求められる。**分類を見ずに一律に呼び直す実装（STEP9 からのもの）は削除した。**
+- **最大 3 回（初回 ＋ 呼び直し 2 回）：** `AGENT_PROVIDER_RETRY_POLICY.maxAttempts`。天井 `AGENT_PROVIDER_MAX_ATTEMPTS` = 3 を超える値を Policy が持っていても3回より多くは呼ばない。読めない・使えない Policy では呼び直さない（1回だけ）。回数は**1つの応答を得るまで**に数え、応答が通れば数え直す。**STEP10-4 から、呼び直しは Agent Loop の Turn を使わない**（下の「Turn と Attempt」。10-3 の時点では呼び直しも1 Loop に数えていた）。
+- **待ってから呼び直す（止められる待ち）：** 呼び直す前に `retryDelayMs` だけ待つ（**固定 1 秒**。10-3 で最小の間として提案し、**10-4 で STEP10 前半の汎用の Policy として正式に採用した**（2026-09-24 利用者決定）。値は `AGENT_PROVIDER_RETRY_POLICY` の1か所。指数的な Backoff・jitter・Retry-After は入れていない）。待ちは作業の signal を見ており、**待っている間・待ちが明けた直後に stop / halt・Workspace の切り替えがあれば、次の呼び出しを始めずに `stopped` で終わり、`whenIdle()` が解ける。** 呼び直した応答を待っている間に止めた場合も、10-2 の保証どおり遅れた応答は Action にならない。**実 Provider ごとの Retry-After の解析・Backoff は STEP10-6 で扱い**、この Policy を差し替える形で足す。
+- **呼び直しも External Send Gate を毎回通る：** 呼び直しは Agent Loop の Context → External Send Gate → **新しい** `SafeExternalPayload` → 境界、の正規の経路をもう一度通る（1回ごとに `external-send.allowed` が記録される）。**使った Payload・写した Payload・取り消し済みの Payload を再利用・再送する経路は無い**（STEP5 の1回きり・取り消しのまま。境界も取り消し済みを拒む）。呼び直しのために Gate を迂回する口も作らない。
+- **Provider の失敗の Audit（`agent.provider-failed`）：** 呼び出し1回の失敗ごとに1件（停止・halt による中断は含めない）。記録するのは **Provider の識別子（`subject`）・閉じた分類（`reason`）・何回目か（`attempt`。1 以上 99 以下の整数だけ）・`outcome: failure`・効いていた Permission・既存の時刻 / 分類**だけ。識別子は External Send Gate と同じ検査（書式・40 文字・Secret の形でない）を通ったときだけ載せ、URL や API Key を識別子として記録できる形にしない。理由の語は既存に合わせ、timeout は `timed-out`・Payload の不正は `invalid-payload` を使い、ほかの分類は同じ名前で `AuditReason` に足した。`attempt` は `AuditEvent` / `AuditRecord` に足した数の欄で、Audit Writer が検査する。
+  - **記録しないもの：** Prompt・Context・`SafeExternalPayload` の本文・Provider の応答・HTTP の本文・Error の message・API Key・Credential・Authorization Header・Secret・ファイルの中身・Terminal の出力（どれも欄が無い）。**Audit の記録が失敗しても、呼び直す・終える判断は変わらない**（既存の `record` が捕まえて捨てる）。
+- **Renderer へ見せる終わりの理由：** `AgentTaskEndReason`（閉じた集合）に **`provider-timeout`（時間内に応答が無かった）と `provider-response-too-large`（応答が大きすぎた）**を足し（10-3）、**10-4 で `provider-authentication-failed`（認証の失敗）と `provider-authorization-failed`（利用権限が無い）を足した**。Provider のそれ以外の失敗（呼び直しを使い切った場合を含む）は `provider-failed` にまとめる。**画面の文言は FN が決めた固定の文だけ**（日本語 / 英語）で、認証の失敗は「Provider の認証に失敗しました。API Key を確認してください。」、権限の失敗は「Provider の利用権限がありません。Provider の利用権限を確認してください。」。Provider の Error の message・HTTP の本文・Credential・API Key は画面に渡らない（終わりの理由は閉じた集合の語だけ）。既存の状態の通知（`agent-task:state-changed`）だけで届き、**Provider 専用の IPC・Credential の IPC・Preload の API は増やしていない**（`agentProviderCallSurface.test.ts`）。`provider-failed` の文言は「接続できなかった」から「呼び出しに失敗した」へ直した（認証・権限の失敗も含むため）。
+- **Error の本文を流さない：** Adapter が `AgentProviderError` の message や独自の欄に `API KEY=…` を入れて投げても、ふつうの Error を投げても、その文字列は **Agent の状態・Renderer・Audit（記録の行まで）・Context・次の Provider への要求・ログ**のどこにも出ない（`agentProviderRetry.test.ts` が console まで見ている）。使うのは分類だけ。
+- **自動テスト：** `agentProviderRetry.test.ts`（呼び直さない 13 通り・呼び直す3つで合計3回・4回目を呼ばない・すぐには叩き直さない・1回目 / 2回目の失敗からの回復・ターンごとの数え方・途中で呼び直さない失敗が来た場合・待機中と待ちが明けた直後の stop / halt・呼び直した応答を待っている間の停止・毎回新しい Payload と取り消し・Error の本文の遮断・Audit の欄と識別子の検査・`attempt` の検査・Policy の天井と壊れた Policy）、`agentProviderCall.test.ts`（`AgentProviderError` の分類だけを読む・偽の分類や形だけ真似たものは `provider-failed`）、`agentTaskStatus.test.ts`（Renderer の文言）、`agentProviderCallSurface.test.ts`（終わりの理由の閉じた集合・IPC / Preload が増えていない）。どれも偽の時計と Deferred で、待ち時間・実ネットワークを使わない。
+
+##### Turn と Attempt（STEP10-4。2026-09-24）
+
+- **別の概念として数える：** **Provider Attempt** は Provider への通信の試み（1つの応答を得るまでに初回 ＋ 最大 2 回 = **最大 3 回**。10-3 のまま）。**Agent Loop Turn** は、Provider から**通った応答**を受け取り、Agent が次の Action / 最終回答の処理へ進む単位（`loopsUsed`・上限 20 と「続けるか」の問い）。
+- **呼び直しは Turn を使わない：** `rate-limited` / `temporary-failure` / `network-failed` の呼び直しでは `loopsUsed` は増えない。Turn が1つ進むのは、境界が通った応答（`ok`）を返したときだけ。呼び直さない失敗・3回とも失敗・中断（stop / halt）も Turn を進めない。Turn の上限の手前で呼び直しがあっても、上限や「続けるか」の問いには触れない。
+- **無制限には続かない：** 呼び直しは1つの応答につき必ず3回で終わり、3回とも失敗すれば Turn を進めずに `provider-failed` で終える。Turn は通った応答1つにつき1つ使うため、Turn の上限（20、続けるなら +10）も効いたまま。
+- 状態の `loopsUsed` の意味も「使った Turn の数」へ直した（`@shared/agent`）。Provider の応答を待っている間は、その Turn をまだ数えない。
+
+##### Security Regression（STEP10-4。2026-09-24）
+
+Provider Boundary（10-1〜10-3）を足した後も、STEP1〜9.1 と停止・halt の hardening の保証を、Provider の出力・失敗・呼び直しから**迂回できない**ことを、本物の Security Core（Boundary・Read Tool Gate・Approval Manager・File Write Gate（実際に書く）・Terminal Command Runner・共有ロック・External Send Gate）をつないだ `agentLoop.integration.test.ts` の「STEP10-4 Security Regression」で固定した。**新しい製品の機能は足していない**（製品の変更は、上の認証・権限の終わりの理由・Turn と Attempt の分離・1 秒の待ちの正式採用の3つだけ）。
+
+- **Provider の出力は信頼しない（19 通り）：** `approved` / `approvalGranted` / `skipSecurity` / `bypassSecurity` / `trusted`・Action の外の `approved`・知らない Tool（`git_push` / `mcp_write`）・知らない欄・複数の Action・壊れた応答（JSON でない・途中で切れた）は Schema が拒み、絶対パス・相対パスでの Workspace の外・`.env` の読み書き・絶対パス / Workspace の外の作業ディレクトリは Gate が拒む。どれも承認は作られず、ファイルは変わらず（Workspace の中も外も）、プロセスは起動しない。拒んだ読み取りの中身は次の要求にも載らない。
+- **File Write：** 通った応答でも、Agent Loop → runAgentTool → File Write Gate → 共有ロック → 二段階承認 → 書き込み、の順でしか書かれない（承認が出ている間はファイルが無く、ロックは File Write が持つ。記録の順は `approval.requested` → `approval.approved` → `file-write.succeeded`）。取り消せば書かれない。
+- **Terminal：** 同じく Terminal Gate → 共有ロック → 二段階承認 → 起動、の順で、**承認の前にプロセスを起動しない**。取り消せば起動しない。
+- **External Send Gate：** 写した・JSON を通した・取り消し済みの・偽造した Payload（`invalid-payload`）、Gate が発行した本物でも別の Provider 宛ての Payload（`provider-mismatch`）、**呼び直しで前の試みの Payload を使い回したもの**（`invalid-payload`）は Provider へ届かない。呼び直しのたびに Gate を通り、3回とも別の Payload が届き、使った Payload はすべて取り消される（`external-send.allowed` も3回）。
+- **Secret を漏らさない：** 指示・Workspace のファイル・Terminal の出力・Provider の Error（`AgentProviderError` の message と独自の欄）・最終回答に入れた偽の Secret / API Key が、**Provider へ送った本文（呼び直しの要求・次の Turn の Context を含む。届くのは Gate が伏せた後のもの）・Renderer の状態・最終回答・Audit（記録の行まで）・console** のどこにも生のまま出ない。
+- **停止・halt（Provider が signal を無視する場合を含む）：** 呼び直しの待機中、呼び直した応答を待っている間に stop / halt しても、次の呼び出し・新しい承認・書き込み・起動は起きず、遅れて届いた応答・reject は捨てられ、ロックは残らず、`whenIdle()` が解けて `stopping` に残らない（Turn も増えない）。Provider の応答待ち（STEP10-2）・File Write / Terminal の承認の前と承認待ち（停止の race の修正）は既存の回帰テストのまま。**起動済みの Terminal は stop で kill しない**仕様も変えていない。
+- **悪意のある Adapter：** 分類の偽装（Loop が決める `aborted` を名乗る → 分類できない失敗として呼び直さない）・Error の message の Secret・providerId の名乗り替え（呼ばれない）・timeout / abort の後の resolve / reject（状態は変わらず unhandled rejection にもならない）・前の試みの Payload の再利用、のどれでも境界は Fail Closed になる。
+- **Audit：** Provider の失敗の記録の行は `time` / `event` / `category` / `reason` / `outcome` / `permissionMode` / `subject` / `attempt` の欄だけ。**Audit の記録が毎回失敗しても、呼び直す回数・終わり方は変わらない**（`agentProviderRetry.test.ts`）。
+- **Surface：** 終わりの理由は既存の状態の通知だけで届き、Provider / Credential / Payload / Security の判断を運ぶ IPC・Preload の API は増えていない（`agentProviderCallSurface.test.ts`・`agentTaskSurface.test.ts`）。Scripted Provider は開発ビルドだけで、同じ境界（providerId の照合・SafeExternalPayload・callAgentProvider）を通り、既存の End-to-End はそのまま通る。
+
+##### STEP10 前半（10-1〜10-4）の完了条件（2026-09-24）
+
+- 10-1〜10-4 の上記の保証が自動テストで固定されている（Provider Boundary 単体・再試行の Policy・Turn と Attempt・Agent Loop・`agentLoop.integration.test.ts`・Security Core・External Send・Audit・Surface・Renderer の文言・Scripted Provider）
+- abort・retry・integration・Security Regression のテストを繰り返し実行しても落ちない（待ち時間・実ネットワークを使わない）
+- `npm run verify` と `npm run build` が通る
+- 実 Provider・Credential Store・HTTP 通信・SDK・Provider / Model の選択・`SupportedProviderId` の閉じた集合化・Provider ごとの Retry-After / Backoff は含まない（STEP10 後半）
 
 ### 6.5 v1 に含めないもの
 

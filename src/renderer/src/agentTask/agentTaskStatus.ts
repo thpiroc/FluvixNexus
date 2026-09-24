@@ -58,6 +58,14 @@ function endReasonKey(state: AgentTaskState): TranslationKey {
       return 'agentTask.end.workspaceChanged'
     case 'provider-failed':
       return 'agentTask.end.providerFailed'
+    case 'provider-timeout':
+      return 'agentTask.end.providerTimeout'
+    case 'provider-response-too-large':
+      return 'agentTask.end.providerResponseTooLarge'
+    case 'provider-authentication-failed':
+      return 'agentTask.end.providerAuthenticationFailed'
+    case 'provider-authorization-failed':
+      return 'agentTask.end.providerAuthorizationFailed'
     case 'context-denied':
       return 'agentTask.end.contextDenied'
     case 'context-budget-exceeded':

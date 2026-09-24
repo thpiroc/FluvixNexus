@@ -193,6 +193,7 @@ describe('Secret', () => {
     expect(text).not.toContain('AKIA')
     expect(Object.keys(record).sort()).toEqual([
       'actionKind',
+      'attempt',
       'category',
       'decision',
       'error',

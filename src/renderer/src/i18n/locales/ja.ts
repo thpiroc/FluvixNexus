@@ -1044,7 +1044,12 @@ export const jaMessages = {
       loopLimitDeclined: '最大実行回数で停止しました',
       agentDisabled: 'FN Agent が OFF になったため停止しました',
       workspaceChanged: 'Workspace が切り替わったため停止しました',
-      providerFailed: 'AI の Provider に接続できなかったため停止しました',
+      providerFailed: 'AI の Provider の呼び出しに失敗したため停止しました',
+      providerTimeout: 'AI の Provider から時間内に応答が無かったため停止しました',
+      providerResponseTooLarge: 'AI の Provider の応答が大きすぎたため停止しました',
+      providerAuthenticationFailed: 'Provider の認証に失敗しました。API Key を確認してください。',
+      providerAuthorizationFailed:
+        'Provider の利用権限がありません。Provider の利用権限を確認してください。',
       contextDenied: 'Context を安全に送れなかったため停止しました',
       contextBudgetExceeded: 'Context が上限に収まらなかったため停止しました',
       tooManyInvalidActions: '実行できない Action が続いたため停止しました',

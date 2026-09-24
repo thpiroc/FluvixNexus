@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
-import { join } from 'path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { basename, join } from 'path'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentPermissionMode, ApprovalActionKind } from '@shared/security'
 import { readWorkspaceDirectory } from '../files/readWorkspaceDirectory'
 import { searchWorkspaceFileContents } from '../files/searchWorkspaceFileContents'
@@ -15,7 +15,15 @@ import {
   recheckWorkspaceTarget,
   resolveWorkspaceTarget
 } from '../security/boundary/workspaceBoundary'
+import { formatAuditRecordLine } from '../security/audit/auditLogLine'
+import { sanitizeAuditEvent } from '../security/audit/auditRecord'
+import { decideExternalSend } from '../security/externalSend/externalSendDecision'
 import { createExternalSendGate } from '../security/externalSend/externalSendGate'
+import {
+  isSafeExternalPayload,
+  revokeSafeExternalPayload,
+  type SafeExternalPayload
+} from '../security/externalSend/safeExternalPayload'
 import { createFileWriteGate } from '../security/fileWrite/fileWriteGate'
 import { readCurrentFile, writeConfirmedFile } from '../security/fileWrite/fileWriteIo'
 import { createReadToolsGate } from '../security/readTools/readToolsGate'
@@ -33,6 +41,12 @@ import {
 import { createTerminalRunGate } from '../security/terminalRun/terminalRunGate'
 import { isSameExecutable, type RunProcessResult } from '../security/terminalRun/terminalRunIo'
 import { createAgentLoop, type AgentLoop } from './agentLoop'
+import {
+  AgentProviderError,
+  type AgentProvider,
+  type AgentProviderCallPolicy,
+  type AgentProviderRetryPolicy
+} from './agentProvider'
 import { createScriptedProvider, SCRIPTED_E2E_CONTENT, SCRIPTED_E2E_FILE } from './scriptedProvider'
 
 /**
@@ -176,7 +190,19 @@ async function passHold(kind: ApprovalActionKind): Promise<void> {
   }
 }
 
-function system() {
+/**
+ * 既定は Scripted Provider。STEP10 の境界のテストは Provider・呼び出しと呼び直しの Policy を
+ * 差し替え、STEP10-4 の回帰テストは Gate が渡した Payload を境界へ届ける手前で差し替える
+ * （`tamper`。本物のコードには無い、偽造・写し・取り消し済み・使い回しの Payload を作る口）。
+ */
+function system(
+  options: {
+    readonly createProvider?: () => AgentProvider
+    readonly providerCallPolicy?: AgentProviderCallPolicy
+    readonly providerRetryPolicy?: AgentProviderRetryPolicy
+    readonly tamper?: (payload: SafeExternalPayload) => unknown
+  } = {}
+) {
   const readPolicy = () => Object.freeze({ permissionMode: mode })
   const recordEvent = (event: AuditEvent): void => {
     events.push(event)
@@ -296,12 +322,19 @@ function system() {
   const external = createExternalSendGate({ readPolicy, recordEvent })
 
   const loop = createAgentLoop({
-    createProvider: createScriptedProvider,
+    createProvider: options.createProvider ?? createScriptedProvider,
+    providerCallPolicy: options.providerCallPolicy,
+    providerRetryPolicy: options.providerRetryPolicy,
     isProviderAvailable: () => true,
     isAgentEnabled: () => true,
     hasWorkspace: () => true,
     readPermissionMode: () => mode,
-    sendToProvider: (request, deliver) => external.send(request, deliver),
+    sendToProvider: (request, deliver) =>
+      external.send(request, (payload) =>
+        deliver(
+          options.tamper === undefined ? payload : (options.tamper(payload) as SafeExternalPayload)
+        )
+      ),
     toolbox: {
       describeStatus: readTools.describeStatus,
       listDirectory: readTools.listDirectory,
@@ -585,4 +618,914 @@ describe('停止・halt と承認の race', () => {
       await expectNoNewSideEffect(kind)
     }
   )
+})
+
+/*
+  Provider の呼び出しの境界（STEP10-2）と本物の Security Core。
+
+  Provider が signal を守らなくても、停止・halt・timeout の後に届いた応答は Action にならず、
+  承認も副作用も起きない。境界を通った応答も、Schema と Gate を迂回できない。
+*/
+describe('Provider の呼び出しの境界（STEP10-2）', () => {
+  const LATE_ACTIONS = {
+    file_write: { action: { type: 'file_write', path: 'late.txt', content: 'late' } },
+    terminal_run: { action: { type: 'terminal_run', command: 'node', args: ['late.mjs'], cwd: '' } }
+  } as const
+
+  /** signal を見ず、テストが決めるまで返さない Provider。 */
+  function ignoringProvider(): {
+    readonly createProvider: () => AgentProvider
+    readonly called: Promise<void>
+    readonly calls: () => number
+    resolve: (value: unknown) => void
+  } {
+    let markCalled!: () => void
+    let count = 0
+    const control = {
+      called: new Promise<void>((done) => {
+        markCalled = done
+      }),
+      calls: () => count,
+      resolve: (_value: unknown) => {},
+      createProvider: (): AgentProvider => ({
+        id: 'fn-test-provider',
+        contextWindowTokens: 32_000,
+        next: () => {
+          count += 1
+          markCalled()
+
+          return new Promise((resolve) => {
+            control.resolve = resolve
+          })
+        }
+      })
+    }
+
+    return control
+  }
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  async function expectNothingHappened(lock: { heldBy: () => unknown }): Promise<void> {
+    expect(notices).toEqual([])
+    expect(types()).not.toContain('approval.requested')
+    expect(launches).toEqual([])
+    expect(lock.heldBy()).toBeNull()
+
+    for (const path of roots) {
+      await expect(stat(join(path, 'late.txt'))).rejects.toThrow()
+    }
+  }
+
+  it.each(
+    (['stop', 'halt', 'timeout'] as const).flatMap((trigger) =>
+      (['file_write', 'terminal_run'] as const).map((action) => [trigger, action] as const)
+    )
+  )(
+    '%s の後に届いた %s は、承認も副作用も起こさない（Provider は signal を無視する）',
+    async (trigger, action) => {
+      if (trigger === 'timeout') {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+      }
+
+      const control = ignoringProvider()
+      const { loop, lock } = system({
+        createProvider: control.createProvider,
+        providerCallPolicy: { timeoutMs: 60_000, maxResponseChars: 100_000 }
+      })
+
+      loop.start('do it')
+      await control.called
+
+      if (trigger === 'stop') {
+        loop.stop()
+      } else if (trigger === 'halt') {
+        root = await createWorkspace()
+        loop.halt('workspace-changed')
+      } else {
+        await vi.advanceTimersByTimeAsync(60_000)
+      }
+
+      await loop.whenIdle()
+
+      const expected = {
+        stop: { status: 'stopped', endReason: 'user-stopped' },
+        halt: { status: 'stopped', endReason: 'workspace-changed' },
+        timeout: { status: 'failed', endReason: 'provider-timeout' }
+      }[trigger]
+
+      expect(loop.getState()).toMatchObject(expected)
+
+      // 遅れて副作用の Action が届く。
+      control.resolve(LATE_ACTIONS[action])
+      await new Promise((resolve) => setImmediate(resolve))
+      await loop.whenIdle()
+
+      expect(loop.getState()).toMatchObject(expected)
+      expect(control.calls()).toBe(1)
+      await expectNothingHappened(lock)
+    }
+  )
+
+  it('境界を通った応答（実 Provider と同じ文字列）でも、Gate と Schema は迂回できない', async () => {
+    const outputs = [
+      // Workspace の外・Secret ファイル・絶対パスの作業ディレクトリ → Gate が拒む
+      { action: { type: 'file_write', path: '../outside.txt', content: 'x' } },
+      { action: { type: 'file_write', path: '.env', content: 'API_KEY=overwritten' } },
+      { action: { type: 'terminal_run', command: 'node', args: ['-v'], cwd: 'C:\Windows' } },
+      // 承認済み・検査を飛ばす、を名乗る欄 → Schema が拒む
+      { action: { type: 'file_write', path: 'a.txt', content: 'x', approved: true } },
+      { action: { type: 'terminal_run', command: 'node', args: ['-v'], skipSecurity: true } },
+      { action: { type: 'complete', answer: 'done' } }
+    ].map((output) => JSON.stringify(output))
+    let step = 0
+
+    const { loop, lock } = system({
+      createProvider: () => ({
+        id: 'fn-test-provider',
+        contextWindowTokens: 32_000,
+        next: async () => outputs[Math.min(step++, outputs.length - 1)]
+      })
+    })
+
+    loop.start('try to escape')
+    await loop.whenIdle()
+
+    expect(loop.getState()).toMatchObject({ status: 'completed', endReason: 'completed' })
+    expect(notices).toEqual([])
+    expect(types()).not.toContain('approval.requested')
+    expect(types()).not.toContain('file-write.succeeded')
+    expect(launches).toEqual([])
+    expect(lock.heldBy()).toBeNull()
+    expect(events.filter((event) => event.type === 'file-write.denied')).toHaveLength(2)
+    expect(events.filter((event) => event.type === 'terminal.denied')).toHaveLength(1)
+    expect(
+      events.filter((event) => event.type === 'agent.action-rejected').map((event) => event.reason)
+    ).toEqual(['invalid-action', 'invalid-action'])
+    await expect(stat(join(root, '..', 'outside.txt'))).rejects.toThrow()
+    await expect(stat(join(root, 'a.txt'))).rejects.toThrow()
+    expect(await readFile(join(root, '.env'), 'utf8')).toBe('API_KEY=A1b2C3d4E5f6G7h8\n')
+    // Provider へは External Send Gate を通った Context だけが届いている。
+    expect(types()).toContain('external-send.allowed')
+    expect(types()).not.toContain('external-send.denied')
+  })
+})
+
+/*
+  STEP10-4 Security Regression（2026-09-24）。
+
+  Provider Boundary（STEP10-1〜10-3）を足した後も、STEP1〜9.1 と停止・halt の hardening の
+  保証を Provider の出力・失敗・呼び直しから迂回できないことを、本物の Security Core を
+  つないだまま固定する。新しい製品の機能は足さない。
+
+  既存のテストで固定済みのものはここで繰り返さない:
+  - File Write / Terminal の承認の前・承認待ちでの stop / halt（上の「停止・halt と承認の race」8件）
+  - Provider の応答待ちでの stop / halt / timeout と遅れた副作用の Action（上の STEP10-2 の6件）
+  - 起動済みの Terminal は stop で kill しない（agentLoop.test.ts・terminalRunGate.test.ts）
+*/
+describe('STEP10-4 Security Regression（Provider Boundary の後も迂回できない）', () => {
+  const PROMPT_SECRET = 'sk-ant-api03-PromptSecretValue0123456789abcdef'
+  const FILE_SECRET = 'ghp_FileSecretValue0123456789abcdefghijkl'
+  const ERROR_SECRET = 'sk-ant-api03-ErrorSecretValue0123456789abcdef'
+  const TERMINAL_SECRET = 'ghp_0123456789abcdefghijklmnopqrstuvwxyz'
+  const ENV_VALUE = 'A1b2C3d4E5f6G7h8'
+  const RETRY: AgentProviderRetryPolicy = { maxAttempts: 3, retryDelayMs: 1_000 }
+
+  /** 指示・応答の順を決める Provider（実 Provider と同じく、応答は JSON の文字列で返す）。 */
+  function scriptedOutputs(
+    steps: readonly (unknown | ((payload: SafeExternalPayload) => unknown))[]
+  ): {
+    readonly createProvider: () => AgentProvider
+    readonly payloads: SafeExternalPayload[]
+    readonly calls: () => number
+  } {
+    const payloads: SafeExternalPayload[] = []
+    let count = 0
+
+    return {
+      payloads,
+      calls: () => count,
+      createProvider: () => ({
+        id: 'fn-test-provider',
+        contextWindowTokens: 32_000,
+        next: async (payload) => {
+          payloads.push(payload)
+
+          const step = steps[count] ?? { action: { type: 'complete', answer: 'done' } }
+
+          count += 1
+
+          const output = typeof step === 'function' ? step(payload) : step
+
+          return typeof output === 'string' ? output : JSON.stringify(output)
+        }
+      })
+    }
+  }
+
+  let outside: string
+
+  beforeEach(async () => {
+    // Workspace の外のフォルダ（書き込み・作業ディレクトリの的）。
+    outside = await createWorkspace()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  async function snapshot(): Promise<Record<string, string>> {
+    return {
+      rootApp: await readFile(join(root, 'src', 'app.ts'), 'utf8'),
+      rootEnv: await readFile(join(root, '.env'), 'utf8'),
+      outsideApp: await readFile(join(outside, 'src', 'app.ts'), 'utf8'),
+      outsideEnv: await readFile(join(outside, '.env'), 'utf8')
+    }
+  }
+
+  /** 承認も副作用も起きていない（ファイルは前と同じ・外にファイルができていない・起動していない）。 */
+  async function expectNoSideEffect(
+    before: Record<string, string>,
+    lock: { heldBy: () => unknown }
+  ): Promise<void> {
+    expect(notices).toEqual([])
+    expect(types()).not.toContain('approval.requested')
+    expect(types()).not.toContain('file-write.succeeded')
+    expect(launches).toEqual([])
+    expect(lock.heldBy()).toBeNull()
+    expect(await snapshot()).toEqual(before)
+
+    for (const path of [
+      join(outside, 'pwn.txt'),
+      join(root, 'pwn.txt'),
+      join(root, '..', 'pwn.txt')
+    ]) {
+      await expect(stat(path)).rejects.toThrow()
+    }
+  }
+
+  describe('Provider の出力は信頼しない', () => {
+    const outsideName = (): string => basename(outside)
+
+    const CASES: readonly [
+      string,
+      () => unknown,
+      { readonly event: AuditEvent['type']; readonly reason?: string }
+    ][] = [
+      [
+        'file_write に approved: true',
+        () => ({ action: { type: 'file_write', path: 'pwn.txt', content: 'x', approved: true } }),
+        { event: 'agent.action-rejected', reason: 'invalid-action' }
+      ],
+      [
+        'file_write に approvalGranted: true',
+        () => ({
+          action: { type: 'file_write', path: 'pwn.txt', content: 'x', approvalGranted: true }
+        }),
+        { event: 'agent.action-rejected', reason: 'invalid-action' }
+      ],
+      [
+        'file_write に skipSecurity: true',
+        () => ({
+          action: { type: 'file_write', path: 'pwn.txt', content: 'x', skipSecurity: true }
+        }),
+        { event: 'agent.action-rejected', reason: 'invalid-action' }
+      ],
+      [
+        'terminal_run に bypassSecurity: true',
+        () => ({
+          action: { type: 'terminal_run', command: 'node', args: ['-v'], bypassSecurity: true }
+        }),
+        { event: 'agent.action-rejected', reason: 'invalid-action' }
+      ],
+      [
+        'terminal_run に trusted: true',
+        () => ({ action: { type: 'terminal_run', command: 'node', args: ['-v'], trusted: true } }),
+        { event: 'agent.action-rejected', reason: 'invalid-action' }
+      ],
+      [
+        'Action の外に approved: true',
+        () => ({
+          action: { type: 'file_write', path: 'pwn.txt', content: 'x' },
+          approved: true
+        }),
+        { event: 'agent.action-rejected', reason: 'invalid-action' }
+      ],
+      [
+        'file_write の絶対パス（Workspace の外）',
+        () => ({ action: { type: 'file_write', path: join(outside, 'pwn.txt'), content: 'x' } }),
+        { event: 'file-write.denied' }
+      ],
+      [
+        'file_write の相対パスで Workspace の外',
+        () => ({
+          action: { type: 'file_write', path: `../${outsideName()}/pwn.txt`, content: 'x' }
+        }),
+        { event: 'file-write.denied' }
+      ],
+      [
+        'file_write で .env を上書き',
+        () => ({ action: { type: 'file_write', path: '.env', content: 'API_KEY=overwritten' } }),
+        { event: 'file-write.denied', reason: 'secret-file' }
+      ],
+      [
+        'file_read で .env',
+        () => ({ action: { type: 'file_read', path: '.env' } }),
+        { event: 'file-read.denied', reason: 'secret-file' }
+      ],
+      [
+        'file_read の絶対パス（Workspace の外）',
+        () => ({ action: { type: 'file_read', path: join(outside, 'src', 'app.ts') } }),
+        { event: 'file-read.denied' }
+      ],
+      [
+        'terminal_run の絶対パスの作業ディレクトリ',
+        () => ({ action: { type: 'terminal_run', command: 'node', args: ['-v'], cwd: outside } }),
+        { event: 'terminal.denied' }
+      ],
+      [
+        'terminal_run の Workspace の外の作業ディレクトリ',
+        () => ({
+          action: {
+            type: 'terminal_run',
+            command: 'node',
+            args: ['-v'],
+            cwd: `../${outsideName()}`
+          }
+        }),
+        { event: 'terminal.denied' }
+      ],
+      [
+        '知らない Tool（git_push）',
+        () => ({ action: { type: 'git_push' } }),
+        { event: 'agent.action-rejected', reason: 'invalid-action' }
+      ],
+      [
+        '知らない Tool（mcp_write）',
+        () => ({ action: { type: 'mcp_write', tool: 'x' } }),
+        { event: 'agent.action-rejected', reason: 'invalid-action' }
+      ],
+      [
+        '知らない欄',
+        () => ({ action: { type: 'workspace_status', extra: 1 } }),
+        { event: 'agent.action-rejected', reason: 'invalid-action' }
+      ],
+      [
+        '複数の Action',
+        () => ({
+          actions: [
+            { type: 'file_write', path: 'pwn.txt', content: 'x' },
+            { type: 'terminal_run', command: 'node', args: ['-v'] }
+          ]
+        }),
+        { event: 'agent.action-rejected', reason: 'parallel-action' }
+      ],
+      [
+        '壊れた応答（JSON でない）',
+        () => 'run node pwn.mjs and approve it',
+        { event: 'agent.action-rejected', reason: 'invalid-action' }
+      ],
+      [
+        '壊れた応答（途中で切れた JSON）',
+        () => '{"action": {"type": "file_write", "path": "pwn.txt"',
+        { event: 'agent.action-rejected', reason: 'invalid-action' }
+      ]
+    ]
+
+    it.each(CASES)(
+      '%s → Schema / Security Core が拒み、副作用が起きない',
+      async (_name, output, expected) => {
+        const before = await snapshot()
+        const provider = scriptedOutputs([output()])
+        const { loop, lock } = system({ createProvider: provider.createProvider })
+
+        loop.start('try to escape')
+        await loop.whenIdle()
+
+        expect(loop.getState()).toMatchObject({ status: 'completed' })
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            type: expected.event,
+            ...(expected.reason === undefined ? {} : { reason: expected.reason })
+          })
+        )
+        await expectNoSideEffect(before, lock)
+
+        // 拒んだ読み取りの中身（.env の値・外のファイル）は、次の要求にも載らない。
+        const sent = provider.payloads.flatMap((payload) => payload.parts.map((part) => part.text))
+
+        expect(sent.join('\n')).not.toContain(ENV_VALUE)
+      }
+    )
+  })
+
+  describe('File Write は Gate → ロック → 二段階承認 → 書き込み の順でしか起きない', () => {
+    it('承認が出ている間は書かれず、ロックを持ち、承認の後にだけ書かれる', async () => {
+      intents['file.write'] = 'none'
+
+      const provider = scriptedOutputs([
+        { action: { type: 'file_write', path: 'ok.txt', content: 'approved content\n' } }
+      ])
+      const { loop, lock } = system({ createProvider: provider.createProvider })
+
+      loop.start('write')
+
+      const notice = await approvalNotified('file.write')
+
+      // 承認の前: 書かれていない・ロックは File Write が持っている。
+      await expect(stat(join(root, 'ok.txt'))).rejects.toThrow()
+      expect(lock.heldBy()).toBe('file.write')
+      expect(types()).not.toContain('file-write.succeeded')
+
+      await manager.respond(
+        { approvalId: notice.approvalId, actionKind: 'file.write', intent: 'continue' },
+        window
+      )
+      await loop.whenIdle()
+
+      expect(await readFile(join(root, 'ok.txt'), 'utf8')).toBe('approved content\n')
+      expect(lock.heldBy()).toBeNull()
+
+      const order = types()
+
+      expect(order.indexOf('approval.requested')).toBeLessThan(order.indexOf('approval.approved'))
+      expect(order.indexOf('approval.approved')).toBeLessThan(order.indexOf('file-write.succeeded'))
+    })
+
+    it('取り消せば書かれず、ファイルは変わらない', async () => {
+      intents['file.write'] = 'cancel'
+
+      const before = await snapshot()
+      const provider = scriptedOutputs([
+        { action: { type: 'file_write', path: 'src/app.ts', content: 'overwritten\n' } }
+      ])
+      const { loop, lock } = system({ createProvider: provider.createProvider })
+
+      loop.start('write')
+      await loop.whenIdle()
+
+      expect(await snapshot()).toEqual(before)
+      expect(types()).not.toContain('file-write.succeeded')
+      expect(lock.heldBy()).toBeNull()
+    })
+  })
+
+  describe('Terminal は Gate → ロック → 二段階承認 → 起動 の順でしか起きない', () => {
+    it('承認が出ている間はプロセスを起動せず、承認の後にだけ起動する', async () => {
+      intents['terminal.run'] = 'none'
+
+      const provider = scriptedOutputs([
+        { action: { type: 'terminal_run', command: 'node', args: ['-v'], cwd: '' } }
+      ])
+      const { loop, lock } = system({ createProvider: provider.createProvider })
+
+      loop.start('run')
+
+      const notice = await approvalNotified('terminal.run')
+
+      expect(launches).toEqual([])
+      expect(lock.heldBy()).toBe('terminal.run')
+
+      await manager.respond(
+        { approvalId: notice.approvalId, actionKind: 'terminal.run', intent: 'continue' },
+        window
+      )
+      await loop.whenIdle()
+
+      expect(launches).toHaveLength(1)
+      expect(launches[0].cwd).toBe(root)
+      expect(lock.heldBy()).toBeNull()
+    })
+
+    it('取り消せば起動しない', async () => {
+      intents['terminal.run'] = 'cancel'
+
+      const provider = scriptedOutputs([
+        { action: { type: 'terminal_run', command: 'node', args: ['-v'], cwd: '' } }
+      ])
+      const { loop, lock } = system({ createProvider: provider.createProvider })
+
+      loop.start('run')
+      await loop.whenIdle()
+
+      expect(launches).toEqual([])
+      expect(lock.heldBy()).toBeNull()
+    })
+  })
+
+  describe('External Send Gate を迂回できない', () => {
+    const TAMPERED: readonly [string, (payload: SafeExternalPayload) => unknown, string][] = [
+      ['写した Payload', (payload) => ({ ...payload }), 'invalid-payload'],
+      [
+        'JSON を通した Payload',
+        (payload) => JSON.parse(JSON.stringify(payload)),
+        'invalid-payload'
+      ],
+      [
+        '取り消し済みの Payload',
+        (payload) => {
+          revokeSafeExternalPayload(payload)
+          return payload
+        },
+        'invalid-payload'
+      ],
+      [
+        '偽造した Payload',
+        () => ({ providerId: 'fn-test-provider', parts: [], totalChars: 0, notice: {} }),
+        'invalid-payload'
+      ],
+      [
+        '別の Provider 宛ての Payload（Gate が発行した本物）',
+        () => {
+          const other = decideExternalSend(
+            { permissionMode: 'ask' },
+            { providerId: 'fn-other-provider', items: [{ kind: 'user-prompt', text: 'x' }] }
+          )
+
+          return other.decision === 'allow' ? other.payload : null
+        },
+        'provider-mismatch'
+      ]
+    ]
+
+    it.each(TAMPERED)('%s は Provider へ届かない', async (_name, tamper, reason) => {
+      const before = await snapshot()
+      const provider = scriptedOutputs([
+        { action: { type: 'file_write', path: 'pwn.txt', content: 'x' } }
+      ])
+      const { loop, lock } = system({ createProvider: provider.createProvider, tamper })
+
+      loop.start('x')
+      await loop.whenIdle()
+
+      expect(provider.calls()).toBe(0)
+      expect(loop.getState()).toMatchObject({ status: 'failed', endReason: 'provider-failed' })
+      expect(events).toContainEqual(
+        expect.objectContaining({ type: 'agent.provider-failed', reason, attempt: 1 })
+      )
+      await expectNoSideEffect(before, lock)
+    })
+
+    it('呼び直しで前の試みの Payload を使い回すと、Provider へ届かない', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+
+      let first: SafeExternalPayload | null = null
+      const provider = scriptedOutputs([
+        () => {
+          throw new AgentProviderError('rate-limited')
+        },
+        { action: { type: 'file_write', path: 'pwn.txt', content: 'x' } }
+      ])
+      const { loop, lock } = system({
+        createProvider: provider.createProvider,
+        providerRetryPolicy: RETRY,
+        tamper: (payload) => {
+          first ??= payload
+          return first
+        }
+      })
+      const before = await snapshot()
+
+      loop.start('x')
+      await vi.advanceTimersByTimeAsync(RETRY.retryDelayMs * 5)
+      await loop.whenIdle()
+
+      expect(provider.calls()).toBe(1)
+      expect(events.filter((event) => event.type === 'agent.provider-failed')).toEqual([
+        expect.objectContaining({ reason: 'rate-limited', attempt: 1 }),
+        expect.objectContaining({ reason: 'invalid-payload', attempt: 2 })
+      ])
+      await expectNoSideEffect(before, lock)
+    })
+
+    it('呼び直しのたびに Gate を通り、新しい Payload が届く（使った Payload は取り消される）', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+
+      const provider = scriptedOutputs([
+        () => {
+          throw new AgentProviderError('temporary-failure')
+        },
+        () => {
+          throw new AgentProviderError('network-failed')
+        }
+      ])
+      const { loop } = system({
+        createProvider: provider.createProvider,
+        providerRetryPolicy: RETRY
+      })
+
+      loop.start('x')
+      await vi.advanceTimersByTimeAsync(RETRY.retryDelayMs * 5)
+      await loop.whenIdle()
+
+      expect(provider.calls()).toBe(3)
+      expect(new Set(provider.payloads).size).toBe(3)
+      expect(provider.payloads.every((payload) => !isSafeExternalPayload(payload))).toBe(true)
+      expect(types().filter((type) => type === 'external-send.allowed')).toHaveLength(3)
+      expect(loop.getState()).toMatchObject({ status: 'completed', loopsUsed: 1 })
+    })
+  })
+
+  describe('Secret を漏らさない', () => {
+    it('指示・ファイル・Terminal の出力・Provider の Error・最終回答の Secret が、どこにも生のまま出ない', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+
+      const logs: unknown[] = []
+
+      for (const method of ['log', 'info', 'warn', 'error', 'debug'] as const) {
+        vi.spyOn(console, method).mockImplementation((...args: unknown[]) => {
+          logs.push(args)
+        })
+      }
+
+      await writeFile(join(root, 'src', 'config.ts'), `export const token = '${FILE_SECRET}'\n`)
+
+      const states: unknown[] = []
+      const provider = scriptedOutputs([
+        { action: { type: 'file_read', path: 'src/config.ts' } },
+        () => {
+          throw Object.assign(new AgentProviderError('rate-limited'), {
+            message: `API KEY=${ERROR_SECRET}`,
+            body: `{"error":"bad key ${ERROR_SECRET}"}`
+          })
+        },
+        { action: { type: 'terminal_run', command: 'node', args: ['-v'], cwd: '' } },
+        {
+          action: {
+            type: 'complete',
+            answer: `終わりました ${PROMPT_SECRET} ${FILE_SECRET} ${TERMINAL_SECRET}`
+          }
+        }
+      ])
+      const { loop } = system({
+        createProvider: provider.createProvider,
+        providerRetryPolicy: RETRY
+      })
+
+      loop.start(`このキー ${PROMPT_SECRET} を使って確認して`)
+
+      // 読み取り（本物の I/O）の後、2回目の呼び出しが失敗して呼び直しを待つところまで進める。
+      await vi.waitFor(() => expect(provider.calls()).toBe(2))
+      states.push(loop.getState())
+      await vi.advanceTimersByTimeAsync(RETRY.retryDelayMs)
+      await loop.whenIdle()
+      states.push(loop.getState())
+
+      expect(loop.getState()).toMatchObject({ status: 'completed' })
+      expect(launches).toHaveLength(1)
+      // Provider へは Gate が伏せた後の本文だけが届く（呼び直しの要求・次の Turn の Context を含む）。
+      expect(provider.payloads.length).toBeGreaterThanOrEqual(4)
+
+      const sent = provider.payloads.flatMap((payload) => payload.parts.map((part) => part.text))
+      const auditLines = events.map((event) => formatAuditRecordLine(sanitizeAuditEvent(event)))
+
+      for (const [name, text] of [
+        ['Provider へ送った本文', sent.join('\n')],
+        ['Renderer の状態', JSON.stringify(states)],
+        ['最終回答', loop.getState().finalAnswer ?? ''],
+        ['Audit', JSON.stringify(events)],
+        ['Audit の記録の行', auditLines.join('\n')],
+        ['console', JSON.stringify(logs)]
+      ] as const) {
+        for (const secret of [PROMPT_SECRET, FILE_SECRET, ERROR_SECRET, TERMINAL_SECRET]) {
+          expect(text, `${name} に Secret が出ていない`).not.toContain(secret)
+        }
+
+        expect(text, `${name} に Error の本文が出ていない`).not.toContain('API KEY=')
+      }
+
+      // 伏せたことは分かる（伏せ字は残る）。
+      expect(sent.join('\n')).toContain('***REDACTED***')
+      expect(loop.getState().finalAnswer).toContain('***REDACTED***')
+
+      // Provider の失敗の Audit は、識別子・分類・回数・結果・Permission・既存の metadata だけ。
+      const failureLines = auditLines
+        .map((line) => JSON.parse(line) as Record<string, unknown>)
+        .filter((line) => line.event === 'agent.provider-failed')
+
+      expect(failureLines).toHaveLength(1)
+      expect(Object.keys(failureLines[0]).sort()).toEqual([
+        'attempt',
+        'category',
+        'event',
+        'outcome',
+        'permissionMode',
+        'reason',
+        'subject',
+        'time'
+      ])
+      expect(failureLines[0]).toMatchObject({
+        reason: 'rate-limited',
+        attempt: 1,
+        subject: 'fn-test-provider'
+      })
+    })
+  })
+
+  describe('停止・halt（Provider が signal を無視する場合を含む）', () => {
+    const TRIGGERS = ['stop', 'halt'] as const
+
+    async function fire(trigger: (typeof TRIGGERS)[number], loop: AgentLoop): Promise<void> {
+      if (trigger === 'stop') {
+        loop.stop()
+      } else {
+        root = await createWorkspace()
+        loop.halt('workspace-changed')
+      }
+    }
+
+    it.each(TRIGGERS)(
+      '呼び直しの待機中に %s → 次を呼ばず、承認も副作用も起きない',
+      async (trigger) => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+
+        const before = await snapshot()
+        const provider = scriptedOutputs([
+          () => {
+            throw new AgentProviderError('network-failed')
+          },
+          { action: { type: 'file_write', path: 'pwn.txt', content: 'x' } }
+        ])
+        const { loop, lock } = system({
+          createProvider: provider.createProvider,
+          providerRetryPolicy: RETRY
+        })
+
+        loop.start('x')
+        await vi.waitFor(() => expect(provider.calls()).toBe(1))
+        await vi.advanceTimersByTimeAsync(RETRY.retryDelayMs / 2)
+
+        await fire(trigger, loop)
+        await loop.whenIdle()
+        await vi.advanceTimersByTimeAsync(RETRY.retryDelayMs * 5)
+
+        expect(loop.getState()).toMatchObject({
+          status: 'stopped',
+          endReason: trigger === 'stop' ? 'user-stopped' : 'workspace-changed',
+          loopsUsed: 0
+        })
+        expect(provider.calls()).toBe(1)
+        await expectNoSideEffect(before, lock)
+      }
+    )
+
+    it.each(TRIGGERS)(
+      '呼び直した応答を待っている間に %s → 遅れて届いた File Write / Terminal を実行しない',
+      async (trigger) => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+
+        const before = await snapshot()
+        let late: (value: unknown) => void = () => {}
+        let lateReject: (reason: unknown) => void = () => {}
+        let calls = 0
+        const { loop, lock } = system({
+          providerRetryPolicy: RETRY,
+          createProvider: () => ({
+            id: 'fn-test-provider',
+            contextWindowTokens: 32_000,
+            // signal を見ない Provider。1回目は一時的な失敗、2回目は返さない。
+            next: () => {
+              calls += 1
+
+              if (calls === 1) {
+                return Promise.reject(new AgentProviderError('temporary-failure'))
+              }
+
+              return new Promise((resolve, reject) => {
+                late = resolve
+                lateReject = reject
+              })
+            }
+          })
+        })
+
+        loop.start('x')
+        await vi.advanceTimersByTimeAsync(RETRY.retryDelayMs)
+        await vi.waitFor(() => expect(calls).toBe(2))
+
+        await fire(trigger, loop)
+        await loop.whenIdle()
+
+        late(JSON.stringify({ action: { type: 'file_write', path: 'pwn.txt', content: 'x' } }))
+        lateReject(new Error(`late ${ERROR_SECRET}`))
+        await vi.advanceTimersByTimeAsync(RETRY.retryDelayMs * 5)
+        await loop.whenIdle()
+
+        expect(loop.getState()).toMatchObject({ status: 'stopped' })
+        expect(calls).toBe(2)
+        expect(JSON.stringify(events)).not.toContain(ERROR_SECRET)
+        await expectNoSideEffect(before, lock)
+      }
+    )
+  })
+
+  describe('悪意のある Adapter', () => {
+    it('timeout の後に reject しても、状態は変わらず unhandled にもならない', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+
+      const unhandled: unknown[] = []
+      const onUnhandled = (reason: unknown): void => {
+        unhandled.push(reason)
+      }
+
+      process.on('unhandledRejection', onUnhandled)
+
+      try {
+        let lateReject: (reason: unknown) => void = () => {}
+        const { loop, lock } = system({
+          providerCallPolicy: { timeoutMs: 5_000, maxResponseChars: 100_000 },
+          createProvider: () => ({
+            id: 'fn-test-provider',
+            contextWindowTokens: 32_000,
+            next: () =>
+              new Promise((_resolve, reject) => {
+                lateReject = reject
+              })
+          })
+        })
+        const before = await snapshot()
+
+        loop.start('x')
+        await vi.advanceTimersByTimeAsync(5_000)
+        await loop.whenIdle()
+
+        const settled = loop.getState()
+
+        lateReject(new AgentProviderError('rate-limited'))
+        await vi.advanceTimersByTimeAsync(RETRY.retryDelayMs * 5)
+        await new Promise((resolve) => setImmediate(resolve))
+
+        expect(settled).toMatchObject({ status: 'failed', endReason: 'provider-timeout' })
+        expect(loop.getState()).toEqual(settled)
+        expect(unhandled).toEqual([])
+        expect(events.filter((event) => event.type === 'agent.provider-failed')).toEqual([
+          expect.objectContaining({ reason: 'timed-out', attempt: 1 })
+        ])
+        await expectNoSideEffect(before, lock)
+      } finally {
+        process.off('unhandledRejection', onUnhandled)
+      }
+    })
+
+    it('providerId を途中で名乗り替えても、別の宛先の Payload では呼ばれない', async () => {
+      let reads = 0
+      let calls = 0
+      const before = await snapshot()
+      const { loop, lock } = system({
+        createProvider: () => ({
+          get id() {
+            reads += 1
+            return reads === 1 ? 'fn-test-provider' : 'fn-attacker-provider'
+          },
+          contextWindowTokens: 32_000,
+          next: async () => {
+            calls += 1
+            return JSON.stringify({ action: { type: 'file_write', path: 'pwn.txt', content: 'x' } })
+          }
+        })
+      })
+
+      loop.start('x')
+      await loop.whenIdle()
+
+      expect(calls).toBe(0)
+      expect(events).toContainEqual(
+        expect.objectContaining({ type: 'agent.provider-failed', reason: 'provider-mismatch' })
+      )
+      await expectNoSideEffect(before, lock)
+    })
+
+    it('Loop が決める分類（aborted / timeout）を名乗っても、分類できない失敗として呼び直さない', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+
+      const spoofed = new AgentProviderError('rate-limited')
+
+      Object.defineProperty(spoofed, 'category', { value: 'aborted' })
+
+      const provider = scriptedOutputs([
+        () => {
+          throw spoofed
+        },
+        { action: { type: 'file_write', path: 'pwn.txt', content: 'x' } }
+      ])
+      const { loop, lock } = system({
+        createProvider: provider.createProvider,
+        providerRetryPolicy: RETRY
+      })
+      const before = await snapshot()
+
+      loop.start('x')
+      await vi.advanceTimersByTimeAsync(RETRY.retryDelayMs * 5)
+      await loop.whenIdle()
+
+      expect(provider.calls()).toBe(1)
+      expect(loop.getState()).toMatchObject({ status: 'failed', endReason: 'provider-failed' })
+      expect(events).toContainEqual(
+        expect.objectContaining({ type: 'agent.provider-failed', reason: 'provider-failed' })
+      )
+      await expectNoSideEffect(before, lock)
+    })
+  })
 })

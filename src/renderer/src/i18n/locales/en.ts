@@ -1062,7 +1062,13 @@ export const enMessages = {
       loopLimitDeclined: 'Stopped at the turn limit',
       agentDisabled: 'Stopped because FN Agent was turned off',
       workspaceChanged: 'Stopped because the Workspace changed',
-      providerFailed: 'Stopped because the AI provider could not be reached',
+      providerFailed: 'Stopped because the AI provider request failed',
+      providerTimeout: 'Stopped because the AI provider did not respond in time',
+      providerResponseTooLarge: 'Stopped because the AI provider response was too large',
+      providerAuthenticationFailed:
+        'Authentication with the AI provider failed. Check your API key.',
+      providerAuthorizationFailed:
+        'The AI provider denied access. Check your permissions for the provider.',
       contextDenied: 'Stopped because the context could not be sent safely',
       contextBudgetExceeded: 'Stopped because the context did not fit the budget',
       tooManyInvalidActions: 'Stopped because the AI kept returning actions that cannot be run',

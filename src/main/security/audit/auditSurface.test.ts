@@ -70,6 +70,7 @@ describe('公開する名前', () => {
       'isAuditReason'
     ])
     expect(Object.keys(recordModule).sort()).toEqual([
+      'AUDIT_ATTEMPT_MAX',
       'AUDIT_ERROR_MAX_LENGTH',
       'AUDIT_PATH_MAX_LENGTH',
       'AUDIT_SUBJECT_MAX_LENGTH',
@@ -145,6 +146,8 @@ describe('種別は閉じた集合', () => {
     expect([...auditApi.AUDIT_EVENT_TYPES]).toEqual([
       // STEP9: Security 上意味のある Agent の出来事だけ（開始・完了は記録しない）。
       'agent.action-rejected',
+      // STEP10-3: Provider の呼び出し1回の失敗（識別子・分類・回数だけ）。
+      'agent.provider-failed',
       'agent.stopped',
       'approval.approved',
       'approval.denied',

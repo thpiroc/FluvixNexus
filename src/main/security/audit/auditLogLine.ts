@@ -50,6 +50,7 @@ const FIELD_ORDER = [
   'secretCategories',
   'maskedCount',
   'userNoticeRequired',
+  'attempt',
   'error'
 ] as const satisfies readonly (keyof AuditRecord)[]
 

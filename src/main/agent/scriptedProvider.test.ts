@@ -37,6 +37,19 @@ describe('境界', () => {
     await expect(provider.next(forged as unknown as SafeExternalPayload, signal)).rejects.toThrow()
   })
 
+  it('別の Provider 宛ての Payload には答えない（Gate が発行したものでも）', async () => {
+    const decision = decideExternalSend(
+      { permissionMode: 'ask' },
+      { providerId: 'fn-other-provider', items: [{ kind: 'user-prompt', text: 'x' }] }
+    )
+
+    if (decision.decision !== 'allow') {
+      throw new Error('expected allow')
+    }
+
+    await expect(createScriptedProvider().next(decision.payload, signal)).rejects.toThrow()
+  })
+
   it('中断されていれば答えない', async () => {
     const controller = new AbortController()
     controller.abort()

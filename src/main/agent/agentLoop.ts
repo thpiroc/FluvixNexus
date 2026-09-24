@@ -14,10 +14,7 @@ import { isAgentPermissionMode, type AgentPermissionMode } from '@shared/securit
 import type { AuditEvent } from '../security/audit/auditEvent'
 import type { RawExternalSendRequest } from '../security/externalSend/externalSendContext'
 import type { ExternalSendOutcome } from '../security/externalSend/externalSendGate'
-import {
-  isSafeExternalPayload,
-  type SafeExternalPayload
-} from '../security/externalSend/safeExternalPayload'
+import type { SafeExternalPayload } from '../security/externalSend/safeExternalPayload'
 import { redactSecretText } from '../security/secret/secretMasking'
 import {
   AGENT_ANSWER_MAX_LENGTH,
@@ -26,9 +23,20 @@ import {
   type AgentActionType
 } from './agentAction'
 import { agentActionKey } from './agentActionKey'
-import { agentActionRejectedEvent, agentStoppedEvent } from './agentAudit'
+import { agentActionRejectedEvent, agentProviderFailedEvent, agentStoppedEvent } from './agentAudit'
 import { createAgentContext, type AgentContext } from './agentContext'
-import type { AgentProvider } from './agentProvider'
+import {
+  AGENT_PROVIDER_CALL_POLICY,
+  AGENT_PROVIDER_MAX_ATTEMPTS,
+  AGENT_PROVIDER_RETRY_POLICY,
+  isRetryableProviderFailure,
+  type AgentProvider,
+  type AgentProviderCallPolicy,
+  type AgentProviderCallResult,
+  type AgentProviderFailure,
+  type AgentProviderRetryPolicy
+} from './agentProvider'
+import { callAgentProvider } from './agentProviderCall'
 import { retryClassOf, runAgentTool, type AgentToolbox } from './agentTools'
 
 /**
@@ -40,7 +48,9 @@ import { retryClassOf, runAgentTool, type AgentToolbox } from './agentTools'
  *   ↓
  * ┌─ Context を組み立てる（Budget の中へ畳む。agentContext.ts）
  * │   ↓ External Send Gate（STEP5）     検査して伏せた Safe Payload だけが Provider へ
- * │   ↓ Provider（STEP9 は Scripted）   1回 = 1 Loop
+ * │   ↓ callAgentProvider（STEP10-2）   Payload・providerId の照合、abort / timeout、応答の上限
+ * │     失敗なら再試行の Policy（STEP10-3）  呼び直すのは3つの分類だけ・最大3回・待機は止められる
+ * │   ↓ Provider（STEP9 は Scripted）   通った応答1つ = 1 Loop（呼び直しは数えない）
  * │   ↓ Runtime Schema Validation       Action 1つ（agentAction.ts）
  * │   ↓ 拒否済みの Action か            同じ Action は二度と実行しない
  * │   ↓ Security Core                   Read Tool Gate / File Write Gate / Terminal Runner
@@ -53,8 +63,11 @@ import { retryClassOf, runAgentTool, type AgentToolbox } from './agentTools'
  * - **AI に Security Core を通すかどうかを選ばせない。** Action は閉じた集合で、どれも
  *   Security Core の入口にしかつながっていない（agentTools.ts）
  * - **1ターン1 Action。** 並列の Tool Call は `parallel-action` で拒む
- * - **Loop = Provider を1回呼ぶこと。** 初期 20 回。上限に達したら自動で続けず、利用者に
- *   「続けるか」を尋ねる。続けるなら +10。無制限の自動継続は無い
+ * - **Loop（Turn）= Provider から通った応答を1つ受け取ること。** 初期 20 回。上限に達したら
+ *   自動で続けず、利用者に「続けるか」を尋ねる。続けるなら +10。無制限の自動継続は無い。
+ *   **Provider への試み（Attempt）とは別に数える**（STEP10-4。2026-09-24）── 回数の制限・一時的な
+ *   失敗・通信の失敗での呼び直しは Turn を使わない。呼び直しは1回の応答を得るまでに最大3回
+ *   （AGENT_PROVIDER_RETRY_POLICY）で、使い切れば Turn を進めずに終える
  * - **再試行は原則 最大2回。** 利用者の拒否・Security Core の deny・Boundary / Secret の違反を
  *   受けた Action は、同じものをもう一度実行しない（`repeated-action`）。ファイルの競合は
  *   読み直しを促す。壊れた出力が3回続いたら止める
@@ -91,6 +104,17 @@ export interface AgentLoopDependencies {
     request: RawExternalSendRequest,
     deliver: (payload: SafeExternalPayload) => Promise<T>
   ) => Promise<ExternalSendOutcome<T>>
+  /**
+   * Provider の呼び出しの Policy（timeout・応答の上限。STEP10-2）。省略すると
+   * `AGENT_PROVIDER_CALL_POLICY`。
+   */
+  readonly providerCallPolicy?: AgentProviderCallPolicy
+  /**
+   * Provider の呼び直しの Policy（回数・待ち時間。STEP10-3）。省略すると
+   * `AGENT_PROVIDER_RETRY_POLICY`。呼び直してよい失敗かは Policy ではなく
+   * `isRetryableProviderFailure` が決める（ここからは変えられない）。
+   */
+  readonly providerRetryPolicy?: AgentProviderRetryPolicy
   /** Security Core の入口。 */
   readonly toolbox: AgentToolbox
   /** 副作用のある操作が承認待ち・実行中か（共有ロック）。 */
@@ -119,6 +143,11 @@ export interface AgentLoop {
 
 interface Task {
   readonly provider: AgentProvider
+  /**
+   * Provider の識別子（始めたときに1度だけ読んだもの）。Context の宛先と Audit の subject に使う。
+   * 呼ぶときの照合は callAgentProvider が Provider からもう一度読んで行う。
+   */
+  readonly providerId: string
   readonly context: AgentContext
   readonly abort: AbortController
   status: AgentTaskStatus
@@ -137,11 +166,13 @@ interface Task {
   readonly failures: Map<string, number>
   /** 壊れた出力・拒否済みの再提案が続いた回数。 */
   rejectedStreak: number
-  /** Provider の呼び出しが続けて失敗した回数。 */
+  /** このターンで Provider の呼び出しが続けて失敗した回数（呼び直しの数え方。成功で 0）。 */
   providerFailures: number
 }
 
 export function createAgentLoop(deps: AgentLoopDependencies): AgentLoop {
+  const providerCallPolicy = deps.providerCallPolicy ?? AGENT_PROVIDER_CALL_POLICY
+  const retryPolicy = readRetryPolicy(deps.providerRetryPolicy ?? AGENT_PROVIDER_RETRY_POLICY)
   let task: Task | null = null
   let running: Promise<void> = Promise.resolve()
 
@@ -210,6 +241,7 @@ export function createAgentLoop(deps: AgentLoopDependencies): AgentLoop {
 
     const current: Task = {
       provider,
+      providerId: readProviderId(provider),
       context: createAgentContext(prompt, provider.contextWindowTokens),
       abort: new AbortController(),
       status: 'running',
@@ -328,6 +360,16 @@ export function createAgentLoop(deps: AgentLoopDependencies): AgentLoop {
         continue
       }
 
+      if (output.kind === 'wait') {
+        /*
+          呼び直してよい失敗（STEP10-3）。すぐには叩き直さず、Policy の時間だけ待つ。待っている間に
+          止めれば（stop / halt）すぐに戻り、Loop の先頭で stopped になる ── 次の呼び出しは始めない。
+          呼び直しも Context → External Send Gate → 新しい Payload → 境界、の正規の経路を通る。
+        */
+        await waitBeforeRetry(current)
+        continue
+      }
+
       const parsed = parseAgentTurn(output.value)
 
       if (!parsed.ok) {
@@ -392,16 +434,17 @@ export function createAgentLoop(deps: AgentLoopDependencies): AgentLoop {
     }
   }
 
-  /** Provider を1回呼ぶ（External Send Gate を通して）。 */
+  /** Provider を1回呼ぶ（External Send Gate を通して）。通った応答だけが Turn を1つ使う。 */
   async function askProvider(
     current: Task
   ): Promise<
-    | { readonly kind: 'value'; readonly value: unknown }
+    | { readonly kind: 'value'; readonly value: string }
     | { readonly kind: 'retry' }
+    | { readonly kind: 'wait' }
     | { readonly kind: 'end'; readonly reason: AgentTaskEndReason }
   > {
     const built = current.context.build({
-      providerId: current.provider.id,
+      providerId: current.providerId,
       permissionMode: permissionMode(),
       loopsUsed: current.loopsUsed,
       loopLimit: current.loopLimit
@@ -411,38 +454,92 @@ export function createAgentLoop(deps: AgentLoopDependencies): AgentLoop {
       return { kind: 'end', reason: 'context-budget-exceeded' }
     }
 
-    current.loopsUsed += 1
-    emit()
+    let called: AgentProviderCallResult
 
     try {
-      const sent = await deps.sendToProvider(built.request, async (payload) => {
-        // Gate が発行した Payload 以外を Provider へ渡さない（型だけに頼らない）。
-        if (!isSafeExternalPayload(payload)) {
-          throw new Error('the payload was not issued by the External Send Gate')
-        }
-
-        return await current.provider.next(payload, current.abort.signal)
-      })
+      /*
+        Provider は直に await しない。Payload の確かめ直し・providerId の照合・abort / timeout・
+        応答の大きさは callAgentProvider（STEP10-2）が持ち、ここは分類済みの結果だけを受け取る。
+        Provider が signal を守らなくても、止めた時点・timeout の時点でここへ戻る。
+      */
+      const sent = await deps.sendToProvider(built.request, (payload) =>
+        callAgentProvider(current.provider, payload, current.abort.signal, providerCallPolicy)
+      )
 
       if (sent.decision === 'deny') {
         // 送れない Context（Secret ファイル・検査できない）。同じ Context を送り直しても通らない。
         return { kind: 'end', reason: 'context-denied' }
       }
 
-      current.providerFailures = 0
-
-      return { kind: 'value', value: sent.delivered }
+      called = sent.delivered
     } catch {
-      if (current.stopReason !== null) {
-        return { kind: 'retry' }
+      // Gate・境界は投げない作り。投げたら中身の分からない失敗として、送り直さずに終える。
+      return current.stopReason !== null
+        ? { kind: 'retry' }
+        : { kind: 'end', reason: 'provider-failed' }
+    }
+
+    if (called.ok) {
+      /*
+        Turn を数えるのは、通った応答を受け取ったときだけ（STEP10-4）。呼び直し（Attempt）・
+        失敗・中断は Turn を使わない。呼び直しは最大3回で必ず終わるため、Turn を使わなくても
+        無制限には続かない。
+      */
+      current.providerFailures = 0
+      current.loopsUsed += 1
+      emit()
+
+      return { kind: 'value', value: called.text }
+    }
+
+    const failure = called.failure
+
+    if (failure === 'aborted') {
+      // 作業の signal を abort するのは停止・halt・終わりだけ。Loop の先頭で stopped になる。
+      return current.stopReason !== null
+        ? { kind: 'retry' }
+        : { kind: 'end', reason: 'provider-failed' }
+    }
+
+    // 何回目の呼び出しで失敗したか（1 から）。Audit へは分類と回数と識別子だけを渡す。
+    const attempt = current.providerFailures + 1
+
+    record(agentProviderFailedEvent(current.providerId, failure, attempt, permissionMode()))
+
+    /*
+      呼び直すのは、分類が呼び直してよいもの（回数の制限・一時的な失敗・通信の失敗）で、
+      まだ回数が残っているときだけ（STEP10-3）。それ以外はその場で終える。
+    */
+    if (isRetryableProviderFailure(failure) && attempt < retryPolicy.maxAttempts) {
+      current.providerFailures = attempt
+
+      return { kind: 'wait' }
+    }
+
+    current.providerFailures = 0
+
+    return { kind: 'end', reason: endReasonOfProviderFailure(failure) }
+  }
+
+  /** 呼び直す前に待つ。作業の signal が止まれば（stop / halt・終わり）すぐに戻る。 */
+  function waitBeforeRetry(current: Task): Promise<void> {
+    return new Promise((resolve) => {
+      const signal = current.abort.signal
+
+      if (signal.aborted) {
+        resolve()
+        return
       }
 
-      current.providerFailures += 1
+      const done = (): void => {
+        clearTimeout(timer)
+        signal.removeEventListener('abort', done)
+        resolve()
+      }
+      const timer = setTimeout(done, retryPolicy.retryDelayMs)
 
-      return current.providerFailures > AGENT_MAX_RETRIES
-        ? { kind: 'end', reason: 'provider-failed' }
-        : { kind: 'retry' }
-    }
+      signal.addEventListener('abort', done, { once: true })
+    })
   }
 
   /** Action を Security Core へ渡し、結果を Context へ入れる。 */
@@ -607,6 +704,77 @@ function subjectOf(action: Exclude<AgentAction, { readonly type: 'complete' }>):
   })()
 
   return raw === null ? null : bounded(redactSecretText(raw), AGENT_SUBJECT_MAX_LENGTH)
+}
+
+/**
+ * Renderer へ見せる終わりの理由（閉じた集合）。timeout・大きすぎる応答（STEP10-3）と、
+ * 認証・権限の失敗（STEP10-4）を分け、残りは `provider-failed` にまとめる（2026-09-24 確定）。
+ * Provider の文字列は含まない ── 画面の文言は Renderer の固定文だけ。
+ */
+function endReasonOfProviderFailure(
+  failure: Exclude<AgentProviderFailure, 'aborted'>
+): AgentTaskEndReason {
+  switch (failure) {
+    case 'timeout':
+      return 'provider-timeout'
+    case 'response-too-large':
+      return 'provider-response-too-large'
+    case 'authentication-failed':
+      return 'provider-authentication-failed'
+    case 'authorization-failed':
+      return 'provider-authorization-failed'
+    default:
+      return 'provider-failed'
+  }
+}
+
+/** setTimeout が扱える上限。 */
+const TIMER_MAX_MS = 2_147_483_647
+
+/**
+ * 呼び直しの Policy を1度だけ読む。**回数は天井（初回 ＋ 2 回）を超えない。** 読めない・
+ * 使えない値なら呼び直さない（1回だけ呼ぶ）側へ倒す。
+ */
+function readRetryPolicy(policy: unknown): AgentProviderRetryPolicy {
+  const noRetry = Object.freeze({ maxAttempts: 1, retryDelayMs: 0 })
+
+  try {
+    if (typeof policy !== 'object' || policy === null) {
+      return noRetry
+    }
+
+    const { maxAttempts, retryDelayMs } = policy as Record<string, unknown>
+
+    if (
+      typeof maxAttempts !== 'number' ||
+      !Number.isSafeInteger(maxAttempts) ||
+      maxAttempts < 1 ||
+      typeof retryDelayMs !== 'number' ||
+      !Number.isSafeInteger(retryDelayMs) ||
+      retryDelayMs < 1 ||
+      retryDelayMs > TIMER_MAX_MS
+    ) {
+      return noRetry
+    }
+
+    return Object.freeze({
+      maxAttempts: Math.min(maxAttempts, AGENT_PROVIDER_MAX_ATTEMPTS),
+      retryDelayMs
+    })
+  } catch {
+    return noRetry
+  }
+}
+
+/** Provider の識別子を1度だけ読む（読めなければ空。External Send Gate が invalid-provider で拒む）。 */
+function readProviderId(provider: AgentProvider): string {
+  try {
+    const id: unknown = provider.id
+
+    return typeof id === 'string' ? id : ''
+  } catch {
+    return ''
+  }
 }
 
 function bounded(text: string, max: number): string {

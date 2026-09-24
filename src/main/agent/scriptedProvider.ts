@@ -12,9 +12,10 @@ import type { AgentProvider } from './agentProvider'
  * Credential Store は STEP10）。配布ビルドでは作られない（currentAgentLoop.ts）。
  *
  * それでも**本物の Provider と同じ境界**を通る。受け取るのは External Send Gate が発行した
- * `SafeExternalPayload` だけで（受け取ったものが Gate の発行したものでなければ投げる）、
- * 返す Action は Agent Loop の Schema で確かめられ、Security Core の Gate を通る ──
- * Scripted だからといって飛ばせる検査は1つも無い。
+ * `SafeExternalPayload` だけで（受け取ったものが Gate の発行したものでない・自分宛てでなければ
+ * 投げる）、Agent Loop からは実 Provider と同じ `callAgentProvider`（STEP10-2。providerId の照合・
+ * abort / timeout・応答の上限）を通して呼ばれ、返す Action は Agent Loop の Schema で確かめられ、
+ * Security Core の Gate を通る ── Scripted だからといって飛ばせる検査は1つも無い。
  *
  * ## 手順（指示の中の印で選ぶ）
  *
@@ -67,6 +68,11 @@ export function createScriptedProvider(): AgentProvider {
       // 本物の Provider Adapter と同じく、送る直前に Gate の発行したものかを確かめる。
       if (!isSafeExternalPayload(payload)) {
         throw new Error('the payload was not issued by the External Send Gate')
+      }
+
+      // 別の Provider 宛ての Payload には答えない（callAgentProvider も照合する。二重にしてある）。
+      if (payload.providerId !== SCRIPTED_PROVIDER_ID) {
+        throw new Error('the payload is addressed to another provider')
       }
 
       if (signal.aborted) {

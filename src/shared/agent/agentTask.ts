@@ -59,6 +59,14 @@ export type AgentTaskEndReason =
   | 'agent-disabled'
   | 'workspace-changed'
   | 'provider-failed'
+  /** AI Provider から時間内（120 秒）に応答が無かった（STEP10-3）。 */
+  | 'provider-timeout'
+  /** AI Provider の応答が上限を超えた（STEP10-3）。 */
+  | 'provider-response-too-large'
+  /** AI Provider の認証に失敗した（HTTP 401 相当。STEP10-4）。 */
+  | 'provider-authentication-failed'
+  /** AI Provider の利用権限が無かった（HTTP 403 相当。STEP10-4）。 */
+  | 'provider-authorization-failed'
   | 'context-denied'
   | 'context-budget-exceeded'
   | 'too-many-invalid-actions'
@@ -74,7 +82,10 @@ export interface AgentTaskState {
    * 無ければ `null`。
    */
   readonly subject: string | null
-  /** これまでに AI（Provider）を呼んだ回数。 */
+  /**
+   * これまでに使った Turn の数（AI から通った応答を受け取った回数）。Provider への呼び直しは
+   * 数えない（STEP10-4）。
+   */
   readonly loopsUsed: number
   /** 今の上限（初期 20、続行するたびに +10）。 */
   readonly loopLimit: number
@@ -100,7 +111,7 @@ export type AgentTaskContinueDecision = 'continue' | 'stop'
 /** 指示の文字数の上限。 */
 export const AGENT_TASK_PROMPT_MAX_LENGTH = 20_000
 
-/** 最初の Loop の上限（Provider を呼ぶ回数）。 */
+/** 最初の Loop の上限（Turn の数 = AI から通った応答を受け取る回数）。 */
 export const AGENT_INITIAL_LOOP_LIMIT = 20
 
 /** 上限に達して「続ける」を選んだときに足す回数。 */

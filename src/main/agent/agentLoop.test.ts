@@ -8,7 +8,7 @@ import {
 } from '../security/externalSend/safeExternalPayload'
 import type { FileWriteOutcome } from '../security/fileWrite'
 import type { TerminalRunOutcome } from '../security/terminalRun'
-import { AGENT_MAX_RETRIES, createAgentLoop, type AgentLoopDependencies } from './agentLoop'
+import { createAgentLoop, type AgentLoopDependencies } from './agentLoop'
 import type { AgentProvider } from './agentProvider'
 import type { AgentToolbox } from './agentTools'
 
@@ -278,7 +278,7 @@ describe('Provider へ送るもの', () => {
     })
   })
 
-  it('Provider が続けて失敗したら止める（再試行は最大2回）', async () => {
+  it('分類できない失敗（ふつうの Error）は呼び直さずに止める（STEP10-3）', async () => {
     let calls = 0
     const failing: AgentProvider = {
       id: 'fn-test-provider',
@@ -294,8 +294,9 @@ describe('Provider へ送るもの', () => {
     loop.start('x')
     await loop.whenIdle()
 
-    expect(calls).toBe(AGENT_MAX_RETRIES + 1)
+    expect(calls).toBe(1)
     expect(loop.getState()).toMatchObject({ status: 'failed', endReason: 'provider-failed' })
+    expect(JSON.stringify(events)).not.toContain('network down')
   })
 })
 
@@ -529,22 +530,28 @@ describe('停止', () => {
 
   it('Provider の応答を待っている間の停止は、Provider へ中断を伝える', async () => {
     let aborted = false
+    let called = false
     const waiting: AgentProvider = {
       id: 'fn-test-provider',
       contextWindowTokens: 32_000,
-      next: (_payload, signal) =>
-        new Promise((_resolve, reject) => {
+      next: (_payload, signal) => {
+        called = true
+
+        return new Promise((_resolve, reject) => {
           signal.addEventListener('abort', () => {
             aborted = true
             reject(new Error('aborted'))
           })
         })
+      }
     }
 
     const loop = loopOf(waiting)
 
     loop.start('x')
-    await vi.waitFor(() => expect(loop.getState().loopsUsed).toBe(1))
+    // 応答を待っている間は Turn を使っていない（STEP10-4）。呼ばれたことを合図にする。
+    await vi.waitFor(() => expect(called).toBe(true))
+    expect(loop.getState().loopsUsed).toBe(0)
 
     loop.stop()
     await loop.whenIdle()
@@ -586,7 +593,7 @@ describe('利用者以外の理由で止まる', () => {
     const loop = loopOf(provider(() => new Promise(() => {})))
 
     loop.start('x')
-    await vi.waitFor(() => expect(loop.getState().loopsUsed).toBe(1))
+    await vi.waitFor(() => expect(payloads).toHaveLength(1))
 
     loop.halt('workspace-changed')
 
@@ -669,6 +676,237 @@ describe('作業の signal を副作用のある Tool へ渡す', () => {
       expect(payloads).toHaveLength(1)
     }
   )
+})
+
+/*
+  Provider の呼び出しの境界（STEP10-2）。Provider は直に await せず、callAgentProvider が
+  abort / timeout を Loop 側で強制する。signal を守らない Provider でも止まり、遅れた応答は捨てる。
+*/
+describe('Provider の呼び出しの境界（STEP10-2）', () => {
+  const WRITE = { action: { type: 'file_write', path: 'a.txt', content: 'x' } }
+  const RUN = { action: { type: 'terminal_run', command: 'npm', args: ['test'] } }
+
+  /** signal を見ず、テストが決めるまで返さない Provider。`called` は呼ばれたこと。 */
+  function ignoring(): {
+    readonly provider: AgentProvider
+    readonly called: Promise<void>
+    readonly calls: () => number
+    resolve: (value: unknown) => void
+    reject: (reason: unknown) => void
+  } {
+    let markCalled!: () => void
+    let count = 0
+    const called = new Promise<void>((done) => {
+      markCalled = done
+    })
+    const control = {
+      called,
+      calls: () => count,
+      resolve: (_value: unknown) => {},
+      reject: (_reason: unknown) => {},
+      provider: {
+        id: 'fn-test-provider',
+        contextWindowTokens: 32_000,
+        next: (payload: SafeExternalPayload) => {
+          payloads.push(payload)
+          count += 1
+          markCalled()
+
+          return new Promise<unknown>((resolve, reject) => {
+            control.resolve = resolve
+            control.reject = reject
+          })
+        }
+      } satisfies AgentProvider
+    }
+
+    return control
+  }
+
+  let unhandled: unknown[]
+  const onUnhandled = (reason: unknown): void => {
+    unhandled.push(reason)
+  }
+
+  beforeEach(() => {
+    unhandled = []
+    process.on('unhandledRejection', onUnhandled)
+  })
+
+  afterEach(() => {
+    process.off('unhandledRejection', onUnhandled)
+  })
+
+  it.each([
+    ['stop', 'user-stopped'],
+    ["halt('workspace-changed')", 'workspace-changed']
+  ] as const)(
+    'signal を無視して返さない Provider でも、%s で stopping に残らず whenIdle が解ける',
+    async (how, endReason) => {
+      const control = ignoring()
+      const loop = loopOf(control.provider)
+
+      loop.start('x')
+      await control.called
+
+      if (how === 'stop') {
+        loop.stop()
+      } else {
+        loop.halt('workspace-changed')
+      }
+
+      await loop.whenIdle()
+
+      expect(loop.getState()).toMatchObject({ status: 'stopped', endReason })
+      expect(cancelled).toBe(1)
+
+      // 遅れて届いた副作用の Action は実行しない。状態も動かない。
+      const settledStates = states.length
+
+      control.resolve(WRITE)
+      await new Promise((resolve) => setImmediate(resolve))
+
+      expect(toolbox.calls).toEqual([])
+      expect(states).toHaveLength(settledStates)
+      expect(loop.getState()).toMatchObject({ status: 'stopped', endReason })
+      expect(control.calls()).toBe(1)
+    }
+  )
+
+  it('止めた後に Provider が reject しても、状態は変わらず unhandled rejection にもならない', async () => {
+    const control = ignoring()
+    const loop = loopOf(control.provider)
+
+    loop.start('x')
+    await control.called
+    loop.stop()
+    await loop.whenIdle()
+
+    const settledStates = states.length
+
+    control.reject(new Error(`late ${TOKEN}`))
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(states).toHaveLength(settledStates)
+    expect(loop.getState()).toMatchObject({ status: 'stopped', endReason: 'user-stopped' })
+    expect(unhandled).toEqual([])
+    expect(JSON.stringify(states)).not.toContain(TOKEN)
+    expect(JSON.stringify(events)).not.toContain(TOKEN)
+  })
+
+  it('返さない Provider は Policy の時間で打ち切り、送り直さずに終える。遅れた応答は使わない', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+
+    const control = ignoring()
+    const loop = loopOf(control.provider, {
+      providerCallPolicy: { timeoutMs: 5_000, maxResponseChars: 10_000 }
+    })
+
+    loop.start('x')
+    await control.called
+
+    await vi.advanceTimersByTimeAsync(4_999)
+    expect(loop.getState().status).toBe('running')
+
+    await vi.advanceTimersByTimeAsync(1)
+    await loop.whenIdle()
+
+    expect(loop.getState()).toMatchObject({ status: 'failed', endReason: 'provider-timeout' })
+    // timeout では呼び直さない（STEP10-3）。
+    expect(control.calls()).toBe(1)
+
+    control.resolve(RUN)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(toolbox.calls).toEqual([])
+    expect(control.calls()).toBe(1)
+  })
+
+  it('上限を超える応答は Schema へ渡さない（有効な Action でも実行しない）', async () => {
+    const loop = loopOf(provider([{ action: { type: 'workspace_status' } }]), {
+      providerCallPolicy: { timeoutMs: 5_000, maxResponseChars: 10 }
+    })
+
+    loop.start('x')
+    await loop.whenIdle()
+
+    expect(loop.getState()).toMatchObject({
+      status: 'failed',
+      endReason: 'provider-response-too-large'
+    })
+    expect(toolbox.calls).toEqual([])
+    // Schema へ届いていれば、読めても読めなくても Audit（action-rejected）か Tool に跡が残る。
+    expect(agentEvents().map((event) => event.type)).toEqual(['agent.provider-failed'])
+    expect(payloads).toHaveLength(1)
+  })
+
+  it('上限以内の応答は、そのまま Schema と Gate へ進む', async () => {
+    const loop = loopOf(provider([{ action: { type: 'workspace_status' } }]), {
+      providerCallPolicy: { timeoutMs: 5_000, maxResponseChars: 1_000 }
+    })
+
+    loop.start('x')
+    await loop.whenIdle()
+
+    expect(toolbox.calls).toEqual(['workspace_status'])
+    expect(loop.getState()).toMatchObject({ status: 'completed', endReason: 'completed' })
+  })
+
+  it('Payload の宛先と Provider の id が違えば、next を呼ばずに終える', async () => {
+    let reads = 0
+    const next = vi.fn(async () => ({ action: { type: 'workspace_status' } }))
+    const shifting: AgentProvider = {
+      // Context を組み立てるときの名前と、呼ぶときの名前が違う Provider。
+      get id() {
+        reads += 1
+        return reads === 1 ? 'fn-test-provider' : 'fn-other-provider'
+      },
+      contextWindowTokens: 32_000,
+      next
+    }
+
+    const loop = loopOf(shifting)
+
+    loop.start('x')
+    await loop.whenIdle()
+
+    expect(next).not.toHaveBeenCalled()
+    expect(loop.getState()).toMatchObject({ status: 'failed', endReason: 'provider-failed' })
+    expect(toolbox.calls).toEqual([])
+  })
+
+  it('JSON で表せない応答は、Schema へ渡さず呼び直さずに終える（STEP10-3）', async () => {
+    const loop = loopOf(
+      provider([
+        { action: { type: 'file_write', path: 'a.txt', content: 'x', approved: undefined } }
+      ])
+    )
+
+    loop.start('x')
+    await loop.whenIdle()
+
+    expect(toolbox.calls).toEqual([])
+    expect(payloads).toHaveLength(1)
+    expect(loop.getState()).toMatchObject({ status: 'failed', endReason: 'provider-failed' })
+    expect(agentEvents()).toEqual([
+      expect.objectContaining({ type: 'agent.provider-failed', reason: 'invalid-response' })
+    ])
+  })
+
+  it('文字列の応答（実 Provider の形）も同じ Schema を通る', async () => {
+    const loop = loopOf(
+      provider([
+        '{"action":{"type":"workspace_status"}}',
+        '{"action":{"type":"complete","answer":"ok"}}'
+      ])
+    )
+
+    loop.start('x')
+    await loop.whenIdle()
+
+    expect(toolbox.calls).toEqual(['workspace_status'])
+    expect(loop.getState()).toMatchObject({ status: 'completed', finalAnswer: 'ok' })
+  })
 })
 
 describe('Renderer へ知らせる状態', () => {

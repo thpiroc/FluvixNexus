@@ -67,6 +67,9 @@ const TEXT_READ_LIMIT = 4096
 /** `maskedCount` の上限（これ以上は数として意味が無い）。 */
 const MASKED_COUNT_MAX = 1_000_000
 
+/** `attempt` の上限（Provider の呼び出しは初回 ＋ 2 回。余裕を持たせても 2 桁で足りる）。 */
+export const AUDIT_ATTEMPT_MAX = 99
+
 /**
  * Log に書く1件。**Secret の値を持つ欄はここにも無い。**
  * 分かっていない欄は `null`（書き出しでは省く）。
@@ -86,6 +89,8 @@ export interface AuditRecord {
   readonly secretCategories: readonly SecretCategory[] | null
   readonly maskedCount: number | null
   readonly userNoticeRequired: boolean | null
+  /** 何回目の試みか（1 以上の整数だけ）。 */
+  readonly attempt: number | null
   readonly error: string | null
 }
 
@@ -127,6 +132,7 @@ export function sanitizeAuditEvent(event: AuditEvent, time: Date = new Date()): 
       maskedCount: sanitizeCount(raw.maskedCount),
       userNoticeRequired:
         typeof raw.userNoticeRequired === 'boolean' ? raw.userNoticeRequired : null,
+      attempt: sanitizeAttempt(raw.attempt),
       error: sanitizeError(raw.error)
     })
   } catch {
@@ -155,6 +161,7 @@ function unrecognized(time: string, reason: AuditReason): AuditRecord {
     secretCategories: null,
     maskedCount: null,
     userNoticeRequired: null,
+    attempt: null,
     error: null
   })
 }
@@ -222,6 +229,20 @@ function sanitizeCount(value: unknown): number | null {
   }
 
   return Math.min(value, MASKED_COUNT_MAX)
+}
+
+/** 1 以上の整数だけ。上限を超えたら記録しない（頭打ちにすると、別の回数と読めてしまう）。 */
+function sanitizeAttempt(value: unknown): number | null {
+  if (
+    typeof value !== 'number' ||
+    !Number.isInteger(value) ||
+    value < 1 ||
+    value > AUDIT_ATTEMPT_MAX
+  ) {
+    return null
+  }
+
+  return value
 }
 
 /** 読めない時刻は現在時刻に倒す（記録に時刻の無い行を作らない）。 */
