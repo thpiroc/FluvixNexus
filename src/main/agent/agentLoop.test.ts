@@ -595,6 +595,82 @@ describe('利用者以外の理由で止まる', () => {
   })
 })
 
+/*
+  作業の signal（2026-09-24 の修正）。止めた時点で承認がまだ無い（Gate がロックを取った後・
+  承認を求める前）場合、cancelAll では消せない。Gate と Approval Manager がこの signal を見て、
+  止まった後に新しい承認・新しい副作用を始めない。
+*/
+describe('作業の signal を副作用のある Tool へ渡す', () => {
+  const CASES = [
+    ['file_write', 'stop', 'user-stopped'],
+    ['file_write', "halt('workspace-changed')", 'workspace-changed'],
+    ['terminal_run', 'stop', 'user-stopped'],
+    ['terminal_run', "halt('workspace-changed')", 'workspace-changed']
+  ] as const
+
+  it.each(CASES)(
+    '%s: %s で abort され、Tool が断れば stopped で終わる',
+    async (tool, how, reason) => {
+      let received: AbortSignal | undefined
+      let entered: () => void = () => {}
+      const inTool = new Promise<void>((resolve) => {
+        entered = resolve
+      })
+
+      /** Gate の代わり。signal が abort されたら agent-stopped で断る。 */
+      function stoppable<T>(signal: AbortSignal | undefined, denied: T): Promise<T> {
+        received = signal
+        entered()
+
+        return new Promise<T>((resolve) => {
+          signal?.addEventListener('abort', () => resolve(denied), { once: true })
+        })
+      }
+
+      toolbox = fakeToolbox({
+        writeFile: (_path, _content, signal) =>
+          stoppable<FileWriteOutcome>(signal, { ok: false, reason: 'agent-stopped' }),
+        runCommand: (_request, signal) =>
+          stoppable<TerminalRunOutcome>(signal, {
+            ok: false,
+            reason: 'agent-stopped',
+            output: null
+          })
+      })
+
+      const loop = loopOf(
+        provider([
+          tool === 'file_write'
+            ? { action: { type: 'file_write', path: 'a.txt', content: 'x' } }
+            : { action: { type: 'terminal_run', command: 'npm', args: ['test'] } },
+          { action: { type: 'workspace_status' } }
+        ])
+      )
+
+      loop.start('x')
+      await inTool
+
+      expect(received).toBeInstanceOf(AbortSignal)
+      expect(received?.aborted).toBe(false)
+
+      if (how === 'stop') {
+        loop.stop()
+      } else {
+        loop.halt('workspace-changed')
+      }
+
+      expect(received?.aborted).toBe(true)
+
+      await loop.whenIdle()
+
+      expect(loop.getState()).toMatchObject({ status: 'stopped', endReason: reason })
+      // 止めた後は、次の Action（workspace_status）を始めない。
+      expect(toolbox.calls).toEqual([])
+      expect(payloads).toHaveLength(1)
+    }
+  )
+})
+
 describe('Renderer へ知らせる状態', () => {
   it('Tool の詳細・ファイルの中身・AI の出力は載らない', async () => {
     const loop = loopOf(

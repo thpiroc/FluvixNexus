@@ -978,3 +978,180 @@ describe('Agent の停止（STEP9 の cancelAll）', () => {
     expect(events).toEqual([])
   })
 })
+
+/*
+  求めた側（Agent の作業）の signal（2026-09-24 の修正）。止めた時点でまだ承認が無かった
+  場合、cancelAll では消せない。signal で「止まった後は作らない・待っている間に止まれば
+  失効させる」を Manager 自身が守る。**Manager は Agent の状態を持たない**（signal だけを見る）。
+*/
+describe('求めた側の signal（停止・Workspace の切り替え）', () => {
+  it('止まった後に求められたら、承認を作らず・知らせずに断る', async () => {
+    const api = manager()
+    const controller = new AbortController()
+
+    controller.abort()
+
+    expect(await api.request(TERMINAL, controller.signal)).toEqual({
+      decision: 'denied',
+      reason: 'agent-stopped'
+    })
+    expect(types()).toEqual(['approval.denied'])
+    expect(events[0]).toMatchObject({ reason: 'agent-stopped', actionKind: 'terminal.run' })
+    expect(notices).toEqual([])
+    expect(timers).toEqual([])
+  })
+
+  it('pending の間に止まれば agent-stopped で失効し、後から続行が届いても承認にならない', async () => {
+    const api = manager()
+    const controller = new AbortController()
+    const outcome = api.request(TERMINAL, controller.signal)
+    const notice = notices[0]
+
+    controller.abort()
+
+    expect(await outcome).toEqual({ decision: 'denied', reason: 'agent-stopped' })
+    // 期限の手続きも片付いている（待っているものが残らない）。
+    expect(timers).toEqual([])
+
+    await api.respond(
+      { approvalId: notice.approvalId, actionKind: 'terminal.run', intent: 'continue' },
+      window
+    )
+
+    expect(events.at(-1)).toMatchObject({ type: 'approval.denied', reason: 'approval-not-found' })
+    expect(types()).not.toContain('approval.approved')
+  })
+
+  it('Native 確認の最中に止まれば、後から「許可」が届いても承認にならない', async () => {
+    let answer: (value: ApprovalConfirmation) => void = () => {}
+    confirmation = () =>
+      new Promise<ApprovalConfirmation>((resolve) => {
+        answer = resolve
+      })
+
+    const api = manager()
+    const controller = new AbortController()
+    const outcome = api.request(TERMINAL, controller.signal)
+    const responding = api.respond(
+      { approvalId: notices[0].approvalId, actionKind: 'terminal.run', intent: 'continue' },
+      window
+    )
+
+    await Promise.resolve()
+    controller.abort()
+    answer('approve')
+    await responding
+
+    expect(await outcome).toEqual({ decision: 'denied', reason: 'agent-stopped' })
+    expect(types()).not.toContain('approval.approved')
+  })
+
+  it('承認済み（consume の前）に止まれば失効し、その後の consume は通らない', async () => {
+    const api = manager()
+    const controller = new AbortController()
+    const outcome = api.request(TERMINAL, controller.signal)
+
+    await api.respond(
+      { approvalId: notices[0].approvalId, actionKind: 'terminal.run', intent: 'continue' },
+      window
+    )
+
+    const approved = await outcome
+
+    if (approved.decision !== 'approved') {
+      throw new Error('expected approved')
+    }
+
+    controller.abort()
+
+    expect(api.consume(approved.approvalId, TERMINAL)).toEqual({
+      ok: false,
+      reason: 'approval-not-found'
+    })
+  })
+
+  it('使い切った後・失効した後に止まっても、何も記録しない（見張りは外れている）', async () => {
+    const api = manager()
+    const used = new AbortController()
+    const cancelled = new AbortController()
+    const first = api.request(TERMINAL, used.signal)
+
+    await api.respond(
+      { approvalId: notices[0].approvalId, actionKind: 'terminal.run', intent: 'continue' },
+      window
+    )
+
+    const approved = await first
+
+    if (approved.decision !== 'approved') {
+      throw new Error('expected approved')
+    }
+
+    expect(api.consume(approved.approvalId, TERMINAL)).toMatchObject({ ok: true })
+
+    const second = api.request(TERMINAL, cancelled.signal)
+
+    await api.respond(
+      { approvalId: notices[1].approvalId, actionKind: 'terminal.run', intent: 'cancel' },
+      window
+    )
+    expect(await second).toEqual({ decision: 'denied', reason: 'user-cancelled' })
+
+    const before = events.length
+
+    used.abort()
+    cancelled.abort()
+
+    expect(events).toHaveLength(before)
+  })
+
+  it('読めない signal は止まっていると読む', async () => {
+    const api = manager()
+    const broken = {
+      get aborted(): boolean {
+        throw new Error('unreadable')
+      }
+    } as unknown as AbortSignal
+
+    expect(await api.request(TERMINAL, broken)).toEqual({
+      decision: 'denied',
+      reason: 'agent-stopped'
+    })
+    expect(notices).toEqual([])
+  })
+
+  it('見張れない signal では承認を見せずに断る', async () => {
+    const api = manager()
+    const unwatchable = {
+      aborted: false,
+      addEventListener: () => {
+        throw new Error('cannot listen')
+      }
+    } as unknown as AbortSignal
+
+    expect(await api.request(TERMINAL, unwatchable)).toEqual({
+      decision: 'denied',
+      reason: 'approval-state-invalid'
+    })
+    expect(notices).toEqual([])
+  })
+
+  it('signal を渡さない呼び出し（Agent 以外の経路）は、これまでどおり二段階で承認される', async () => {
+    const api = manager()
+
+    expect(await runTwoStages(api, TERMINAL)).toMatchObject({ decision: 'approved' })
+  })
+
+  it('止まっていない signal は、承認する向きには働かない（二段階はそのまま要る）', async () => {
+    const api = manager()
+    const controller = new AbortController()
+    const outcome = api.request(TERMINAL, controller.signal)
+
+    await api.respond(
+      { approvalId: notices[0].approvalId, actionKind: 'terminal.run', intent: 'cancel' },
+      window
+    )
+
+    expect(await outcome).toEqual({ decision: 'denied', reason: 'user-cancelled' })
+  })
+})

@@ -49,6 +49,8 @@ let proposals: FileWriteProposalNotice[]
 let settled: string[]
 let approvals: { request: unknown; approvalId: string }[]
 let consumed: { approvalId: unknown; request: unknown }[]
+/** 承認を求めたときに渡された signal（求めた順）。 */
+let approvalSignals: (AbortSignal | undefined)[]
 
 beforeEach(async () => {
   base = await realpath(await mkdtemp(join(tmpdir(), 'fx-write-gate-')))
@@ -66,6 +68,7 @@ beforeEach(async () => {
   settled = []
   approvals = []
   consumed = []
+  approvalSignals = []
 })
 
 afterEach(async () => {
@@ -82,6 +85,9 @@ interface GateOptions {
   readonly duringApproval?: () => Promise<void>
   /** 副作用の共有ロック（STEP9。既定はこの Gate だけのもの）。 */
   readonly lock?: SideEffectLock
+  /** Boundary の解決・確かめ直しの差し替え（その間に起きることを差し込む）。 */
+  readonly resolveTarget?: FileWriteGateDependencies['resolveTarget']
+  readonly recheckTarget?: FileWriteGateDependencies['recheckTarget']
 }
 
 function gateOf(options: GateOptions = {}) {
@@ -92,14 +98,19 @@ function gateOf(options: GateOptions = {}) {
     recordEvent: (event) => {
       events.push(event)
     },
-    resolveTarget: (relativePath) => resolveWorkspaceTarget(root, relativePath, 'write'),
-    recheckTarget: (target: VerifiedWorkspaceTarget) => recheckWorkspaceTarget(target),
+    resolveTarget:
+      options.resolveTarget ??
+      ((relativePath) => resolveWorkspaceTarget(root, relativePath, 'write')),
+    recheckTarget:
+      options.recheckTarget ??
+      ((target: VerifiedWorkspaceTarget) => recheckWorkspaceTarget(target)),
     readCurrent: readCurrentFile,
     writeFile: writeConfirmedFile,
-    requestApproval: async (request) => {
+    requestApproval: async (request, signal) => {
       const approvalId = `approval-${approvals.length + 1}`
 
       approvals.push({ request, approvalId })
+      approvalSignals.push(signal)
 
       await options.duringApproval?.()
 
@@ -653,6 +664,96 @@ describe('Audit（STEP4）', () => {
     })
 
     expect((await gate.write('a.txt', 'next\n')).ok).toBe(true)
+  })
+})
+
+/*
+  求めた側（Agent の作業）の signal（2026-09-24 の修正）。以前はロックを取った後・承認を
+  求める前に止めると、止めた時点では承認が無いため取り消されず、その後で承認が作られていた。
+*/
+describe('求めた側が止まったとき（停止・Workspace の切り替え）', () => {
+  it('止まった後に呼ばれたら、ロックも取らず・Diff も承認も出さずに断る', async () => {
+    const inner = createSideEffectLock()
+    let acquired = 0
+    const lock: SideEffectLock = {
+      acquire: (kind) => {
+        acquired += 1
+        return inner.acquire(kind)
+      },
+      heldBy: inner.heldBy
+    }
+    const controller = new AbortController()
+
+    controller.abort()
+
+    expect(await gateOf({ lock }).write('a.txt', 'next\n', controller.signal)).toEqual({
+      ok: false,
+      reason: 'agent-stopped'
+    })
+    expect(acquired).toBe(0)
+    expect(proposals).toEqual([])
+    expect(approvals).toEqual([])
+    expect(eventTypes()).toEqual(['file-write.denied'])
+    expect(await readFile(join(root, 'a.txt'), 'utf8')).toBe('one\ntwo\n')
+  })
+
+  it('ロックを取った後・承認を求める前の I/O の間に止まれば、Diff も承認も出さず、ロックを外す', async () => {
+    const lock = createSideEffectLock()
+    const controller = new AbortController()
+
+    const outcome = await gateOf({
+      lock,
+      resolveTarget: async (relativePath) => {
+        // Boundary を確かめている間に、利用者が止めた。
+        expect(lock.heldBy()).toBe('file.write')
+        controller.abort()
+
+        return resolveWorkspaceTarget(root, relativePath, 'write')
+      }
+    }).write('a.txt', 'next\n', controller.signal)
+
+    expect(outcome).toEqual({ ok: false, reason: 'agent-stopped' })
+    expect(proposals).toEqual([])
+    expect(approvals).toEqual([])
+    expect(settled).toEqual([])
+    expect(events.at(-1)).toMatchObject({ type: 'file-write.denied', reason: 'agent-stopped' })
+    expect(lock.heldBy()).toBeNull()
+    expect(await readFile(join(root, 'a.txt'), 'utf8')).toBe('one\ntwo\n')
+  })
+
+  it('承認を求めるときに、同じ signal を渡す（待っている間の停止は Manager が失効させる）', async () => {
+    const controller = new AbortController()
+
+    await gateOf().write('a.txt', 'next\n', controller.signal)
+
+    expect(approvalSignals).toEqual([controller.signal])
+  })
+
+  it('承認の後・使い切る前に止まれば、承認を使い切らず・書かず、ロックを外す', async () => {
+    const lock = createSideEffectLock()
+    const controller = new AbortController()
+
+    const outcome = await gateOf({
+      lock,
+      recheckTarget: async (target) => {
+        // 承認の後、書く前に確かめ直している間に止めた。
+        controller.abort()
+
+        return recheckWorkspaceTarget(target)
+      }
+    }).write('a.txt', 'next\n', controller.signal)
+
+    expect(outcome).toEqual({ ok: false, reason: 'agent-stopped' })
+    expect(approvals).toHaveLength(1)
+    expect(consumed).toEqual([])
+    expect(eventTypes()).not.toContain('file-write.approved')
+    expect(lock.heldBy()).toBeNull()
+    expect(await readFile(join(root, 'a.txt'), 'utf8')).toBe('one\ntwo\n')
+  })
+
+  it('signal を渡さない呼び出しは、これまでどおり承認を通して書く', async () => {
+    expect(await gateOf().write('a.txt', 'next\n')).toEqual({ ok: true, workspacePath: 'a.txt' })
+    expect(approvalSignals).toEqual([undefined])
   })
 })
 

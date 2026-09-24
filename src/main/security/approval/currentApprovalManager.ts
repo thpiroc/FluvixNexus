@@ -68,9 +68,14 @@ const manager = createApprovalManager({
   confirm: confirmApprovalNatively
 })
 
-/** 承認を求める（二段階が終わるまで解決しない）。 */
-export function requestApproval(raw: unknown): Promise<ApprovalOutcome> {
-  return manager.request(raw)
+/**
+ * 承認を求める（二段階が終わるまで解決しない）。
+ *
+ * `signal` は Agent の作業が止まったこと（停止・Workspace の切り替え）を知らせる。
+ * 止まっていれば承認を作らず、待っている間に止まればその承認を失効させる。
+ */
+export function requestApproval(raw: unknown, signal?: AbortSignal): Promise<ApprovalOutcome> {
+  return manager.request(raw, signal)
 }
 
 /** Renderer の意思表示を受ける。**ここでは承認は成立しない。** */

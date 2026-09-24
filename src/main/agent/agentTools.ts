@@ -36,8 +36,14 @@ export interface AgentToolbox {
   readonly listDirectory: (relativePath: unknown) => Promise<WorkspaceListOutcome>
   readonly readFile: (relativePath: unknown, range?: unknown) => Promise<FileReadOutcome>
   readonly search: (query: unknown) => Promise<WorkspaceSearchOutcome>
-  readonly writeFile: (relativePath: unknown, content: unknown) => Promise<FileWriteOutcome>
-  readonly runCommand: (request: unknown) => Promise<TerminalRunOutcome>
+  /** `signal` は作業の signal。止まった後は新しい承認を作らず、書かない。 */
+  readonly writeFile: (
+    relativePath: unknown,
+    content: unknown,
+    signal?: AbortSignal
+  ) => Promise<FileWriteOutcome>
+  /** `signal` は作業の signal。止まった後は新しい承認を作らず、起動しない。 */
+  readonly runCommand: (request: unknown, signal?: AbortSignal) => Promise<TerminalRunOutcome>
 }
 
 /** Tool 1回の結末。 */
@@ -56,9 +62,17 @@ export const AGENT_TERMINAL_NOTABLE_LINES = 20
 /** Terminal の要約の1行の上限。 */
 export const AGENT_TERMINAL_LINE_MAX_CHARS = 300
 
+/**
+ * Action を1つ実行する。
+ *
+ * `signal` は作業の signal（停止・Workspace の切り替えで abort される）。副作用のある
+ * File Write / Terminal へだけ渡す ── Gate と Approval Manager が、止まった後に新しい承認・
+ * 新しい副作用を始めないために見る（2026-09-24 の修正）。Read 系は読むだけで承認も無いため渡さない。
+ */
 export async function runAgentTool(
   toolbox: AgentToolbox,
-  action: Exclude<AgentAction, { readonly type: 'complete' }>
+  action: Exclude<AgentAction, { readonly type: 'complete' }>,
+  signal?: AbortSignal
 ): Promise<AgentToolResult> {
   switch (action.type) {
     case 'workspace_status':
@@ -88,13 +102,16 @@ export async function runAgentTool(
       return writeResult(
         action.path,
         action.content,
-        await toolbox.writeFile(action.path, action.content)
+        await toolbox.writeFile(action.path, action.content, signal)
       )
 
     case 'terminal_run':
       return terminalResult(
         action,
-        await toolbox.runCommand({ command: action.command, args: action.args, cwd: action.cwd })
+        await toolbox.runCommand(
+          { command: action.command, args: action.args, cwd: action.cwd },
+          signal
+        )
       )
   }
 }

@@ -9,6 +9,7 @@ import { decideSecurityAction, type SecurityAction } from '../policy/securityDec
 import type { SecurityDecisionReason } from '../policy/securityDecision'
 import { FAIL_CLOSED_SECURITY_POLICY, type SecurityPolicy } from '../policy/securityPolicy'
 import { agentFileWriteFacts } from '../secret/secretFileFacts'
+import { isStopRequested } from '../sideEffect/stopSignal'
 import {
   approvalActionKindOf,
   normalizeApprovalRequest,
@@ -88,7 +89,10 @@ export type ApprovalDenialReason =
   | 'fingerprint-failed'
   | 'dialog-failed'
   | 'window-unavailable'
-  /** 利用者が Agent を停止した（STEP9。Main が承認待ちを取り消した）。 */
+  /**
+   * Agent の作業が止まった（STEP9。利用者の停止・Workspace の切り替え）。Main が承認待ちを
+   * 取り消した場合と、止まった後に承認を求められて作らなかった場合。
+   */
   | 'agent-stopped'
 
 /** 承認を求めた結果。 */
@@ -153,8 +157,14 @@ export interface ApprovalManagerDependencies {
 }
 
 export interface ApprovalManager {
-  /** 承認を求める。二段階が終わるまで解決しない。 */
-  readonly request: (raw: unknown) => Promise<ApprovalOutcome>
+  /**
+   * 承認を求める。二段階が終わるまで解決しない。
+   *
+   * `signal` は、求めた側（Agent の作業）が止まったことを知らせるもの。**止まっていれば
+   * 承認を作らずに断り、待っている間に止まればその承認を失効させる**（どちらも
+   * `agent-stopped`）。Manager は Agent の状態を持たず、渡された signal だけを見る。
+   */
+  readonly request: (raw: unknown, signal?: AbortSignal) => Promise<ApprovalOutcome>
   /** Renderer の意思表示を受ける。**承認は成立しない**（Native 確認へ進むだけ）。 */
   readonly respond: (raw: unknown, window: unknown) => Promise<void>
   /** 実行の直前に1回だけ使い切る（STEP7 / STEP8 が呼ぶ）。 */
@@ -180,6 +190,8 @@ interface StoredApproval {
   readonly expiresAt: number
   state: 'pending' | 'confirming' | 'approved' | 'denied' | 'consumed'
   cancelTimer: () => void
+  /** 求めた側の signal を見るのをやめる。 */
+  stopWatching: () => void
   settle: (outcome: ApprovalOutcome) => void
 }
 
@@ -230,7 +242,7 @@ export function createApprovalManager(deps: ApprovalManagerDependencies): Approv
     return Object.freeze({ ok: false as const, reason })
   }
 
-  async function request(raw: unknown): Promise<ApprovalOutcome> {
+  async function request(raw: unknown, signal?: AbortSignal): Promise<ApprovalOutcome> {
     const policy = readPolicy(deps)
     const mode = policy.permissionMode
     const requestedKind = approvalActionKindOf(raw)
@@ -259,6 +271,14 @@ export function createApprovalManager(deps: ApprovalManagerDependencies): Approv
       return denyRequest('fingerprint-failed', mode, summary, action.kind)
     }
 
+    /*
+      求めた側がもう止まっている（Agent の停止・Workspace の切り替え）。**承認を作らない** ──
+      作れば、止めた後に承認の画面が出て、許可すれば書き込み・起動まで進んでしまう。
+    */
+    if (isStopRequested(signal)) {
+      return denyRequest('agent-stopped', mode, summary, action.kind)
+    }
+
     const createdAt = readClock(deps)
 
     if (createdAt === null) {
@@ -275,6 +295,7 @@ export function createApprovalManager(deps: ApprovalManagerDependencies): Approv
       expiresAt: createdAt + APPROVAL_TTL_MS,
       state: 'pending',
       cancelTimer: () => {},
+      stopWatching: () => {},
       settle: () => {}
     }
 
@@ -297,8 +318,22 @@ export function createApprovalManager(deps: ApprovalManagerDependencies): Approv
     approval.cancelTimer = startTimer(deps, () => {
       // 期限。待っている要求を deny で解き、記録を片付ける。
       denyApproval(approval, 'approval-expired')
+      approval.stopWatching()
       approvals.delete(id)
     })
+
+    /*
+      待っている間に求めた側が止まったら、その承認を失効させる（確認中・承認済みでも）。
+      **見張れなければ、承認を見せずにその場で断る。**
+    */
+    const stopWatching = watchAbort(signal, () => finish(approval, 'agent-stopped'))
+
+    if (stopWatching === null) {
+      finish(approval, 'approval-state-invalid')
+      return outcome
+    }
+
+    approval.stopWatching = stopWatching
 
     try {
       deps.notify(notice(approval))
@@ -487,6 +522,7 @@ export function createApprovalManager(deps: ApprovalManagerDependencies): Approv
 
     approval.state = 'consumed'
     approval.cancelTimer()
+    approval.stopWatching()
     approvals.delete(approvalId)
 
     return Object.freeze({ ok: true as const, summary: approval.summary })
@@ -496,6 +532,7 @@ export function createApprovalManager(deps: ApprovalManagerDependencies): Approv
   function finish(approval: StoredApproval, reason: ApprovalDenialReason): void {
     denyApproval(approval, reason)
     approval.cancelTimer()
+    approval.stopWatching()
     approvals.delete(approval.id)
   }
 
@@ -611,6 +648,30 @@ function isExpired(deps: ApprovalManagerDependencies, approval: StoredApproval):
   const now = readClock(deps)
 
   return now === null || now >= approval.expiresAt
+}
+
+/**
+ * 止まったときに `onAbort` を1回呼んでもらう。返り値は見張りをやめる手続き。
+ * **見張れない（例外）なら `null`**（呼んだ側が拒否へ倒す）。
+ */
+function watchAbort(signal: AbortSignal | undefined, onAbort: () => void): (() => void) | null {
+  if (signal === undefined) {
+    return () => {}
+  }
+
+  try {
+    signal.addEventListener('abort', onAbort, { once: true })
+  } catch {
+    return null
+  }
+
+  return () => {
+    try {
+      signal.removeEventListener('abort', onAbort)
+    } catch {
+      // 外せなくても、承認はもう片付いている（finish は2回目以降何もしない）。
+    }
+  }
 }
 
 function startTimer(deps: ApprovalManagerDependencies, run: () => void): () => void {

@@ -146,7 +146,7 @@ function gate(overrides: Partial<TerminalRunGateDependencies> = {}): TerminalRun
       launches.push({ spec, cwd })
       return runResult
     },
-    requestApproval: (raw) => manager.request(raw),
+    requestApproval: (raw, signal) => manager.request(raw, signal),
     consumeApproval: (id, raw) => manager.consume(id, raw),
     notifyProposed: (notice) => proposals.push(notice),
     notifySettled: (proposalId, result) => settled.push({ proposalId, result }),
@@ -609,6 +609,154 @@ describe('出力と Audit', () => {
     }).run({ command: 'node', args: [], cwd: '' })
 
     expect(outcome).toMatchObject({ ok: true })
+    expect(launches).toHaveLength(1)
+  })
+})
+
+/*
+  求めた側（Agent の作業）の signal（2026-09-24 の修正）。以前はロックを取った後・承認を
+  求める前に止めると、止めた時点では承認が無いため取り消されず、その後で承認が作られていた。
+  **起動した後のプロセスは signal を見ない**（停止で kill しない。STEP8 / STEP9 の決定）。
+*/
+describe('求めた側が止まったとき（停止・Workspace の切り替え）', () => {
+  const NODE_RUN = Object.freeze({ command: 'node', args: Object.freeze(['-v']), cwd: '' })
+
+  it('止まった後に呼ばれたら、ロックも取らず・コマンドも承認も出さずに断る', async () => {
+    const lock = createSideEffectLock()
+    let acquired = 0
+    const controller = new AbortController()
+
+    controller.abort()
+
+    const outcome = await gate({
+      acquireSideEffect: (kind) => {
+        acquired += 1
+        return lock.acquire(kind)
+      }
+    }).run(NODE_RUN, controller.signal)
+
+    expect(outcome).toEqual({ ok: false, reason: 'agent-stopped', output: null })
+    expect(acquired).toBe(0)
+    expect(proposals).toEqual([])
+    expect(approvalNotices).toEqual([])
+    expect(types()).toEqual(['terminal.denied'])
+    expect(launches).toEqual([])
+  })
+
+  it('ロックを取った後・承認を求める前の I/O の間に止まれば、承認を作らず、ロックを外す', async () => {
+    const lock = createSideEffectLock()
+    const controller = new AbortController()
+
+    const outcome = await gate({
+      acquireSideEffect: lock.acquire,
+      resolveCwd: async (relativePath) => {
+        // 作業ディレクトリを確かめている間に、利用者が止めた。
+        expect(lock.heldBy()).toBe('terminal.run')
+        controller.abort()
+
+        return resolveWorkspaceTarget(root, relativePath, 'read')
+      }
+    }).run(NODE_RUN, controller.signal)
+
+    expect(outcome).toEqual({ ok: false, reason: 'agent-stopped', output: null })
+    expect(proposals).toEqual([])
+    expect(approvalNotices).toEqual([])
+    expect(types()).not.toContain('approval.requested')
+    expect(events.at(-1)).toMatchObject({ type: 'terminal.denied', reason: 'agent-stopped' })
+    expect(lock.heldBy()).toBeNull()
+    expect(launches).toEqual([])
+  })
+
+  it('承認待ちの間に止まれば承認は失効し、後から続行が届いても起動しない', async () => {
+    rendererIntent = 'none'
+
+    const lock = createSideEffectLock()
+    const controller = new AbortController()
+    let proposed: () => void = () => {}
+    const shown = new Promise<void>((resolve) => {
+      proposed = resolve
+    })
+    const api = gate({
+      acquireSideEffect: lock.acquire,
+      notifyProposed: (notice) => {
+        proposals.push(notice)
+        proposed()
+      }
+    })
+
+    const running = api.run(NODE_RUN, controller.signal)
+
+    // コマンドを見せた直後に（同じ流れで）承認が作られ、知らされている。
+    await shown
+    expect(approvalNotices).toHaveLength(1)
+
+    controller.abort()
+
+    expect(await running).toEqual({ ok: false, reason: 'agent-stopped', output: null })
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: 'approval.denied', reason: 'agent-stopped' })
+    )
+    expect(lock.heldBy()).toBeNull()
+    expect(launches).toEqual([])
+  })
+
+  it('Native 確認の最中に止まれば、後から「許可」が届いても起動しない', async () => {
+    const controller = new AbortController()
+
+    duringConfirm = async () => {
+      controller.abort()
+    }
+
+    expect(await gate().run(NODE_RUN, controller.signal)).toEqual({
+      ok: false,
+      reason: 'agent-stopped',
+      output: null
+    })
+    expect(types()).not.toContain('approval.approved')
+    expect(launches).toEqual([])
+  })
+
+  it('承認の後・使い切る前に止まれば、承認を使い切らず・起動せず、ロックを外す', async () => {
+    const lock = createSideEffectLock()
+    const controller = new AbortController()
+
+    const outcome = await gate({
+      acquireSideEffect: lock.acquire,
+      recheckCwd: async (target) => {
+        // 承認の後、起動の前に確かめ直している間に止めた。
+        controller.abort()
+
+        return recheckWorkspaceTarget(target)
+      }
+    }).run(NODE_RUN, controller.signal)
+
+    expect(outcome).toEqual({ ok: false, reason: 'agent-stopped', output: null })
+    expect(types()).toContain('approval.approved')
+    expect(types()).not.toContain('terminal.approved')
+    expect(lock.heldBy()).toBeNull()
+    expect(launches).toEqual([])
+  })
+
+  it('起動した後に止まっても、実行中のプロセスは止めず、終わるのを待つ（kill しない）', async () => {
+    const controller = new AbortController()
+
+    const outcome = await gate({
+      runProcess: async (spec, cwd) => {
+        launches.push({ spec, cwd })
+        // 実行中に利用者が止めた。プロセスはそのまま終わる。
+        controller.abort()
+
+        return runResult
+      }
+    }).run(NODE_RUN, controller.signal)
+
+    expect(outcome).toMatchObject({ ok: true, exitCode: 0 })
+    expect(launches).toHaveLength(1)
+    expect(types()).toContain('terminal.completed')
+  })
+
+  it('signal を渡さない呼び出しは、これまでどおり承認を通して起動する', async () => {
+    expect(await gate().run(NODE_RUN)).toMatchObject({ ok: true })
     expect(launches).toHaveLength(1)
   })
 })

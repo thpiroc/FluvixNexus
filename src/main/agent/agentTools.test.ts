@@ -105,6 +105,44 @@ describe('Security Core の入口へ渡すもの', () => {
     ])
   })
 
+  it('作業の signal は、副作用のある File Write / Terminal へだけ渡す', async () => {
+    const signals: { readonly tool: string; readonly signal: unknown }[] = []
+    const toolbox = {
+      runCommand: async (_request: unknown, signal: unknown) => {
+        signals.push({ tool: 'runCommand', signal })
+        return { ok: false as const, reason: 'agent-stopped' as const, output: null }
+      },
+      writeFile: async (_path: unknown, _content: unknown, signal: unknown) => {
+        signals.push({ tool: 'writeFile', signal })
+        return { ok: false as const, reason: 'agent-stopped' as const }
+      },
+      readFile: async (...args: unknown[]) => {
+        signals.push({ tool: 'readFile', signal: args.length })
+        return { ok: false as const, reason: 'not-found' as const }
+      }
+    } as unknown as AgentToolbox
+    const { signal } = new AbortController()
+
+    await runAgentTool(
+      toolbox,
+      { type: 'terminal_run', command: 'npm', args: ['test'], cwd: '' },
+      signal
+    )
+    await runAgentTool(toolbox, { type: 'file_write', path: 'a.txt', content: 'x' }, signal)
+    await runAgentTool(
+      toolbox,
+      { type: 'file_read', path: 'a.txt', startLine: null, endLine: null },
+      signal
+    )
+
+    expect(signals).toEqual([
+      { tool: 'runCommand', signal },
+      { tool: 'writeFile', signal },
+      // Read 系は読むだけで承認も無いため、signal を受け取らない（引数は path と範囲だけ）。
+      { tool: 'readFile', signal: 2 }
+    ])
+  })
+
   it('拒否は error として、次にどうすべきかを添えて返す', async () => {
     const toolbox = {
       readFile: async () => ({ ok: false as const, reason: 'secret-file' as const })

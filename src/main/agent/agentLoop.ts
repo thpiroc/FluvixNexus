@@ -62,7 +62,9 @@ import { retryClassOf, runAgentTool, type AgentToolbox } from './agentTools'
  *   共有ロック（sideEffect/）が行う。`complete` は承認待ち・実行中が残っていれば受け付けない
  * - **停止したら新しい Action を始めない。** 承認待ちは取り消す。実行中の Terminal は
  *   kill せず、終わる（または 120 秒で打ち切られる）のを待ってから `stopped` にする
- *   （STEP8 / STEP9 の決定。古い Scope Decision の「Tool へ中断 Signal を伝播」より優先）
+ *   （STEP8 / STEP9 の決定。古い Scope Decision の「Tool へ中断 Signal を伝播」より優先）。
+ *   作業の signal は File Write / Terminal の Gate と Approval Manager まで渡し、**止めた後に
+ *   新しい承認・新しい副作用を始めない**ためだけに使う（2026-09-24。起動済みのプロセスは見ない）
  * - **状態はメモリだけ。** 再起動・クラッシュの後に途中の作業を復元しない。承認も復元しない
  */
 
@@ -451,7 +453,12 @@ export function createAgentLoop(deps: AgentLoopDependencies): AgentLoop {
   ): Promise<void> {
     update(current, { phase: phaseOf(action), subject: subjectOf(action) })
 
-    const result = await runAgentTool(deps.toolbox, action)
+    /*
+      作業の signal を Gate まで渡す。止める（stop / halt）と abort され、Gate はその後に
+      新しい承認を作らず・副作用を始めない。止めた時点で承認がまだ作られていなくても
+      （Gate がロックを取った後・承認を求める前の I/O の途中でも）止まる。
+    */
+    const result = await runAgentTool(deps.toolbox, action, current.abort.signal)
 
     current.context.add(current.loopsUsed, result.context)
 

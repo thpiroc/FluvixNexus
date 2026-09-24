@@ -77,7 +77,15 @@ const gate = createTerminalRunGate({
   acquireSideEffect
 })
 
-/** コマンドを1つ、承認を通してから実行する。 */
-export function runAgentTerminalCommand(request: unknown): Promise<TerminalRunOutcome> {
-  return gate.run(request)
+/**
+ * コマンドを1つ、承認を通してから実行する。
+ *
+ * `signal` は Agent Loop の作業の signal（停止・Workspace の切り替えで abort される）。
+ * 止まった後は新しい承認を作らず、起動しない。起動した後のプロセスは kill しない。
+ */
+export function runAgentTerminalCommand(
+  request: unknown,
+  signal?: AbortSignal
+): Promise<TerminalRunOutcome> {
+  return gate.run(request, signal)
 }

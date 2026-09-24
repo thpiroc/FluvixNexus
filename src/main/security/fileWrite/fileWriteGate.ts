@@ -11,6 +11,7 @@ import { decideSecurityAction } from '../policy/securityDecision'
 import { FAIL_CLOSED_SECURITY_POLICY, type SecurityPolicy } from '../policy/securityPolicy'
 import { agentFileWriteFacts } from '../secret/secretFileFacts'
 import type { SideEffectAcquireResult } from '../sideEffect/sideEffectLock'
+import { isStopRequested } from '../sideEffect/stopSignal'
 import {
   fileWriteApprovedEvent,
   fileWriteDeniedEvent,
@@ -101,8 +102,11 @@ export interface FileWriteGateDependencies {
     bytes: Buffer,
     expectedContentHash: string | null
   ) => Promise<WriteFileResult>
-  /** 承認を求める（STEP6）。二段階が終わるまで解決しない。 */
-  readonly requestApproval: (raw: unknown) => Promise<ApprovalOutcome>
+  /**
+   * 承認を求める（STEP6）。二段階が終わるまで解決しない。
+   * `signal` が止まっていれば承認を作らず、待っている間に止まればその承認を失効させる。
+   */
+  readonly requestApproval: (raw: unknown, signal?: AbortSignal) => Promise<ApprovalOutcome>
   /** 実行の直前に1回だけ使い切る（STEP6）。 */
   readonly consumeApproval: (approvalId: unknown, raw: unknown) => ApprovalConsumeResult
   /** Renderer へ提案を知らせる。 */
@@ -116,8 +120,17 @@ export interface FileWriteGateDependencies {
 }
 
 export interface FileWriteGate {
-  /** Workspace の中のファイル1件を書き換える（承認を通してから）。 */
-  readonly write: (relativePath: unknown, content: unknown) => Promise<FileWriteOutcome>
+  /**
+   * Workspace の中のファイル1件を書き換える（承認を通してから）。
+   *
+   * `signal` は求めた側（Agent の作業）が止まったこと。止まった後は、**新しい承認を作らず・
+   * 書かない**（`agent-stopped`）。止まる向きにしか働かず、確認を省く口にはならない。
+   */
+  readonly write: (
+    relativePath: unknown,
+    content: unknown,
+    signal?: AbortSignal
+  ) => Promise<FileWriteOutcome>
 }
 
 export function createFileWriteGate(deps: FileWriteGateDependencies): FileWriteGate {
@@ -151,9 +164,18 @@ export function createFileWriteGate(deps: FileWriteGateDependencies): FileWriteG
     return Object.freeze({ ok: false as const, reason })
   }
 
-  async function write(relativePath: unknown, content: unknown): Promise<FileWriteOutcome> {
+  async function write(
+    relativePath: unknown,
+    content: unknown,
+    signal?: AbortSignal
+  ): Promise<FileWriteOutcome> {
     const policy = readPolicy(deps)
     const mode = policy.permissionMode
+
+    // 求めた側がもう止まっている。ロックも取らない。
+    if (isStopRequested(signal)) {
+      return deny('agent-stopped', null, mode)
+    }
 
     /*
       副作用のある操作は、種類をまたいで同時に1件だけ（STEP9）。相手が File Write なら
@@ -171,7 +193,7 @@ export function createFileWriteGate(deps: FileWriteGateDependencies): FileWriteG
     }
 
     try {
-      return await run(policy, relativePath, content)
+      return await run(policy, relativePath, content, signal)
     } catch (cause) {
       /*
         想定していない例外。**「分からないから書く」は無い。** ここへ来た時点で
@@ -188,7 +210,8 @@ export function createFileWriteGate(deps: FileWriteGateDependencies): FileWriteG
   async function run(
     policy: SecurityPolicy,
     relativePath: unknown,
-    content: unknown
+    content: unknown,
+    signal: AbortSignal | undefined
   ): Promise<FileWriteOutcome> {
     const mode = policy.permissionMode
 
@@ -255,6 +278,15 @@ export function createFileWriteGate(deps: FileWriteGateDependencies): FileWriteG
       return deny('diff-failed', workspacePath, mode)
     }
 
+    /*
+      ロックを取ってからここまでの I/O（Boundary・今の中身）の間に、求めた側が止まっている
+      ことがある（利用者の停止・Workspace の切り替え）。**Diff も承認も見せずに終える** ──
+      止めた時点ではまだ承認が無いため、止めたときの取り消しでは消せない（2026-09-24 の修正）。
+    */
+    if (isStopRequested(signal)) {
+      return deny('agent-stopped', workspacePath, mode)
+    }
+
     const proposalId = deps.createProposalId()
 
     try {
@@ -272,7 +304,14 @@ export function createFileWriteGate(deps: FileWriteGateDependencies): FileWriteG
     }
 
     try {
-      return await approveAndWrite(target, workspacePath, prepared, current.contentHash, mode)
+      return await approveAndWrite(
+        target,
+        workspacePath,
+        prepared,
+        current.contentHash,
+        mode,
+        signal
+      )
     } finally {
       settle(proposalId)
     }
@@ -290,10 +329,12 @@ export function createFileWriteGate(deps: FileWriteGateDependencies): FileWriteG
     workspacePath: string,
     prepared: { readonly content: string; readonly bytes: Buffer },
     expectedContentHash: string | null,
-    mode: SecurityPolicy['permissionMode']
+    mode: SecurityPolicy['permissionMode'],
+    signal: AbortSignal | undefined
   ): Promise<FileWriteOutcome> {
     const request = { kind: 'file.write' as const, target, content: prepared.content }
-    const outcome = await deps.requestApproval(request)
+    // 待っている間に止まれば、Manager がその承認を失効させる（deny で解ける）。
+    const outcome = await deps.requestApproval(request, signal)
 
     if (outcome.decision !== 'approved') {
       return deny(outcome.reason, workspacePath, mode)
@@ -337,6 +378,14 @@ export function createFileWriteGate(deps: FileWriteGateDependencies): FileWriteG
 
     if (rechecked.target.canonicalRelativePath !== workspacePath) {
       return deny('target-changed', workspacePath, mode)
+    }
+
+    /*
+      承認の後の recheck の間に止まった。承認を使い切らず、書かない。
+      ここから書き始めるまでに await は無い（consume → 記録 → writeFile の呼び出しまで同期）。
+    */
+    if (isStopRequested(signal)) {
+      return deny('agent-stopped', workspacePath, mode)
     }
 
     // 8. 使い切る。**これから書くもの**で binding を照合する（STEP6）。

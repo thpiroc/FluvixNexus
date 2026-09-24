@@ -557,7 +557,7 @@ STEP1〜8 の Security Core を、FN Agent が**安全な順番で使う**ため
 - **Loop = Provider を1回呼ぶこと。** 初期 20 回。上限に達したら**自動で続けず**、パネルで「最大実行回数に到達しました。続行しますか？」と尋ねる。続けるなら +10。無制限の自動継続は無い。
 - **再試行（原則 最大2回）：** 利用者の拒否（`user-cancelled`）・Security Core の deny（`read-only-mode` / `secret-file` / `outside-workspace` …）・停止（`agent-stopped`）を受けた Action は、**同じものをもう一度提案されても Gate へ渡さない**（`repeated-action`。本文や引数を直した提案は別の Action として通る）。ファイルの競合（`existing-file-changed` / `target-changed`）は読み直しを促し、一時的な失敗は同じ Action を最大2回まで。壊れた出力・拒否済みの再提案が3回続けば止める（`too-many-invalid-actions`）。**知らない理由は再試行しない側へ倒す。**
 - **副作用のある操作は同時に1件だけ（2026-09-23 確定）：** Security Core に**共有ロック**（`src/main/security/sideEffect/`）を置き、File Write Gate と Terminal Command Runner が同じロックを使う。提案を受けた直後に取り、承認・実行・結果の確認が終わるまで（Terminal は実行中も）持つ。相手が同じ種類なら従来の `write-in-progress` / `run-in-progress`、別の種類なら `side-effect-in-progress` で拒む。**Agent Loop の直列化だけに頼らない**（開発用の足場など、Loop 以外の経路にも効く）。`complete` は、承認待ち・実行中が残っていれば受け付けない。
-- **停止（2026-09-23 確定）：** 停止ボタンは Agent が動いている間だけ出る。停止すると**新しい Action を始めず**、承認待ちは Main の Approval Manager が取り消す（STEP6 に足した `cancelPendingApprovals`。**取り消す向きにしか働かない**・IPC にも Preload にも出さない。pending・確認中・承認済み（consume 前）のどれも `agent-stopped` で失効し、その後の consume は通らない）。Provider の応答待ちには中断を伝える。**実行中の Terminal は kill しない** ── 終わる（または 120 秒で打ち切られる）のを待ってから `stopped` にする（STEP8 の決定。古い Scope Decision の「Tool へ中断 Signal を伝播」より、STEP8 / STEP9 の仕様を優先）。Workspace の切り替え・Agent の OFF でも同じように止まる。
+- **停止（2026-09-23 確定）：** 停止ボタンは Agent が動いている間だけ出る。停止すると**新しい Action を始めず**、承認待ちは Main の Approval Manager が取り消す（STEP6 に足した `cancelPendingApprovals`。**取り消す向きにしか働かない**・IPC にも Preload にも出さない。pending・確認中・承認済み（consume 前）のどれも `agent-stopped` で失効し、その後の consume は通らない）。Provider の応答待ちには中断を伝える。**実行中の Terminal は kill しない** ── 終わる（または 120 秒で打ち切られる）のを待ってから `stopped` にする（STEP8 の決定。古い Scope Decision の「Tool へ中断 Signal を伝播」より、STEP8 / STEP9 の仕様を優先）。Workspace の切り替え・Agent の OFF でも同じように止まる。**2026-09-24 から、作業の signal を File Write / Terminal の Gate と Approval Manager まで渡し、止めた時点でまだ承認が無かった（Gate がロックの後の I/O の途中だった）場合も、止めた後に新しい承認・新しい副作用を始めない**（下の「停止・Workspace の切り替えと承認の race」。起動済みのプロセスは signal を見ない）。
 - **Read Tool Gate（`src/main/security/readTools/`）：** 読み取りも Security Core を通る。**「Read だから無制限に読める」にはしない。**
   - `file_read` … Boundary（読み取り）→ Secret ファイル → Policy（`file.read`）→ 確かめたハンドル越しに読む（`confirmOpenedWorkspaceFile`）→ `workspaceFileContext(target, bytes, range)`。1回 400 行・60,000 文字まで。
   - **範囲の指定は `workspaceFileContext` 側で扱う（2026-09-23 確定）：** Secret は**ファイル全体で探し、行ごとに伏せてから**範囲を切り出す（STEP7 の `maskSecretLines`）。切り出してから伏せると、Private Key の BEGIN が範囲の外にあるとき鍵の本体の行が素通りする。切り出した後も `workspace-file` と Boundary の `source` を持ったまま External Send Gate へ届き、Gate が Secret ファイルかを**もう一度**判定し、本文も**もう一度**伏せる。
@@ -589,7 +589,7 @@ STEP1〜8 の Security Core を、FN Agent が**安全な順番で使う**ため
   - Loop：**7 / 20 回**で完了（Provider の呼び出し 7 回 = Scripted Provider の E2E の手順どおり。上限に達することなく `complete`）
   - STEP9.1 の `file_search`（確かめた読み取り）が、E2E の中で通常どおり動くことを確かめた
   - 実機では確かめていないもの（自動テスト・実測で完了扱いとした。利用者が判定）：拒否・停止・Loop 上限・Secret・壊れた出力・共有ロックの Fail Closed、**Workspace の外を指すジャンクションを置いた状態での検索**（`readToolsGate.test.ts` が case1 / case2 を確定的に確かめている）、**検索の体感速度**（実測は約 1 秒 / 1,085 ファイル）
-  - 既知事項：`agentLoop.integration.test.ts` の承認待ちのテストが、フルの test の負荷の下でだけ、ときどき 30 秒でタイムアウトする（flaky）。STEP9.1 の前の `27dde83` でも再現し、単独では通る ── 製品の不具合ではなくテストの問題。**STEP10 の前に別の作業として直す**
+  - 既知事項（当時）：`agentLoop.integration.test.ts` の承認待ちのテストが、フルの test の負荷の下でだけ、ときどき 30 秒でタイムアウトする（flaky）。STEP9.1 の前の `27dde83` でも再現し、単独では通る。当時は「製品の不具合ではなくテストの問題」と見ていたが、**2026-09-24 の調査で Security Core 本体の停止の race だと分かり、直した**（下の「停止・Workspace の切り替えと承認の race」）
 - **STEP9 で作らないもの：** 実 Provider・Credential Store（STEP10）・Git Read Tool・MCP Read Gateway（STEP11 候補）・Security Settings UI の仕上げ（Closing STEP）・Session / Queue / Token 料金表示 / Model クラス（Security Core v1 の後）。STEP7 / STEP8 の開発用の足場は、STEP9 の実機 End-to-End の確認が済むまで残す。
 
 #### Read Tool の TOCTOU 対策（Security Core v1 の STEP9.1。2026-09-23）
@@ -630,6 +630,46 @@ STEP1〜8 の Security Core を、FN Agent が**安全な順番で使う**ため
   - **Files パネルの全文検索・名前検索**にも同じ種類の競合の余地がある（STEP 3 の「プロジェクト全体検索」の節に注記した）。人の UI で Agent の経路ではないため、STEP9.1 では変えていない。
   - **`workspace_list`** は `readWorkspaceDirectory` が realpath で確かめてからパスで readdir するため、その間にフォルダを外へのリンクへ差し替えられると、**Workspace の外のファイル名・フォルダ名**が Agent へ渡りうる（中身は渡らない。名前は `redactSecretText` を通る）。後続で `file_search` と同じ「並べた後の recheck」を当てるか判断する。
   - FIFO などへの差し替えで open が戻らない可能性（`O_NONBLOCK` による対策）、OneDrive などの reparse point（libuv の readdir がリンクとして扱い、検索から外れている可能性）の挙動、native による根本対策、Git Read Tool / MCP Read Gateway の読み取りの境界。
+
+#### 停止・Workspace の切り替えと承認の race（STEP10 の前の修正。2026-09-24）
+
+- **見つかった経緯：** STEP9 / STEP9.1 の後、`agentLoop.integration.test.ts` の「承認待ちに停止する」テスト（File Write / Terminal の2件）が、フルの test の負荷の下でだけ、ときどき 30 秒でタイムアウトしていた。テストの flaky として調べたところ、**Security Core 本体の race** だった。
+- **race：** File Write Gate と Terminal Command Runner は、**共有ロックを取ってから** Boundary の解決・今の中身の読み取り・実行ファイルの確認などの非同期 I/O を経て、`requestApproval` で承認を作る。停止（`stop`）と Workspace の切り替え（`halt('workspace-changed')`）は、その時点で**すでにある**承認を `cancelAll` で取り消すだけだった。
+  ```
+  Gate がロックを取る → I/O（Boundary など）……… requestApproval → approval.requested → 承認の画面
+                           ↑ ここで停止・halt
+                           cancelAll は 0 件（承認はまだ無い）→ Gate は停止を知らないまま承認を作る
+  ```
+- **以前の挙動：** 止めた**後に**新しい承認が作られ、Renderer に承認の画面が出た。Loop は `stopping` のまま、承認の期限（5 分）が来るか利用者が答えるまで終わらなかった（その間の新しい作業は `busy`）。その承認に「続ける」→ Native Dialog で「許可する」と答えると、**止めた後に書き込み・起動まで進んだ**（調査の再現テストで、停止後に `file-write.succeeded` まで進むことを確かめた）。Workspace の切り替えでも同じで、Gate は切り替えの前の root で対象を確かめ終えているため、**前の Workspace への**承認が出うる。テストでは `setTimer` が何もしないため承認が永久に残り、`whenIdle()` が解けずに 30 秒で落ちていた（テストが「ロックが取られた」ことを承認待ちの合図に使っており、負荷で I/O が遅いときだけこの隙間に当たっていた）。
+- **二段階承認そのものは破られていなかった：** 停止後の副作用には、利用者が Renderer で「続ける」と Main の Native Dialog で「許可する」の**両方**を選ぶ必要があった。fingerprint による binding・1回きりの consume・共有ロック・Boundary の確かめ直しも働いていた。破られていたのは「**停止したら新しい Action を始めない・承認待ちは取り消す**」という停止の約束のほう。当時の配布ビルドには Provider が無く（開発ビルドの Scripted だけ）、利用者の環境では起きない。
+- **対策（作業の AbortSignal を Gate と Approval Manager まで渡す）：** Agent Loop の作業ごとの `AbortController`（停止・halt・終わりで abort される既存のもの）を、`runAgentTool` から**副作用のある** File Write Gate / Terminal Command Runner へ渡し、各 Gate が Approval Manager の `request(raw, signal)` へ渡す（Read 系には渡さない）。
+  ```
+  Agent Loop（current.abort.signal）
+    → runAgentTool → writeAgentWorkspaceFile / runAgentTerminalCommand（省略可能な signal）
+      → File Write Gate / Terminal Command Runner
+        ・入口          止まっていれば、ロックも取らずに断る
+        ・承認を求める直前（ロックの後の I/O が終わったところ）  止まっていれば、Diff / コマンドも承認も見せずに断る
+        ・requestApproval(raw, signal)
+            Approval Manager  止まっていれば承認を作らない（approval.requested を出さない）
+                              待っている間（pending・確認中・承認済みで consume 前）に止まれば、その承認を失効させる
+        ・consume の直前   止まっていれば、承認を使い切らず・書かない / 起動しない
+                           （consume → 書き込み / 起動の呼び出しまでは await を挟まず同期）
+  ```
+  - 理由はどこも既存の `agent-stopped`（AuditReason は追加していない）。Gate は `file-write.denied` / `terminal.denied`、Manager は `approval.denied` として記録する。
+  - **Approval Manager は Agent の状態を持たない。** 見るのは渡された signal だけで、「停止中」の旗は持たない。signal を渡さない呼び出し（STEP7 / STEP8 の開発用の足場）はこれまでどおり。**読めない signal は止まっていると読み、見張れない signal では承認を見せずに断る**（`approval-state-invalid`）。判定は `sideEffect/stopSignal.ts` の `isStopRequested` に1つだけ置いた。
+  - signal は**止まる向きにしか働かない。** 止まっていない signal が承認・Boundary・Policy・fingerprint・consume のどれかを省くことは無い。Renderer から signal を渡す口は無い（入口の関数は IPC にも Preload にも出していない）。`cancelAll` はそのまま残る（停止の時点ですでにある承認はこれまでどおり即座に取り消す）。
+- **保証すること：** 停止・halt の後は、File Write も Terminal も**新しい承認（`approval.requested`）を作らず・新しい書き込み / 起動を始めない。** Gate はロックを外して戻り、Loop は `stopped` で終わる（`whenIdle()` が解ける。`stopping` のまま残らない）。止めた後に取り消された承認へ続行を送っても、`approval-not-found` で何も起きない。
+- **変えていないこと：** **起動した後の Terminal のプロセスは signal を見ない** ── 実行中のコマンドは停止で kill せず、終わる（または 120 秒で打ち切られる）のを待ってから `stopped` にする（STEP8 / STEP9 の決定のまま）。STEP9.1 の TOCTOU 対策・二段階承認・fingerprint・1回きりの consume・共有ロック・Boundary の確かめ直し・Audit はどれも変えていない。
+- **自動テスト（どれも待ち時間に頼らず、栓（Deferred）で順番を決めて確かめる）：**
+  - `agentLoop.integration.test.ts`：本物の Security Core をつないだまま、Gate が**ロックを取った後・承認を求める前**の I/O（File Write は Boundary の解決、Terminal は作業ディレクトリの解決）を栓で止め、そこで `stop` / `halt('workspace-changed')` する（File Write / Terminal × stop / halt の4件）。新しい `approval.requested` も承認の知らせも出ないこと・`agent-stopped` で断ること・`whenIdle()` が解けて `stopped` になること・ロックが外れること・書かれない / 起動しないこと（halt では前後どちらの Workspace にも）を確かめる。止めた後に承認が知らされたら、その場で落とす（30 秒待たない）。**修正の前のコードでは、この4件がどれも「止めた後に承認が作られた」で落ちることを確かめた。** 承認待ちの間に止める4件（File Write / Terminal × stop / halt）も足した。
+  - 同じファイルのテストの同期を直した：「承認待ちに入った」ことを `vi.waitFor(() => lock.heldBy())`（ロックは承認より前に取られるため、合図として誤り）で待つのをやめ、**承認の知らせ（notify）で Deferred を解く**形にした。`afterEach` は `stop` → `cancelAll` → `whenIdle()` まで済ませ、落ちたテストの Loop・承認・ロックを次のテストへ残さない（判定は各テストの中で済ませ、後片付けで race を隠さない）。
+  - `approvalManager.test.ts`（止まった後の request・pending / 確認中 / 承認済みでの abort・使い切った後は見張らない・読めない / 見張れない signal・signal なし）、`fileWriteGate.test.ts` / `terminalRunGate.test.ts`（入口・ロックの後の I/O の間・承認待ち・consume の前での abort、**起動した後の abort ではプロセスを止めない**）、`agentTools.test.ts`（signal を File Write / Terminal へだけ渡す）、`agentLoop.test.ts`（stop / halt で signal が abort される）。
+- **自動回帰テストの結果（2026-09-24）：** race のテスト（File Write・Terminal それぞれ stop / halt × 承認の前 / 承認待ちの4件）を各 **20 回 → 20/20**、`agentLoop.integration.test.ts` 全体（16 件）を **20 回 → 20/20**、`src/main/security/**` と `src/main/agent/**`（53 ファイル・1,069 件）合格、フルの Vitest を **5 回 → 5/5**（354 ファイル・6,339 件・skip 6）、`npm run verify` と `npm run build` 成功。
+- **実機 smoke test（2026-09-24。修正後の開発ビルド・Scripted Provider・Workspace `FN-Security-Test`）：** 通常の End-to-End が最後まで通った ── `fn-agent-e2e.mjs` の変更提案 → FN の承認画面 → OS の Native Dialog で許可 → 変更が反映 → `node fn-agent-e2e.mjs`（Workspace のルート）の提案 → FN の承認画面 → Native Dialog で許可 → **終了コード 0・出力 `FN Agent E2E: OK`**。signal を渡すようにした後も、正常系（File Write → 二段階承認 → Terminal → 二段階承認 → 実行）は壊れていない。
+- **race の保証と UI の操作制約は別の事柄：**
+  - **race の保証：** 停止・halt と承認の race（承認の前 / 承認待ちの両方）は、上の決定論的な自動回帰テストで確かめている。修正前のコードで落ちることも確かめた。
+  - **UI の操作制約（実機で分かった事実）：** 承認のモーダル（「FN Agent が変更を提案しています」「FN Agent がコマンドの実行を提案しています」）が出ている間は、背面の Agent パネルの**停止ボタンを操作できない。** そのため「承認待ちの間に UI から停止を押す」実機確認は、**操作の経路が無く実施できなかった**（テストの失敗ではない）。今の UI で承認待ちを止める手段は、モーダルの「取り消す」と Native Dialog の「許可しない」になる。Workspace の切り替え（halt）は UI 以外の経路からも起きうるため、承認待ちの間の abort の扱いは UI の制約とは関係なく必要。
+  - **UI は今回変えていない。** 承認モーダルの表示中にも停止できるようにするか（モーダルに停止を置く等）は、将来の候補として残す。
 
 ### 6.5 v1 に含めないもの
 

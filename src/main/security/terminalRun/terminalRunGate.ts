@@ -17,6 +17,7 @@ import { decideSecurityAction } from '../policy/securityDecision'
 import { FAIL_CLOSED_SECURITY_POLICY, type SecurityPolicy } from '../policy/securityPolicy'
 import { classifySecretPath } from '../secret/secretPaths'
 import type { SideEffectAcquireResult } from '../sideEffect/sideEffectLock'
+import { isStopRequested } from '../sideEffect/stopSignal'
 import { isAcceptableCommandName, isSafeBatchArgument } from './terminalCommand'
 import { isInsideWorkspaceRoot, type TerminalExecutableResult } from './terminalExecutable'
 import type { TerminalLaunchSpec } from './terminalLaunch'
@@ -135,8 +136,11 @@ export interface TerminalRunGateDependencies {
   ) => TerminalLaunchSpec | null
   /** 起動して、終わるまで待つ。 */
   readonly runProcess: (spec: TerminalLaunchSpec, cwd: string) => Promise<RunProcessResult>
-  /** 承認を求める（STEP6）。二段階が終わるまで解決しない。 */
-  readonly requestApproval: (raw: unknown) => Promise<ApprovalOutcome>
+  /**
+   * 承認を求める（STEP6）。二段階が終わるまで解決しない。
+   * `signal` が止まっていれば承認を作らず、待っている間に止まればその承認を失効させる。
+   */
+  readonly requestApproval: (raw: unknown, signal?: AbortSignal) => Promise<ApprovalOutcome>
   /** 起動の直前に1回だけ使い切る（STEP6）。 */
   readonly consumeApproval: (approvalId: unknown, raw: unknown) => ApprovalConsumeResult
   /** Renderer へ提案を知らせる。 */
@@ -151,7 +155,12 @@ export interface TerminalRunGateDependencies {
 
 export interface TerminalRunGate {
   /** コマンドを1つ、承認を通してから実行する。 */
-  readonly run: (request: unknown) => Promise<TerminalRunOutcome>
+  /**
+   * `signal` は求めた側（Agent の作業）が止まったこと。止まった後は、**新しい承認を作らず・
+   * 起動しない**（`agent-stopped`）。**起動した後のプロセスは signal を見ない** ── 実行中の
+   * コマンドは停止で kill せず、終わる（または 120 秒で打ち切られる）のを待つ（STEP8 / STEP9）。
+   */
+  readonly run: (request: unknown, signal?: AbortSignal) => Promise<TerminalRunOutcome>
 }
 
 /** Main が持ち続ける、実行するもの。**Renderer から戻ってきた値は1つも入らない。** */
@@ -196,9 +205,14 @@ export function createTerminalRunGate(deps: TerminalRunGateDependencies): Termin
     return Object.freeze({ ok: false as const, reason, output: null })
   }
 
-  async function run(request: unknown): Promise<TerminalRunOutcome> {
+  async function run(request: unknown, signal?: AbortSignal): Promise<TerminalRunOutcome> {
     const policy = readPolicy(deps)
     const mode = policy.permissionMode
+
+    // 求めた側がもう止まっている。ロックも取らない。
+    if (isStopRequested(signal)) {
+      return deny('agent-stopped', null, null, mode)
+    }
 
     /*
       副作用のある操作は、種類をまたいで同時に1件だけ（STEP9）。相手が Terminal なら
@@ -217,7 +231,7 @@ export function createTerminalRunGate(deps: TerminalRunGateDependencies): Termin
     }
 
     try {
-      return await propose(policy, request)
+      return await propose(policy, request, signal)
     } catch (cause) {
       /*
         想定していない例外。**「分からないから実行する」は無い。** ここへ来た時点で
@@ -231,7 +245,11 @@ export function createTerminalRunGate(deps: TerminalRunGateDependencies): Termin
     }
   }
 
-  async function propose(policy: SecurityPolicy, request: unknown): Promise<TerminalRunOutcome> {
+  async function propose(
+    policy: SecurityPolicy,
+    request: unknown,
+    signal: AbortSignal | undefined
+  ): Promise<TerminalRunOutcome> {
     const mode = policy.permissionMode
 
     // 1. 形。受け取るのは command / args / cwd の3つだけ（他の欄は読まない）。
@@ -266,6 +284,15 @@ export function createTerminalRunGate(deps: TerminalRunGateDependencies): Termin
       return deny('invalid-request', command, run.workspacePath, mode)
     }
 
+    /*
+      ロックを取ってからここまでの I/O（作業ディレクトリ・実行ファイル）の間に、求めた側が
+      止まっていることがある（利用者の停止・Workspace の切り替え）。**コマンドも承認も
+      見せずに終える**（2026-09-24 の修正。File Write Gate と同じ）。
+    */
+    if (isStopRequested(signal)) {
+      return deny('agent-stopped', command, run.workspacePath, mode)
+    }
+
     const proposalId = deps.createProposalId()
 
     try {
@@ -278,7 +305,7 @@ export function createTerminalRunGate(deps: TerminalRunGateDependencies): Termin
     let result: SafeTerminalRunResult | null = null
 
     try {
-      const outcome = await approveAndRun(run, mode)
+      const outcome = await approveAndRun(run, mode, signal)
 
       result = outcome.result
 
@@ -364,7 +391,8 @@ export function createTerminalRunGate(deps: TerminalRunGateDependencies): Termin
    */
   async function approveAndRun(
     run: PreparedRun,
-    mode: SecurityPolicy['permissionMode']
+    mode: SecurityPolicy['permissionMode'],
+    signal: AbortSignal | undefined
   ): Promise<{
     readonly outcome: TerminalRunOutcome
     readonly result: SafeTerminalRunResult | null
@@ -375,7 +403,8 @@ export function createTerminalRunGate(deps: TerminalRunGateDependencies): Termin
       result: null
     })
 
-    const outcome = await deps.requestApproval(run.approvalRequest)
+    // 待っている間に止まれば、Manager がその承認を失効させる（deny で解ける）。
+    const outcome = await deps.requestApproval(run.approvalRequest, signal)
 
     if (outcome.decision !== 'approved') {
       return denied(outcome.reason)
@@ -405,6 +434,14 @@ export function createTerminalRunGate(deps: TerminalRunGateDependencies): Termin
 
     if (executableProblem !== null) {
       return denied(executableProblem)
+    }
+
+    /*
+      承認の後の確かめ直しの間に止まった。承認を使い切らず、起動しない。
+      ここから起動するまでに await は無い（consume → 記録 → runProcess の呼び出しまで同期）。
+    */
+    if (isStopRequested(signal)) {
+      return denied('agent-stopped')
     }
 
     // 5. 使い切る。**これから起動するもの**で binding を照合する（STEP6）。

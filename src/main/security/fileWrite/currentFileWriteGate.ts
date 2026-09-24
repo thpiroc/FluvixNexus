@@ -56,10 +56,16 @@ const gate = createFileWriteGate({
   acquireSideEffect
 })
 
-/** Workspace の中のファイル1件を、承認を通してから書き換える。 */
+/**
+ * Workspace の中のファイル1件を、承認を通してから書き換える。
+ *
+ * `signal` は Agent Loop の作業の signal（停止・Workspace の切り替えで abort される）。
+ * 止まった後は新しい承認を作らず、書かない。
+ */
 export function writeAgentWorkspaceFile(
   relativePath: unknown,
-  content: unknown
+  content: unknown,
+  signal?: AbortSignal
 ): Promise<FileWriteOutcome> {
-  return gate.write(relativePath, content)
+  return gate.write(relativePath, content, signal)
 }
