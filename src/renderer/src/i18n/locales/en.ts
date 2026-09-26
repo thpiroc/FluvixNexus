@@ -1143,6 +1143,11 @@ export const enMessages = {
         description:
           'Connect Fluvix Nexus to outside services through MCP servers. Everything here is off until you turn it on, and these settings apply to the app as a whole rather than to one project.'
       },
+      aiProvider: {
+        title: 'AI Provider',
+        description:
+          'The AI service FN Agent sends requests to, and its API key. Nothing is sent until you choose a provider. These settings apply to the app as a whole and cannot be changed per project.'
+      },
       keyboard: {
         title: 'Keyboard Shortcuts',
         description: 'Keys assigned to app commands. Changes are saved and take effect immediately.'
@@ -1210,6 +1215,18 @@ export const enMessages = {
           description:
             'The main switch for every MCP connection. While this is off, no MCP server is started and no request leaves this PC.'
         }
+      },
+      aiProvider: {
+        provider: {
+          title: 'Provider',
+          description:
+            'The AI service FN Agent uses. The service address is fixed inside Fluvix Nexus and cannot be changed.'
+        },
+        model: {
+          title: 'Model',
+          description:
+            'Choose from the models Fluvix Nexus supports for the selected provider. GPT-6 Sol is used unless you choose another.'
+        }
       }
     },
     controls: {
@@ -1246,6 +1263,12 @@ export const enMessages = {
       },
       mcpEnabled: {
         aria: 'Use MCP'
+      },
+      aiProvider: {
+        aria: 'AI provider'
+      },
+      aiProviderModel: {
+        aria: 'AI model'
       }
     },
     values: {
@@ -1262,6 +1285,9 @@ export const enMessages = {
       mcp: {
         on: 'On',
         off: 'Off'
+      },
+      aiProvider: {
+        none: 'None'
       },
       filesView: {
         auto: 'Auto',
@@ -1443,6 +1469,61 @@ export const enMessages = {
       「保存されているか」までで、これは画面がそもそも値を受け取らない
       ことの裏返しにほかならない。
     */
+    /*
+      AI Provider (STEP10-5). **No message ever shows the key itself** — only whether one is saved.
+      The screen never receives the key back, so there is nothing else it could show.
+    */
+    aiProvider: {
+      providers: {
+        openai: 'OpenAI'
+      },
+      model: {
+        needsProvider: 'Choose a provider first.',
+        choose: 'Choose a model',
+        invalid: 'The saved model is not supported. Choose one of the models listed.'
+      },
+      models: {
+        astra: {
+          name: 'GPT-6 Astra',
+          description: 'The most capable model, for hard end-to-end work.'
+        },
+        sol: {
+          name: 'GPT-6 Sol (default)',
+          description: 'Built for coding and agentic workflows. The standard model for FN Agent.'
+        },
+        luna: {
+          name: 'GPT-6 Luna',
+          description: 'Fast and low-cost, for high-volume work.'
+        }
+      },
+      credential: {
+        title: '{provider} API key',
+        label: '{provider} API key',
+        placeholder: 'Paste a new API key',
+        note: 'The key is encrypted with this PC’s OS protection and is never shown again after saving. To change it, enter a new key to replace it.',
+        cannotStore:
+          'This PC cannot use OS encryption, so the API key cannot be saved. It is never saved unencrypted.',
+        status: {
+          loading: 'Checking…',
+          set: 'Saved',
+          notSet: 'Not set',
+          unusable: 'Cannot be used — the saved key could not be read. Replace or delete it.'
+        },
+        save: 'Save',
+        replace: 'Replace',
+        delete: 'Delete',
+        notice: {
+          saved: 'The API key was saved.',
+          deleted: 'The API key was deleted.',
+          invalid:
+            'That does not look like an API key. Paste it without spaces or line breaks inside.',
+          encryptionUnavailable: 'OS encryption is not available, so the key was not saved.',
+          writeFailed: 'The API key could not be saved.',
+          deleteFailed: 'The API key could not be deleted.',
+          loadFailed: 'Could not check whether an API key is saved.'
+        }
+      }
+    },
     mcp: {
       status: {
         loading: 'Checking…',

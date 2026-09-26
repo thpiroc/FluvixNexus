@@ -29,7 +29,7 @@ import {
  */
 
 describe('SETTINGS_CATEGORIES', () => {
-  it('General / Appearance / Editor / LSP / Files / Terminal / MCP / Keyboard がこの順に並ぶ', () => {
+  it('General / Appearance / Editor / LSP / Files / Terminal / MCP / AI Provider / Keyboard がこの順に並ぶ', () => {
     expect(listSettingsCategories().map((category) => category.id)).toEqual([
       'general',
       'appearance',
@@ -38,6 +38,7 @@ describe('SETTINGS_CATEGORIES', () => {
       'files',
       'terminal',
       'mcp',
+      'aiProvider',
       'keyboard'
     ])
   })
@@ -141,13 +142,13 @@ describe('SETTINGS_CATEGORIES', () => {
     書けないもの**（token・接続状態・接続テスト）だけがそこに出る。
   */
   describe('panel', () => {
-    it('面を持つのは MCP だけ', () => {
+    it('面を持つのは MCP と AI Provider（API Key。STEP10-5）だけ', () => {
       const withPanel = listSettingsValueCategories().filter(
         (category) => category.panel !== undefined
       )
 
-      expect(withPanel.map((category) => category.id)).toEqual(['mcp'])
-      expect(withPanel[0]?.panel).toBe('mcp')
+      expect(withPanel.map((category) => category.id)).toEqual(['mcp', 'aiProvider'])
+      expect(withPanel.map((category) => category.panel)).toEqual(['mcp', 'aiProvider'])
     })
 
     /*
@@ -174,8 +175,10 @@ describe('listSettingsItems', () => {
 
     MCP の秘密の値も**ここには無い**（§21.3）。設定の値ではなく、
     カテゴリの `panel` が出すものにほかならない。
+
+    STEP10-5 で AI Provider の2つ（Provider・Model）が増えた。API Key は項目ではなく `panel`。
   */
-  it('11個の設定が、カテゴリの順に並ぶ', () => {
+  it('13個の設定が、カテゴリの順に並ぶ', () => {
     expect(listSettingsItems().map((item) => item.id)).toEqual([
       'general.language',
       'general.updates',
@@ -187,7 +190,9 @@ describe('listSettingsItems', () => {
       'files.viewMode',
       'terminal.fontSize',
       'terminal.scrollback',
-      'mcp.enabled'
+      'mcp.enabled',
+      'aiProvider.provider',
+      'aiProvider.model'
     ])
   })
 

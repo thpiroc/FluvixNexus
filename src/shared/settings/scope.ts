@@ -68,6 +68,10 @@ export const SETTINGS_SCOPES: readonly SettingsScope[] = ['user', 'workspace']
  * そもそも設定ファイルに無い（sections.ts の `StoredMcpSettings`）が、
  * 「使う」の側だけでも Workspace に決めさせない。
  *
+ * `aiProvider`（FN Agent の Provider / Model。STEP10-5）も `application` にあたる。理由は MCP と
+ * 同じで、**どの外部 AI へ送るかが、開いたフォルダに従って変わってはいけない** ── ワークスペースで
+ * 上書きできると、人から受け取ったプロジェクトを開いただけで送り先が変わる。
+ *
  * `security`（FN Agent の Permission）が `restrictive` にあたる。`workspace > user` で重ねると、 `workspace > user` で重ねると、
  * ワークスペース設定がユーザー設定の `read` を `ask` へ緩められてしまう。
  * そこで key ごとに**厳しい方**を採る（shared/security/permissionMode.ts）。
@@ -88,6 +92,7 @@ export const SETTINGS_SECTION_SCOPES: {
   files: 'workspace',
   terminal: 'workspace',
   mcp: 'application',
+  aiProvider: 'application',
   security: 'restrictive'
 }
 

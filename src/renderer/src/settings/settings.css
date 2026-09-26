@@ -1087,3 +1087,122 @@
   font-family: ui-monospace, Consolas, monospace;
   overflow-wrap: anywhere;
 }
+
+/*
+ * AI Provider の API Key の面（STEP10-5）。形は MCP Server Manager のカードに揃える。
+ * 状態は文字で言い（「設定済み」「未設定」「利用できません」）、色はそれを速く見つける手掛かりにとどまる。
+ */
+.fx-ai-provider {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-3);
+  padding-top: var(--fx-space-3);
+  border-top: 1px solid var(--fx-color-border);
+}
+
+.fx-ai-provider__card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-2);
+  padding: var(--fx-space-3);
+  border: 1px solid var(--fx-color-border);
+  border-radius: 4px;
+  background: var(--fx-color-surface-raised);
+}
+
+.fx-ai-provider__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--fx-space-2);
+}
+
+.fx-ai-provider__name {
+  color: var(--fx-color-text-strong);
+  font-size: var(--fx-font-size-md);
+  font-weight: 600;
+}
+
+.fx-ai-provider__status {
+  color: var(--fx-color-text-muted);
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-ai-provider__status[data-tone='connected'] {
+  color: var(--fx-accent-green);
+}
+
+.fx-ai-provider__status[data-tone='attention'] {
+  color: var(--fx-accent-orange);
+}
+
+.fx-ai-provider__note {
+  margin: 0;
+  color: var(--fx-color-text-muted);
+  font-size: var(--fx-font-size-sm);
+  line-height: 1.5;
+}
+
+.fx-ai-provider__note[data-state='warning'] {
+  color: var(--fx-accent-orange);
+}
+
+.fx-ai-provider__row {
+  display: flex;
+  align-items: center;
+  gap: var(--fx-space-2);
+  flex-wrap: wrap;
+}
+
+.fx-ai-provider__model {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--fx-space-1);
+}
+
+.fx-ai-provider__input {
+  flex: 1 1 16rem;
+  min-width: 0;
+  padding: var(--fx-space-1) var(--fx-space-2);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  background: var(--fx-color-surface-sunken);
+  color: var(--fx-color-text-strong);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-ai-provider__button {
+  padding: var(--fx-space-1) var(--fx-space-3);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  background: var(--fx-color-surface);
+  color: var(--fx-color-text);
+  font-size: var(--fx-font-size-sm);
+  cursor: pointer;
+}
+
+.fx-ai-provider__button:hover:not(:disabled) {
+  background: var(--fx-color-surface-hover);
+}
+
+.fx-ai-provider__button:disabled {
+  color: var(--fx-color-text-faint);
+  cursor: default;
+}
+
+.fx-ai-provider__button[data-variant='primary'] {
+  color: var(--fx-color-text-strong);
+  border-color: var(--fx-accent-blue);
+}
+
+.fx-ai-provider__button[data-variant='danger'] {
+  color: var(--fx-color-danger);
+}
+
+.fx-ai-provider__button:focus-visible,
+.fx-ai-provider__input:focus-visible {
+  outline: 1px solid var(--fx-color-border-strong);
+  outline-offset: 1px;
+}

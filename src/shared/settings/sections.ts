@@ -74,6 +74,7 @@ export const SETTINGS_SECTION_IDS = [
   'files',
   'terminal',
   'mcp',
+  'aiProvider',
   'security'
 ] as const
 
@@ -182,6 +183,32 @@ export interface StoredMcpSettings {
 }
 
 /**
+ * FN Agent が使う AI Provider と Model（Security Core v1 の STEP10-5）。
+ *
+ * **ユーザー設定でだけ変えられる**（shared/settings/scope.ts の `application`）。Workspace・
+ * プロジェクトのファイル・Agent や Provider の応答から変える経路は無い。
+ *
+ * ここに**無いもの**が、この section の性格を決めている。
+ *
+ * ```
+ * API Key      … 無い（OS の資格情報で暗号化した別ファイル。main/aiProvider/aiProviderCredentialStore.ts）
+ * Endpoint・URL … 無い（Provider Adapter の内部に固定。STEP10-6）
+ * 任意の Model  … 無い（FN の allowlist にある ID だけを保存できる。shared/aiProvider/providers.ts）
+ * ```
+ *
+ * 保存の要求は、`providerId` を正式な Provider の閉じた集合・`modelId` を allowlist に照らして
+ * Main が拒む（main/store/settingsSections.ts の SECTION_FIELD_CHOICES）。ディスクにある読めない値は
+ * 読む側が「未選択」へ倒す（shared/aiProvider/settings.ts）── 壊れたファイルで Provider が選ばれる
+ * ことは無い。
+ */
+export interface StoredAiProviderSettings {
+  /** 正式な Provider の識別子（今は `openai` だけ）。無い・知らない値は未選択。 */
+  readonly providerId?: string
+  /** その Provider の allowlist にある Model の ID。無い・知らない値は未選択。 */
+  readonly modelId?: string
+}
+
+/**
  * FN Agent の Security（Security Core v1 の STEP1。DESIGN.md §6.4）。
  *
  * **他の section と3つの点で扱いが違う。**
@@ -229,6 +256,7 @@ export interface SettingsSections {
   readonly files: StoredFilesSettings
   readonly terminal: StoredTerminalSettings
   readonly mcp: StoredMcpSettings
+  readonly aiProvider: StoredAiProviderSettings
   readonly security: StoredSecuritySettings
 }
 
@@ -260,6 +288,7 @@ export function emptySettingsSections(): SettingsSections {
     files: {},
     terminal: {},
     mcp: {},
+    aiProvider: {},
     security: {}
   }
 }

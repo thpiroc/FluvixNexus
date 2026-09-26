@@ -48,6 +48,7 @@ import {
   type AgentProviderRetryPolicy
 } from './agentProvider'
 import { createScriptedProvider, SCRIPTED_E2E_CONTENT, SCRIPTED_E2E_FILE } from './scriptedProvider'
+import { createOpenAiProvider, type OpenAiFetch } from '../aiProvider/openAiProvider'
 
 /**
  * Agent Loop の End-to-End（Security Core v1 の STEP9 の完了条件を自動テストで）。
@@ -1527,5 +1528,109 @@ describe('STEP10-4 Security Regression（Provider Boundary の後も迂回でき
       )
       await expectNoSideEffect(before, lock)
     })
+  })
+})
+
+describe('STEP10-6 OpenAI Adapter（本物の Security Core の前で）', () => {
+  const KEY = 'fn-synthetic-openai-credential-integration-5e4d3c'
+
+  /** OpenAI の応答の順番（fetch は偽物・実 OpenAI へは繋がない）。送った本文も覚える。 */
+  function openAi(texts: readonly string[]): {
+    readonly createProvider: () => AgentProvider
+    readonly bodies: string[]
+    readonly urls: string[]
+  } {
+    const bodies: string[] = []
+    const urls: string[] = []
+    let index = 0
+
+    const fetch: OpenAiFetch = async (url, init) => {
+      urls.push(url)
+      bodies.push(String(init.body))
+
+      const text = texts[index] ?? '{"action":{"type":"complete","answer":"done"}}'
+
+      index += 1
+
+      return new Response(
+        JSON.stringify({
+          object: 'response',
+          status: 'completed',
+          error: null,
+          output: [
+            {
+              type: 'message',
+              role: 'assistant',
+              content: [{ type: 'output_text', text }]
+            }
+          ]
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      )
+    }
+
+    return {
+      bodies,
+      urls,
+      createProvider: () => {
+        const provider = createOpenAiProvider({
+          model: 'gpt-6-sol',
+          fetch,
+          withCredential: (use) => ({ ok: true, value: use(KEY) })
+        })
+
+        if (provider === null) {
+          throw new Error('not created')
+        }
+
+        return provider
+      }
+    }
+  }
+
+  it('Secret ファイル・Workspace の外は Gate が拒み、承認した書き込みだけが起きる。OpenAI へは伏せた後のものだけ', async () => {
+    const provider = openAi([
+      '{"action":{"type":"file_read","path":".env","startLine":null,"endLine":null}}',
+      '{"action":{"type":"file_write","path":"../outside.txt","content":"x"}}',
+      '{"action":{"type":"file_write","path":".env","content":"API_KEY=replaced"}}',
+      '{"action":{"type":"file_write","path":"src/app.ts","content":"export const value = 2\\n"}}',
+      '{"action":{"type":"complete","answer":"done"}}'
+    ])
+    const { loop } = system({ createProvider: provider.createProvider })
+
+    loop.start('tidy src/app.ts')
+    await loop.whenIdle()
+
+    expect(loop.getState()).toMatchObject({ status: 'completed', finalAnswer: 'done' })
+    expect(await readFile(join(root, 'src', 'app.ts'), 'utf8')).toBe('export const value = 2\n')
+    expect(await readFile(join(root, '.env'), 'utf8')).toBe('API_KEY=A1b2C3d4E5f6G7h8\n')
+    await expect(stat(join(root, '..', 'outside.txt'))).rejects.toThrow()
+    // 承認は許した1件だけ。
+    expect(types().filter((type) => type === 'approval.approved')).toHaveLength(1)
+    // 送り先は固定の Endpoint だけで、送った本文に Secret の値も Key も無い。
+    expect(new Set(provider.urls)).toEqual(new Set(['https://api.openai.com/v1/responses']))
+    expect(provider.bodies.join('\n')).not.toContain('A1b2C3d4E5f6G7h8')
+    expect(provider.bodies.join('\n')).not.toContain(KEY)
+    expect(JSON.stringify(events)).not.toContain(KEY)
+  })
+
+  it('Read の Permission では、OpenAI が書き込み・コマンドを提案しても承認すら求めない', async () => {
+    mode = 'read'
+
+    const provider = openAi([
+      '{"action":{"type":"file_write","path":"src/app.ts","content":"x"}}',
+      '{"action":{"type":"terminal_run","command":"node","args":["-v"],"cwd":""}}',
+      '{"action":{"type":"complete","answer":"done"}}'
+    ])
+    const { loop } = system({ createProvider: provider.createProvider })
+
+    loop.start('x')
+    await loop.whenIdle()
+
+    expect(await readFile(join(root, 'src', 'app.ts'), 'utf8')).toBe(
+      'export const value = 1 // TODO: tidy\n'
+    )
+    expect(launches).toEqual([])
+    expect(types()).not.toContain('approval.requested')
   })
 })

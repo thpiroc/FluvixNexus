@@ -12,6 +12,7 @@ export type {
   SettingsSections,
   SettingsSectionUpdate,
   SettingsSectionValue,
+  StoredAiProviderSettings,
   StoredAppearanceSettings,
   StoredEditorSettings,
   StoredFilesSettings,

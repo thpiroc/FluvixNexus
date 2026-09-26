@@ -163,11 +163,20 @@ describe('Agent Loop', () => {
     expect(current).not.toMatch(/writeWorkspaceFile|readWorkspaceFile|terminalSessions|files\//)
   })
 
-  it('Scripted Provider は開発ビルドだけで作られる', () => {
+  /*
+    STEP10-6：正式な Provider（設定・Model・API Key が揃ったときの OpenAI）を先に使い、揃わなければ
+    開発ビルドだけ Scripted に落ちる。配布ビルドで Scripted が作られる経路は今も無い。
+  */
+  it('Scripted Provider は開発ビルドだけで作られる（正式な Provider が無いときの代わり）', () => {
     const current = codeOf(readFileSync(join(AGENT, 'currentAgentLoop.ts'), 'utf8'))
 
-    expect(current).toMatch(/isDevelopment \? createScriptedProvider\(\) : null/)
-    expect(current).toMatch(/isProviderAvailable: \(\) => isDevelopment/)
+    expect(current).toMatch(
+      /createConfiguredAgentProvider\(\) \?\? \(isDevelopment \? createScriptedProvider\(\) : null\)/
+    )
+    expect(current).toMatch(
+      /isProviderAvailable: \(\) => isConfiguredAgentProviderAvailable\(\) \|\| isDevelopment/
+    )
+    expect(current.match(/createScriptedProvider\(/g)).toHaveLength(1)
   })
 
   it('状態をディスクへ書かない（作業は復元しない）', () => {

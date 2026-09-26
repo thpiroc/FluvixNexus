@@ -2,6 +2,8 @@ import { isSafeExternalPayload } from '../security/externalSend/safeExternalPayl
 import {
   AgentProviderError,
   isAgentProviderReportedFailure,
+  isRetryableProviderFailure,
+  readRetryAfterMs,
   type AgentProvider,
   type AgentProviderCallPolicy,
   type AgentProviderCallResult,
@@ -135,7 +137,7 @@ export function callAgentProvider(
     try {
       pending = Promise.resolve(target.next.call(provider, payload, call.signal))
     } catch (thrown) {
-      settle({ ok: false, failure: failureOf(thrown) })
+      settle(failureOf(thrown))
       return
     }
 
@@ -160,30 +162,39 @@ export function callAgentProvider(
         settle(result)
       },
       (thrown: unknown) => {
-        settle({ ok: false, failure: failureOf(thrown) })
+        settle(failureOf(thrown))
       }
     )
   })
 }
 
 /**
- * 投げられたものを分類にする。読むのは `AgentProviderError` の `category` だけで、閉じた集合に
- * 無い値・読めない値・ほかの例外は `provider-failed`（分類できない失敗）。
+ * 投げられたものを分類にする。読むのは `AgentProviderError` の `category` と、呼び直してよい分類の
+ * ときの `retryAfterMs`（STEP10-6。範囲を確かめ直した整数だけ）だけで、閉じた集合に無い値・
+ * 読めない値・ほかの例外は `provider-failed`（分類できない失敗）。
  */
-function failureOf(thrown: unknown): AgentProviderFailure {
+function failureOf(thrown: unknown): AgentProviderCallResult {
+  let failure: AgentProviderFailure = 'provider-failed'
+  let retryAfterMs: number | undefined
+
   try {
     if (thrown instanceof AgentProviderError) {
       const category: unknown = thrown.category
 
       if (isAgentProviderReportedFailure(category)) {
-        return category
+        failure = category
+        retryAfterMs = isRetryableProviderFailure(category)
+          ? readRetryAfterMs(thrown.retryAfterMs)
+          : undefined
       }
     }
   } catch {
     // getter が投げた・prototype が壊れている。分類できない失敗として扱う。
+    failure = 'provider-failed'
+    retryAfterMs = undefined
   }
 
-  return 'provider-failed'
+  return retryAfterMs === undefined ? { ok: false, failure } : { ok: false, failure, retryAfterMs }
 }
 
 function failed(failure: AgentProviderFailure): Promise<AgentProviderCallResult> {

@@ -199,9 +199,13 @@ describe('Policy', () => {
     expect(isRetryableProviderFailure(undefined)).toBe(false)
   })
 
-  it('今の呼び直しの Policy は、初回 ＋ 2 回・固定の待ち', () => {
+  it('今の呼び直しの Policy は、初回 ＋ 2 回・固定の待ち（Retry-After は 30 秒まで。STEP10-6）', () => {
     expect(AGENT_PROVIDER_MAX_ATTEMPTS).toBe(3)
-    expect(AGENT_PROVIDER_RETRY_POLICY).toEqual({ maxAttempts: 3, retryDelayMs: 1_000 })
+    expect(AGENT_PROVIDER_RETRY_POLICY).toEqual({
+      maxAttempts: 3,
+      retryDelayMs: 1_000,
+      maxRetryAfterMs: 30_000
+    })
     expect(Object.isFrozen(AGENT_PROVIDER_RETRY_POLICY)).toBe(true)
   })
 

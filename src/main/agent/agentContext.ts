@@ -335,7 +335,7 @@ export function agentInstruction(input: AgentContextBuildInput): string {
     'Actions:',
     '- {"type":"workspace_status"}',
     '- {"type":"workspace_list","path":""}  (one folder level; "" is the workspace root)',
-    '- {"type":"file_read","path":"src/app.ts","startLine":1,"endLine":200}  (text files; at most 400 lines per read)',
+    '- {"type":"file_read","path":"src/app.ts","startLine":1,"endLine":200}  (text files; at most 400 lines per read; null means from the top / to the end)',
     '- {"type":"file_search","query":"TODO"}  (plain text, one line)',
     '- {"type":"file_write","path":"src/app.ts","content":"<the whole new file text>"}  (the user reviews a diff and must approve twice)',
     '- {"type":"terminal_run","command":"npm","args":["test"],"cwd":""}  (no shell: no pipes, &&, or redirects; the user must approve twice; 120 s limit)',

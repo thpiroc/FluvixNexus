@@ -1,6 +1,7 @@
 import type { FluvixApi } from '@shared/api'
 import { agentApi } from './agent'
 import { agentTaskApi } from './agentTask'
+import { aiProviderApi } from './aiProvider'
 import { approvalApi } from './approval'
 import { debugApi } from './debug'
 import { envApi } from './env'
@@ -52,5 +53,6 @@ export const api: FluvixApi = {
   mcp: mcpApi,
   approval: approvalApi,
   agent: agentApi,
-  agentTask: agentTaskApi
+  agentTask: agentTaskApi,
+  aiProvider: aiProviderApi
 }

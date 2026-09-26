@@ -154,12 +154,19 @@ describe('送る経路は1つだけ', () => {
 })
 
 describe('Renderer / Preload からは届かない', () => {
-  it('External Send / Provider を名乗る IPC チャンネルは無い', () => {
+  /*
+    STEP10-5 の API Key の3本（ai-provider:*-credential）だけは Provider を名乗る。どれも Key を
+    Main へ入れる・消す・設定済みかを尋ねるだけで、External Send・Payload・Prompt へは届かない。
+  */
+  it('External Send を名乗る IPC チャンネルは無く、Provider を名乗るのは API Key の3本だけ', () => {
     const channels = [...Object.values(IPC_CHANNELS), ...Object.values(IPC_EVENT_CHANNELS)]
 
-    expect(channels.filter((channel) => /external|provider|prompt|sanitiz/i.test(channel))).toEqual(
-      []
-    )
+    expect(channels.filter((channel) => /external|prompt|sanitiz/i.test(channel))).toEqual([])
+    expect(channels.filter((channel) => /provider/i.test(channel)).sort()).toEqual([
+      'ai-provider:delete-credential',
+      'ai-provider:has-credential',
+      'ai-provider:set-credential'
+    ])
   })
 
   it('Agent を名乗る要求は作業の意思表示の4本だけで、External Send へ届く口は無い', () => {

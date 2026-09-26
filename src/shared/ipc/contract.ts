@@ -1,4 +1,5 @@
 import type { AgentTaskIpcContract } from './contracts/agentTask'
+import type { AiProviderIpcContract } from './contracts/aiProvider'
 import type { ApprovalIpcContract } from './contracts/approval'
 import type { DebugIpcContract } from './contracts/debug'
 import type { FeedbackIpcContract } from './contracts/feedback'
@@ -54,7 +55,8 @@ export interface IpcContract
     FeedbackIpcContract,
     McpIpcContract,
     ApprovalIpcContract,
-    AgentTaskIpcContract {}
+    AgentTaskIpcContract,
+    AiProviderIpcContract {}
 
 /** 有効な IPC チャンネル名。契約に定義されたものだけが存在しうる。 */
 export type IpcChannel = keyof IpcContract & string

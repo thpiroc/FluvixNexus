@@ -88,6 +88,10 @@ import type {
 } from './ipc/contracts/terminal'
 import type { RespondApprovalRequest } from './ipc/contracts/approval'
 import type { ContinueAgentTaskRequest, StartAgentTaskRequest } from './ipc/contracts/agentTask'
+import type {
+  AiProviderCredentialRequest,
+  SetAiProviderCredentialRequest
+} from './ipc/contracts/aiProvider'
 import type { RespondWindowCloseRequest } from './ipc/contracts/window'
 import type { SaveWorkspaceLayoutRequest } from './ipc/contracts/workspace'
 
@@ -1401,6 +1405,28 @@ export interface AgentTaskApi {
 }
 
 /**
+ * FN Agent の AI Provider の API Key を扱う API（STEP10-5）。
+ *
+ * **Key は入れる方向にしか流れない。** 設定済みかを尋ねる・設定 / 置き換える・消す、の3つだけで、
+ * 保存した Key を取り出す API（取得・読み出し・復号・書き出し）は無い。Endpoint を変える API・
+ * 任意の名前の Credential を扱う API も無い。Provider / Model の選択は `settings`（ユーザー設定）が持つ。
+ */
+export interface AiProviderApi {
+  /** 設定済みか（設定済み / 未設定 / 使えない）と、この PC で保存できるか。Key は返さない。 */
+  readonly hasCredential: (
+    request: AiProviderCredentialRequest
+  ) => IpcInvokeResult<'ai-provider:has-credential'>
+  /** Key を設定する / 置き換える。OS の暗号化が使えなければ保存しない。 */
+  readonly setCredential: (
+    request: SetAiProviderCredentialRequest
+  ) => IpcInvokeResult<'ai-provider:set-credential'>
+  /** Key を消す。 */
+  readonly deleteCredential: (
+    request: AiProviderCredentialRequest
+  ) => IpcInvokeResult<'ai-provider:delete-credential'>
+}
+
+/**
  * `window.fluvix` として Renderer に公開される API 全体。
  *
  * Files / Terminal / GitHub など OS に触れるドメイン API は、
@@ -1444,6 +1470,8 @@ export interface FluvixApi {
   readonly agent: AgentApi
   /** FN Agent の作業の開始・停止・状態（Security Core v1 の STEP9）。 */
   readonly agentTask: AgentTaskApi
+  /** FN Agent の AI Provider の API Key（設定済みか・設定・削除だけ。STEP10-5）。 */
+  readonly aiProvider: AiProviderApi
 }
 
 /** `window` に API を公開する際のキー。Preload と Renderer の双方から参照する。 */

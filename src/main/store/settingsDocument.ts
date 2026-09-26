@@ -84,6 +84,7 @@ function emptyPreservedSettings(): PreservedSettings {
       files: {},
       terminal: {},
       mcp: {},
+      aiProvider: {},
       security: {}
     }
   }

@@ -110,6 +110,7 @@ describe('workspace-settings.json の読み書き', () => {
         files: {},
         terminal: { fontSize: 20 },
         mcp: {},
+        aiProvider: {},
         security: {}
       }
     })

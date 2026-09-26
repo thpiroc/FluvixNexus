@@ -28,8 +28,10 @@ import { createAgentContext, type AgentContext } from './agentContext'
 import {
   AGENT_PROVIDER_CALL_POLICY,
   AGENT_PROVIDER_MAX_ATTEMPTS,
+  AGENT_PROVIDER_RETRY_AFTER_MAX_MS,
   AGENT_PROVIDER_RETRY_POLICY,
   isRetryableProviderFailure,
+  readRetryAfterMs,
   type AgentProvider,
   type AgentProviderCallPolicy,
   type AgentProviderCallResult,
@@ -366,7 +368,7 @@ export function createAgentLoop(deps: AgentLoopDependencies): AgentLoop {
           止めれば（stop / halt）すぐに戻り、Loop の先頭で stopped になる ── 次の呼び出しは始めない。
           呼び直しも Context → External Send Gate → 新しい Payload → 境界、の正規の経路を通る。
         */
-        await waitBeforeRetry(current)
+        await waitBeforeRetry(current, output.delayMs)
         continue
       }
 
@@ -440,7 +442,7 @@ export function createAgentLoop(deps: AgentLoopDependencies): AgentLoop {
   ): Promise<
     | { readonly kind: 'value'; readonly value: string }
     | { readonly kind: 'retry' }
-    | { readonly kind: 'wait' }
+    | { readonly kind: 'wait'; readonly delayMs: number }
     | { readonly kind: 'end'; readonly reason: AgentTaskEndReason }
   > {
     const built = current.context.build({
@@ -511,9 +513,21 @@ export function createAgentLoop(deps: AgentLoopDependencies): AgentLoop {
       まだ回数が残っているときだけ（STEP10-3）。それ以外はその場で終える。
     */
     if (isRetryableProviderFailure(failure) && attempt < retryPolicy.maxAttempts) {
+      const wait = retryWaitOf(called.retryAfterMs)
+
+      /*
+        Provider が FN の上限（30 秒）より長く待つよう求めた。上限まで縮めて早く送り直すことも、
+        長く待つこともせず、ここで終える（呼び直さない。STEP10-6）。
+      */
+      if (wait.kind === 'retry-after-exceeds-policy') {
+        current.providerFailures = 0
+
+        return { kind: 'end', reason: endReasonOfProviderFailure(failure) }
+      }
+
       current.providerFailures = attempt
 
-      return { kind: 'wait' }
+      return { kind: 'wait', delayMs: wait.delayMs }
     }
 
     current.providerFailures = 0
@@ -521,8 +535,39 @@ export function createAgentLoop(deps: AgentLoopDependencies): AgentLoop {
     return { kind: 'end', reason: endReasonOfProviderFailure(failure) }
   }
 
+  /**
+   * 呼び直す前にどれだけ待つか（STEP10-6。2026-09-26 確定）。**Provider が求めた時間より早く
+   * 送り直さない。**
+   *
+   * ```
+   * Retry-After が無い・読めない            retryDelayMs（固定 1 秒）待って呼び直す
+   * Retry-After ≦ maxRetryAfterMs（30 秒）  max(Retry-After, retryDelayMs) 待って呼び直す
+   * Retry-After ＞ maxRetryAfterMs          呼び直さない（retry-after-exceeds-policy）
+   * ```
+   *
+   * 上限まで縮めて早く送り直すことも、上限を超えて長く待つこともしない。Policy に上限が無ければ、
+   * 上限は `retryDelayMs` として扱う（それより長い Retry-After では呼び直さない）。
+   * Adapter は巨大な値を `AGENT_PROVIDER_RETRY_AFTER_MAX_MS` に飽和させて渡すが、上限は必ずそれより
+   * 小さい（readRetryPolicy）ので、飽和した値は常に「上限を超える」側になる。
+   */
+  function retryWaitOf(retryAfterMs: unknown): RetryWait {
+    const hinted = readRetryAfterMs(retryAfterMs)
+
+    if (hinted === undefined) {
+      return { kind: 'wait', delayMs: retryPolicy.retryDelayMs }
+    }
+
+    const cap = retryPolicy.maxRetryAfterMs ?? retryPolicy.retryDelayMs
+
+    if (hinted > cap) {
+      return { kind: 'retry-after-exceeds-policy' }
+    }
+
+    return { kind: 'wait', delayMs: Math.max(hinted, retryPolicy.retryDelayMs) }
+  }
+
   /** 呼び直す前に待つ。作業の signal が止まれば（stop / halt・終わり）すぐに戻る。 */
-  function waitBeforeRetry(current: Task): Promise<void> {
+  function waitBeforeRetry(current: Task, delayMs: number): Promise<void> {
     return new Promise((resolve) => {
       const signal = current.abort.signal
 
@@ -536,7 +581,7 @@ export function createAgentLoop(deps: AgentLoopDependencies): AgentLoop {
         signal.removeEventListener('abort', done)
         resolve()
       }
-      const timer = setTimeout(done, retryPolicy.retryDelayMs)
+      const timer = setTimeout(done, delayMs)
 
       signal.addEventListener('abort', done, { once: true })
     })
@@ -728,6 +773,14 @@ function endReasonOfProviderFailure(
   }
 }
 
+/**
+ * 呼び直す前の待ち方（閉じた内部の状態。STEP10-6）。Renderer へは出ない ── 呼び直さずに終えるときの
+ * 終わりの理由は、今までどおり失敗の分類から決まる（`provider-failed` など）。
+ */
+type RetryWait =
+  | { readonly kind: 'wait'; readonly delayMs: number }
+  | { readonly kind: 'retry-after-exceeds-policy' }
+
 /** setTimeout が扱える上限。 */
 const TIMER_MAX_MS = 2_147_483_647
 
@@ -743,7 +796,7 @@ function readRetryPolicy(policy: unknown): AgentProviderRetryPolicy {
       return noRetry
     }
 
-    const { maxAttempts, retryDelayMs } = policy as Record<string, unknown>
+    const { maxAttempts, retryDelayMs, maxRetryAfterMs } = policy as Record<string, unknown>
 
     if (
       typeof maxAttempts !== 'number' ||
@@ -757,9 +810,24 @@ function readRetryPolicy(policy: unknown): AgentProviderRetryPolicy {
       return noRetry
     }
 
+    /*
+      Retry-After の上限（STEP10-6）。読めない・`retryDelayMs` より短い・天井以上の値なら持たない
+      （上限は `retryDelayMs` として扱われ、それより長い Retry-After では呼び直さない）。
+      天井ちょうどを許さないのは、Adapter が天井に飽和させた値（本当はもっと長い）を
+      上限の中と取り違えないため。
+    */
+    const retryAfterCap =
+      typeof maxRetryAfterMs === 'number' &&
+      Number.isSafeInteger(maxRetryAfterMs) &&
+      maxRetryAfterMs >= retryDelayMs &&
+      maxRetryAfterMs < AGENT_PROVIDER_RETRY_AFTER_MAX_MS
+        ? maxRetryAfterMs
+        : undefined
+
     return Object.freeze({
       maxAttempts: Math.min(maxAttempts, AGENT_PROVIDER_MAX_ATTEMPTS),
-      retryDelayMs
+      retryDelayMs,
+      ...(retryAfterCap === undefined ? {} : { maxRetryAfterMs: retryAfterCap })
     })
   } catch {
     return noRetry

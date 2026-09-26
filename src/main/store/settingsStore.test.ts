@@ -57,6 +57,7 @@ describe('settings.json の読み書き', () => {
       files: {},
       terminal: {},
       mcp: {},
+      aiProvider: {},
       security: {}
     })
 
@@ -94,6 +95,7 @@ describe('settings.json の読み書き', () => {
         files: {},
         terminal: {},
         mcp: {},
+        aiProvider: {},
         security: {}
       }
     })
@@ -129,6 +131,7 @@ describe('settings.json の読み書き', () => {
       files: { viewMode: 'columns' },
       terminal: { fontSize: 20, scrollback: 1000 },
       mcp: {},
+      aiProvider: {},
       security: {}
     })
   })
@@ -148,6 +151,7 @@ describe('settings.json の読み書き', () => {
       files: {},
       terminal: {},
       mcp: {},
+      aiProvider: {},
       // 在るのに読めないファイル。Security は既定（ask）へ緩めず read で始める。
       security: { permissionMode: 'read', agentEnabled: false }
     })
@@ -197,6 +201,7 @@ describe('撤去した key の掃除', () => {
         files: {},
         terminal: { fontSize: 20 },
         mcp: { enabled: true },
+        aiProvider: {},
         security: {}
       }
     })
@@ -255,6 +260,7 @@ describe('旧 3 ファイルからの移行', () => {
       files: { viewMode: 'columns', columnWidth: 240 },
       terminal: { fontSize: 20, scrollback: 1000 },
       mcp: {},
+      aiProvider: {},
       security: {}
     })
 
@@ -269,6 +275,7 @@ describe('旧 3 ファイルからの移行', () => {
         files: { viewMode: 'columns', columnWidth: 240 },
         terminal: { fontSize: 20, scrollback: 1000 },
         mcp: {},
+        aiProvider: {},
         security: {}
       }
     })
@@ -308,6 +315,7 @@ describe('旧 3 ファイルからの移行', () => {
       files: {},
       terminal: { fontSize: 20, scrollback: 1000 },
       mcp: {},
+      aiProvider: {},
       security: {}
     })
   })
@@ -328,6 +336,7 @@ describe('旧 3 ファイルからの移行', () => {
       files: {},
       terminal: { fontSize: 11 },
       mcp: {},
+      aiProvider: {},
       security: {}
     })
   })
@@ -352,6 +361,7 @@ describe('旧 3 ファイルからの移行', () => {
       files: {},
       terminal: {},
       mcp: {},
+      aiProvider: {},
       security: {}
     })
 

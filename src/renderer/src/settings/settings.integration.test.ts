@@ -210,6 +210,8 @@ class Store {
       files: toFilesSettingsSection(this.files),
       terminal: toTerminalSettingsSection(this.terminal),
       mcp: toStoredMcpSettings(this.mcp),
+      // AI Provider（STEP10-5）の読み書きは aiProviderSettingsBinding.test.ts が見る。
+      aiProvider: {},
       // Settings 画面に Security の項目はまだ無い（STEP1）。画面からは何も書かない。
       security: {}
     }
@@ -312,7 +314,7 @@ describe('Settings 画面の既定', () => {
 
   /*
     画面に並ぶ11項目と、この統合テストが触る10の値項目が食い違わないようにする
-    （Updates は値を持たない行）。
+    （Updates は値を持たない行）。AI Provider の2つ（STEP10-5）は aiProviderSettingsBinding.test.ts が見る。
   */
   it('画面に並ぶ項目と、ここで確かめる項目が一致する', () => {
     expect(listSettingsItems().map((item) => item.id)).toEqual([
@@ -326,7 +328,9 @@ describe('Settings 画面の既定', () => {
       'files.viewMode',
       'terminal.fontSize',
       'terminal.scrollback',
-      'mcp.enabled'
+      'mcp.enabled',
+      'aiProvider.provider',
+      'aiProvider.model'
     ])
   })
 })
@@ -689,6 +693,7 @@ describe('Settings 画面から入る値の正規化', () => {
       terminal: { fontSize: TERMINAL_FONT_SIZE_MAX, scrollback: TERMINAL_SCROLLBACK_MIN },
       /* MCP も同じく省略せずに書く。**秘密の値の欄は無い**。 */
       mcp: { enabled: false },
+      aiProvider: {},
       // Security は Settings 画面から書かない（項目が無い）。
       security: {}
     })
@@ -745,6 +750,7 @@ describe('Settings 画面から入る値の正規化', () => {
         ── 壊れた設定ファイルで外部サービスへの接続が有効になってはいけない。
       */
       mcp: { enabled: 'yes' } as unknown as SettingsSections['mcp'],
+      aiProvider: {},
       security: {}
     })
 

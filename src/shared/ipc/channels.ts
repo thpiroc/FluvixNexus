@@ -122,7 +122,10 @@ export const IPC_CHANNELS = {
   AGENT_TASK_START: 'agent-task:start',
   AGENT_TASK_STOP: 'agent-task:stop',
   AGENT_TASK_CONTINUE: 'agent-task:continue',
-  AGENT_TASK_GET_STATE: 'agent-task:get-state'
+  AGENT_TASK_GET_STATE: 'agent-task:get-state',
+  AI_PROVIDER_HAS_CREDENTIAL: 'ai-provider:has-credential',
+  AI_PROVIDER_SET_CREDENTIAL: 'ai-provider:set-credential',
+  AI_PROVIDER_DELETE_CREDENTIAL: 'ai-provider:delete-credential'
 } as const satisfies Record<string, IpcChannel>
 
 /**

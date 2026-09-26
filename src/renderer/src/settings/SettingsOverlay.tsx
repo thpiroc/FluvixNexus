@@ -23,6 +23,21 @@ import {
   toFilesViewChoice,
   type FilesViewChoice
 } from '../files/filesSettings'
+import {
+  AI_PROVIDER_MODEL_ALLOWLIST,
+  SUPPORTED_PROVIDER_IDS,
+  type SupportedProviderId
+} from '@shared/aiProvider'
+import { AiProviderCredentialPanel } from '../aiProvider/AiProviderCredentialPanel'
+import {
+  aiProviderModelDescriptionKey,
+  aiProviderModelNameKey,
+  aiProviderNameKey
+} from '../aiProvider/aiProviderLabels'
+import {
+  AI_PROVIDER_SETTINGS_BINDING,
+  createAiProviderSetters
+} from '../aiProvider/aiProviderSettingsBinding'
 import { useI18n } from '../i18n/context'
 import { readDocumentLanguage } from '../i18n/documentLanguage'
 import {
@@ -322,7 +337,14 @@ function SettingsCategoryPanel({
     return null
   }
 
-  return <McpConnectionPanel />
+  switch (category.panel) {
+    case 'mcp':
+      return <McpConnectionPanel />
+
+    case 'aiProvider':
+      // AI Provider の API Key（STEP10-5）。これも application scope なので、ユーザー設定でだけ出す。
+      return <AiProviderCredentialPanel />
+  }
 }
 
 /**
@@ -562,6 +584,12 @@ function SettingsControl({
 
     case 'mcp.enabled':
       return <McpEnabledControl scope={scope} />
+
+    case 'aiProvider.provider':
+      return <AiProviderControl scope={scope} />
+
+    case 'aiProvider.model':
+      return <AiProviderModelControl scope={scope} />
 
     default:
       /*
@@ -848,6 +876,111 @@ function McpEnabledControl({ scope }: ScopeProps): JSX.Element {
 
 /** 並べる順（使わない → 使う）。既定の方を先に置く。 */
 const MCP_ENABLED_CHOICES: readonly boolean[] = [false, true]
+
+/* --------------------------------------------------------- AI Provider */
+
+/**
+ * FN Agent の AI Provider（STEP10-5）。
+ *
+ * 並べる順は **「選択しない → 正式な Provider」**。既定は選択しない（shared/aiProvider/settings.ts）
+ * ── Workspace の内容を送る先を決める設定で、押しやすい側に Provider を置かない（MCP と同じ線）。
+ * 選べるのは正式な Provider の閉じた集合だけで、任意の名前・URL を入れる欄は無い。
+ */
+function AiProviderControl({ scope }: ScopeProps): JSX.Element {
+  const { value: preferences, setProvider } = useScopedSetters(
+    AI_PROVIDER_SETTINGS_BINDING,
+    scope,
+    createAiProviderSetters
+  )
+  const { t } = useI18n()
+
+  return (
+    <div
+      className="fx-settings__choices"
+      role="radiogroup"
+      aria-label={t('settings.controls.aiProvider.aria')}
+      data-testid="settings-ai-provider-provider"
+    >
+      {AI_PROVIDER_CHOICES.map((choice) => (
+        <button
+          key={choice ?? 'none'}
+          type="button"
+          role="radio"
+          className="fx-settings__choice"
+          data-testid={`settings-ai-provider-provider-${choice ?? 'none'}`}
+          data-active={choice === preferences.providerId}
+          aria-checked={choice === preferences.providerId}
+          onClick={() => setProvider(choice)}
+        >
+          {choice === null ? t('settings.values.aiProvider.none') : t(aiProviderNameKey(choice))}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/** 並べる順（選択しない → 正式な Provider）。 */
+const AI_PROVIDER_CHOICES: readonly (SupportedProviderId | null)[] = [
+  null,
+  ...SUPPORTED_PROVIDER_IDS
+]
+
+/**
+ * Model（STEP10-5 / STEP10-6）。**FN の allowlist にある ID だけを選べる**（自由に入力する欄は無い）。
+ *
+ * 選択肢は Provider の allowlist（OpenAI は GPT-6 Astra / Sol / Luna）だけで、「選択しない」は無い
+ * ── Model の欄が無いときは既定の GPT-6 Sol が効くため（shared/aiProvider/settings.ts）。
+ * 保存されていた値が allowlist に無い（書き換えた・古い版）ときだけ、選べない「選んでください」を
+ * 出す（既定へ黙って読み替えない）。Provider を選ぶまでは押せず、理由を出す。
+ * 選んだ Model の用途を下に1行添える。
+ */
+function AiProviderModelControl({ scope }: ScopeProps): JSX.Element {
+  const { value: preferences, setModel } = useScopedSetters(
+    AI_PROVIDER_SETTINGS_BINDING,
+    scope,
+    createAiProviderSetters
+  )
+  const { t } = useI18n()
+  const providerId = preferences.providerId
+  const models = providerId === null ? [] : AI_PROVIDER_MODEL_ALLOWLIST[providerId]
+  const hint =
+    providerId === null
+      ? t('settings.aiProvider.model.needsProvider')
+      : preferences.modelId === null
+        ? t('settings.aiProvider.model.invalid')
+        : t(aiProviderModelDescriptionKey(preferences.modelId))
+
+  return (
+    <div className="fx-ai-provider__model">
+      <select
+        className="fx-settings__select"
+        aria-label={t('settings.controls.aiProviderModel.aria')}
+        data-testid="settings-ai-provider-model"
+        value={preferences.modelId ?? ''}
+        disabled={models.length === 0}
+        onChange={(event) => setModel(event.target.value === '' ? null : event.target.value)}
+      >
+        {providerId === null || preferences.modelId === null ? (
+          <option value="" disabled>
+            {t(
+              providerId === null
+                ? 'settings.values.aiProvider.none'
+                : 'settings.aiProvider.model.choose'
+            )}
+          </option>
+        ) : null}
+        {models.map((model) => (
+          <option key={model} value={model}>
+            {t(aiProviderModelNameKey(model))}
+          </option>
+        ))}
+      </select>
+      <p className="fx-ai-provider__note" data-testid="settings-ai-provider-model-hint">
+        {hint}
+      </p>
+    </div>
+  )
+}
 
 /* --------------------------------------------------------------- Files */
 

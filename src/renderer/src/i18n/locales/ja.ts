@@ -1124,6 +1124,11 @@ export const jaMessages = {
         description:
           'MCP サーバーを通じて、Fluvix Nexus を外部サービスにつなぎます。どれも有効にするまで動きません。この設定はアプリ全体のもので、プロジェクトごとには変えられません。'
       },
+      aiProvider: {
+        title: 'AI Provider',
+        description:
+          'FN Agent が問い合わせる AI サービスと、その API Key。Provider を選ぶまで何も送りません。この設定はアプリ全体のもので、プロジェクトごとには変えられません。'
+      },
       keyboard: {
         title: 'キーボードショートカット',
         description: 'アプリの操作に割り当てる打鍵の一覧。変更はその場で保存され、すぐに効きます。'
@@ -1193,6 +1198,18 @@ export const jaMessages = {
           description:
             'MCP 連携全体の元栓です。切っている間は MCP サーバーを起動せず、この PC から外へ何も送りません。'
         }
+      },
+      aiProvider: {
+        provider: {
+          title: 'Provider',
+          description:
+            'FN Agent が使う AI サービスを選びます。接続先のアドレスは Fluvix Nexus の中で決まっていて、変えられません。'
+        },
+        model: {
+          title: 'モデル',
+          description:
+            '選んだ Provider で Fluvix Nexus が対応しているモデルから選びます。選ばなければ GPT-6 Sol を使います。'
+        }
       }
     },
     controls: {
@@ -1229,6 +1246,12 @@ export const jaMessages = {
       },
       mcpEnabled: {
         aria: 'MCP を使うか'
+      },
+      aiProvider: {
+        aria: 'AI Provider'
+      },
+      aiProviderModel: {
+        aria: 'AI のモデル'
       }
     },
     values: {
@@ -1245,6 +1268,9 @@ export const jaMessages = {
       mcp: {
         on: '使う',
         off: '使わない'
+      },
+      aiProvider: {
+        none: '選択しない'
       },
       filesView: {
         auto: 'パネルの形に任せる',
@@ -1395,6 +1421,58 @@ export const jaMessages = {
         default: '既定',
         user: 'ユーザー',
         workspace: 'Workspace'
+      }
+    },
+    /* 英語側（locales/en.ts の `settings.aiProvider`）に、Key を出す言い回しが無い理由がある。 */
+    aiProvider: {
+      providers: {
+        openai: 'OpenAI'
+      },
+      model: {
+        needsProvider: '先に Provider を選んでください。',
+        choose: 'モデルを選んでください',
+        invalid: '保存されているモデルは対応していません。一覧から選び直してください。'
+      },
+      models: {
+        astra: {
+          name: 'GPT-6 Astra',
+          description: '最も高性能なモデル。難しい end-to-end の作業向けです。'
+        },
+        sol: {
+          name: 'GPT-6 Sol（既定）',
+          description: 'コーディングとエージェント的な作業向け。FN Agent の標準モデルです。'
+        },
+        luna: {
+          name: 'GPT-6 Luna',
+          description: '高速・低コスト。大量の処理向けです。'
+        }
+      },
+      credential: {
+        title: '{provider} の API Key',
+        label: '{provider} の API Key',
+        placeholder: '新しい API Key を貼り付け',
+        note: 'API Key はこの PC の OS の暗号化で保存し、保存した後は表示しません。変えるときは新しい Key を入れて置き換えます。',
+        cannotStore:
+          'この PC では OS の暗号化が使えないため、API Key を保存できません（暗号化しないまま保存することはありません）。',
+        status: {
+          loading: '確認中…',
+          set: '設定済み',
+          notSet: '未設定',
+          unusable:
+            '利用できません — 保存された API Key を読めません。置き換えるか削除してください。'
+        },
+        save: '保存',
+        replace: '置き換える',
+        delete: '削除',
+        notice: {
+          saved: 'API Key を保存しました。',
+          deleted: 'API Key を削除しました。',
+          invalid: 'API Key の形が正しくありません。途中に空白や改行を含めずに貼り付けてください。',
+          encryptionUnavailable: 'OS の暗号化が使えないため、保存しませんでした。',
+          writeFailed: 'API Key を保存できませんでした。',
+          deleteFailed: 'API Key を削除できませんでした。',
+          loadFailed: 'API Key が保存されているかを確認できませんでした。'
+        }
       }
     },
     /* 英語側（locales/en.ts の `settings.mcp`）に、言い回しを分けてある理由がある。 */

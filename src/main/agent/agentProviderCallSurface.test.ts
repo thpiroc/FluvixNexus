@@ -67,10 +67,21 @@ describe('next を呼ぶ場所', () => {
 })
 
 describe('Renderer から届かない', () => {
-  it('Provider を名乗る IPC チャンネルは無い', () => {
+  /*
+    STEP10-5 で API Key を**入れる向き**の3本（設定済みか・設定・削除）だけが増えた。Provider を
+    呼ぶ・Payload を渡す・Key を取り出すチャンネルは今も無い（aiProviderCredentialSurface.test.ts）。
+  */
+  it('Provider を名乗る IPC チャンネルは、API Key を入れる向きの3本だけ', () => {
     const channels = [...Object.values(IPC_CHANNELS), ...Object.values(IPC_EVENT_CHANNELS)]
 
-    expect(channels.filter((channel) => /provider|credential|payload/i.test(channel))).toEqual([])
+    expect(
+      channels.filter((channel) => /provider|credential|payload/i.test(channel)).sort()
+    ).toEqual([
+      'ai-provider:delete-credential',
+      'ai-provider:has-credential',
+      'ai-provider:set-credential'
+    ])
+    expect(channels.filter((channel) => /payload/i.test(channel))).toEqual([])
   })
 
   it('Preload・IPC handler・Renderer・shared は Provider の境界と契約を読まない', () => {

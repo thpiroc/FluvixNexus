@@ -326,9 +326,16 @@ function isText(value: unknown, min: number, max: number): value is string {
   return typeof value === 'string' && value.length >= min && value.length <= max
 }
 
-function isOptionalLine(value: unknown): value is number | undefined {
+/**
+ * 行の番号（無い ＝ 先頭から / 最後まで）。**`null` も「無い」と読む**（STEP10-6）── Structured
+ * Outputs の strict な JSON Schema はすべての欄を必須にするため、指定しない行は `null` で届く。
+ * 読んだ後の形は今までどおり `number | null`。
+ */
+function isOptionalLine(value: unknown): value is number | null | undefined {
   return (
-    value === undefined || (typeof value === 'number' && Number.isSafeInteger(value) && value >= 1)
+    value === undefined ||
+    value === null ||
+    (typeof value === 'number' && Number.isSafeInteger(value) && value >= 1)
   )
 }
 

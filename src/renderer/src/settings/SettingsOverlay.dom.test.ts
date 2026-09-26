@@ -61,7 +61,11 @@ const settingsStore = vi.hoisted(() => ({
   checkUpdates: vi.fn(),
   downloadUpdate: vi.fn(),
   installUpdate: vi.fn(),
-  onUpdateStatusChanged: vi.fn()
+  onUpdateStatusChanged: vi.fn(),
+  /* AI Provider の API Key（STEP10-5）。状態だけを返す（Key を返す関数はそもそも無い）。 */
+  hasCredential: vi.fn(),
+  setCredential: vi.fn(),
+  deleteCredential: vi.fn()
 }))
 
 vi.mock('../api/fluvix', () => ({
@@ -77,6 +81,11 @@ vi.mock('../api/fluvix', () => ({
       download: settingsStore.downloadUpdate,
       install: settingsStore.installUpdate,
       onStatusChanged: settingsStore.onUpdateStatusChanged
+    },
+    aiProvider: {
+      hasCredential: settingsStore.hasCredential,
+      setCredential: settingsStore.setCredential,
+      deleteCredential: settingsStore.deleteCredential
     }
   }
 }))
@@ -316,6 +325,10 @@ beforeEach(() => {
   })
   settingsStore.installUpdate.mockResolvedValue({ ok: true, data: undefined })
   settingsStore.onUpdateStatusChanged.mockReturnValue(() => {})
+  settingsStore.hasCredential.mockResolvedValue({
+    ok: true,
+    data: { providerId: 'openai', state: 'not-set', canStore: true }
+  })
   container = document.createElement('div')
   document.body.append(container)
   root = createRoot(container)
@@ -930,5 +943,142 @@ describe('ユーザー設定 / ワークスペース設定', () => {
 
     expect(byTestId('terminal-font-size-value').textContent).toBe('13')
     expect(byTestId('settings-workspace-unavailable')).not.toBeNull()
+  })
+})
+
+describe('AI Provider（STEP10-5）', () => {
+  async function openSettings(category: string): Promise<void> {
+    await renderHarness()
+    await click('topbar-settings')
+    await click(`settings-category-${category}`)
+    // API Key の状態の問い合わせ（非同期）が返るのを待つ。
+    await act(async () => {
+      await Promise.resolve()
+    })
+  }
+
+  it('Provider は「選択しない」から始まり、OpenAI を選ぶとユーザー設定へ保存される', async () => {
+    await openSettings('aiProvider')
+
+    expect(byTestId('settings-ai-provider-provider-none').dataset.active).toBe('true')
+    expect(byTestId('settings-ai-provider-provider-openai').dataset.active).toBe('false')
+
+    await click('settings-ai-provider-provider-openai')
+
+    expect(settingsStore.saveSection).toHaveBeenLastCalledWith({
+      scope: 'user',
+      section: 'aiProvider',
+      value: { providerId: 'openai', modelId: 'gpt-6-sol' }
+    })
+    expect(byTestId('settings-ai-provider-provider-openai').dataset.active).toBe('true')
+    expect(byTestId<HTMLSelectElement>('settings-ai-provider-model').value).toBe('gpt-6-sol')
+
+    await click('settings-ai-provider-provider-none')
+
+    expect(settingsStore.saveSection).toHaveBeenLastCalledWith({
+      scope: 'user',
+      section: 'aiProvider',
+      value: {}
+    })
+  })
+
+  it('Model は allowlist の3つから選ぶ select（既定は GPT-6 Sol）で、選ぶとユーザー設定へ保存される', async () => {
+    respondWith({ ...emptySettingsSections(), aiProvider: { providerId: 'openai' } }, null)
+    await openSettings('aiProvider')
+
+    const select = byTestId<HTMLSelectElement>('settings-ai-provider-model')
+
+    expect(select.tagName).toBe('SELECT')
+    expect(select.disabled).toBe(false)
+    expect([...select.options].map((option) => option.value)).toEqual([
+      'gpt-6-astra',
+      'gpt-6-sol',
+      'gpt-6-luna'
+    ])
+    expect([...select.options].map((option) => option.textContent)).toEqual([
+      'GPT-6 Astra',
+      'GPT-6 Sol（既定）',
+      'GPT-6 Luna'
+    ])
+    expect(select.value).toBe('gpt-6-sol')
+    expect(byTestId('settings-ai-provider-model-hint').textContent).toContain('FN Agent の標準')
+    expect(container.querySelector('[data-item^="aiProvider"] input[type="text"]')).toBeNull()
+
+    await selectValue('settings-ai-provider-model', 'gpt-6-luna')
+
+    expect(settingsStore.saveSection).toHaveBeenLastCalledWith({
+      scope: 'user',
+      section: 'aiProvider',
+      value: { providerId: 'openai', modelId: 'gpt-6-luna' }
+    })
+    expect(byTestId('settings-ai-provider-model-hint').textContent).toContain('低コスト')
+  })
+
+  it('Provider を選ぶまで Model は押せず、保存されていた Model が allowlist に無ければ選び直しを求める', async () => {
+    await openSettings('aiProvider')
+
+    expect(byTestId<HTMLSelectElement>('settings-ai-provider-model').disabled).toBe(true)
+    expect(byTestId('settings-ai-provider-model-hint').textContent).toContain('Provider を選んで')
+
+    act(() => root.unmount())
+    root = createRoot(container)
+    respondWith(
+      { ...emptySettingsSections(), aiProvider: { providerId: 'openai', modelId: 'gpt-5-old' } },
+      null
+    )
+    await openSettings('aiProvider')
+
+    const select = byTestId<HTMLSelectElement>('settings-ai-provider-model')
+
+    expect(select.value).toBe('')
+    expect(select.options[0]?.disabled).toBe(true)
+    expect(byTestId('settings-ai-provider-model-hint').textContent).toContain('対応していません')
+  })
+
+  it('保存されている知らない Provider・Model は未選択として出る', async () => {
+    respondWith(
+      {
+        ...emptySettingsSections(),
+        aiProvider: { providerId: 'scripted', modelId: 'synthetic-unknown' }
+      },
+      null
+    )
+    await openSettings('aiProvider')
+
+    expect(byTestId('settings-ai-provider-provider-none').dataset.active).toBe('true')
+    expect(byTestId<HTMLSelectElement>('settings-ai-provider-model').value).toBe('')
+  })
+
+  it('API Key の面がユーザー設定に出て、状態だけを尋ねる', async () => {
+    await openSettings('aiProvider')
+
+    expect(byTestId('settings-ai-provider-panel')).not.toBeNull()
+    expect(byTestId('settings-ai-provider-credential-status-openai').textContent).toBe('未設定')
+    expect(settingsStore.hasCredential).toHaveBeenCalledWith({ providerId: 'openai' })
+    expect(
+      container.querySelector('[data-item*="endpoint" i], [data-testid*="endpoint" i]')
+    ).toBeNull()
+  })
+
+  it('ワークスペース設定では押せず、API Key の面も出ない', async () => {
+    respondWith(
+      emptySettingsSections(),
+      workspaceSnapshot({ aiProvider: { providerId: 'openai' } })
+    )
+    await openSettings('aiProvider')
+
+    // ワークスペース側に値があっても、効くのはユーザー設定（未選択）。
+    expect(byTestId('settings-ai-provider-provider-none').dataset.active).toBe('true')
+
+    await click('settings-scope-workspace')
+
+    expect(byTestId('settings-scope-status-aiProvider.provider').dataset.state).toBe('locked')
+    expect(byTestId('settings-scope-status-aiProvider.model').dataset.state).toBe('locked')
+    expect(
+      container.querySelector<HTMLFieldSetElement>(
+        '[data-item="aiProvider.provider"] .fx-settings__row-fieldset'
+      )?.disabled
+    ).toBe(true)
+    expect(container.querySelector('[data-testid="settings-ai-provider-panel"]')).toBeNull()
   })
 })

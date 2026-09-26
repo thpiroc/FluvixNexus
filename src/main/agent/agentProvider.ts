@@ -64,7 +64,14 @@ export interface AgentProvider {
  * rate-limited           回数の制限（HTTP 429）                            呼び直してよい
  * temporary-failure      Provider 側の一時的な失敗（HTTP 5xx・過負荷）     呼び直してよい
  * network-failed         通信が成り立たなかった（接続・DNS・TLS・切断）    呼び直してよい
+ * response-too-large     HTTP の応答がバイト数の上限を超えた（STEP10-6）   呼び直さない
+ * invalid-response       HTTP の応答を読めない・形が違う（STEP10-6）       呼び直さない
  * ```
+ *
+ * 最後の2つは STEP10-6 で足した。実 HTTP の応答を読むのは Adapter で、バイト数の上限・応答の形の
+ * 検査はそこでしかできないため。境界（callAgentProvider）の同じ名前の分類と意味は同じ。
+ * `aborted` / `timeout` / `invalid-payload` / `provider-mismatch` のような **Loop・境界が決める
+ * 分類は、今も Adapter から名乗れない**。
  */
 export type AgentProviderReportedFailure =
   | 'authentication-failed'
@@ -73,13 +80,17 @@ export type AgentProviderReportedFailure =
   | 'rate-limited'
   | 'temporary-failure'
   | 'network-failed'
+  | 'response-too-large'
+  | 'invalid-response'
 
 const REPORTED_FAILURES: readonly AgentProviderReportedFailure[] = Object.freeze([
   'authentication-failed',
   'authorization-failed',
+  'invalid-response',
   'network-failed',
   'rate-limited',
   'request-rejected',
+  'response-too-large',
   'temporary-failure'
 ])
 
@@ -100,12 +111,43 @@ export function isAgentProviderReportedFailure(
  */
 export class AgentProviderError extends Error {
   readonly category: AgentProviderReportedFailure
+  /**
+   * 呼び直す前に待ってほしい時間（ミリ秒。STEP10-6）。Adapter が HTTP の Retry-After を解析して
+   * 渡す**目安**で、生の Header の値ではない。0 以上 `AGENT_PROVIDER_RETRY_AFTER_MAX_MS` 以下の
+   * 整数のときだけ持つ（それ以外は欄ごと無い）。境界と Loop はこれを信じ直し、FN の上限で切る。
+   *
+   * `declare` にしてあるのは、渡されなかったときに欄そのものを作らないため（class の欄の既定の
+   * 初期化で `undefined` の欄が生えない）。
+   */
+  declare readonly retryAfterMs?: number
 
-  constructor(category: AgentProviderReportedFailure) {
+  constructor(
+    category: AgentProviderReportedFailure,
+    options: { readonly retryAfterMs?: number } = {}
+  ) {
     super('The AI provider request failed.')
     this.name = 'AgentProviderError'
     this.category = category
+
+    const retryAfterMs = readRetryAfterMs(options.retryAfterMs)
+
+    if (retryAfterMs !== undefined) {
+      Object.defineProperty(this, 'retryAfterMs', { value: retryAfterMs, enumerable: true })
+    }
   }
+}
+
+/**
+ * 呼び直す前の待ちとして受け取ってよい値か（0 以上・上限以下の整数）。
+ * Adapter・境界・Loop の3か所が同じこの関数で確かめる。
+ */
+export function readRetryAfterMs(value: unknown): number | undefined {
+  return typeof value === 'number' &&
+    Number.isSafeInteger(value) &&
+    value >= 0 &&
+    value <= AGENT_PROVIDER_RETRY_AFTER_MAX_MS
+    ? value
+    : undefined
 }
 
 /**
@@ -187,7 +229,15 @@ export function isRetryableProviderFailure(failure: unknown): boolean {
  */
 export type AgentProviderCallResult =
   | { readonly ok: true; readonly text: string }
-  | { readonly ok: false; readonly failure: AgentProviderFailure }
+  | {
+      readonly ok: false
+      readonly failure: AgentProviderFailure
+      /**
+       * Adapter が伝えた待ちの目安（呼び直してよい失敗のときだけ。STEP10-6）。Loop は
+       * `AGENT_PROVIDER_RETRY_POLICY` の範囲に切ってから使う。
+       */
+      readonly retryAfterMs?: number
+    }
 
 /**
  * Provider の呼び出しの Policy（Loop 側で強制する値）。
@@ -207,7 +257,7 @@ export interface AgentProviderCallPolicy {
  * - `timeoutMs` … **120 秒（2026-09-24 正式採用）。** 停止・halt・Workspace の切り替えでは
  *   待たずに終わる（callAgentProvider が作業の signal で即座に戻る）
  * - `maxResponseChars` … Schema が読む上限（`AGENT_OUTPUT_MAX_CHARS`）と同じ。実 HTTP の応答を
- *   読みながらバイト数で打ち切る上限は、実 Provider Adapter（STEP10-6）で足す
+ *   読みながらバイト数で打ち切る上限は `AGENT_PROVIDER_HTTP_POLICY`（STEP10-6。Adapter が使う）
  */
 export const AGENT_PROVIDER_CALL_POLICY: AgentProviderCallPolicy = Object.freeze({
   timeoutMs: 120_000,
@@ -218,8 +268,9 @@ export const AGENT_PROVIDER_CALL_POLICY: AgentProviderCallPolicy = Object.freeze
  * 呼び直しの Policy（STEP10-3）。
  *
  * 呼び直すのは `isRetryableProviderFailure` が真の失敗だけ。回数・待ち時間はこの形で
- * Agent Loop へ渡し、実 Provider ごとの待ち方（Retry-After・Backoff）は STEP10-6 で
- * この値を差し替える形で足す。
+ * Agent Loop へ渡す。Provider が Retry-After で待ちを求めたとき（STEP10-6）は、それが
+ * `maxRetryAfterMs` 以内なら**その時間以上**（最短 `retryDelayMs`）待って呼び直し、超えるなら
+ * 呼び直さずに終える（縮めて早く送り直さない。回数は変わらない）。
  *
  * 数えるのは **Provider への試み（Attempt）** で、Agent Loop の Turn とは別（STEP10-4）。
  * 呼び直しは Turn を使わず、通った応答を受け取ったときだけ Turn が1つ進む。
@@ -229,6 +280,13 @@ export interface AgentProviderRetryPolicy {
   readonly maxAttempts: number
   /** 呼び直す前に待つ時間（ミリ秒・固定）。待っている間に止めれば、次は呼ばない。 */
   readonly retryDelayMs: number
+  /**
+   * Provider が Retry-After で待ちを求めたときに、FN が待ってよい上限（ミリ秒。STEP10-6）。
+   * Retry-After がこれ以内なら `max(Retry-After, retryDelayMs)` 待ち、**超えるなら呼び直さない**。
+   * Retry-After が無い・読めなければ `retryDelayMs` だけ待つ。この欄が無い（読めない）Policy では
+   * 上限を `retryDelayMs` として扱う。`AGENT_PROVIDER_RETRY_AFTER_MAX_MS` 未満でなければならない。
+   */
+  readonly maxRetryAfterMs?: number
 }
 
 /**
@@ -238,14 +296,46 @@ export interface AgentProviderRetryPolicy {
 export const AGENT_PROVIDER_MAX_ATTEMPTS = 3
 
 /**
+ * Retry-After として受け取れる値の天井（ミリ秒。STEP10-6）。Adapter はこれより大きな値をこの値に
+ * **飽和**させて渡す（＝「少なくともこれだけ待て」）。待ってよい上限
+ * （`AGENT_PROVIDER_RETRY_POLICY.maxRetryAfterMs`）は必ずこれより小さいので、飽和した値では
+ * 呼び直さない（巨大な値を sleep することも、縮めて早く送り直すことも無い）。
+ */
+export const AGENT_PROVIDER_RETRY_AFTER_MAX_MS = 60_000
+
+/**
  * 今の呼び直しの Policy。
  *
  * - `maxAttempts` … 3（初回 ＋ 最大 2 回。2026-09-24 確定）
  * - `retryDelayMs` … **固定 1 秒（2026-09-24 に STEP10 前半の汎用 Policy として正式採用）。**
  *   すぐに叩き直さないための間で、指数的な Backoff・jitter・Provider ごとの Retry-After は
- *   入れていない（実 Provider ごとの待ち方は STEP10-6）
+ *   入れていない（Retry-After は STEP10-6 で下の `maxRetryAfterMs` の条件付きで足した）
  */
 export const AGENT_PROVIDER_RETRY_POLICY: AgentProviderRetryPolicy = Object.freeze({
   maxAttempts: AGENT_PROVIDER_MAX_ATTEMPTS,
-  retryDelayMs: 1_000
+  retryDelayMs: 1_000,
+  /*
+    Retry-After の上限（STEP10-6。2026-09-26 確定）。最大3回の試みで待ちが積み上がっても 1 分に
+    収まる長さ。これより長く待つよう求められたら、**呼び直さずに終える**（30 秒へ縮めて早く送り直さない）。
+  */
+  maxRetryAfterMs: 30_000
+})
+
+/**
+ * 実 HTTP の応答を読むときの Policy（STEP10-6）。
+ *
+ * - `maxResponseBytes` … **受信しながら数えるバイト数の上限。** 超えた時点で読むのをやめ、
+ *   部分的な応答は解釈しない（`response-too-large`）。Schema が読む文字数の上限
+ *   （`AGENT_OUTPUT_MAX_CHARS` = 1,200,000）を UTF-8 と JSON の escape（1文字が最大 6 バイト）で
+ *   包んでも収まる大きさ。境界の文字数の上限（`maxResponseChars`）は二重の防御として残る
+ *
+ * 時間の上限はここに無い ── 120 秒の timeout は境界（`AGENT_PROVIDER_CALL_POLICY`）の1か所だけで、
+ * Adapter は境界から渡る signal で通信を止める。
+ */
+export interface AgentProviderHttpPolicy {
+  readonly maxResponseBytes: number
+}
+
+export const AGENT_PROVIDER_HTTP_POLICY: AgentProviderHttpPolicy = Object.freeze({
+  maxResponseBytes: 8 * 1024 * 1024
 })

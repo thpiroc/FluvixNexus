@@ -248,3 +248,8 @@ export type {
   StartAgentTaskRequest
 } from './contracts/agentTask'
 export type { AgentTaskIpcEventContract } from './events/agentTask'
+export type {
+  AiProviderCredentialRequest,
+  AiProviderIpcContract,
+  SetAiProviderCredentialRequest
+} from './contracts/aiProvider'

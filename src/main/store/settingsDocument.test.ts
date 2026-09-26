@@ -28,6 +28,7 @@ const valid = {
     files: { viewMode: 'columns', columnWidth: 240 },
     terminal: { fontSize: 15, scrollback: 7000 },
     mcp: {},
+    aiProvider: {},
     security: {}
   }
 }
@@ -51,6 +52,7 @@ describe('parseSettingsDocument', () => {
         files: {},
         terminal: {},
         mcp: {},
+        aiProvider: {},
         security: { permissionMode: 'read', agentEnabled: false }
       })
     }
@@ -74,6 +76,7 @@ describe('parseSettingsDocument', () => {
         files: {},
         terminal: {},
         mcp: {},
+        aiProvider: {},
         security: { permissionMode: 'read', agentEnabled: false }
       })
     }
@@ -116,6 +119,7 @@ describe('parseSettingsDocument', () => {
       files: {},
       terminal: { fontSize: 15 },
       mcp: {},
+      aiProvider: {},
       security: {}
     })
     expect(issues).toEqual([])
@@ -320,6 +324,7 @@ describe('toStoredSettings / withSettingsSection', () => {
         files: {},
         terminal: {},
         mcp: {},
+        aiProvider: {},
         security: {}
       }
     })
@@ -356,6 +361,7 @@ describe('toStoredSettings / withSettingsSection', () => {
       files: valid.sections.files,
       terminal: { cursorStyle: 'bar', fontSize: 20 },
       mcp: {},
+      aiProvider: {},
       security: {},
       keybindings: { profile: 'vim' }
     })

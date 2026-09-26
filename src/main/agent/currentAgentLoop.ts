@@ -1,5 +1,9 @@
 import type { AgentTaskContinueDecision, AgentTaskStartResult, AgentTaskState } from '@shared/agent'
 import { IPC_EVENT_CHANNELS } from '@shared/ipc'
+import {
+  createConfiguredAgentProvider,
+  isConfiguredAgentProviderAvailable
+} from '../aiProvider/aiProviderRuntime'
 import { isDevelopment } from '../app/runtime'
 import { emitIpcEvent } from '../ipc/events'
 import { cancelPendingApprovals } from '../security/approval'
@@ -42,11 +46,13 @@ import { createScriptedProvider } from './scriptedProvider'
  * ON / OFF・Permission Main が設定から毎回読み直す（STEP1 / STEP9）
  * ```
  *
- * ## Provider（STEP9）
+ * ## Provider（STEP9 / STEP10-6）
  *
- * **開発ビルドだけ**、Scripted Provider（scriptedProvider.ts）を使う。配布ビルドには
- * Provider が無く、作業は `provider-unavailable` で始まらない。Scripted Provider も実 Provider と
- * 同じ境界（callAgentProvider）を通る。実 Provider と Credential Store は STEP10 後半。
+ * **正式な Provider（今は OpenAI）を先に使う。** ユーザー設定で Provider・Model を選び、API Key を
+ * 保存してあれば、配布ビルドでも開発ビルドでも OpenAI の Adapter を作る（aiProviderRuntime.ts）。
+ * 揃っていなければ、**開発ビルドだけ** Scripted Provider（scriptedProvider.ts）を使い、配布ビルドでは
+ * `provider-unavailable` で始まらない。どちらも同じ境界（External Send Gate → callAgentProvider）を
+ * 通り、応答は Schema と Security Core を通る。
  *
  * ## Workspace が変わったら止める
  *
@@ -55,8 +61,9 @@ import { createScriptedProvider } from './scriptedProvider'
  */
 
 const loop = createAgentLoop({
-  createProvider: () => (isDevelopment ? createScriptedProvider() : null),
-  isProviderAvailable: () => isDevelopment,
+  createProvider: () =>
+    createConfiguredAgentProvider() ?? (isDevelopment ? createScriptedProvider() : null),
+  isProviderAvailable: () => isConfiguredAgentProviderAvailable() || isDevelopment,
   isAgentEnabled: isFnAgentEnabled,
   hasWorkspace: () => getCurrentWorkspaceFolder() !== null,
   readPermissionMode: () => getCurrentSecurityPolicy().permissionMode,

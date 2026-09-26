@@ -1,3 +1,4 @@
+import { listAllowedModelIds, SUPPORTED_PROVIDER_IDS } from '@shared/aiProvider'
 import { AGENT_PERMISSION_MODES, FAIL_CLOSED_AGENT_PERMISSION_MODE } from '@shared/security'
 import {
   emptySettingsSections,
@@ -105,6 +106,15 @@ const SECTION_FIELDS: { readonly [Id in SettingsSectionId]: SectionFieldSpec<Id>
   */
   mcp: { enabled: 'boolean' },
   /*
+    FN Agent の Provider / Model（STEP10-5）。`security` と同じく、保存の要求は形に加えて
+    値まで Main が見る（下の SECTION_FIELD_CHOICES）── 正式な Provider の閉じた集合と
+    Model の allowlist の外は保存させない。
+
+    **API Key と Endpoint の欄は無い。** Key は OS の資格情報で暗号化した別ファイル
+    （main/aiProvider/aiProviderCredentialStore.ts）、Endpoint は Provider Adapter の内部に固定する。
+  */
+  aiProvider: { providerId: 'string', modelId: 'string' },
+  /*
     FN Agent の Permission（Security Core v1）。形は文字列だが、この section だけは
     **形に加えて値の意味まで Main が見る**（下の2つの表）── Security を緩める側へ
     倒れる読み替えを、Renderer 側の分担に任せない。
@@ -127,7 +137,12 @@ const SECTION_FIELD_CHOICES: {
     readonly [K in keyof SettingsSections[Id] & string]?: readonly string[]
   }
 } = {
-  security: { permissionMode: AGENT_PERMISSION_MODES }
+  security: { permissionMode: AGENT_PERMISSION_MODES },
+  /*
+    知らない Provider（`scripted` を含む）・allowlist に無い Model は要求ごと拒む（STEP10-5）。
+    Model の allowlist が空の間は、どの Model も保存できない（正式な Model は STEP10-6 で決める）。
+  */
+  aiProvider: { providerId: SUPPORTED_PROVIDER_IDS, modelId: listAllowedModelIds() }
 }
 
 /**

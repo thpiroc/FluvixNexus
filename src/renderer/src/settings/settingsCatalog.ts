@@ -155,7 +155,7 @@ interface SettingsCategoryBase {
  * ワークスペースでは押せない）・上書きの表示・保存の経路を、
  * このカテゴリのためにもう一組書くことになる。
  */
-export type SettingsCategoryPanelId = 'mcp'
+export type SettingsCategoryPanelId = 'mcp' | 'aiProvider'
 
 /** 値の項目が並ぶカテゴリ（Session 4-3B からの形）。 */
 export interface SettingsItemsCategoryDescriptor extends SettingsCategoryBase {
@@ -335,6 +335,34 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategoryDescriptor[] = [
       }
     ],
     panel: 'mcp'
+  },
+  /*
+    FN Agent の AI Provider（STEP10-5）。並べる項目は Provider と Model の選択（allowlist から選ぶ）で、
+    **API Key はここに無い** ── Key は設定の値ではないため（`panel` が出す API Key の面）。
+    Endpoint の項目も無い（Provider Adapter の内部に固定する）。
+  */
+  {
+    kind: 'items',
+    id: 'aiProvider',
+    titleKey: 'settings.categories.aiProvider.title',
+    descriptionKey: 'settings.categories.aiProvider.description',
+    items: [
+      {
+        id: 'aiProvider.provider',
+        titleKey: 'settings.items.aiProvider.provider.title',
+        descriptionKey: 'settings.items.aiProvider.provider.description',
+        section: 'aiProvider',
+        keys: ['providerId']
+      },
+      {
+        id: 'aiProvider.model',
+        titleKey: 'settings.items.aiProvider.model.title',
+        descriptionKey: 'settings.items.aiProvider.model.description',
+        section: 'aiProvider',
+        keys: ['modelId']
+      }
+    ],
+    panel: 'aiProvider'
   },
   {
     kind: 'shortcuts',
