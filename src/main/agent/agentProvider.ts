@@ -40,6 +40,8 @@ export interface AgentProvider {
   readonly contextWindowTokens: number
   /**
    * 次の Action を尋ねる。返り値は**未検査の出力**（JSON の文字列、または JSON で表せる値）。
+   * 実 Provider Adapter は `createAgentProviderOutput` の印付きの値（文字列 ＋ Token の実測値）を
+   * 返してよい（STEP10 Closing）。その文字列も同じく未検査の出力として扱われる。
    *
    * `signal` は停止・Workspace の切り替え・timeout で中断される。中断されたら、結果を返さずに
    * 投げてよい。**signal を守らない Provider でも Agent Loop は待たない** ── 待つのをやめるのは
@@ -224,11 +226,19 @@ export function isRetryableProviderFailure(failure: unknown): boolean {
  * Provider の呼び出し1回の結果（`callAgentProvider` が返す）。
  *
  * 成功なら応答を **JSON の文字列**として持つ（文字列の応答はそのまま、それ以外は1度だけ
- * JSON へ直した写し）。Agent Loop はこの文字列を Schema（parseAgentTurn）へ渡す ──
+ * JSON へ直した写し。印付きの戻り値ならその文字列）。Agent Loop はこの文字列を Schema（parseAgentTurn）へ渡す ──
  * Provider のオブジェクトそのもの（getter・Proxy・prototype）を Loop へ持ち込まない。
  */
 export type AgentProviderCallResult =
-  | { readonly ok: true; readonly text: string }
+  | {
+      readonly ok: true
+      readonly text: string
+      /**
+       * Provider が報告した Token の実測値（STEP10 Closing）。印付きの戻り値で、確かめ直して
+       * 通ったときだけ持つ（それ以外は欄ごと無い）。**判定には使わない参考情報。**
+       */
+      readonly usage?: AgentProviderUsage
+    }
   | {
       readonly ok: false
       readonly failure: AgentProviderFailure
@@ -238,6 +248,126 @@ export type AgentProviderCallResult =
        */
       readonly retryAfterMs?: number
     }
+
+/**
+ * Provider が報告した Token の実測値（STEP10 Closing。2026-10-14）。
+ *
+ * **参考情報で、判定の基準ではない。** API の usage は送り終えた要求の数で、次に送る要求の
+ * Token 数を保証しない。Context の上限は今までどおり保守的な見積もり（agentContext.ts の
+ * `estimateTokens`）で判定し、この値で緩めることも厳しくすることもしない。
+ *
+ * 持つのは数だけ。応答の本文・Header・Credential・request ID の欄は無い。Renderer・IPC・Audit へは
+ * 出さない（`AgentTaskState` にも Audit のイベントにも欄が無い）。
+ */
+export interface AgentProviderUsage {
+  readonly inputTokens: number
+  readonly outputTokens: number
+  /** 出力のうち reasoning の分（出力の内数）。Provider が報告しなければ null。 */
+  readonly reasoningTokens: number | null
+}
+
+/**
+ * 1つの値として受け取る Token 数の上限（STEP10 Closing）。**内部の検証用の防御上限**で、API の
+ * 正式な Token 上限ではない。Model の Context Window（1,050,000）より十分大きく、壊れた・巨大な
+ * 値を「無い」として捨てるためのもの。
+ */
+export const AGENT_PROVIDER_USAGE_MAX_TOKENS = 10_000_000
+
+/**
+ * Token の実測値を確かめ直す（Adapter・境界・Context の3か所で同じこの関数を使う）。
+ *
+ * - `inputTokens` / `outputTokens` … 0 以上 `AGENT_PROVIDER_USAGE_MAX_TOKENS` 以下の安全な整数
+ * - `reasoningTokens` … 欄が無い・`undefined` / `null` なら null。あれば同じ条件で、かつ出力以下
+ * - 自前の data property だけを読む（getter・prototype の値は読まない）
+ *
+ * **1つでも外れたら全体を `undefined`（無い）にする。** 無くても応答は有効のまま（呼ぶ側は
+ * 失敗にしない）。返すのは凍結した新しい object で、渡された object は持ち回さない。
+ */
+export function readAgentProviderUsage(value: unknown): AgentProviderUsage | undefined {
+  try {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      return undefined
+    }
+
+    const inputTokens = ownDataValue(value, 'inputTokens')
+    const outputTokens = ownDataValue(value, 'outputTokens')
+    const reasoning = ownDataValue(value, 'reasoningTokens')
+
+    if (!isTokenCount(inputTokens) || !isTokenCount(outputTokens)) {
+      return undefined
+    }
+
+    let reasoningTokens: number | null = null
+
+    if (reasoning !== undefined && reasoning !== null) {
+      if (!isTokenCount(reasoning) || reasoning > outputTokens) {
+        return undefined
+      }
+
+      reasoningTokens = reasoning
+    }
+
+    return Object.freeze({ inputTokens, outputTokens, reasoningTokens })
+  } catch {
+    // Proxy の罠が投げた・読めない object。
+    return undefined
+  }
+}
+
+function isTokenCount(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isSafeInteger(value) &&
+    value >= 0 &&
+    value <= AGENT_PROVIDER_USAGE_MAX_TOKENS
+  )
+}
+
+/** 自前の data property の値（getter・prototype の値・無い欄は undefined）。 */
+function ownDataValue(target: object, key: string): unknown {
+  const descriptor = Object.getOwnPropertyDescriptor(target, key)
+
+  return descriptor !== undefined && 'value' in descriptor ? descriptor.value : undefined
+}
+
+/**
+ * 実 Provider Adapter の戻り値（STEP10 Closing）。応答の文字列と、確かめた Token の実測値だけ。
+ *
+ * `createAgentProviderOutput` で作ったものだけが `isAgentProviderOutput` で真になる（WeakSet の印）。
+ * 境界は印の無い値を今までどおり JSON の文字列に直す ── Scripted Provider が返す JSON の値と
+ * 取り違えないため、形（`{ text, usage }`）では見分けない。
+ */
+export interface AgentProviderOutput {
+  readonly text: string
+  readonly usage?: AgentProviderUsage
+}
+
+const issuedOutputs = new WeakSet<object>()
+
+/**
+ * Adapter が返す印付きの戻り値を作る。usage は確かめ直し、通らなければ欄ごと付けない
+ * （それでも戻り値は作る ── usage が壊れていても応答は有効）。text が文字列でなければ投げる
+ * （境界では `provider-failed` になる）。
+ */
+export function createAgentProviderOutput(text: string, usage?: unknown): AgentProviderOutput {
+  if (typeof text !== 'string') {
+    throw new TypeError('provider output text must be a string')
+  }
+
+  const checked = readAgentProviderUsage(usage)
+  const output: AgentProviderOutput = Object.freeze(
+    checked === undefined ? { text } : { text, usage: checked }
+  )
+
+  issuedOutputs.add(output)
+
+  return output
+}
+
+/** `createAgentProviderOutput` が作った戻り値か（形が同じだけの object は偽）。 */
+export function isAgentProviderOutput(value: unknown): value is AgentProviderOutput {
+  return typeof value === 'object' && value !== null && issuedOutputs.has(value)
+}
 
 /**
  * Provider の呼び出しの Policy（Loop 側で強制する値）。

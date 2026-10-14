@@ -1,6 +1,7 @@
 import type { AgentPermissionMode } from '@shared/security'
 import type { RawExternalContextItem, RawExternalSendRequest } from '../security/externalSend'
 import { redactSecretText } from '../security/secret'
+import { readAgentProviderUsage, type AgentProviderUsage } from './agentProvider'
 
 /**
  * FN Agent の Context Manager（FN Engine v1 の最小版。Security Core v1 の STEP9）。
@@ -27,7 +28,9 @@ import { redactSecretText } from '../security/secret'
  *   （File Write / Terminal の成否の1行）は残す
  * - 畳んだ結果は「必要なら読み直す」と添える ── 落ちた情報を AI が推測で補わないように
  * - Token 数は Provider ごとの数え方を使わず、**文字の種類から保守的に見積もる**
- *   （`estimateTokens`。正確な数は STEP10 の Provider 境界で扱う）
+ *   （`estimateTokens`）。Provider が報告した実測値（STEP10 Closing）は `recordUsage` で
+ *   参考として持つだけで、**判定の基準は見積もりのまま**（API の usage は送り終えた要求の数で、
+ *   次に送る要求の数を保証しない）
  *
  * この Budget は External Send Gate の上限（1 件・合計 1,000,000 文字 / 256 件）とは**別物**
  * にあたる。あちらは Secret の検査を最後まで走らせるための上限で、ここを広げても動かない。
@@ -103,6 +106,13 @@ export interface AgentContext {
   readonly resolve: (key: string) => void
   /** Provider へ送る未検査の Request を組み立てる（Budget を超えていれば畳む）。 */
   readonly build: (input: AgentContextBuildInput) => AgentContextBuild
+  /**
+   * Provider が報告した Token の実測値を参考として持つ（STEP10 Closing。直前の1件だけ）。
+   * **`build()` の判定・見積もり・畳み方には使わない。** 確かめ直して通らない値は「無い」になる。
+   */
+  readonly recordUsage: (usage: unknown) => void
+  /** 直前の実測値（無ければ null）。Loop・テスト用で、Renderer・Audit へは出さない。 */
+  readonly lastUsage: () => AgentProviderUsage | null
 }
 
 export function createAgentContext(prompt: string, contextWindowTokens: number): AgentContext {
@@ -268,7 +278,21 @@ export function createAgentContext(prompt: string, contextWindowTokens: number):
     ]
   }
 
-  return Object.freeze({ add, resolve, build })
+  /*
+    Token の実測値（STEP10 Closing）。直前の値を参考として持つだけで、build() は読まない
+    （判定・見積もり・畳み方は変わらない）。確かめ直して通らなければ、前の値も捨てる。
+  */
+  let observedUsage: AgentProviderUsage | null = null
+
+  function recordUsage(usage: unknown): void {
+    observedUsage = readAgentProviderUsage(usage) ?? null
+  }
+
+  function lastUsage(): AgentProviderUsage | null {
+    return observedUsage
+  }
+
+  return Object.freeze({ add, resolve, build, recordUsage, lastUsage })
 }
 
 /** 1件を Provider へ送る形にする。 */

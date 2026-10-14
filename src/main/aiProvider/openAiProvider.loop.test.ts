@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentTaskState } from '@shared/agent'
+import type { AgentContext } from '../agent/agentContext'
 import { createAgentLoop } from '../agent/agentLoop'
 import {
   AGENT_PROVIDER_MAX_ATTEMPTS,
@@ -16,6 +17,27 @@ import {
   type SafeExternalPayload
 } from '../security/externalSend/safeExternalPayload'
 import { createOpenAiProvider, type OpenAiFetch } from './openAiProvider'
+
+/*
+  Loop が作った Context を横から見るため（STEP10 Closing の usage）。createAgentContext は本物の
+  まま呼び、作られた Context を覚えるだけ（振る舞いは変えない）。
+*/
+const contexts = vi.hoisted(() => [] as AgentContext[])
+
+vi.mock('../agent/agentContext', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../agent/agentContext')>()
+
+  return {
+    ...actual,
+    createAgentContext: (...args: Parameters<typeof actual.createAgentContext>) => {
+      const context = actual.createAgentContext(...args)
+
+      contexts.push(context)
+
+      return context
+    }
+  }
+})
 
 /**
  * OpenAI の Adapter を Agent Loop につないだときの呼び直し・中断・Audit（STEP10-6）。
@@ -45,6 +67,7 @@ beforeEach(() => {
   toolCalls = []
   fetchCalls = 0
   unhandled = []
+  contexts.length = 0
   process.on('unhandledRejection', onUnhandled)
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
 })
@@ -112,7 +135,7 @@ const toolbox: AgentToolbox = {
 
 type Step = () => Response | Promise<Response>
 
-function ok(text: string): Step {
+function ok(text: string, usage?: unknown): Step {
   return () =>
     new Response(
       JSON.stringify({
@@ -127,7 +150,8 @@ function ok(text: string): Step {
             status: 'completed',
             content: [{ type: 'output_text', text }]
           }
-        ]
+        ],
+        ...(usage === undefined ? {} : { usage })
       }),
       { status: 200, headers: { 'content-type': 'application/json', 'x-request-id': CANARY } }
     )
@@ -447,6 +471,150 @@ describe('応答は Schema と Security Core を通る', () => {
 
     expect(toolCalls).toEqual([])
     expect(loop.getState().status).toBe('stopped')
+    expect(unhandled).toEqual([])
+  })
+})
+
+describe('Token の実測値（STEP10 Closing）', () => {
+  /** 他の数と混ざらない値（states・Audit に出ていないことを文字列で確かめる）。 */
+  const USAGE = {
+    input_tokens: 7_654_321,
+    output_tokens: 123_457,
+    output_tokens_details: { reasoning_tokens: 98_765 }
+  }
+  const SEEN = { inputTokens: 7_654_321, outputTokens: 123_457, reasoningTokens: 98_765 }
+  const STATUS = '{"action":{"type":"workspace_status"}}'
+
+  function snapshot(): unknown {
+    return {
+      toolCalls: [...toolCalls],
+      fetchCalls,
+      states: JSON.stringify(states),
+      events: events.map((event) => [event.type, event.reason, event.subject, event.attempt]),
+      payloads: payloads.map((payload) => payload.parts.map((part) => [part.kind, part.text]))
+    }
+  }
+
+  async function run(steps: readonly Step[]): Promise<unknown> {
+    const loop = loopOf(openAi(steps))
+
+    loop.start('x')
+    await settle(loop)
+
+    return snapshot()
+  }
+
+  function reset(): void {
+    events = []
+    states = []
+    payloads = []
+    toolCalls = []
+    fetchCalls = 0
+    contexts.length = 0
+  }
+
+  it('成功の応答の usage は Context に参考として残り、states・Audit には出ない', async () => {
+    const loop = loopOf(openAi([ok(STATUS, USAGE), ok(COMPLETE, USAGE)]))
+
+    loop.start('x')
+    await settle(loop)
+
+    expect(loop.getState()).toMatchObject({ status: 'completed', loopsUsed: 2 })
+    expect(contexts).toHaveLength(1)
+    expect(contexts[0].lastUsage()).toEqual(SEEN)
+
+    const lines = events.map((event) => formatAuditRecordLine(sanitizeAuditEvent(event)))
+    const everything = JSON.stringify([events, lines, states, loop.getState()])
+
+    for (const number of ['7654321', '123457', '98765']) {
+      expect(everything).not.toContain(number)
+    }
+
+    expect(everything).not.toMatch(/usage|tokens/i)
+    expectNoLeak()
+  })
+
+  it('usage の有無で Loop の振る舞い（Action・Turn・Payload・状態・Audit）は変わらない', async () => {
+    const steps = (usage?: unknown): Step[] => [
+      ok(STATUS, usage),
+      status(429),
+      ok('{"action":{"type":"file_search","query":"todo"}}', usage),
+      ok(COMPLETE, usage)
+    ]
+
+    const without = await run(steps())
+
+    reset()
+
+    const withUsage = await run(steps(USAGE))
+
+    expect(withUsage).toEqual(without)
+    expect(contexts[0].lastUsage()).toEqual(SEEN)
+  })
+
+  it('失敗した試みは usage を持たない（呼び直して通った応答の usage だけ）', async () => {
+    const loop = loopOf(
+      openAi([
+        status(503),
+        ok(COMPLETE, { input_tokens: 40, output_tokens: 4, output_tokens_details: {} })
+      ])
+    )
+
+    loop.start('x')
+    await settle(loop)
+
+    expect(fetchCalls).toBe(2)
+    expect(loop.getState()).toMatchObject({ status: 'completed', loopsUsed: 1 })
+    expect(contexts[0].lastUsage()).toEqual({
+      inputTokens: 40,
+      outputTokens: 4,
+      reasoningTokens: null
+    })
+  })
+
+  it.each([
+    ['壊れた usage', { input_tokens: -1, output_tokens: 'x' }],
+    ['上限を超える usage', { input_tokens: 10_000_001, output_tokens: 1 }],
+    ['usage が無い', undefined]
+  ])('%s でも作業は普通に終わり、直前の値は「無い」になる', async (_name, broken) => {
+    const loop = loopOf(openAi([ok(STATUS, USAGE), ok(COMPLETE, broken)]))
+
+    loop.start('x')
+    await settle(loop)
+
+    expect(loop.getState()).toMatchObject({
+      status: 'completed',
+      loopsUsed: 2,
+      endReason: 'completed'
+    })
+    expect(toolCalls).toEqual(['workspace_status'])
+    expect(providerFailures()).toEqual([])
+    expect(contexts[0].lastUsage()).toBeNull()
+  })
+
+  it('止めた後に届いた応答の usage は記録しない', async () => {
+    let release: () => void = () => {}
+    const fetch: OpenAiFetch = () =>
+      new Promise((resolve) => {
+        release = () => resolve(ok(COMPLETE, USAGE)())
+      })
+    const provider = createOpenAiProvider({
+      model: 'gpt-6-sol',
+      fetch,
+      withCredential: (use) => ({ ok: true, value: use(KEY) })
+    })
+    const loop = loopOf(provider as AgentProvider)
+
+    loop.start('x')
+    await flush()
+
+    loop.stop()
+    await loop.whenIdle()
+    release()
+    await flush()
+
+    expect(loop.getState().status).toBe('stopped')
+    expect(contexts[0].lastUsage()).toBeNull()
     expect(unhandled).toEqual([])
   })
 })

@@ -2,6 +2,7 @@ import { isAllowedModelId } from '@shared/aiProvider'
 import {
   AGENT_PROVIDER_HTTP_POLICY,
   AgentProviderError,
+  createAgentProviderOutput,
   isRetryableProviderFailure,
   type AgentProvider,
   type AgentProviderHttpPolicy
@@ -18,7 +19,8 @@ import {
   classifyOpenAiHttpStatus,
   parseRetryAfterMs,
   readBodyWithLimit,
-  readOpenAiResponseText
+  readOpenAiResponseText,
+  readOpenAiUsage
 } from './openAiResponses'
 
 /**
@@ -31,6 +33,7 @@ import {
  *   ↓ この Adapter の next                 Payload を確かめ直す → 要求の本文 → Credential → fetch
  *   ↓ POST https://api.openai.com/v1/responses（固定）
  *   ↑ 状態の分類・Retry-After・バイト数の上限・応答の形の検査 → 1ターンの文字列（未検査のまま）
+ *     ＋ Token の実測値（STEP10 Closing。3つの数だけ）を印付きの戻り値（createAgentProviderOutput）で
  *   ↑ parseAgentTurn → Security Core（Gate）
  * ```
  *
@@ -166,12 +169,12 @@ export function createOpenAiProvider(options: OpenAiProviderOptions): AgentProvi
       throw new AgentProviderError('response-too-large')
     }
 
+    let raw: unknown
     let text: string | null
 
     try {
-      text = readOpenAiResponseText(
-        JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(read.bytes))
-      )
+      raw = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(read.bytes))
+      text = readOpenAiResponseText(raw)
     } catch {
       text = null
     }
@@ -180,7 +183,11 @@ export function createOpenAiProvider(options: OpenAiProviderOptions): AgentProvi
       throw new AgentProviderError('invalid-response')
     }
 
-    return text
+    /*
+      Token の実測値（STEP10 Closing）。3つの数だけで、読めなければ付けない ── usage が無い・
+      壊れていても応答は有効。本文・Header・Key は戻り値に入らない。
+    */
+    return createAgentProviderOutput(text, readOpenAiUsage(raw))
   }
 
   return Object.freeze({

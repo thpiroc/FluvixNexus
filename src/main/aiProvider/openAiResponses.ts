@@ -1,7 +1,9 @@
 import type { SafeExternalPayload } from '../security/externalSend/safeExternalPayload'
 import {
   AGENT_PROVIDER_RETRY_AFTER_MAX_MS,
-  type AgentProviderReportedFailure
+  readAgentProviderUsage,
+  type AgentProviderReportedFailure,
+  type AgentProviderUsage
 } from '../agent/agentProvider'
 
 /**
@@ -352,6 +354,62 @@ export function readOpenAiResponseText(raw: unknown): string | null {
   }
 
   return part.text.trim().length === 0 ? null : part.text
+}
+
+/**
+ * Responses API の応答から Token の実測値だけを取り出す（STEP10 Closing）。読めなければ undefined。
+ *
+ * ```
+ * { "usage": { "input_tokens": 701,
+ *              "output_tokens": 30,
+ *              "output_tokens_details": { "reasoning_tokens": 11 }? } }
+ * ```
+ *
+ * - 読むのは上の3つの数だけ（`input_tokens_details`・`total_tokens`・応答の他の欄は読まない）
+ * - 自前の data property だけを読み、範囲の確かめは `readAgentProviderUsage`（境界と同じ関数）
+ * - `reasoning_tokens`（または `output_tokens_details`）が無ければ reasoning は null。あるのに
+ *   読めない値なら usage 全体を無いとする
+ *
+ * **無くても応答は有効**（呼ぶ側は失敗にしない）。これは参考情報で、判定には使われない。
+ */
+export function readOpenAiUsage(raw: unknown): AgentProviderUsage | undefined {
+  try {
+    const usage = ownValue(raw, 'usage')
+
+    if (!isRecord(usage)) {
+      return undefined
+    }
+
+    const details = ownValue(usage, 'output_tokens_details')
+    let reasoningTokens: unknown = null
+
+    if (details !== undefined && details !== null) {
+      if (!isRecord(details)) {
+        return undefined
+      }
+
+      reasoningTokens = ownValue(details, 'reasoning_tokens') ?? null
+    }
+
+    return readAgentProviderUsage({
+      inputTokens: ownValue(usage, 'input_tokens'),
+      outputTokens: ownValue(usage, 'output_tokens'),
+      reasoningTokens
+    })
+  } catch {
+    return undefined
+  }
+}
+
+/** 自前の data property の値（object でない・getter・prototype の値・無い欄は undefined）。 */
+function ownValue(target: unknown, key: string): unknown {
+  if (!isRecord(target)) {
+    return undefined
+  }
+
+  const descriptor = Object.getOwnPropertyDescriptor(target, key)
+
+  return descriptor !== undefined && 'value' in descriptor ? descriptor.value : undefined
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

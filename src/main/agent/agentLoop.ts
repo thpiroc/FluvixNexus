@@ -489,6 +489,11 @@ export function createAgentLoop(deps: AgentLoopDependencies): AgentLoop {
       */
       current.providerFailures = 0
       current.loopsUsed += 1
+      /*
+        Token の実測値（STEP10 Closing）は参考として Context に持たせるだけ。無い・壊れているなら
+        「無い」になり、応答はそのまま有効。Renderer・Audit へは出さない。
+      */
+      current.context.recordUsage(called.usage)
       emit()
 
       return { kind: 'value', value: called.text }

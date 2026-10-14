@@ -872,6 +872,56 @@ STEP10-6 の OpenAI Adapter（`6218228`）を、**コードを変えずに**実 
   2. **`gpt-6.1-sol` の Allowlist：** 公式の新しい Sol。足すか・既定を変えるかは別に決める（`gpt-6-sol` に廃止の予告は無い）。
   3. **自動更新の `latest.yml`：** 配布相当ビルドの起動時に、更新の確認が「v1.0.0 の GitHub Release に `latest.yml` が無い」（`ERR_UPDATER_CHANNEL_FILE_NOT_FOUND`）で失敗していた。Agent とは無関係。
 
+##### STEP10 Closing：Token の実測値（2026-10-14 利用者決定）
+
+STEP10 の対象のうち残っていた「正確な Token 計測」を、**判定を変えない参考情報**として閉じる。Provider が報告した Token 数（OpenAI Responses API の `usage`）を Provider Boundary の内側から Context Manager まで運ぶが、**Context の上限の判定・見積もり（`estimateTokens`）・畳み方は変えない。** API の `usage` は「送り終えた要求」の数で、次に送る要求の Token 数を保証しない（指示文・Tool の結果・Schema の分だけ毎回変わる）ため、判定の基準は保守的な見積もりのまま残す。
+
+```
+OpenAI Adapter
+  readOpenAiResponseText(raw) → text（今までどおり）
+  readOpenAiUsage(raw)        → input_tokens / output_tokens / output_tokens_details.reasoning_tokens だけ
+  createAgentProviderOutput(text, usage)    印付き・凍結した戻り値（agentProvider.ts）
+    ↓
+callAgentProvider（境界）
+  印付きなら text は今までどおり検査し、usage は確かめ直して { ok: true, text, usage? } に載せる
+  印の無い値（Scripted の文字列・JSON の値・偽装した { text, usage }）は今までどおり（usage なし）
+    ↓
+Agent Loop  成功の応答のときだけ context.recordUsage(usage)
+    ↓
+Context Manager  直前の実測値を参考として持つだけ（build() の結果は変わらない）
+```
+
+- **取り出すのは3つの数だけ：** `inputTokens`・`outputTokens`・`reasoningTokens`（出力の内数）。応答の他の欄・本文・Header・API Key・request ID は読まない・運ばない。
+- **印付きの戻り値（`createAgentProviderOutput` / `isAgentProviderOutput`）：** `SafeExternalPayload` と同じく、この module が作ったものだけを WeakSet で覚える。Scripted Provider は JSON の値もそのまま返すため、形だけで `{ text, usage }` を見分けると「そういう形の JSON」を取り違える ── 印の無いものは今までどおり JSON の文字列に直す（Provider が `{ text, usage }` を偽装しても usage にはならず、Action としても通らない）。
+- **確かめ方（`readAgentProviderUsage`。Adapter・境界・Context の3か所で同じ関数）：** 入力・出力は 0 以上の安全な整数で、**各値 10,000,000 以下**。reasoning は欄が無い（`undefined` / `null`）なら `null`、あれば同じ条件で、かつ出力以下。自前の data property だけを読む（getter・prototype の値は読まない）。どれか1つでも外れたら **usage 全体を「無い」とする**。10,000,000 は内部の検証用の防御上限で、API の正式な Token 上限ではない。
+- **取れないときの扱い（Fail Open の参考値・Fail Closed の応答）：** usage が無い・壊れている・上限を超えていても、**応答そのものは有効のまま**（失敗にしない・呼び直さない・Audit に出さない）。Scripted Provider と、失敗・中断・timeout した試みは usage を持たない（失敗の応答の本文は読まないため）。Context は直前の値を持たないだけで、判定は見積もりのまま動く。
+- **Context Manager：** `recordUsage(usage)` で直前の実測値を参考として持ち、`lastUsage()` で読める（Loop・テスト用）。`build()` は usage を読まない。**実測値で上限を緩める経路も厳しくする経路も作らない**（「実測が見積もりを超えたら厳しくする」は将来の候補）。
+- **外へ出さない：** usage は `AgentTaskState`（Renderer）・IPC・Preload・`shared/api`・Audit・ログのどれにも載らない（欄を作らない）。Renderer での表示（Usage の表示）は今回作らない。
+- **変えないもの：** Approval・External Send Gate・Workspace Boundary・STOP / HALT・Model Allowlist（3つ）・Context 128,000 と入力 70%・見積もり・畳み方・最大3回と Retry-After の方針・失敗の分類・Scripted Provider・Security Core（`src/main/security/**`）。
+- **自動テスト：** `agentProviderUsage.test.ts`（3つの数の確かめ・0 と上限ちょうど・負 / 小数 / NaN / 文字 / bigint / 上限超え / reasoning が出力超え → 全体が無い・getter と prototype を読まない・罠のある Proxy・印付きの戻り値と偽装・境界で usage が載る / 載らない・偽装した `{ text, usage }` は JSON の文字列のまま・印付きでも文字数の上限・止めた後の戻り値は捨てる・Context は usage の有無と大小で `build()` が同じ）、`openAiUsage.test.ts`（実 API と同じ形・reasoning が無い4通り・壊れた usage 12 通り・本物の境界を通して usage が無い / 壊れていても応答は有効・usage が正しくても本文が壊れていれば `invalid-response`・戻り値に Key / Header / request ID / 他の欄が無い）、`openAiProvider.loop.test.ts` の「Token の実測値」（本物の Gate と Loop で：usage が Context に残り states・Audit に出ない・usage の有無で Action / Turn / Payload / 状態 / Audit が完全に同じ・失敗した試みの usage は無い・壊れた usage でも作業は普通に終わる・止めた後の応答の usage は記録しない）。Loop の `recordUsage` を外すと Integration が落ちることを確かめた。どれも実ネットワークを使わない。
+- **確かめた結果（2026-10-14）：** `npm run verify` 成功（373 files / 6,795 passed / 6 skipped）・`npm run build` 成功。変更は `src/main/agent/`（agentProvider / agentProviderCall / agentLoop / agentContext）と `src/main/aiProvider/`（openAiResponses / openAiProvider）だけで、Security Core・IPC・Preload・Renderer・`shared` は変えていない（usage の名前はこの2つの folder の外のコードにも、Preload / Renderer の build 結果にも出てこない）。Surface のテスト（Agent の状態・Audit・Provider・Credential・External Send）は変更なしで通る。
+- **実 API での確認（2026-10-14・利用者承認のうえ実施）：** 開発ビルド・`gpt-6-sol`・Workspace `FN-Security-Test`・依頼文「workspace の状態を確認して complete で終える」。**呼び出しは 2 回（上限 2 回・超える要求は送らない作り）で、どちらも HTTP 200・`completed`**、作業は 2 Turn で `completed`。
+  - **確かめ方（本番コードへの検証用の処理の追加なし）：** テストのときだけ Main に V8 inspector を付け、(1) `globalThis.fetch` を包んで応答の `usage` の数だけを控え（回数の上限もここで掛ける）、(2) Loop の `recordUsage(called.usage)` の次の行に**必ず false を返す条件付きの breakpoint**（一度も止まらない）を置いて、Context 自身の `lastUsage()` の3つの数を控えた。先に偽の応答（通信なし・課金なし）で同じ仕掛けが一致することを確かめてから実通信した。driver はリポジトリの外。
+  - **結果：** 応答の usage と Context Manager の `lastUsage()` が**2回とも完全に一致**（入力 / 出力 / reasoning = 682 / 28 / 9 と 725 / 56 / 17）。条件式の例外 0 件。`AgentTaskState` の欄は今までの9つのまま（usage は無い）。実行中に増えた `main.log` / `agent-audit.log` に Token の欄・`Bearer`・`Authorization`・`sk-…` の形・要求の本文の印は無い。
+  - **Token と費用：** 入力 1,407・出力 84（うち reasoning 26）。推定費用は約 **$0.004**（Sol の公式料金から）。
+
+##### STEP10 Provider Boundary の完了（2026-10-14 利用者承認）
+
+**STEP10（10-1〜10-7 ＋ Closing）は完了。** Scripted Provider だけだった Agent Loop を、Security Core の境界を保ったまま実 Provider（OpenAI）へつないだ。
+
+| 段階    | 内容                                                                                   | Commit            |
+| ------- | -------------------------------------------------------------------------------------- | ----------------- |
+| 10-1〜4 | Provider の契約・呼び出しの境界・失敗と再試行の方針・Security Regression               | `61cade4`         |
+| 10-5〜6 | Credential Store / User Settings・OpenAI Provider Adapter                              | `6218228`         |
+| 10-7    | 実 API の smoke（開発ビルド A1〜A5・配布相当 B1）                                      | `d578957`（記録） |
+| Closing | Token の実測値を参考情報として Context へ（判定は見積もりのまま）・実 API で一致を確認 | この節の Commit   |
+
+- **Context の上限の方針（確定）：** Context の上限の判定は**今までどおり保守的な見積もり（`estimateTokens`）**で行う。Provider が報告した実測値（usage）は Context Manager が**参考情報として持つだけ**で、判定を緩めることも厳しくすることもしない（API の usage は送り終えた要求の数で、次に送る要求の Token 数を保証しないため）。
+- **検証：** `npm run verify` 成功（373 files / 6,795 passed / 6 skipped）・`npm run build` 成功・Security Surface（Agent の状態・Audit・Provider・Credential・呼び出しの境界・External Send の6つの Surface テスト 75 件）は変更なしで通過・usage と Key が Provider Boundary の外（IPC・Preload・Renderer・`shared`・Audit・ログ）へ出ないことを確認。実 API の確認は STEP10-7 の 14 回（約 $0.02）と Closing の 2 回（約 $0.004）。
+- **維持したもの：** Approval・External Send Gate・Workspace Boundary・STOP / HALT・Model Allowlist（`gpt-6-astra` / `gpt-6-sol` / `gpt-6-luna`）・Context 128,000 と入力 70%・最大3回と Retry-After の方針・失敗の分類・Endpoint 固定・API Key は safeStorage の Credential Store からだけ。
+- **持ち越し（STEP10 の外。今後の候補）：** Usage の表示（Renderer）・実測が見積もりを超えたときに上限を厳しくする仕組み・`gpt-6.1-sol` の Allowlist・自動更新の `latest.yml`・`gpt-6-astra` / `gpt-6-luna` での実通信。
+- **次：** STEP11 Read Gateway（Git の読み取り専用 Tool。MCP Read Gateway を Security Core v1 に含めるかはここで再判断）→ STEP12 Closing。
+
 ### 6.5 v1 に含めないもの
 
 | 項目                                               | 扱い                                                                                                   |

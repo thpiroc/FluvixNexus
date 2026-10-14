@@ -1,13 +1,16 @@
 import { isSafeExternalPayload } from '../security/externalSend/safeExternalPayload'
 import {
   AgentProviderError,
+  isAgentProviderOutput,
   isAgentProviderReportedFailure,
   isRetryableProviderFailure,
+  readAgentProviderUsage,
   readRetryAfterMs,
   type AgentProvider,
   type AgentProviderCallPolicy,
   type AgentProviderCallResult,
-  type AgentProviderFailure
+  type AgentProviderFailure,
+  type AgentProviderUsage
 } from './agentProvider'
 
 /**
@@ -25,6 +28,7 @@ import {
  *   5. next(payload, 呼び出しの signal)    ここまで await を挟まない（3 と 4 の間に取り消されない）
  *   6. 応答・作業の signal の abort・timeout のうち、最初に成立したものだけを採る
  *   7. 応答を JSON の文字列にし、上限を確かめる（response-too-large / invalid-response）
+ *      Adapter の印付きの戻り値なら、その文字列と確かめ直した Token の実測値（STEP10 Closing）
  * ```
  *
  * ## Provider が signal を守らなくても待たない
@@ -276,15 +280,28 @@ function isAborted(signal: unknown): boolean {
 /**
  * 応答を JSON の文字列にして、上限を確かめる。
  *
- * 文字列はそのまま。それ以外は **1度だけ** JSON へ直す（getter・toJSON はここで1度だけ動き、
+ * Adapter の印付きの戻り値（`createAgentProviderOutput`）はその文字列を使い、Token の実測値を
+ * 確かめ直して載せる。文字列はそのまま。それ以外は **1度だけ** JSON へ直す（getter・toJSON はここで1度だけ動き、
  * Loop へは写しの文字列だけが渡る）。JSON で正確に表せない値（`undefined`・関数・symbol・
  * bigint・有限でない数・循環）は、直すと欄が黙って消えて Schema の「知らない欄を拒む」が
  * 効かなくなるため、直さずに `invalid-response` にする。
  */
 function readResponse(output: unknown, maxChars: number): AgentProviderCallResult {
   let text: string
+  let usage: AgentProviderUsage | undefined
 
-  if (typeof output === 'string') {
+  if (isAgentProviderOutput(output)) {
+    /*
+      Adapter の印付きの戻り値（STEP10 Closing）。文字列は今までどおりの検査へ、Token の実測値は
+      確かめ直してから載せる（通らなければ欄ごと無い。応答は有効のまま）。
+    */
+    if (typeof output.text !== 'string') {
+      return { ok: false, failure: 'invalid-response' }
+    }
+
+    text = output.text
+    usage = readAgentProviderUsage(output.usage)
+  } else if (typeof output === 'string') {
     text = output
   } else {
     try {
@@ -304,7 +321,7 @@ function readResponse(output: unknown, maxChars: number): AgentProviderCallResul
     return { ok: false, failure: 'response-too-large' }
   }
 
-  return { ok: true, text }
+  return usage === undefined ? { ok: true, text } : { ok: true, text, usage }
 }
 
 function strictJsonValue(_key: string, value: unknown): unknown {
