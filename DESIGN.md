@@ -835,11 +835,42 @@ Agent Loop
 - **Renderer / Preload / IPC：** 増えたものは無い（Credential の set / delete / has と設定の経路だけ）。OpenAI の応答・要求・URL・Authorization・Payload・Security の迂回を扱う API は無い。
 - **自動テスト：** `openAiResponses.test.ts`（Endpoint・Schema と `parseAgentTurn` のずれ・`null` の行・要求の本文・HTTP の分類 17 通り・Retry-After の解析と上限・応答の形 26 通り・受信しながらの上限と cancel）、`openAiProvider.test.ts`（本物の境界を通して：Astra / Sol / Luna の要求・Endpoint 固定と URL の欄の無視・Payload の確かめ直し・Credential 未設定 / 壊れている / 復号できない / 環境変数で fetch しない・`sk-` で始まらない Key・HTTP 200 / 400 / 401 / 403 / 404 / 408 / 429 / 500 / 502 / 503 / 302（本文を読まずに捨てる）・Retry-After・通信の失敗・中断で HTTP も止まる・timeout・signal を無視する fetch と遅れた応答・壊れた JSON / UTF-8 / 形・読みながらの上限・文字数の上限・壊れた Structured Output・漏れ）、`openAiProvider.loop.test.ts`（本物の Gate と Loop で：429 / 500 / 503 / 408 / 通信の失敗の呼び直し・毎回新しい Payload・最大3回・401 / 403 / 400 / 404 は呼び直さない・Retry-After 無し 1 秒 / 1 秒 / 5 秒 / 30 秒（上限ちょうど）/ ms / 短すぎる / 読めない、31 秒 / 56 秒 / 503 の 30,001 ms / 巨大な秒・ms・遠い日付は時計を進めずに呼び直さずに終わる（timer も残らない）・2回目の失敗で上限超え・待機中の停止・Action は toolbox でだけ・止めた後の応答で副作用なし・Audit / 状態に漏れなし）、`agentProviderRetryAfter.test.ts`（目安の範囲の確かめ直し・上限ちょうど / 超え・上限の欄が無い Policy・天井以上の上限は読まない）、`aiProviderRuntime.test.ts`（作れる条件・組み立て時に Key を取り出さない・globalThis.fetch で固定の Endpoint）、`openAiProviderSurface.test.ts`、`agentLoop.integration.test.ts` の「STEP10-6 OpenAI Adapter」（本物の Security Core の前で：Secret ファイル・Workspace の外は拒まれ、承認した書き込みだけが起き、OpenAI へは伏せた後のものだけ・Read の Permission では承認すら求めない）。どれも実ネットワーク・実時間の待ちを使わない。
 - **公式仕様との照合（2026-09-26）：** Model ID の3つ・Responses API の対応・Structured Outputs の対応・Endpoint・Bearer 認証・`input`（`message` / `developer` / `user` / `input_text`）・`text.format`（`json_schema` / `name` / `strict` / `schema`）・`store: false`・strict の Schema の条件（root は object で `anyOf` ではない・すべて `required`・すべての object に `additionalProperties: false`・`anyOf` と `enum` は対応型・null を許す型の配列・入れ子は10段以内）・GPT-6 で外すべき parameter（`temperature` / `top_p` / `top_logprobs`）を送っていないこと、はどれも公式の文書で矛盾が無いことを確かめた。
-- **STEP10-7（次）：** 利用者と一緒に実 API Key で実 API の E2E を行う。**開発ビルドで詳細な E2E → 配布相当のビルドで最終 E2E** の2段階 smoke。実 API でしか確かめられない、次のことを確認する。
+- **STEP10-7（2026-10-14 実施・完了。結果は次の節）：** 利用者と一緒に実 API Key で実 API の E2E を行う。**開発ビルドで詳細な E2E → 配布相当のビルドで最終 E2E** の2段階 smoke。実 API でしか確かめられない、次のことを確認する。
   - **`phase` の付いた message：** Responses API の出力の message には `phase: "commentary" | "final_answer"` が付くことがある。今の検査は「`message` はちょうど1つ」のままにしてある（**推測だけで Parser を広げない**。2026-09-26 確定）。smoke で commentary と final_answer が別々の message として返るなどの実際の問題が出たときだけ、その時点で最小の修正をする。
   - **Structured Outputs の残りの確認：** `anyOf` の候補の先頭の key がどれも `type` で受理されるか（公式の文書には制約の記載が無く、コミュニティに「先頭の key が同じではいけない」という報告がある）・`["integer","null"]` が受理されるか（公式の例は string だけ）。
   - 3つの Model で実際に応答が返り `parseAgentTurn` を通るか・実際の 401 / 429 と Retry-After・`store: false` での動作・利用者のネットワーク（proxy）で `globalThis.fetch` が通るか。
 - **STEP10-6 で作らないもの：** 実 API Key の入力・実 OpenAI への通信（課金の発生する呼び出し）・STEP10-7 の実機 smoke・Anthropic / Gemini・OpenAI の built-in tools（Web Search・Computer Use・MCP・Hosted Shell・File Search・Code Interpreter）・Streaming。
+
+##### 実 API の smoke（STEP10-7。2026-10-14 実施・完了）
+
+STEP10-6 の OpenAI Adapter（`6218228`）を、**コードを変えずに**実 OpenAI Responses API で確かめた（ブランチ `feature/agent-openai-smoke-test`）。利用者は事前に、課金設定・$5 のクレジット購入（自動チャージ OFF）・権限を絞った API Key の作成・FN の設定画面での Provider（OpenAI）/ Model（GPT-6 Sol）の選択・Credential Store への Key の保存を済ませた。Model は `gpt-6-sol`、Workspace は FN 本体と別の `FN-Security-Test`（小さなファイル2つ）。
+
+- **事前の公式仕様の確認（2026-10-14）：** `gpt-6-astra` / `gpt-6-sol` / `gpt-6-luna` はどれも公式のモデルページがあり、Responses API と Structured Outputs に対応・廃止の予告なし。料金（Standard・100万 Token あたり・入力 272K 以下）は公式の料金ページで Astra 入力 $10 / 出力 $50・Sol $2 / $10・Luna $0.10 / $0.50。公式のモデル一覧の Sol は新しい `gpt-6.1-sol` になっており、`gpt-6-sol` のページは「新しい Sol は GPT-6.1 Sol」と案内している（Allowlist は変えていない。下の今後の候補）。
+- **確かめ方：** 開発ビルド・配布相当ビルドの Main に、テストのときだけ V8 inspector を付けて `globalThis.fetch` を包んだ（driver はリポジトリの外。製品のコードには何も足していない）。記録したのは Endpoint 宛ての要求ごとの HTTP の状態・応答の `output` の種類 / `role` / `phase`・返った Action の種類・`usage` の Token 数だけで、Key・Authorization・要求と応答の本文は記録していない。同じ包みで**呼び出しの回数に上限**（開発ビルド 20 回・B1 4 回）を掛け、超えた要求は送らない作りにした。
+- **開発ビルド（A1〜A5）：**
+
+  | #   | 内容                                                                              | 結果                                                                                                                                          |
+  | --- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+  | A1  | `workspace_status` → `workspace_list` → 完了                                      | 4 回すべて HTTP 200・`completed`                                                                                                              |
+  | A2  | `file_read`（行は `null`）→ `file_search` → 完了                                  | 3 回すべて HTTP 200・`completed`                                                                                                              |
+  | A3  | `file_write` の提案                                                               | FN の承認画面が出て「取り消す」→ 停止（`user-stopped`）。**ファイルは作られていない**。停止で次の要求は通信ごと中断（約 0.5 秒）              |
+  | A4  | 応答待ちの間に STOP                                                               | 約 0.3 秒で通信が中断・`user-stopped`                                                                                                         |
+  | A5  | 不正な Key（その1回だけ Authorization を差し替え。保存済みの Key は変えていない） | HTTP 401 → `provider-authentication-failed`・**呼び直し 0 回**・Audit は `agent.provider-failed`（`authentication-failed`・`attempt: 1`）だけ |
+
+- **配布相当ビルド（B1）：** `npm run build` → `electron-builder --win dir --x64 --publish never` を `release/` とは別の一時フォルダへ出力（installer は作らない・インストール済みのアプリに触れない）。`release/` の 105 ファイルの sha256 は前後で一致（v1.0.0 の配布物の写しは変わっていない）。配布相当ビルドは Scripted Provider を作らないので、使われたのは設定した OpenAI だけ。A1 と同じ作業が **3 回**（`workspace_status` → `workspace_list` → `complete`）ですべて HTTP 200・`completed`。終わった後に一時ビルド（366 MB）は削除した。
+- **確かめられたこと：**
+  - **strict の Structured Outputs：** 全要求が受理された。STEP10-6 で残していた `anyOf` の候補の先頭の key がどれも `type`・`["integer","null"]` も問題なし。
+  - **`phase`：** 正常な応答 11 回すべてが「`reasoning` 1 件 ＋ `message` 1 件（`role: assistant`・`phase: "final_answer"`・`status: completed`）」。commentary の別の message は一度も来なかったので、**Parser は広げない**（2026-09-26 の方針のまま）。
+  - **変換：** 返った Action（`workspace_status` / `workspace_list` / `file_read` / `file_search` / `file_write` / `complete`）はどれも `parseAgentTurn` → Security Core を通って処理された（`terminal_run` は今回呼ばれていない）。応答には `billing` / `moderation` / `tool_usage` などの欄もあったが、Parser は読まないので影響なし。
+  - **Usage（応答の `usage`）：** 1 回あたり入力 約 700〜850 Token（cached 0）・出力 30〜62 Token（うち reasoning 8〜40）。正常な応答 11 回の合計は入力 8,336・出力 489 Token。
+  - **漏れなし：** 実行中に増えた `main.log` / `agent-audit.log` に `Bearer`・`Authorization`・`sk-…` の形・要求の本文の印（`input_text` / `json_schema` / `fn_agent_turn`）が無いことを確かめた。
+  - **既存の仕様の維持：** Approval・External Send Gate・Workspace Boundary・STOP・Model Allowlist（3つ）・Context 128,000・Retry-After の方針は変えていない（コードの変更なし。provider / agent / security の自動テスト 66 files / 1,423 passed）。
+- **呼び出しの回数と費用：** 開発ビルド 11 回（正常 8・中断 2・401 が 1）＋ B1 3 回 ＝ **14 回**。推定費用は約 **$0.02**（Sol の公式料金と正常な応答の `usage` からの計算。中断した 2 回が課金されていても $0.03 未満。正確な額は OpenAI の Usage 画面）。
+- **実 API で再現していないもの：** 429・5xx・Retry-After・Timeout・壊れた JSON・Schema の不一致は STEP10-6 の Mock テストでの確認のまま（実 API でわざと起こさない）。`gpt-6-astra` / `gpt-6-luna` での実通信は行っていない（Allowlist にあり公式で対応を確認済み）。
+- **今後の対応の候補（STEP10-7 では直さない）：**
+  1. **Usage の表示：** Adapter は `usage` を捨てている（今回の Token 数はテストの包みで取った）。FN の中で見せるなら Adapter と表示の変更が要る。
+  2. **`gpt-6.1-sol` の Allowlist：** 公式の新しい Sol。足すか・既定を変えるかは別に決める（`gpt-6-sol` に廃止の予告は無い）。
+  3. **自動更新の `latest.yml`：** 配布相当ビルドの起動時に、更新の確認が「v1.0.0 の GitHub Release に `latest.yml` が無い」（`ERR_UPDATER_CHANNEL_FILE_NOT_FOUND`）で失敗していた。Agent とは無関係。
 
 ### 6.5 v1 に含めないもの
 
