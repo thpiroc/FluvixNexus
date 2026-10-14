@@ -10,6 +10,15 @@ import {
   splitNodeWithPanel,
   type DockTarget
 } from './layout/operations'
+import {
+  NO_PANEL_SEATS,
+  PANEL_PLACEMENT_CHOICES,
+  openPanelAtSeat,
+  placePanelAt,
+  rememberPanelSeats,
+  resolvePanelShowMode,
+  type PanelSeats
+} from './layout/panelSeats'
 import { closePanelInLayout, openPanelInLayout } from './layout/panelVisibility'
 import { DEFAULT_LAYOUT_PRESET_ID, getLayoutPreset } from './layout/presets'
 import { resizeSplitBoundary } from './layout/resize'
@@ -21,7 +30,7 @@ import {
   findPanelLocation,
   isSplitNode
 } from './layout/tree'
-import type { DockNodeId, WorkspaceLayout } from './layout/types'
+import type { DockNode, DockNodeId, WorkspaceLayout } from './layout/types'
 import type { PanelId } from './panels/types'
 import { isSameLayout, serializeWorkspaceLayout } from './persistence/layoutDocument'
 import { restoreWorkspaceLayout } from './persistence/restoreLayout'
@@ -615,5 +624,163 @@ describe('STEP 2 統合: 想定外の保存データからの復帰', () => {
     }
 
     expect(collectPanelIds(layout.root)).toHaveLength(4)
+  })
+})
+
+/* -------------------------------------------------------------------------- */
+
+/** 木の形（id を除いた並び・向き・大きさ）。再表示では id が変わるため、形で比べる。 */
+function shapeWithSizes(node: DockNode): string {
+  const size = node.size === null ? '' : `:${node.size}`
+
+  if (node.kind === 'group') {
+    return `[${node.panelIds.join(',')}]${size}`
+  }
+
+  return `${node.direction}(${node.children.map(shapeWithSizes).join(' ')})${size}`
+}
+
+/** 席も一緒に保存してアプリを起動し直す（JSON の往復）。 */
+function restartWithSeats(
+  layout: WorkspaceLayout,
+  seats: PanelSeats
+): ReturnType<typeof restoreWorkspaceLayout> {
+  const onDisk = JSON.parse(
+    JSON.stringify(serializeWorkspaceLayout(layout, DEFAULT_LAYOUT_PRESET_ID, seats))
+  ) as WorkspaceLayoutDocument
+
+  return restoreWorkspaceLayout(onDisk)
+}
+
+describe('Agent パネル統合: 初回配置 → Drag → タブ統合 → Resize → 非表示 → Restart → 再表示', () => {
+  const AGENT_ONLY: readonly PanelId[] = ['agent']
+
+  /** Shell と同じく、レイアウトを変えるたびに席を控える。 */
+  function apply(
+    current: { layout: WorkspaceLayout; seats: PanelSeats },
+    next: WorkspaceLayout
+  ): { layout: WorkspaceLayout; seats: PanelSeats } {
+    expectHealthy(next)
+
+    return {
+      layout: next,
+      seats: rememberPanelSeats(current.seats, current.layout, next, AGENT_ONLY)
+    }
+  }
+
+  it('共通のドック機構だけで動かせ、最後の配置が再起動をまたいで戻る', () => {
+    let state = {
+      layout: getLayoutPreset(DEFAULT_LAYOUT_PRESET_ID).createLayout(),
+      seats: NO_PANEL_SEATS
+    }
+
+    // ① 既定のレイアウトに Agent は無く、席も無い → 初回（置き場所を尋ねる）
+    expect(collectPanelIds(state.layout.root)).not.toContain('agent')
+    expect(resolvePanelShowMode(state.layout, state.seats, 'agent')).toBe('choose')
+
+    // ② 右を選ぶ
+    state = apply(state, placePanelAt(state.layout, 'agent', 'right'))
+    expect(resolvePanelShowMode(state.layout, state.seats, 'agent')).toBe('visible')
+    expect(sizeOf(state.layout, 'agent')).toBe(360)
+
+    // ③ Editor の中央へドロップ → タブ統合
+    state = apply(
+      state,
+      dropPanel(state.layout, 'agent', groupIdOf(state.layout, 'editor'), 'center')
+    )
+    expect(tabsOf(state.layout, 'agent')).toEqual(['editor', 'agent'])
+
+    // ④ Files の下へドロップ → Files の領域を割って入る
+    state = apply(
+      state,
+      dropPanel(state.layout, 'agent', groupIdOf(state.layout, 'files'), 'bottom')
+    )
+    expect(tabsOf(state.layout, 'agent')).toEqual(['agent'])
+    expect(tabsOf(state.layout, 'editor')).toEqual(['editor'])
+
+    // ⑤ 境界を動かして Agent を高くする（両側が「残りを埋める」ので、手前の Files が 240px に固定される）
+    const boundary = boundaryBefore(state.layout, 'agent')
+    state = apply(
+      state,
+      resizeSplitBoundary(state.layout, boundary.splitId, boundary.index, [300, 300], -60)
+    )
+    expect(sizeOf(state.layout, 'files')).toBe(240)
+    expect(sizeOf(state.layout, 'agent')).toBeNull()
+    const lastShape = shapeWithSizes(state.layout.root)
+
+    // ⑥ 再起動（表示中のまま）→ そのまま戻る
+    const whileVisible = restartWithSeats(state.layout, state.seats)
+    expect(whileVisible.ok).toBe(true)
+    if (!whileVisible.ok) return
+    expect(shapeWithSizes(whileVisible.layout.root)).toBe(lastShape)
+
+    // ⑦ 非表示にする → 席が控えられ、次は再表示（尋ねない）
+    state = apply(state, closePanelInLayout(state.layout, 'agent'))
+    expect(collectPanelIds(state.layout.root)).not.toContain('agent')
+    expect(resolvePanelShowMode(state.layout, state.seats, 'agent')).toBe('restore')
+
+    // ⑧ 非表示のまま再起動 → 席も一緒に戻る
+    const restored = restartWithSeats(state.layout, state.seats)
+    expect(restored.ok).toBe(true)
+    if (!restored.ok) return
+    expect(restored.panelSeats.agent).toBeDefined()
+    expect(resolvePanelShowMode(restored.layout, restored.panelSeats, 'agent')).toBe('restore')
+
+    // ⑨ 再表示 → 最後の配置（Files の下・Files は 240px のまま）へ戻る
+    const reopened = openPanelAtSeat(
+      restored.layout,
+      restored.panelSeats.agent as WorkspaceLayout,
+      'agent'
+    )
+    expectHealthy(reopened)
+    expect(shapeWithSizes(reopened.root)).toBe(lastShape)
+
+    // ⑩ 他のパネルは最後まで1枚ずつ
+    expect([...collectPanelIds(reopened.root)].sort()).toEqual(
+      ['agent', 'editor', 'files', 'git', 'terminal'].sort()
+    )
+  })
+
+  it('5方向のどれに置いても、非表示 → 再起動 → 再表示で同じ場所へ戻る', () => {
+    for (const choice of PANEL_PLACEMENT_CHOICES) {
+      const preset = getLayoutPreset(DEFAULT_LAYOUT_PRESET_ID).createLayout()
+      const shown = placePanelAt(preset, 'agent', choice)
+      const closed = closePanelInLayout(shown, 'agent')
+      const seats = rememberPanelSeats(NO_PANEL_SEATS, shown, closed, AGENT_ONLY)
+      const restored = restartWithSeats(closed, seats)
+
+      expect(restored.ok, choice).toBe(true)
+      if (!restored.ok) continue
+
+      const reopened = openPanelAtSeat(
+        restored.layout,
+        restored.panelSeats.agent as WorkspaceLayout,
+        'agent'
+      )
+
+      expectHealthy(reopened)
+      expect(shapeWithSizes(reopened.root), choice).toBe(shapeWithSizes(shown.root))
+    }
+  })
+
+  it('プリセットの切り替えで Agent が消えても、最後の席は残る', () => {
+    const preset = getLayoutPreset(DEFAULT_LAYOUT_PRESET_ID).createLayout()
+    const shown = placePanelAt(preset, 'agent', 'left')
+    const seats = rememberPanelSeats(NO_PANEL_SEATS, shown, preset, AGENT_ONLY)
+
+    expect(resolvePanelShowMode(preset, seats, 'agent')).toBe('restore')
+    expect(
+      shapeWithSizes(openPanelAtSeat(preset, seats.agent as WorkspaceLayout, 'agent').root)
+    ).toBe(shapeWithSizes(shown.root))
+  })
+
+  it('初期化（席を捨てた状態）を保存 → 再起動すると、Agent は初回扱いに戻る', () => {
+    const preset = getLayoutPreset(DEFAULT_LAYOUT_PRESET_ID).createLayout()
+    const restored = restartWithSeats(preset, NO_PANEL_SEATS)
+
+    expect(restored.ok).toBe(true)
+    if (!restored.ok) return
+    expect(restored.panelSeats).toEqual({})
+    expect(resolvePanelShowMode(restored.layout, restored.panelSeats, 'agent')).toBe('choose')
   })
 })

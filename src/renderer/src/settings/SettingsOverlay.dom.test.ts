@@ -241,6 +241,7 @@ function SettingsDomHarnessBody(): ReactElement {
                 visiblePanelIds,
                 presetId: 'default',
                 modified: false,
+                resettable: false,
                 onTogglePanel: vi.fn(),
                 onApplyPreset: vi.fn(),
                 onResetLayout: vi.fn(),

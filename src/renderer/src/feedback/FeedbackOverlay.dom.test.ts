@@ -44,6 +44,7 @@ function FeedbackHarness({ sender }: { readonly sender?: FeedbackSender }): Reac
         visiblePanelIds,
         presetId: 'default',
         modified: false,
+        resettable: false,
         onTogglePanel: vi.fn(),
         onApplyPreset: vi.fn(),
         onResetLayout: vi.fn(),

@@ -117,6 +117,7 @@ export const COMMAND_IDS = [
   'view.togglePanel.terminal',
   'view.togglePanel.git',
   'view.togglePanel.debug',
+  'view.togglePanel.agent',
   'view.resetLayout',
   'settings.open',
   'settings.close',

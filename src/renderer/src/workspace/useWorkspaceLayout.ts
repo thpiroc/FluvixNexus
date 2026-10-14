@@ -1,4 +1,14 @@
 import { useCallback, useMemo, useState } from 'react'
+import {
+  NO_PANEL_SEATS,
+  openPanelAtSeat,
+  placePanelAt,
+  rememberPanelSeats,
+  resolvePanelShowMode,
+  type PanelPlacementChoice,
+  type PanelSeats,
+  type PanelShowMode
+} from './layout/panelSeats'
 import { closePanelInLayout, openPanelInLayout } from './layout/panelVisibility'
 import {
   activatePanelInLayout,
@@ -9,6 +19,7 @@ import { DEFAULT_LAYOUT_PRESET_ID, getLayoutPreset, type LayoutPresetId } from '
 import { resizeSplitBoundary } from './layout/resize'
 import { findLayoutProblems } from './layout/tree'
 import type { DockNodeId, WorkspaceLayout } from './layout/types'
+import { listPanelDefinitions } from './panels/registry'
 import type { PanelId } from './panels/types'
 import { isSameLayout } from './persistence/layoutDocument'
 import { useLayoutPersistence } from './persistence/useLayoutPersistence'
@@ -44,6 +55,15 @@ export interface WorkspaceLayoutController {
   readonly presetId: LayoutPresetId
   /** プリセットを適用してから配置を変えたか（初期化ボタンの必要性を示すため）。 */
   readonly modified: boolean
+  /**
+   * 「レイアウトを初期化」で消えるものがあるか。
+   *
+   * 配置がプリセットから変わっている（modified）か、**配置はプリセットと同じでも
+   * Agent の最後の席（panelSeats）が残っている**とき。後者は画面の形には出ないが、
+   * 初期化で消える情報なので、ボタンを押せないと UI から席を捨てる手段が無くなる。
+   * 「変更あり」の表示は配置の話なので modified のまま（席だけでは出さない）。
+   */
+  readonly resettable: boolean
   /**
    * 保存済みレイアウトの読み込みが済んだか。
    *
@@ -93,11 +113,40 @@ export interface WorkspaceLayoutController {
   readonly applyPreset: (presetId: LayoutPresetId) => void
   /** 今のプリセットの配置へ戻す（＝レイアウトの初期化）。 */
   readonly resetLayout: () => void
+  /**
+   * パネルを出そうとしたとき、どう出すか（layout/panelSeats.ts）。
+   *
+   *   visible … 表示中（前面に出すだけ）
+   *   restore … 最後の席へ戻せる、またはプリセットから戻り先が決まる
+   *   choose  … 利用者が置き場所を決めるパネルで、戻す手掛かりが無い（初回など）
+   *
+   * `choose` が返るのは Registry で `placement: 'user'` のパネルだけ。
+   */
+  readonly panelShowMode: (panelId: PanelId) => PanelShowMode
+  /** 利用者が選んだ置き場所へパネルを出す（`choose` のときの入口）。 */
+  readonly placePanel: (panelId: PanelId, choice: PanelPlacementChoice) => void
 }
+
+/**
+ * 利用者が置き場所を決めるパネル（Registry の `placement: 'user'`）。
+ * 最後の席を控える対象はこれだけで、他のパネルの戻り方（プリセット基準）は変わらない。
+ */
+const USER_PLACED_PANEL_IDS: readonly PanelId[] = listPanelDefinitions()
+  .filter((definition) => definition.placement === 'user')
+  .map((definition) => definition.id)
 
 interface WorkspaceLayoutState {
   readonly layout: WorkspaceLayout
   readonly presetId: LayoutPresetId
+  /**
+   * 利用者が置き場所を決めるパネルの最後の席（layout/panelSeats.ts）。
+   *
+   * レイアウトと同じ state に入れるのは、**表示中 → 非表示 の変化を見逃さないため**。
+   * 席はレイアウトが変わる瞬間（変わる前と後）を見て控えるので、レイアウトを変える
+   * 経路（update / プリセットの適用）をすべてここで通す必要がある。
+   * レイアウトの初期化（resetLayout）だけは席を捨てる。
+   */
+  readonly panelSeats: PanelSeats
   /**
    * プリセットを適用した直後のレイアウト。
    *
@@ -117,7 +166,7 @@ export function useWorkspaceLayout(): WorkspaceLayoutController {
     setState((current) => {
       const layout = checked(change(current))
 
-      return layout === current.layout ? current : { ...current, layout }
+      return layout === current.layout ? current : withLayout(current, layout)
     })
   }, [])
 
@@ -137,10 +186,30 @@ export function useWorkspaceLayout(): WorkspaceLayoutController {
 
   const openPanel = useCallback(
     (panelId: PanelId): void => {
-      // 戻り先はプリセットを設計図として決める（layout/panelVisibility.ts）。
-      update((current) =>
-        openPanelInLayout(current.layout, panelId, getLayoutPreset(current.presetId).createLayout())
-      )
+      update((current) => {
+        // 最後の席があればそれを、無ければプリセットを設計図として戻り先を決める
+        // （layout/panelSeats.ts / layout/panelVisibility.ts）。席を持つのは
+        // 利用者が置き場所を決めるパネルだけなので、他のパネルの戻り方は変わらない。
+        const seat = USER_PLACED_PANEL_IDS.includes(panelId)
+          ? current.panelSeats[panelId]
+          : undefined
+
+        return seat !== undefined &&
+          resolvePanelShowMode(current.layout, current.panelSeats, panelId) === 'restore'
+          ? openPanelAtSeat(current.layout, seat, panelId)
+          : openPanelInLayout(
+              current.layout,
+              panelId,
+              getLayoutPreset(current.presetId).createLayout()
+            )
+      })
+    },
+    [update]
+  )
+
+  const placePanel = useCallback(
+    (panelId: PanelId, choice: PanelPlacementChoice): void => {
+      update((current) => placePanelAt(current.layout, panelId, choice))
     },
     [update]
   )
@@ -171,16 +240,31 @@ export function useWorkspaceLayout(): WorkspaceLayoutController {
     [update]
   )
 
+  // プリセットの切り替えでパネルが消えても、最後の席は失わない（消える直前の配置を控える）。
   const applyPreset = useCallback((presetId: LayoutPresetId): void => {
-    setState(presetState(presetId))
+    setState((current) => withSeatsFrom(current, presetState(presetId)))
   }, [])
 
   const resetLayout = useCallback((): void => {
     // 画面だけでなく保存済みレイアウトも Default に戻る。state が変わることで
     // 通常の保存経路（useLayoutPersistence）がそのまま書き換えるため、
     // 「初期化」のための専用の保存処理は要らない。
+    //
+    // **最後の席も捨てる**（利用者決定 2026-10-14）。初期化は「配置をはじめからやり直す」
+    // 操作なので、次に Agent を出すときは改めて置き場所を尋ねる。presetState は席を
+    // 持たない状態を返すため、引き継がずにそのまま採る（保存ファイルからも消える）。
     setState((current) => presetState(current.presetId))
   }, [])
+
+  const panelShowMode = useCallback(
+    (panelId: PanelId): PanelShowMode => {
+      const mode = resolvePanelShowMode(state.layout, state.panelSeats, panelId)
+
+      // 置き場所を尋ねるのは、利用者が決めるパネルだけ。他はプリセットから戻り先が決まる。
+      return mode === 'choose' && !USER_PLACED_PANEL_IDS.includes(panelId) ? 'restore' : mode
+    },
+    [state.layout, state.panelSeats]
+  )
 
   /**
    * 保存されていたレイアウトを採用する（起動時に1度だけ）。
@@ -190,21 +274,26 @@ export function useWorkspaceLayout(): WorkspaceLayoutController {
    * `modified` は参照の一致で判定しているため（下の useMemo）、こうしないと
    * 「レイアウトを初期化 → 再起動」しただけで変更ありに見えてしまう。
    */
-  const restore = useCallback((layout: WorkspaceLayout, presetId: LayoutPresetId): void => {
-    setState(() => {
-      const presetLayout = checked(getLayoutPreset(presetId).createLayout())
+  const restore = useCallback(
+    (layout: WorkspaceLayout, presetId: LayoutPresetId, panelSeats: PanelSeats): void => {
+      setState(() => {
+        const presetLayout = checked(getLayoutPreset(presetId).createLayout())
 
-      return {
-        layout: isSameLayout(layout, presetLayout) ? presetLayout : checked(layout),
-        presetId,
-        presetLayout
-      }
-    })
-  }, [])
+        return {
+          layout: isSameLayout(layout, presetLayout) ? presetLayout : checked(layout),
+          presetId,
+          presetLayout,
+          panelSeats
+        }
+      })
+    },
+    []
+  )
 
   const { restored } = useLayoutPersistence({
     layout: state.layout,
     presetId: state.presetId,
+    panelSeats: state.panelSeats,
     onRestore: restore
   })
 
@@ -213,6 +302,7 @@ export function useWorkspaceLayout(): WorkspaceLayoutController {
       layout: state.layout,
       presetId: state.presetId,
       modified: state.layout !== state.presetLayout,
+      resettable: state.layout !== state.presetLayout || Object.keys(state.panelSeats).length > 0,
       restored,
       activatePanel,
       movePanel,
@@ -221,7 +311,9 @@ export function useWorkspaceLayout(): WorkspaceLayoutController {
       resizeSplit,
       replaceLayout,
       applyPreset,
-      resetLayout
+      resetLayout,
+      panelShowMode,
+      placePanel
     }),
     [
       state,
@@ -233,7 +325,9 @@ export function useWorkspaceLayout(): WorkspaceLayoutController {
       resizeSplit,
       replaceLayout,
       applyPreset,
-      resetLayout
+      resetLayout,
+      panelShowMode,
+      placePanel
     ]
   )
 }
@@ -242,7 +336,37 @@ export function useWorkspaceLayout(): WorkspaceLayoutController {
 function presetState(presetId: LayoutPresetId): WorkspaceLayoutState {
   const layout = checked(getLayoutPreset(presetId).createLayout())
 
-  return { layout, presetId, presetLayout: layout }
+  return { layout, presetId, presetLayout: layout, panelSeats: NO_PANEL_SEATS }
+}
+
+/** レイアウトだけを差し替える。消えたパネルの席はこのときに控える。 */
+function withLayout(current: WorkspaceLayoutState, layout: WorkspaceLayout): WorkspaceLayoutState {
+  return {
+    ...current,
+    layout,
+    panelSeats: rememberPanelSeats(
+      current.panelSeats,
+      current.layout,
+      layout,
+      USER_PLACED_PANEL_IDS
+    )
+  }
+}
+
+/** 作り直した状態（プリセットの切り替え）へ、今までの席と消えたパネルの席を引き継ぐ。 */
+function withSeatsFrom(
+  current: WorkspaceLayoutState,
+  next: WorkspaceLayoutState
+): WorkspaceLayoutState {
+  return {
+    ...next,
+    panelSeats: rememberPanelSeats(
+      current.panelSeats,
+      current.layout,
+      next.layout,
+      USER_PLACED_PANEL_IDS
+    )
+  }
 }
 
 /**

@@ -46,7 +46,8 @@ export const jaMessages = {
         editor: 'Editor パネルの表示を切り替える',
         terminal: 'Terminal パネルの表示を切り替える',
         git: 'Git パネルの表示を切り替える',
-        debug: 'Debug パネルの表示を切り替える'
+        debug: 'Debug パネルの表示を切り替える',
+        agent: 'Agent パネルの表示を切り替える'
       },
       resetLayout: 'レイアウトを初期化'
     },
@@ -1025,6 +1026,11 @@ export const jaMessages = {
     limitContinue: '続行する（+10 回）',
     limitStop: 'ここでやめる',
     answerTitle: '回答',
+    statusBar: {
+      running: 'Agent: 動作中',
+      awaiting: 'Agent: 確認待ち',
+      showPanel: 'クリックで Agent パネルを表示'
+    },
     status: {
       idle: '待機中',
       awaitingContinue: '最大実行回数に到達しました',
@@ -1900,6 +1906,15 @@ export const jaMessages = {
       git: 'Git',
       debug: 'Debug',
       agent: 'Agent'
+    },
+    placement: {
+      title: '{title} をどこに表示しますか',
+      body: '選んだ場所に新しい領域として表示します（中央は Editor のタブに加えます）。表示した後は、ドラッグで自由に移動・タブ統合・サイズ変更できます。',
+      top: '上',
+      left: '左',
+      center: '中央',
+      right: '右',
+      bottom: '下'
     },
     layout: {
       default: {

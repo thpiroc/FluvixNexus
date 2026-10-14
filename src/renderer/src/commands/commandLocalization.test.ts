@@ -43,9 +43,9 @@ describe('command の titleKey', () => {
     /*
       実数も押さえる（表に足したのに翻訳を忘れた、を `COMMAND_IDS.length` との
       比較だけに任せない）。Session 6-16 の Debug Keybinding 用 command を
-      加えて 40件。
+      加えて 40件。Agent パネルのドックパネル化で `view.togglePanel.agent` を足して 41件。
     */
-    expect(COMMAND_IDS).toHaveLength(40)
+    expect(COMMAND_IDS).toHaveLength(41)
   })
 
   /*

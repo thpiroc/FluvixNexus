@@ -1,14 +1,8 @@
-import { useCallback, useState, type JSX } from 'react'
-import {
-  AGENT_TASK_PROMPT_MAX_LENGTH,
-  isAgentTaskActive,
-  type AgentTaskContinueDecision,
-  type AgentTaskStartRejection
-} from '@shared/agent'
-import { fluvix } from '../api/fluvix'
+import type { JSX } from 'react'
+import { AGENT_TASK_PROMPT_MAX_LENGTH, isAgentTaskActive } from '@shared/agent'
 import { useI18n } from '../i18n/context'
 import { agentTaskRejectionKey, agentTaskStatusKey } from './agentTaskStatus'
-import { useAgentTaskState } from './useAgentTask'
+import { useAgentTask } from './context'
 import './agentTask.css'
 
 /**
@@ -31,13 +25,17 @@ import './agentTask.css'
  * 送るのは「始めて」「止めて」「続けて / やめて」の意思表示だけ。ボタンを押しても
  * 画面は Main から状態が届いてから変わる。最終回答は Main が伏せて切った文字列で、
  * **文字として**描く（HTML・Markdown として解釈しない）。
+ *
+ * ## 状態はパネルの外にある
+ *
+ * 書きかけの指示・始められなかった理由・Main から届いた状態は AgentTaskProvider が持つ
+ * （context.ts）。このパネルはタブの切り替え・移動・非表示で作り直されるが、
+ * 作り直しても指示は消えず、Main の作業にも何も送らない。
  */
 export function AgentTaskView(): JSX.Element {
   const { t } = useI18n()
-  const state = useAgentTaskState()
-  const [prompt, setPrompt] = useState('')
-  const [sending, setSending] = useState(false)
-  const [rejection, setRejection] = useState<AgentTaskStartRejection | null>(null)
+  const { state, received, prompt, setPrompt, sending, rejection, start, stop, answerLimit } =
+    useAgentTask()
 
   const active = isAgentTaskActive(state.status)
   const canStart =
@@ -47,31 +45,6 @@ export function AgentTaskView(): JSX.Element {
     state.providerAvailable &&
     prompt.trim().length > 0 &&
     prompt.length <= AGENT_TASK_PROMPT_MAX_LENGTH
-
-  const start = useCallback(async () => {
-    setSending(true)
-    setRejection(null)
-
-    try {
-      const result = await fluvix.agentTask.start({ prompt })
-
-      if (result.ok && !result.data.started) {
-        setRejection(result.data.reason)
-      }
-    } catch {
-      // 届かなかった。作業は始まっていない（状態は Main から届いたものだけを見る）。
-    } finally {
-      setSending(false)
-    }
-  }, [prompt])
-
-  const stop = useCallback(() => {
-    void fluvix.agentTask.stop()
-  }, [])
-
-  const answerLimit = useCallback((decision: AgentTaskContinueDecision) => {
-    void fluvix.agentTask.continueTask({ decision })
-  }, [])
 
   return (
     <div className="fx-agent-task" data-testid="agent-task">
@@ -113,7 +86,8 @@ export function AgentTaskView(): JSX.Element {
         </div>
       </div>
 
-      {!state.agentEnabled ? (
+      {/* 状態が届く前の初期値（OFF・Provider 無し）を根拠に案内を出さない。 */}
+      {!received ? null : !state.agentEnabled ? (
         <p className="fx-agent-task__notice" data-testid="agent-task-disabled">
           {t('agentTask.disabledNotice')}
         </p>

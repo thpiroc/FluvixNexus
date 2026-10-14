@@ -7,6 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentTaskState } from '@shared/agent'
 import { I18nContext } from '../i18n/context'
 import { createTranslator } from '../i18n/messages'
+import { AgentStatusItem } from './AgentStatusItem'
+import { AgentTaskProvider } from './AgentTaskProvider'
 import { AgentTaskView } from './AgentTaskView'
 import { agentTaskStatusKey } from './agentTaskStatus'
 
@@ -71,17 +73,29 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-function harness(): ReactElement {
+/**
+ * パネル（AgentTaskView）とステータスバーの表示を、パネルの外の Provider の中に置く
+ * （App.tsx と同じ形）。`view: false` はパネルを閉じた・別の場所へ運ぶ途中の状態にあたる。
+ */
+function harness({
+  view = true,
+  onShowPanel = () => {}
+}: { readonly view?: boolean; readonly onShowPanel?: () => void } = {}): ReactElement {
   return createElement(
     I18nContext.Provider,
     { value: { language: 'ja', setLanguage: () => {}, t: createTranslator('ja') } },
-    createElement(AgentTaskView, null)
+    createElement(
+      AgentTaskProvider,
+      null,
+      view ? createElement(AgentTaskView, { key: 'view' }) : null,
+      createElement(AgentStatusItem, { key: 'status', onShowPanel })
+    )
   )
 }
 
-async function render(): Promise<void> {
+async function render(options?: Parameters<typeof harness>[0]): Promise<void> {
   await act(async () => {
-    root.render(harness())
+    root.render(harness(options))
   })
 }
 
@@ -204,6 +218,190 @@ describe('最終回答', () => {
 
     expect(answer?.textContent).toContain('<img src=x onerror=alert(1)>完了')
     expect(answer?.querySelector('img')).toBeNull()
+  })
+})
+
+describe('パネルの作り直し（移動・非表示・再表示）', () => {
+  it('書きかけの指示は、パネルを閉じて出し直しても残る', async () => {
+    await render()
+    type('テストを実行して')
+
+    await render({ view: false })
+    expect(byTestId('agent-task')).toBeNull()
+
+    await render()
+    expect((byTestId('agent-task-prompt') as HTMLTextAreaElement).value).toBe('テストを実行して')
+  })
+
+  it('始められなかった理由も、出し直した後に残る', async () => {
+    agentTaskApi.start.mockResolvedValue({
+      ok: true,
+      data: { started: false, reason: 'no-workspace' }
+    })
+    await render()
+    type('x')
+    await act(async () => {
+      ;(byTestId('agent-task-start') as HTMLButtonElement).click()
+    })
+
+    await render({ view: false })
+    await render()
+
+    expect(byTestId('agent-task-rejected')?.textContent).toContain('Workspace')
+  })
+
+  it('閉じても出し直しても、Main へは何も送らず、購読も張り直さない', async () => {
+    await render()
+    push({ status: 'running', phase: 'reading', loopsUsed: 2 })
+
+    await render({ view: false })
+    await render()
+
+    expect(agentTaskApi.stop).not.toHaveBeenCalled()
+    expect(agentTaskApi.start).not.toHaveBeenCalled()
+    expect(agentTaskApi.continueTask).not.toHaveBeenCalled()
+    expect(agentTaskApi.onStateChanged).toHaveBeenCalledTimes(1)
+    expect(agentTaskApi.getState).toHaveBeenCalledTimes(1)
+    // 出し直した瞬間から、閉じている間の状態がそのまま見える（初期値に戻らない）。
+    expect(byTestId('agent-task-status')?.textContent).toContain('ファイル確認中')
+    expect(byTestId('agent-task-stop')).not.toBeNull()
+  })
+
+  it('閉じている間に届いた状態も、出し直すと見える', async () => {
+    await render({ view: false })
+    push({ status: 'awaiting-continue', loopsUsed: 20, loopLimit: 20 })
+
+    await render()
+
+    expect(byTestId('agent-task-limit')).not.toBeNull()
+  })
+
+  it('状態が届く前は、OFF / Provider 無しの案内を出さない', async () => {
+    agentTaskApi.getState.mockReturnValue(new Promise(() => {}))
+    await render()
+
+    expect(byTestId('agent-task-disabled')).toBeNull()
+    expect(byTestId('agent-task-no-provider')).toBeNull()
+
+    push({ agentEnabled: false })
+    expect(byTestId('agent-task-disabled')).not.toBeNull()
+  })
+})
+
+describe('状態の取得と知らせが近接して届く場合（AgentTaskProvider）', () => {
+  /** 取得の返事を、テストが決めた瞬間に届ける。 */
+  function deferredGetState(): (state: AgentTaskState) => Promise<void> {
+    let resolve: ((value: unknown) => void) | null = null
+    agentTaskApi.getState.mockReturnValue(
+      new Promise((done) => {
+        resolve = done
+      })
+    )
+
+    return async (state) => {
+      await act(async () => {
+        resolve?.({ ok: true, data: state })
+      })
+    }
+  }
+
+  it('知らせ → 返事 の順なら、後から届いた返事を採る（設定の変化は返事にしか出ない）', async () => {
+    const reply = deferredGetState()
+    await render({ view: true })
+
+    push({ status: 'running', phase: 'reading', agentEnabled: true })
+    await reply({ ...IDLE, status: 'running', phase: 'reading', agentEnabled: false })
+
+    expect(byTestId('agent-task-disabled')).not.toBeNull()
+    expect(byTestId('agent-task-status')?.dataset.status).toBe('running')
+  })
+
+  it('返事 → 知らせ の順なら、後から届いた知らせを採る', async () => {
+    const reply = deferredGetState()
+    await render()
+
+    await reply({ ...IDLE, status: 'running', phase: 'reading' })
+    push({ status: 'awaiting-continue', loopsUsed: 20, loopLimit: 20 })
+
+    expect(byTestId('agent-task-limit')).not.toBeNull()
+    expect(byTestId('statusbar-agent')?.dataset.agentStatus).toBe('awaiting')
+  })
+
+  it('同じ瞬間に続けて届いても、パネルとステータスバーは同じ状態を描く', async () => {
+    const reply = deferredGetState()
+    await render()
+
+    await act(async () => {
+      emit?.({ ...IDLE, status: 'running', phase: 'searching' })
+      emit?.({ ...IDLE, status: 'stopping' })
+    })
+    await reply({ ...IDLE, status: 'stopping' })
+
+    expect(byTestId('agent-task-status')?.dataset.status).toBe('stopping')
+    expect(byTestId('statusbar-agent')?.dataset.agentStatus).toBe('running')
+    expect((byTestId('agent-task-stop') as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('取得が失敗しても、知らせで状態が揃う', async () => {
+    agentTaskApi.getState.mockResolvedValue({ ok: false, error: { code: 'x', message: 'x' } })
+    await render()
+
+    expect(byTestId('agent-task-disabled')).toBeNull()
+
+    push({ status: 'running', phase: 'reading' })
+    expect(byTestId('agent-task-status')?.dataset.status).toBe('running')
+    expect(byTestId('statusbar-agent')).not.toBeNull()
+  })
+
+  it('パネルを外している間に届いた返事も、出し直したパネルとステータスバーに同じく出る', async () => {
+    const reply = deferredGetState()
+    await render({ view: false })
+
+    await reply({ ...IDLE, status: 'awaiting-continue', loopsUsed: 20, loopLimit: 20 })
+    await render()
+
+    expect(byTestId('agent-task-limit')).not.toBeNull()
+    expect(byTestId('statusbar-agent')?.dataset.agentStatus).toBe('awaiting')
+  })
+})
+
+describe('ステータスバーの表示', () => {
+  it('動いていなければ何も出さない', async () => {
+    await render()
+
+    expect(byTestId('statusbar-agent')).toBeNull()
+
+    push({ status: 'completed', endReason: 'completed', finalAnswer: 'ok' })
+    expect(byTestId('statusbar-agent')).toBeNull()
+  })
+
+  it('動作中・止めている途中は「動作中」、上限の返事待ちは「確認待ち」', async () => {
+    await render({ view: false })
+
+    push({ status: 'running', phase: 'searching' })
+    expect(byTestId('statusbar-agent')?.textContent).toBe('Agent: 動作中')
+    expect(byTestId('statusbar-agent')?.dataset.agentStatus).toBe('running')
+    expect(byTestId('statusbar-agent')?.title).toContain('検索中')
+
+    push({ status: 'stopping' })
+    expect(byTestId('statusbar-agent')?.dataset.agentStatus).toBe('running')
+
+    push({ status: 'awaiting-continue', loopsUsed: 20, loopLimit: 20 })
+    expect(byTestId('statusbar-agent')?.textContent).toBe('Agent: 確認待ち')
+    expect(byTestId('statusbar-agent')?.dataset.agentStatus).toBe('awaiting')
+  })
+
+  it('出ているだけではパネルを開かない。押したときだけ開く', async () => {
+    const onShowPanel = vi.fn()
+    await render({ view: false, onShowPanel })
+
+    push({ status: 'awaiting-continue', loopsUsed: 20, loopLimit: 20 })
+    expect(onShowPanel).not.toHaveBeenCalled()
+
+    act(() => (byTestId('statusbar-agent') as HTMLButtonElement).click())
+    expect(onShowPanel).toHaveBeenCalledTimes(1)
+    // 押しても Main へは何も送らない（返事はパネルの中のボタンだけ）。
+    expect(agentTaskApi.continueTask).not.toHaveBeenCalled()
   })
 })
 

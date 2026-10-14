@@ -1,5 +1,6 @@
 import { useEffect, useState, type JSX } from 'react'
 import type { AppInfoResponse } from '@shared/ipc'
+import { AgentStatusItem } from '../../agentTask/AgentStatusItem'
 import { fluvix } from '../../api/fluvix'
 import { DebugStatusItem } from '../../debug/DebugStatusItem'
 import { useI18n } from '../../i18n/context'
@@ -30,7 +31,12 @@ import { useWorkspaceFolder } from '../../workspaceFolder/context'
  *   - Git のブランチ名 / 変更件数
  *   - カーソル位置・文字コード・改行コード
  */
-export function WorkspaceStatusBar(): JSX.Element {
+interface WorkspaceStatusBarProps {
+  /** Agent の表示が押されたとき（Agent パネルを開く・前面に出す。判断は Shell）。 */
+  readonly onShowAgentPanel: () => void
+}
+
+export function WorkspaceStatusBar({ onShowAgentPanel }: WorkspaceStatusBarProps): JSX.Element {
   const { platform, versions } = fluvix.env
   const { status, workspace } = useWorkspaceFolder()
   const { t } = useI18n()
@@ -76,6 +82,11 @@ export function WorkspaceStatusBar(): JSX.Element {
         置き方（押せない・1語・内訳は title）も揃えてある。
       */}
       <DebugStatusItem />
+      {/*
+        FN Agent の状態（Agent パネルのドックパネル化）。動作中・確認待ちのときだけ出る。
+        Debug の隣 ── どれも「道具が今どうなっているか」。押すと Agent パネルを開く・前面に出す。
+      */}
+      <AgentStatusItem onShowPanel={onShowAgentPanel} />
       <span className="fx-statusbar__spacer" />
       <span className="fx-statusbar__item">
         {platform} / Electron {versions.electron} / Chromium {versions.chrome} / Node{' '}

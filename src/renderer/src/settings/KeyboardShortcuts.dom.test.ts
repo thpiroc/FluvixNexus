@@ -292,11 +292,11 @@ describe('Settings から開く', () => {
 })
 
 describe('並ぶもの', () => {
-  it('登録されている 40 件が1つ残らず出る', async () => {
+  it('登録されている 41 件が1つ残らず出る', async () => {
     await openKeyboard()
 
     expect(rows()).toHaveLength(COMMAND_IDS.length)
-    expect(rows()).toHaveLength(40)
+    expect(rows()).toHaveLength(41)
 
     const shown = rows().map((row) => row.dataset.command)
     expect([...shown].sort()).toEqual([...COMMAND_IDS].sort())
@@ -350,13 +350,14 @@ describe('並ぶもの', () => {
 
     Session 5-12 の `editor.showHover` も同じ（Monaco の既定が2打鍵のため）。
     Session 6-5 の Debug panel toggle も、6-8 の Toolbar までは未割り当て。
+    Agent パネルの toggle（ドックパネル化）も既定の打鍵を持たない。
   */
-  it('未割り当ての22件が「未割り当て」として出る', async () => {
+  it('未割り当ての23件が「未割り当て」として出る', async () => {
     await openKeyboard()
 
     const unassigned = rows().filter((row) => row.dataset.unassigned === 'true')
 
-    expect(unassigned).toHaveLength(22)
+    expect(unassigned).toHaveLength(23)
     for (const row of unassigned) {
       expect(row.textContent, row.dataset.command).toContain('未割り当て')
       expect(row.querySelector('kbd')).toBeNull()
@@ -470,7 +471,7 @@ describe('絞り込み', () => {
     await type('git.')
     await click('settings-keyboard-search-clear')
 
-    expect(rows()).toHaveLength(40)
+    expect(rows()).toHaveLength(41)
     expect(byTestId<HTMLInputElement>('settings-keyboard-search').value).toBe('')
   })
 
@@ -481,7 +482,7 @@ describe('絞り込み', () => {
     await click('settings-category-general')
     await click('settings-category-keyboard')
 
-    expect(rows()).toHaveLength(40)
+    expect(rows()).toHaveLength(41)
   })
 })
 
@@ -510,13 +511,13 @@ describe('ja / en の切り替え', () => {
     expect(byTestId('settings-keyboard-row-editor.save').textContent).toContain('Ctrl+S')
   })
 
-  it('切り替えても 40 件・7 グループのまま', async () => {
+  it('切り替えても 41 件・7 グループのまま', async () => {
     await openKeyboard()
     await click('settings-category-general')
     await click('settings-general-language-en')
     await click('settings-category-keyboard')
 
-    expect(rows()).toHaveLength(40)
+    expect(rows()).toHaveLength(41)
     expect(groups()).toEqual(ALL_GROUPS)
   })
 })

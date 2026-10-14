@@ -1,6 +1,7 @@
 import type { JSX } from 'react'
 import { AgentFileWriteProvider } from './agent/AgentFileWriteProvider'
 import { AgentTerminalProvider } from './agent/AgentTerminalProvider'
+import { AgentTaskProvider } from './agentTask/AgentTaskProvider'
 import { CommandProvider } from './commands/CommandProvider'
 import { BreakpointProvider } from './debug/BreakpointProvider'
 import { CallStackProvider } from './debug/CallStackProvider'
@@ -27,7 +28,7 @@ import { WorkspaceFolderProvider } from './workspaceFolder/WorkspaceFolderProvid
  * アプリ全体に関わるもの（エラーバウンダリ、独立ウィンドウ化した際のルート分岐など）が
  * 必要になったときだけこの層に足す。
  *
- * Shell より外側に置いているものが14ある。どれも**レイアウトの都合でパネルが
+ * Shell より外側に置いているものが15ある。どれも**レイアウトの都合でパネルが
  * 作り直されても消えてはいけない状態**で、パネルは自由に配置を変えられて
  * 親子関係が固定されていないため prop では配れない。
  *
@@ -42,6 +43,7 @@ import { WorkspaceFolderProvider } from './workspaceFolder/WorkspaceFolderProvid
  *   FilesViewProvider       … Files の表示方式として**利用者が選んだ方**（Session 3-6-7）
  *   FileTreeStateProvider   … Files ツリーの展開状態（Panel の作り直しで消さない）
  *   GitDraftProvider        … Git の Commit message 下書き（Panel の作り直しで消さない）
+ *   AgentTaskProvider       … FN Agent の指示の下書きと作業の状態（Panel の作り直しで消さない）
  *   LspSettingsProvider     … Language Server を使うか（Session 5-4。lsp/）
  *   DebugProvider           … Profile 選択と実行 command（Session 7-1A。debug/）
  *   BreakpointProvider      … その Workspace の breakpoint（Session 6-3。debug/）
@@ -104,6 +106,13 @@ function App(): JSX.Element {
                       <FileTreeStateProvider>
                         <GitDraftProvider>
                           {/*
+                          FN Agent の作業の窓口（Agent パネルのドックパネル化）。書きかけの指示と
+                          Main から届いた状態を、Agent パネルを動かしても隠しても失わない。
+                          ステータスバーの Agent の表示もここを読む（agentTask/context.ts）。
+                          他の Provider に依存しないので、ここで足りる。
+                        */}
+                          <AgentTaskProvider>
+                            {/*
                           Language Server を使うかどうか（Session 5-4）。
                           Files の表示方式と同じく他に依存しないので内側で足りる。
 
@@ -111,8 +120,8 @@ function App(): JSX.Element {
                           Settings 画面の表示だけで、実際にサーバを立てる / 終わらせるのは
                           Main が自分で読んだ同じ設定になる（lsp/LspSettingsProvider.tsx）。
                         */}
-                          <LspSettingsProvider>
-                            {/*
+                            <LspSettingsProvider>
+                              {/*
                             Breakpoint（Session 6-3）。**Editor より外**に置く必要がある
                             ── 印は Editor パネルより長く生き、パネルを閉じても
                             別の場所へ運んでも消えない（debug/context.ts）。
@@ -120,31 +129,32 @@ function App(): JSX.Element {
                             Workspace には依存する（相対位置は Workspace が変われば
                             別のファイルを指す）ので、WorkspaceFolderProvider の内側になる。
                           */}
-                            <DebugProvider>
-                              <BreakpointProvider>
-                                <CallStackProvider>
-                                  {/*
+                              <DebugProvider>
+                                <BreakpointProvider>
+                                  <CallStackProvider>
+                                    {/*
                                   止まったら、その位置を Editor で開く（Session 6-13）。Debug パネルを
                                   閉じていても働くよう、パネルではなくここに1つだけ置く。
                                 */}
-                                  <ExecutionLocationFollower />
-                                  <KeybindingProvider>
-                                    <WorkspaceShell />
-                                    {/*
+                                    <ExecutionLocationFollower />
+                                    <KeybindingProvider>
+                                      <WorkspaceShell />
+                                      {/*
                                     FN Agent の変更の確認（Security Core v1 の STEP7）。
                                     パネルの配置に関わらず1つだけ出るため、Shell の
                                     外側ではなく**隣**に置く。**承認を持たない**
                                     ── 状態は Main にあり、ここは届いた知らせを
                                     見せて意思表示を返すだけ（agent/）。
                                   */}
-                                    <AgentFileWriteProvider />
-                                    {/* FN Agent のコマンドの確認と結果（STEP8）。考え方は上と同じ。 */}
-                                    <AgentTerminalProvider />
-                                  </KeybindingProvider>
-                                </CallStackProvider>
-                              </BreakpointProvider>
-                            </DebugProvider>
-                          </LspSettingsProvider>
+                                      <AgentFileWriteProvider />
+                                      {/* FN Agent のコマンドの確認と結果（STEP8）。考え方は上と同じ。 */}
+                                      <AgentTerminalProvider />
+                                    </KeybindingProvider>
+                                  </CallStackProvider>
+                                </BreakpointProvider>
+                              </DebugProvider>
+                            </LspSettingsProvider>
+                          </AgentTaskProvider>
                         </GitDraftProvider>
                       </FileTreeStateProvider>
                     </FilesViewProvider>

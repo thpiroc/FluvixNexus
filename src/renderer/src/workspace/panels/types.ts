@@ -40,5 +40,15 @@ export interface PanelDefinition {
   /** タブや見出しに出す表示名。 */
   readonly title: string
   readonly accent: PanelAccent
+  /**
+   * 閉じているパネルを出すときの置き場所の決め方。
+   *
+   *   preset … レイアウトプリセットを設計図にして戻す（layout/panelVisibility.ts）
+   *   user   … 初めて出すときは利用者が 左 / 右 / 上 / 下 / 中央 から選び、
+   *            その後は最後の席へ戻す（layout/panelSeats.ts）
+   *
+   * どちらでも、出した後のドラッグ・タブ統合・リサイズ・保存は他のパネルと同じ。
+   */
+  readonly placement: 'preset' | 'user'
   readonly Component: PanelComponent
 }

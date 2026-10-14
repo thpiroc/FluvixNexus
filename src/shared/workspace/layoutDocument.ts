@@ -81,6 +81,18 @@ export interface StoredWorkspaceLayout {
   /** 適用中のレイアウトプリセット。閉じたパネルの戻り先を決めるのに要る。 */
   readonly presetId: string
   readonly root: StoredDockNode
+  /**
+   * 利用者が置き場所を決めるパネル（Agent）の「最後の席」。PanelId → その時点の木。
+   *
+   * 閉じたパネルを最後の配置へ戻すために要る（renderer/src/workspace/layout/panelSeats.ts）。
+   * **足しただけの任意項目なので schemaVersion は上げていない。** 無いファイル（これより前の
+   * 保存）は「席が無い」として読め、これを知らない古いアプリは項目を読み飛ばす
+   * （次の保存で消えるだけで、配置そのものは壊れない）。上げると、古いアプリが
+   * 「新しすぎる形式」として配置ごと捨ててしまう。
+   *
+   * 読み込み側は1件ずつ検証し、読めない席はその席だけを捨てる（配置全体は失敗にしない）。
+   */
+  readonly panelSeats?: Readonly<Record<string, StoredDockNode>>
 }
 
 /**

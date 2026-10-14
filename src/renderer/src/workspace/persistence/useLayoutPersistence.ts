@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { WorkspaceLayoutDocument } from '@shared/workspace'
 import { fluvix } from '../../api/fluvix'
+import type { PanelSeats } from '../layout/panelSeats'
 import type { LayoutPresetId } from '../layout/presets'
 import type { WorkspaceLayout } from '../layout/types'
 import { serializeWorkspaceLayout } from './layoutDocument'
@@ -45,13 +46,19 @@ const SAVE_DELAY_MS = 400
 export interface LayoutPersistenceOptions {
   readonly layout: WorkspaceLayout
   readonly presetId: LayoutPresetId
+  /** 利用者が置き場所を決めるパネルの最後の席（layout/panelSeats.ts）。配置と一緒に保存する。 */
+  readonly panelSeats: PanelSeats
   /**
    * 保存済みレイアウトを読み込めたときに1度だけ呼ばれる。
    *
    * 呼ばれなかった場合（未保存・破損・非対応バージョン）は Default Layout のまま進む。
    * 参照が変わると読み込みを繰り返してしまうため、安定した関数を渡すこと。
    */
-  readonly onRestore: (layout: WorkspaceLayout, presetId: LayoutPresetId) => void
+  readonly onRestore: (
+    layout: WorkspaceLayout,
+    presetId: LayoutPresetId,
+    panelSeats: PanelSeats
+  ) => void
 }
 
 export interface LayoutPersistenceState {
@@ -62,6 +69,7 @@ export interface LayoutPersistenceState {
 export function useLayoutPersistence({
   layout,
   presetId,
+  panelSeats,
   onRestore
 }: LayoutPersistenceOptions): LayoutPersistenceState {
   const [restored, setRestored] = useState(false)
@@ -113,10 +121,18 @@ export function useLayoutPersistence({
 
       // 復元した内容は、次の変更まで書き直す必要が無い。
       savedJsonRef.current = JSON.stringify(
-        serializeWorkspaceLayout(restoredLayout.layout, restoredLayout.presetId)
+        serializeWorkspaceLayout(
+          restoredLayout.layout,
+          restoredLayout.presetId,
+          restoredLayout.panelSeats
+        )
       )
 
-      onRestoreRef.current(restoredLayout.layout, restoredLayout.presetId)
+      onRestoreRef.current(
+        restoredLayout.layout,
+        restoredLayout.presetId,
+        restoredLayout.panelSeats
+      )
     }
 
     return () => {
@@ -132,7 +148,7 @@ export function useLayoutPersistence({
       return
     }
 
-    const document = serializeWorkspaceLayout(layout, presetId)
+    const document = serializeWorkspaceLayout(layout, presetId, panelSeats)
     const json = JSON.stringify(document)
 
     if (json === savedJsonRef.current) {
@@ -174,7 +190,7 @@ export function useLayoutPersistence({
         }
       })
     }
-  }, [restored, layout, presetId])
+  }, [restored, layout, presetId, panelSeats])
 
   // 間引き待ちのまま画面が閉じられるのを防ぐ。
   // 送るところまでが Renderer の役目で、実際の書き込みは Main 側が will-quit で仕上げる。

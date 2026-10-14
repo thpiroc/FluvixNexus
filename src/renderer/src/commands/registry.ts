@@ -155,6 +155,12 @@ const COMMAND_REGISTRY: Readonly<Record<CommandId, CommandDescriptor>> = {
     title: 'Toggle Debug Panel',
     titleKey: 'command.view.togglePanel.debug'
   },
+  'view.togglePanel.agent': {
+    id: 'view.togglePanel.agent',
+    category: 'view',
+    title: 'Toggle Agent Panel',
+    titleKey: 'command.view.togglePanel.agent'
+  },
   'view.resetLayout': {
     id: 'view.resetLayout',
     category: 'view',

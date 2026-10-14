@@ -664,3 +664,140 @@
 .fx-statusbar__debug[data-debug-status='unavailable'] {
   color: var(--fx-color-text-faint);
 }
+
+/*
+ * FN Agent の状態（Agent パネルのドックパネル化）。
+ *
+ * LSP / Debug と違い**押せる**（Agent パネルを開く・前面に出す）。見た目はバーの文字のまま
+ * にして、ボタンらしい枠は付けない。確認待ちだけ Git と同じ橙で目立たせる
+ * ── パネルを隠していると、返事を待っていることに他の場所では気付けないため。
+ * 新しい色の変数は増やしていない。
+ */
+.fx-statusbar__agent {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fx-color-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.fx-statusbar__agent:hover,
+.fx-statusbar__agent:focus-visible {
+  text-decoration: underline;
+}
+
+.fx-statusbar__agent[data-agent-status='awaiting'] {
+  color: var(--fx-accent-orange);
+  font-weight: 600;
+}
+
+/*
+ * 初めて出すパネルの置き場所の選択（Agent パネルのドックパネル化。shell/PanelPlacementChooser.tsx）。
+ *
+ * 作りは未保存の確認（unsaved/unsaved.css）と同じアプリ内モーダル。選択肢はドロップの案内と
+ * 同じ十字に並べ、ボタンの位置がそのまま出る場所を表すようにしてある。
+ */
+.fx-placement__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--fx-space-4);
+  background: var(--fx-color-scrim);
+}
+
+.fx-placement {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fx-space-3);
+  width: min(420px, 100%);
+  padding: var(--fx-space-4);
+  color: var(--fx-color-text);
+  background: var(--fx-color-surface-raised);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 6px;
+  box-shadow: var(--fx-shadow-dialog);
+  font-size: var(--fx-font-size-sm);
+}
+
+.fx-placement__title {
+  margin: 0;
+  color: var(--fx-color-text-strong);
+  font-size: var(--fx-font-size-md);
+}
+
+.fx-placement__body {
+  margin: 0;
+  color: var(--fx-color-text-muted);
+  line-height: 1.7;
+}
+
+.fx-placement__grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-areas:
+    '. top .'
+    'left center right'
+    '. bottom .';
+  gap: var(--fx-space-2);
+}
+
+.fx-placement__choice {
+  min-height: 40px;
+  padding: var(--fx-space-1) var(--fx-space-2);
+  color: var(--fx-color-text);
+  background: var(--fx-color-surface);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.fx-placement__choice:hover,
+.fx-placement__choice:focus-visible {
+  color: var(--fx-color-text-strong);
+  background: var(--fx-color-surface-hover);
+  border-color: var(--fx-accent-blue);
+}
+
+.fx-placement__choice[data-choice='top'] {
+  grid-area: top;
+}
+
+.fx-placement__choice[data-choice='left'] {
+  grid-area: left;
+}
+
+.fx-placement__choice[data-choice='center'] {
+  grid-area: center;
+}
+
+.fx-placement__choice[data-choice='right'] {
+  grid-area: right;
+}
+
+.fx-placement__choice[data-choice='bottom'] {
+  grid-area: bottom;
+}
+
+.fx-placement__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.fx-placement__cancel {
+  padding: var(--fx-space-1) var(--fx-space-3);
+  color: var(--fx-color-text);
+  background: var(--fx-color-surface);
+  border: 1px solid var(--fx-color-border-strong);
+  border-radius: 3px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.fx-placement__cancel:hover {
+  background: var(--fx-color-surface-hover);
+}

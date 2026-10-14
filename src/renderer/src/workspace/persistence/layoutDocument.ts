@@ -3,19 +3,22 @@ import {
   type StoredDockGroupNode,
   type StoredDockNode,
   type StoredDockSplitNode,
+  type StoredWorkspaceLayout,
   type WorkspaceLayoutDocument
 } from '@shared/workspace'
 import { asDockNodeId } from '../layout/nodeId'
 import { DEFAULT_LAYOUT_PRESET_ID, isLayoutPresetId, type LayoutPresetId } from '../layout/presets'
 import {
+  collectPanelIds,
   findLayoutProblems,
   isGroupNode,
   normalizeLayout,
   toSplitChildren,
   withSize
 } from '../layout/tree'
+import { NO_PANEL_SEATS, type PanelSeats } from '../layout/panelSeats'
 import type { DockNode, SplitDirection, WorkspaceLayout } from '../layout/types'
-import { isPanelId } from '../panels/registry'
+import { isPanelId, isUserPlacedPanelId } from '../panels/registry'
 import type { PanelId } from '../panels/types'
 
 /**
@@ -43,6 +46,7 @@ import type { PanelId } from '../panels/types'
  * | 空になった領域・子が1つの split        | 畳む（normalizeLayout）                       |
  * | 同じパネルが2箇所にある                | 先に現れた方を残す（normalizeLayout）         |
  * | 未知の PanelId                         | 失敗（Default Layout へ）                     |
+ * | 読めない panelSeats の席               | その席だけ捨て、配置は残す（toPanelSeats）    |
  * | 未知の kind / direction、size が負の数 | 失敗（Default Layout へ）                     |
  * | 非対応の schemaVersion                 | 失敗（Default Layout へ）                     |
  *
@@ -58,6 +62,8 @@ export type LayoutRestoreResult =
       readonly ok: true
       readonly layout: WorkspaceLayout
       readonly presetId: LayoutPresetId
+      /** 利用者が置き場所を決めるパネルの最後の席（layout/panelSeats.ts）。無ければ空。 */
+      readonly panelSeats: PanelSeats
     }
   | {
       readonly ok: false
@@ -87,17 +93,29 @@ const STORED_LAYOUT_MIGRATIONS: Readonly<Record<number, StoredLayoutMigration | 
   // 1: (layout) => ...
 }
 
-/** 今のレイアウトを保存する形に落とす。 */
+/**
+ * 今のレイアウトを保存する形に落とす。
+ *
+ * 席が1つも無ければ `panelSeats` の項目自体を書かない。Agent を一度も閉じていない利用者の
+ * 保存ファイルは、この項目が入る前とまったく同じ内容のまま保たれる。
+ */
 export function serializeWorkspaceLayout(
   layout: WorkspaceLayout,
-  presetId: LayoutPresetId
+  presetId: LayoutPresetId,
+  panelSeats: PanelSeats = NO_PANEL_SEATS
 ): WorkspaceLayoutDocument {
+  const seats = Object.entries(panelSeats).flatMap(([panelId, seat]) =>
+    seat === undefined ? [] : [[panelId, toStoredNode(seat.root)] as const]
+  )
+  const stored: StoredWorkspaceLayout = {
+    presetId,
+    root: toStoredNode(layout.root),
+    ...(seats.length > 0 ? { panelSeats: Object.fromEntries(seats) } : {})
+  }
+
   return {
     schemaVersion: WORKSPACE_LAYOUT_SCHEMA_VERSION,
-    layout: {
-      presetId,
-      root: toStoredNode(layout.root)
-    }
+    layout: stored
   }
 }
 
@@ -150,7 +168,51 @@ export function deserializeWorkspaceLayout(document: WorkspaceLayoutDocument): L
     return { ok: false, reason: `正規形になりません: ${describe(remaining)}` }
   }
 
-  return { ok: true, layout, presetId: toPresetId(migrated.layout.presetId) }
+  return {
+    ok: true,
+    layout,
+    presetId: toPresetId(migrated.layout.presetId),
+    panelSeats: toPanelSeats(migrated.layout.panelSeats)
+  }
+}
+
+/**
+ * 最後の席を読む。
+ *
+ * **席は配置の補助であって、配置そのものではない。** 読めない席はその席だけを捨て、
+ * レイアウト全体は失敗にしない（捨てた席のパネルは、次に出すとき置き場所を尋ねる）。
+ * 知らない PanelId のキー・置き場所を利用者が決めるパネル（placement: 'user'）以外のキー・
+ * そのパネル自身が入っていない木・正規形にならない木が対象。
+ */
+function toPanelSeats(raw: unknown): PanelSeats {
+  if (!isRecord(raw)) {
+    return NO_PANEL_SEATS
+  }
+
+  const seats: Partial<Record<PanelId, WorkspaceLayout>> = {}
+
+  for (const [panelId, storedRoot] of Object.entries(raw)) {
+    // 席を持てるのは、利用者が置き場所を決めるパネルだけ（他のパネルはプリセットから戻る）。
+    if (!isUserPlacedPanelId(panelId)) {
+      continue
+    }
+
+    const root = toDockNode(storedRoot, [])
+
+    if (root === null) {
+      continue
+    }
+
+    const seat = normalizeLayout({ root })
+
+    if (findLayoutProblems(seat).length > 0 || !collectPanelIds(seat.root).includes(panelId)) {
+      continue
+    }
+
+    seats[panelId] = seat
+  }
+
+  return Object.keys(seats).length > 0 ? seats : NO_PANEL_SEATS
 }
 
 /**

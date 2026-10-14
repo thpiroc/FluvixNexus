@@ -26,6 +26,19 @@ describe('parseWorkspaceLayoutDocument', () => {
     expect(parsed === null || 'unexpected' in parsed).toBe(false)
   })
 
+  it('layout の中の panelSeats（Agent の最後の席）も、解釈せずにそのまま預かる', () => {
+    const document = {
+      schemaVersion: 1,
+      layout: {
+        presetId: 'default',
+        root: { kind: 'group', id: 'root' },
+        panelSeats: { agent: { kind: 'group', id: 'x' }, broken: 42 }
+      }
+    }
+
+    expect(parseWorkspaceLayoutDocument(document)).toEqual(document)
+  })
+
   it('layout の中身は解釈しない（Renderer の責務）', () => {
     const document = { schemaVersion: 1, layout: { anything: [1, 2, 3] } }
 

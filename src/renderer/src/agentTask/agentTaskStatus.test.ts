@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentTaskEndReason, AgentTaskState } from '@shared/agent'
 import { createTranslator } from '../i18n/messages'
-import { agentTaskStatusKey } from './agentTaskStatus'
+import { agentStatusBarKind, agentTaskStatusKey } from './agentTaskStatus'
 
 /**
  * Agent パネルの終わりの理由の文言（STEP10-3 で Provider の timeout / 大きすぎる応答を分けた）。
@@ -60,6 +60,41 @@ describe('Provider の失敗の終わりの理由', () => {
       for (const text of texts) {
         expect(text).not.toMatch(/^agentTask\./)
         expect(text).not.toMatch(/\{\w+\}/)
+      }
+    }
+  })
+})
+
+describe('ステータスバーの Agent の表示（Agent パネルのドックパネル化）', () => {
+  const base = stateOf('stopped', 'user-stopped')
+
+  it('動いている間と、止めている途中は「動作中」', () => {
+    expect(agentStatusBarKind({ ...base, status: 'running', endReason: null })).toBe('running')
+    expect(agentStatusBarKind({ ...base, status: 'stopping', endReason: null })).toBe('running')
+  })
+
+  it('Loop の上限で返事を待っている間は「確認待ち」', () => {
+    expect(agentStatusBarKind({ ...base, status: 'awaiting-continue', endReason: null })).toBe(
+      'awaiting'
+    )
+  })
+
+  it('動いていなければ出さない', () => {
+    for (const status of ['idle', 'completed', 'stopped', 'failed'] as const) {
+      expect(agentStatusBarKind({ ...base, status }), status).toBeNull()
+    }
+  })
+
+  it('文言は ja / en の両方にある', () => {
+    for (const language of ['ja', 'en'] as const) {
+      const t = createTranslator(language)
+
+      for (const key of [
+        'agentTask.statusBar.running',
+        'agentTask.statusBar.awaiting',
+        'agentTask.statusBar.showPanel'
+      ] as const) {
+        expect(t(key), `${language}:${key}`).not.toBe(key)
       }
     }
   })

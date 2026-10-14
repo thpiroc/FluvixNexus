@@ -77,6 +77,32 @@ function endReasonKey(state: AgentTaskState): TranslationKey {
   }
 }
 
+/**
+ * ステータスバーに出す Agent の状態（Agent パネルのドックパネル化）。
+ *
+ *   running  … 動いている（止めている途中も含む）
+ *   awaiting … Loop の上限で「続ける / やめる」の返事を待っている
+ *   null     … 動いていない（ステータスバーには何も出さない）
+ *
+ * `awaiting` を分けるのは、その質問が **Agent パネルの中にしか出ない**ため。
+ * パネルを隠していると、作業が止まったまま気付けない。File Write / Terminal の承認は
+ * パネルの外の画面（agent/）がアプリ全体で出すので、ここでは `running` のまま扱う
+ * （作業の段階 phase からは「承認を待っている」と「実行している」を区別できない）。
+ */
+export type AgentStatusBarKind = 'running' | 'awaiting'
+
+export function agentStatusBarKind(state: AgentTaskState): AgentStatusBarKind | null {
+  switch (state.status) {
+    case 'running':
+    case 'stopping':
+      return 'running'
+    case 'awaiting-continue':
+      return 'awaiting'
+    default:
+      return null
+  }
+}
+
 /** 始められなかった理由の文言。 */
 export function agentTaskRejectionKey(reason: AgentTaskStartRejection): TranslationKey {
   switch (reason) {

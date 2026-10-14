@@ -58,7 +58,8 @@ export const enMessages = {
         editor: 'Toggle Editor Panel',
         terminal: 'Toggle Terminal Panel',
         git: 'Toggle Git Panel',
-        debug: 'Toggle Debug Panel'
+        debug: 'Toggle Debug Panel',
+        agent: 'Toggle Agent Panel'
       },
       resetLayout: 'Reset Layout'
     },
@@ -1043,6 +1044,11 @@ export const enMessages = {
     limitContinue: 'Continue (+10)',
     limitStop: 'Stop here',
     answerTitle: 'Answer',
+    statusBar: {
+      running: 'Agent: Running',
+      awaiting: 'Agent: Needs your answer',
+      showPanel: 'Click to show the Agent panel'
+    },
     status: {
       idle: 'Ready',
       awaitingContinue: 'Reached the maximum number of turns',
@@ -1973,6 +1979,15 @@ export const enMessages = {
       git: 'Git',
       debug: 'Debug',
       agent: 'Agent'
+    },
+    placement: {
+      title: 'Where should {title} appear?',
+      body: 'It opens as a new area at the chosen edge (Center adds it as a tab next to the Editor). Afterwards you can drag, tab, and resize it freely.',
+      top: 'Top',
+      left: 'Left',
+      center: 'Center',
+      right: 'Right',
+      bottom: 'Bottom'
     },
     layout: {
       default: {

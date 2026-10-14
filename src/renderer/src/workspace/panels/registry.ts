@@ -24,40 +24,47 @@ const PANEL_REGISTRY: Readonly<Record<PanelId, PanelDefinition>> = {
     id: 'files',
     title: 'Files',
     accent: 'blue',
+    placement: 'preset',
     Component: FilesPanel
   },
   editor: {
     id: 'editor',
     title: 'Editor',
     accent: 'neutral',
+    placement: 'preset',
     Component: EditorPanel
   },
   terminal: {
     id: 'terminal',
     title: 'Terminal',
     accent: 'green',
+    placement: 'preset',
     Component: TerminalPanel
   },
   git: {
     id: 'git',
     title: 'Git',
     accent: 'orange',
+    placement: 'preset',
     Component: GitPanel
   },
   debug: {
     id: 'debug',
     title: 'Debug',
     accent: 'neutral',
+    placement: 'preset',
     Component: DebugPanel
   },
   /*
     FN Agent（Security Core v1 の STEP9）。既定のレイアウトには置かず（Debug と同じ）、
-    View メニューから開く。
+    View メニュー・コマンド・ステータスバーから開く。プリセットに席が無いため、
+    初めて出すときは置き場所を尋ね、その後は最後の席へ戻す（placement: 'user'）。
   */
   agent: {
     id: 'agent',
     title: 'Agent',
     accent: 'neutral',
+    placement: 'user',
     Component: AgentPanel
   }
 }
@@ -76,6 +83,17 @@ export function getPanelDefinition(id: PanelId): PanelDefinition {
  */
 export function isPanelId(value: string): value is PanelId {
   return Object.hasOwn(PANEL_REGISTRY, value)
+}
+
+/**
+ * 利用者が置き場所を決めるパネル（`placement: 'user'`）かどうか。
+ *
+ * 最後の席（layout/panelSeats.ts）を持てるのはこのパネルだけ。保存ファイルの
+ * `panelSeats` に他のパネルの席が書かれていても読み込まない（persistence/layoutDocument.ts）
+ * ── 受け入れると、そのパネルの戻り先がプリセットから外れてしまう。
+ */
+export function isUserPlacedPanelId(value: string): value is PanelId {
+  return isPanelId(value) && PANEL_REGISTRY[value].placement === 'user'
 }
 
 /**

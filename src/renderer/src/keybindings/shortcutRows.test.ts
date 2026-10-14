@@ -189,6 +189,7 @@ describe('filterShortcutRows', () => {
       'view.togglePanel.terminal',
       'view.togglePanel.git',
       'view.togglePanel.debug',
+      'view.togglePanel.agent',
       'debug.toggleBreakpoint'
     ])
   })

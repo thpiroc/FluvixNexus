@@ -43,6 +43,11 @@ interface WorkspaceTopBarProps {
   readonly presetId: LayoutPresetId
   /** プリセットを適用してから配置を変えたか。 */
   readonly modified: boolean
+  /**
+   * 初期化で消えるものがあるか（配置の変更、または Agent の最後の席）。
+   * 初期化ボタンの有効 / 無効はこれで決める（useWorkspaceLayout.ts）。
+   */
+  readonly resettable: boolean
   /** 表示中なら閉じ、閉じていれば既定の位置へ戻す。 */
   readonly onTogglePanel: (panelId: PanelId) => void
   readonly onApplyPreset: (presetId: LayoutPresetId) => void
@@ -61,6 +66,7 @@ export function WorkspaceTopBar({
   visiblePanelIds,
   presetId,
   modified,
+  resettable,
   onTogglePanel,
   onApplyPreset,
   onResetLayout,
@@ -179,12 +185,16 @@ export function WorkspaceTopBar({
       {/*
         ドラッグ&ドロップ・リサイズで崩した配置の戻り先。
         今のプリセットを適用し直すだけで、独自の初期状態は持たない。
+
+        押せるかは modified ではなく resettable で決める ── 配置がプリセットのままでも、
+        Agent の最後の席が残っていれば初期化で消すものがある。
       */}
       <button
         type="button"
         className="fx-topbar__button"
+        data-testid="workspace-reset-layout"
         onClick={onResetLayout}
-        disabled={!modified}
+        disabled={!resettable}
       >
         {t('workspace.resetLayout')}
       </button>

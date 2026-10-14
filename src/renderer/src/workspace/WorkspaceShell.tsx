@@ -3,16 +3,20 @@ import { useCommand } from '../commands/useCommand'
 import { EMPTY_FEEDBACK_DRAFT, type FeedbackDraft } from '../feedback/feedbackForm'
 import { FeedbackOverlay } from '../feedback/FeedbackOverlay'
 import { ipcFeedbackSender } from '../feedback/feedbackSender'
+import { useI18n } from '../i18n/context'
 import { useWhenFlag } from '../keybindings/useWhenFlag'
 import { SettingsOverlay } from '../settings/SettingsOverlay'
 import { useWorkspaceFolder } from '../workspaceFolder/context'
 import { usePanelDrag } from './dnd/usePanelDrag'
 import { DOCK_SIZE_CONSTRAINTS } from './layout/constraints'
+import type { PanelPlacementChoice } from './layout/panelSeats'
 import { listVisiblePanelIds } from './layout/panelVisibility'
+import { getPanelTitle } from './panels/panelLabels'
 import type { PanelId } from './panels/types'
 import { useSplitResize } from './resize/useSplitResize'
 import { useWorkspaceLayout } from './useWorkspaceLayout'
 import { DockNodeView, ROOT_NODE_STYLE } from './shell/DockNodeView'
+import { PanelPlacementChooser } from './shell/PanelPlacementChooser'
 import { WorkspaceStatusBar } from './shell/WorkspaceStatusBar'
 import { WorkspaceTopBar } from './shell/WorkspaceTopBar'
 import './workspace.css'
@@ -77,6 +81,7 @@ export function WorkspaceShell(): JSX.Element {
     layout,
     presetId,
     modified,
+    resettable,
     restored,
     activatePanel,
     movePanel,
@@ -85,7 +90,9 @@ export function WorkspaceShell(): JSX.Element {
     resizeSplit,
     replaceLayout,
     applyPreset,
-    resetLayout
+    resetLayout,
+    panelShowMode,
+    placePanel
   } = useWorkspaceLayout()
   const drag = usePanelDrag({ layout, movePanel })
   const resize = useSplitResize({ layout, resizeSplit, replaceLayout })
@@ -124,6 +131,13 @@ export function WorkspaceShell(): JSX.Element {
   const [feedbackDraft, setFeedbackDraft] = useState<FeedbackDraft>(EMPTY_FEEDBACK_DRAFT)
 
   /*
+    置き場所を尋ねているパネル（Agent パネルのドックパネル化）。Settings と同じく
+    レイアウトの外に重ねる面で、保存しない（取り消せばパネルは閉じたまま）。
+  */
+  const [placementPanelId, setPlacementPanelId] = useState<PanelId | null>(null)
+  const { t } = useI18n()
+
+  /*
     フィードバックを書いている間は、Ctrl+, で Settings を重ねない。
     どちらの面も Esc で閉じるため、重なると1回の Esc で両方が閉じる。
     （上部バーの入口は Settings の面に覆われるので、逆向きは起きない。）
@@ -154,18 +168,51 @@ export function WorkspaceShell(): JSX.Element {
     同じように登録しておく ── 将来の Settings の一覧では
     「未割り当ての操作」として並び、そこで打鍵を付けられるようになる。
   */
-  const togglePanel = useCallback(
+  /*
+    パネルを出す（開く・前面に出す）入口。View メニュー・コマンド・ステータスバーの
+    すべてがここを通る。
+
+    利用者が置き場所を決めるパネル（Agent）を初めて出すとき（席が無いとき）だけ、
+    置き場所を尋ねる画面を挟む（layout/panelSeats.ts の判定）。それ以外は今までどおり
+    openPanel ── 表示中なら前面に出し、閉じていれば最後の席かプリセットの位置へ戻す。
+  */
+  const showPanel = useCallback(
     (panelId: PanelId): void => {
-      // 上部バーの View メニューとまったく同じ判断（下の `onTogglePanel`）。
-      if (visiblePanelIds.has(panelId)) {
-        closePanel(panelId)
+      if (panelShowMode(panelId) === 'choose') {
+        setPlacementPanelId(panelId)
         return
       }
 
       openPanel(panelId)
     },
-    [visiblePanelIds, openPanel, closePanel]
+    [panelShowMode, openPanel]
   )
+
+  const togglePanel = useCallback(
+    (panelId: PanelId): void => {
+      // 上部バーの View メニューもこの関数をそのまま使う（下の `onTogglePanel`）。
+      if (visiblePanelIds.has(panelId)) {
+        closePanel(panelId)
+        return
+      }
+
+      showPanel(panelId)
+    },
+    [visiblePanelIds, showPanel, closePanel]
+  )
+
+  const choosePlacement = useCallback(
+    (choice: PanelPlacementChoice): void => {
+      if (placementPanelId !== null) {
+        placePanel(placementPanelId, choice)
+      }
+
+      setPlacementPanelId(null)
+    },
+    [placementPanelId, placePanel]
+  )
+  const cancelPlacement = useCallback((): void => setPlacementPanelId(null), [])
+  const showAgentPanel = useCallback((): void => showPanel('agent'), [showPanel])
 
   useCommand('workspace.openFolder', openFolder)
   useCommand(
@@ -197,6 +244,10 @@ export function WorkspaceShell(): JSX.Element {
     'view.togglePanel.debug',
     useCallback(() => togglePanel('debug'), [togglePanel])
   )
+  useCommand(
+    'view.togglePanel.agent',
+    useCallback(() => togglePanel('agent'), [togglePanel])
+  )
   useCommand('view.resetLayout', resetLayout)
   useCommand('settings.open', openSettings)
   useCommand('settings.close', closeSettings)
@@ -212,7 +263,8 @@ export function WorkspaceShell(): JSX.Element {
     その裏で F5 / Ctrl+J などが走ると、見えない場所で Debug やパネルが動く
     （`settingsOpen` が付いた打鍵は、ちょうど「覆われた作業の場を動かすもの」）。
   */
-  useWhenFlag('settingsOpen', settingsOpen || feedbackOpen)
+  // 置き場所を尋ねている面も同じ扱い（窓全体を覆い、裏でパネルが動くと選択の意味が変わる）。
+  useWhenFlag('settingsOpen', settingsOpen || feedbackOpen || placementPanelId !== null)
 
   // 保存済みレイアウトを読み終えるまでは枠だけを出す（数十 ms）。
   // Default を描いてから差し替えると、起動のたびに配置が飛んで見えるうえ、
@@ -241,9 +293,8 @@ export function WorkspaceShell(): JSX.Element {
         visiblePanelIds={visiblePanelIds}
         presetId={presetId}
         modified={modified}
-        onTogglePanel={(panelId) =>
-          visiblePanelIds.has(panelId) ? closePanel(panelId) : openPanel(panelId)
-        }
+        resettable={resettable}
+        onTogglePanel={togglePanel}
         onApplyPreset={applyPreset}
         onResetLayout={resetLayout}
         settingsOpen={settingsOpen}
@@ -263,7 +314,7 @@ export function WorkspaceShell(): JSX.Element {
         />
       </div>
 
-      <WorkspaceStatusBar />
+      <WorkspaceStatusBar onShowAgentPanel={showAgentPanel} />
 
       {/*
         アプリ全体の設定（Session 4-3B）。
@@ -274,6 +325,15 @@ export function WorkspaceShell(): JSX.Element {
         読んで、既存の setter へ返すだけになる。
       */}
       {settingsOpen && <SettingsOverlay onClose={closeSettings} />}
+
+      {/* 初めて出すパネルの置き場所（Agent）。Settings と同じくレイアウトの木の外に重ねる。 */}
+      {placementPanelId !== null && (
+        <PanelPlacementChooser
+          panelTitle={getPanelTitle(placementPanelId, t)}
+          onChoose={choosePlacement}
+          onCancel={cancelPlacement}
+        />
+      )}
 
       {/* フィードバック（v1）。Settings と同じくレイアウトの木の外に重ねる。 */}
       {feedbackOpen && (
